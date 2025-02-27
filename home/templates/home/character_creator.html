@@ -1,0 +1,279 @@
+
+
+    <style>
+
+
+/* Make sure the table is scrollable on small screens */
+
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    max-width: 100%;
+    min-width: 600px; /* Prevents table from disappearing */
+    white-space: nowrap;
+}
+
+@media screen and (max-width: 600px) {
+    body {
+        font-size: 14px;
+    }
+    table {
+        font-size: 12px;
+        width: 100%;
+    }
+    button {
+        font-size: 12px;
+        padding: 5px;
+    }
+}
+
+.table-container {
+    width: 100%;
+    overflow-x: auto;
+}
+
+/* Ensure buttons resize properly */
+button {
+    font-size: 14px; /* Adjust button text size */
+    padding: 8px; /* Increase padding for better tapability */
+}
+
+
+
+
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: center;
+        }
+        th {
+            background-color: #f4f4f4;
+        }
+        button {
+            padding: 5px 10px;
+            margin: 5px;
+            cursor: pointer;
+        }
+        .disabled {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+    </style>
+{% extends "home/base.html" %}
+
+{% block title %}Character Creator{% endblock %}
+
+{% block content %}
+
+<h1>LOR Character Creator Testor</h1>
+<h3>Add in Order please: Point Buy > Race > Background > Boost</h3>
+
+<p><strong>Point Buy Remaining:</strong> <span id="points-remaining">12</span></p>
+<p><strong>Race Modifier Total:</strong> <span id="race-total">0</span> / 4 <button onclick="resetRace()">Reset Race</button></p>
+<p><strong>Background Modifier Total:</strong> <span id="background-total">0</span> / 3 <button onclick="resetBackground()">Reset Background</button></p>
+<p><strong>Boost Slots Remaining:</strong> <span id="boosts-remaining">5</span> <button onclick="resetBoosts()">Reset Boosts</button></p>
+
+
+<h3>Boosting Rules:</h3>
+<p>
+- You have 5 boosts total. <br>
+- Each ability score can only be boosted once. <br>
+- +2 to a score 14-17 (Uses 2 boost slots, only once across all stats). <br>
+- +1 to a score 14 and above**. <br>
+- +2 to a score 13 and below**. <br>
+- +3 to a score 10 and below**.
+</p>
+
+<div class="table-container">
+    <table>
+        <thead>
+            <tr>
+                <th>Ability</th>
+                <th>Base (8-13)</th>
+                <th>Race Mod</th>
+                <th>Background Mod</th>
+                <th>Boost Mod</th>
+                <th>Final Value</th>
+            </tr>
+        </thead>
+        <tbody id="stat-table"></tbody>
+    </table>
+</div>
+
+<button onclick="resetCharacter()">Reset All</button>
+
+<script>
+    const stats = ["Strength", "Dexterity", "Constitution", "Intelligence", "Wisdom", "Charisma"];
+    let baseStats = {}, raceModifiers = {}, backgroundModifiers = {}, boostModifiers = {};
+    let pointsRemaining = 12, boostsRemaining = 5;
+    let boostedStats = {}; // Tracks which stats have been boosted
+    let step = 1; // 1 = Point Buy, 2 = Race, 3 = Background, 4 = Boosts
+
+   function initializeCharacter() {
+    stats.forEach(stat => {
+        baseStats[stat] = 8;
+        raceModifiers[stat] = 0;
+        backgroundModifiers[stat] = 0;
+        boostModifiers[stat] = 0;
+        boostedStats[stat] = false;
+    });
+    pointsRemaining = 12;
+    boostsRemaining = 5;
+    step = 1;
+    
+    updateDisplay(); // ✅ Make sure this runs at the end
+}
+
+   function updateDisplay() {
+    document.getElementById("points-remaining").innerText = pointsRemaining;
+    document.getElementById("boosts-remaining").innerText = boostsRemaining;
+    document.getElementById("race-total").innerText = Object.values(raceModifiers).reduce((a, b) => a + b, 0);
+    document.getElementById("background-total").innerText = Object.values(backgroundModifiers).reduce((a, b) => a + b, 0);
+
+    let raceTotal = Object.values(raceModifiers).reduce((a, b) => a + b, 0);
+    let backgroundTotal = Object.values(backgroundModifiers).reduce((a, b) => a + b, 0);
+
+    // **Fix: Unlock next step as soon as the current one is completed**
+    if (step === 1 && pointsRemaining === 0) step = 2; // Unlock race selection
+    if (step === 2 && raceTotal >= 4) step = 3; // Unlock background selection
+    if (step === 3 && backgroundTotal >= 3) step = 4; // Unlock boost selection
+
+    let tableContent = "";
+    stats.forEach(stat => {
+        let finalValue = baseStats[stat] + raceModifiers[stat] + backgroundModifiers[stat] + boostModifiers[stat];
+
+        tableContent += `
+            <tr>
+                <td>${stat}</td>
+                <td>
+                    <button onclick="adjustStat('${stat}', 1)" ${step !== 1 ? 'class="disabled"' : ''}>+</button>
+                    ${baseStats[stat]}
+                    <button onclick="adjustStat('${stat}', -1)" ${step !== 1 ? 'class="disabled"' : ''}>-</button>
+                </td>
+                <td>
+                    <button onclick="adjustRace('${stat}', 3)" ${step < 2 ? 'class="disabled"' : ''}>+3</button>
+                    <button onclick="adjustRace('${stat}', 2)" ${step < 2 ? 'class="disabled"' : ''}>+2</button>
+                    <button onclick="adjustRace('${stat}', 1)" ${step < 2 ? 'class="disabled"' : ''}>+1</button>
+                    <button onclick="adjustRace('${stat}', -1)" ${step < 2 ? 'class="disabled"' : ''}>-1</button>
+                    ${raceModifiers[stat]}
+                </td>
+                <td>
+                    <button onclick="adjustBackground('${stat}', 1)" ${step < 3 ? 'class="disabled"' : ''}>+1</button>
+                    <button onclick="adjustBackground('${stat}', 2)" ${step < 3 ? 'class="disabled"' : ''}>+2</button>
+                    ${backgroundModifiers[stat]}
+                </td>
+                <td>
+                    <button onclick="applyBoost('${stat}', 3)" ${step < 4 || boostedStats[stat] ? 'class="disabled"' : ''}>+3</button>
+                    <button onclick="applyBoost('${stat}', 2)" ${step < 4 || boostedStats[stat] ? 'class="disabled"' : ''}>+2</button>
+                    <button onclick="applyBoost('${stat}', 1)" ${step < 4 || boostedStats[stat] ? 'class="disabled"' : ''}>+1</button>
+                    ${boostModifiers[stat]}
+                </td>
+                <td>${finalValue}</td>
+            </tr>
+        `;
+    });
+
+    document.getElementById("stat-table").innerHTML = tableContent;
+}
+
+    function adjustStat(stat, amount) {
+        if (step !== 1) return;
+        if (amount === 1 && pointsRemaining > 0 && baseStats[stat] < 13) {
+            baseStats[stat]++;
+            pointsRemaining--;
+        } else if (amount === -1 && baseStats[stat] > 8) {
+            baseStats[stat]--;
+            pointsRemaining++;
+        }
+        updateDisplay();
+    }
+
+    function adjustRace(stat, value) {
+        if (step < 2) return;
+        let newTotal = Object.values(raceModifiers).reduce((a, b) => a + b, 0) + value - raceModifiers[stat];
+        if (newTotal > 4) return;
+        raceModifiers[stat] = value;
+        updateDisplay();
+    }
+
+    function adjustBackground(stat, value) {
+        if (step < 3) return;
+        let newTotal = Object.values(backgroundModifiers).reduce((a, b) => a + b, 0) + value - backgroundModifiers[stat];
+        if (newTotal > 3) return;
+        backgroundModifiers[stat] = value;
+        updateDisplay();
+    }
+
+   
+
+let highBoostedUsed = false; // Global flag to track if ANY +2 boost was used in 14-17 range
+
+function applyBoost(stat, value) {
+    if (step < 4 || boostedStats[stat]) return; // Ensure boosting is only allowed in step 4 & can only be used once per stat
+    if (boostsRemaining <= 0) return; // Prevent applying boosts when none are left
+
+    let currentScore = baseStats[stat] + raceModifiers[stat] + backgroundModifiers[stat];
+
+    // **Boost Rules**
+    if (value === 2 && currentScore >= 14 && currentScore <= 17) {
+        if (highBoostedUsed) return; // +2 at 14-17 can only be used ONCE across all stats
+        if (boostsRemaining >= 2) {
+            boostModifiers[stat] += 2;
+            boostsRemaining -= 2;
+            highBoostedUsed = true; // Mark that this special +2 has been used
+        }
+    } else if (value === 1 && currentScore >= 14) {
+        if (currentScore + 1 > 19)
+return; // Prevent exceeding 18
+        boostModifiers[stat] += 1;
+        boostsRemaining--;
+    } else if (value === 2 && currentScore <= 13) {
+        boostModifiers[stat] += 2;
+        boostsRemaining--;
+    } else if (value === 3 && currentScore <= 10) {
+        boostModifiers[stat] += 3;
+        boostsRemaining--;
+    } else {
+        return; // If no valid condition is met, do nothing
+    }
+
+    boostedStats[stat] = true; // Mark this stat as boosted
+    updateDisplay();
+}
+
+    function resetRace() {
+        raceModifiers = stats.reduce((obj, key) => ({ ...obj, [key]: 0 }), {});
+        step = 2;
+        updateDisplay();
+    }
+
+    function resetBackground() {
+        backgroundModifiers = stats.reduce((obj, key) => ({ ...obj, [key]: 0 }), {});
+        step = 3;
+        updateDisplay();
+    }
+
+    function resetBoosts() {
+        boostModifiers = stats.reduce((obj, key) => ({ ...obj, [key]: 0 }), {});
+        boostedStats = {};
+        boostsRemaining = 5;
+        step = 4;
+        updateDisplay();
+        highBoostedUsed = false;
+    }
+
+    function resetCharacter() {
+        initializeCharacter();
+
+        highBoostedUsed = false;
+
+    }
+
+    initializeCharacter();
+</script>
+
+</body>
+</html>
+
+{% endblock %}
