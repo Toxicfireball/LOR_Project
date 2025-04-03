@@ -1,279 +1,654 @@
 
 
-    <style>
 
-
-/* Make sure the table is scrollable on small screens */
-
-
-table {
-    width: 100%;
-    border-collapse: collapse;
-    max-width: 100%;
-    min-width: 600px; /* Prevents table from disappearing */
-    white-space: nowrap;
-}
-
-@media screen and (max-width: 600px) {
-    body {
-        font-size: 14px;
-    }
-    table {
-        font-size: 12px;
-        width: 100%;
-    }
-    button {
-        font-size: 12px;
-        padding: 5px;
-    }
-}
-
-.table-container {
-    width: 100%;
-    overflow-x: auto;
-}
-
-/* Ensure buttons resize properly */
-button {
-    font-size: 14px; /* Adjust button text size */
-    padding: 8px; /* Increase padding for better tapability */
-}
-
-
-
-
-        th, td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: center;
-        }
-        th {
-            background-color: #f4f4f4;
-        }
-        button {
-            padding: 5px 10px;
-            margin: 5px;
-            cursor: pointer;
-        }
-        .disabled {
-            opacity: 0.5;
-            pointer-events: none;
-        }
-    </style>
-{% extends "home/base.html" %}
-
-{% block title %}Character Creator{% endblock %}
-
-{% block content %}
-
-<h1>LOR Character Creator Testor</h1>
-<h3>Add in Order please: Point Buy > Race > Background > Boost</h3>
-
-<p><strong>Point Buy Remaining:</strong> <span id="points-remaining">12</span></p>
-<p><strong>Race Modifier Total:</strong> <span id="race-total">0</span> / 4 <button onclick="resetRace()">Reset Race</button></p>
-<p><strong>Background Modifier Total:</strong> <span id="background-total">0</span> / 3 <button onclick="resetBackground()">Reset Background</button></p>
-<p><strong>Boost Slots Remaining:</strong> <span id="boosts-remaining">5</span> <button onclick="resetBoosts()">Reset Boosts</button></p>
-
-
-<h3>Boosting Rules:</h3>
-<p>
-- You have 5 boosts total. <br>
-- Each ability score can only be boosted once. <br>
-- +2 to a score 14-17 (Uses 2 boost slots, only once across all stats). <br>
-- +1 to a score 14 and above**. <br>
-- +2 to a score 13 and below**. <br>
-- +3 to a score 10 and below**.
-</p>
-
-<div class="table-container">
-    <table>
-        <thead>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LOR Character Stats Calculator</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    .container { max-width: 800px; margin: auto; }
+    input, select { display: block; width: 100%; margin: 10px 0; padding: 8px; }
+    button { padding: 10px; margin-top: 10px; width: 100%; cursor: pointer; }
+    #results, #dodgeResult, #armorResult, #damageReductionResult, #wardResult { margin-top: 20px; padding: 10px; background: #f4f4f4; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+    th { background-color: #f4f4f4; }
+    .disabled { opacity: 0.5; pointer-events: none; }
+    .table-container { overflow-x: auto; }
+    /* Styling for ASI and Defense sections */
+    #asi-section, #defenseSection { border: 1px solid #ddd; padding: 10px; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>LOR Character Stats Calculator</h2>
+    
+    <!-- Ability Score Calculator Section -->
+    <div id="score-section">
+      <h3>Add in Order: Point Buy > Race > Background > Boost</h3>
+      <p><strong>Point Buy Remaining:</strong> <span id="points-remaining">12</span></p>
+      <p>
+        <strong>Race Modifier Total:</strong>
+        <span id="race-total">0</span> / 4 
+        <button onclick="resetRace()">Reset Race</button>
+      </p>
+      <p>
+        <strong>Background Modifier Total:</strong>
+        <span id="background-total">0</span> / 3 
+        <button onclick="resetBackground()">Reset Background</button>
+      </p>
+      <p>
+        <strong>Boost Slots Remaining:</strong>
+        <span id="boosts-remaining">5</span> 
+        <button onclick="resetBoosts()">Reset Boosts</button>
+      </p>
+      
+      <h3>Boosting Rules:</h3>
+      <p>
+        - You have 5 boosts total.<br>
+        - Each ability score can only be boosted once.<br>
+        - +2 to a score 14–17 (uses 2 boost slots, only once across all stats).<br>
+        - +1 to a score 14 and above.<br>
+        - +2 to a score 13 and below.<br>
+        - +3 to a score 10 and below.
+      </p>
+      
+      <div class="table-container">
+        <table>
+          <thead>
             <tr>
-                <th>Ability</th>
-                <th>Base (8-13)</th>
-                <th>Race Mod</th>
-                <th>Background Mod</th>
-                <th>Boost Mod</th>
-                <th>Final Value</th>
+              <th>Ability</th>
+              <th>Base (8–13)</th>
+              <th>Race Mod</th>
+              <th>Background Mod</th>
+              <th>Boost Mod</th>
+              <th>Final Value</th>
             </tr>
-        </thead>
-        <tbody id="stat-table"></tbody>
-    </table>
+          </thead>
+          <tbody id="stat-table"></tbody>
+        </table>
+      </div>
+      <button onclick="resetCharacter()">Reset All</button>
+      <button onclick="saveAbilityScores()">Save Ability Scores</button>
+      <button onclick="loadAbilityScores()">Load Ability Scores</button>
+    </div>
+    
+    <!-- ASI Section -->
+    <div id="asi-section" style="display: none;">
+      <h3>Ability Score Improvement (ASI)</h3>
+      <p id="asi-info"></p>
+      
+      <label>Select ASI Option:</label>
+      <input type="radio" name="asiOption" value="single" id="asiSingle" checked onchange="toggleASITypes()">
+      <label for="asiSingle">+2 to one ability</label>
+      <input type="radio" name="asiOption" value="double" id="asiDouble" onchange="toggleASITypes()">
+      <label for="asiDouble">+1 to two abilities</label>
+      
+      <div id="asiSingleDiv">
+        <label for="asiAbilitySingle">Select Ability:</label>
+        <select id="asiAbilitySingle"></select>
+      </div>
+      
+      <div id="asiDoubleDiv" style="display: none;">
+        <label for="asiAbilityFirst">Select First Ability:</label>
+        <select id="asiAbilityFirst"></select>
+        <label for="asiAbilitySecond">Select Second Ability:</label>
+        <select id="asiAbilitySecond"></select>
+      </div>
+      
+      <button onclick="applyASI()">Apply ASI</button>
+    </div>
+    
+    <!-- Roll Calculation Section -->
+    <h3>Enter Your Character's Level</h3>
+    <input type="number" id="level" min="1" max="20" value="1" />
+    
+    <h3>Roll Calculation</h3>
+    <select id="proficiency">
+      <option value="2">Trained</option>
+      <option value="5">Expert</option>
+      <option value="8">Master</option>
+      <option value="12">Legendary</option>
+    </select>
+    
+    <select id="rollType" onchange="toggleBonusFields()">
+      <!-- "attack" uses Strength; "finesse" uses Dexterity -->
+      <option value="attack">Attack Roll (Strength)</option>
+      <option value="finesse">Finesse Attack (Dexterity)</option>
+      <!-- For spell_attack and skill, you choose the ability -->
+      <option value="spell_attack">Spell Attack Roll</option>
+      <option value="skill">Skill Check</option>
+      <option value="fortitude">Fortitude Save (Constitution)</option>
+      <option value="reflex">Reflex Save (Dexterity)</option>
+      <option value="will">Will Save (Wisdom)</option>
+    </select>
+    
+    <!-- Extra Ability Select: Visible only for spell_attack and skill -->
+    <div id="abilitySelectContainer" style="display: none;">
+      <label>Select Ability for this roll:</label>
+      <select id="abilitySelect"></select>
+    </div>
+    
+    <div id="attackBonuses" style="display: none;">
+      <input type="number" id="attackBonus" placeholder="Attack Bonus (Optional)" value="0" />
+      <input type="number" id="apBonus" placeholder="Armor Piercing Bonus (Optional)" value="0" />
+    </div>
+    
+    <button onclick="calculateStats()">Roll D20 & Calculate</button>
+    <div id="results"></div>
+    
+    <!-- Defense Calculator Section -->
+    <div id="defenseSection">
+      <h3>Defense Calculator</h3>
+      
+      <h4>Dodge Calculation</h4>
+      <p>
+        Dodge = 8 + min((Dex modifier × 2), Armor Dex Cap) + Proficiency Bonus
+      </p>
+      <label>Armor Dex Cap:</label>
+      <input type="number" id="armorDexCap" value="10" />
+      <button onclick="calculateDodge()">Calculate Dodge</button>
+      <div id="dodgeResult"></div>
+      
+      <h4>Armor Calculation</h4>
+      <p>
+        Armor Score = Armor Base Score + (Armor Proficiency Bonus + half level)
+      </p>
+      <label>Armor Base Score:</label>
+      <input type="number" id="armorBaseScore" value="10" />
+      <label>Armor Proficiency Bonus:</label>
+      <input type="number" id="armorProfBonus" value="0" />
+      <button onclick="calculateArmor()">Calculate Armor Score</button>
+      <div id="armorResult"></div>
+      
+      <h4>Damage Reduction Calculation</h4>
+      <p>
+        Damage Taken = Damage – (Armor Score – Armor Piercing Score)
+      </p>
+      <label>Incoming Damage:</label>
+      <input type="number" id="incomingDamage" value="0" />
+      <label>Attack Roll:</label>
+      <input type="number" id="incomingAttackRoll" value="0" />
+      <label>Armor Piercing Modifier:</label>
+      <input type="number" id="incomingAPModifier" value="0" />
+      <button onclick="calculateDamageReduction()">Calculate Damage Reduction</button>
+      <div id="damageReductionResult"></div>
+      
+      <h4>Ward Protection Calculation</h4>
+      <p>
+        Ward Protection = ceil(Armor Score / Ward Value) (lower is better)
+      </p>
+      <label>Ward Value:</label>
+      <input type="number" id="wardValue" value="1" />
+      <button onclick="calculateWardProtection()">Calculate Ward Protection</button>
+      <div id="wardResult"></div>
+    </div>
+  </div>
+<div id = "Offence Calcs">
+
+
+
 </div>
-
-<button onclick="resetCharacter()">Reset All</button>
-
-<script>
+  
+  <script>
+    // Global state for ability score calculator
     const stats = ["Strength", "Dexterity", "Constitution", "Intelligence", "Wisdom", "Charisma"];
     let baseStats = {}, raceModifiers = {}, backgroundModifiers = {}, boostModifiers = {};
     let pointsRemaining = 12, boostsRemaining = 5;
     let boostedStats = {}; // Tracks which stats have been boosted
     let step = 1; // 1 = Point Buy, 2 = Race, 3 = Background, 4 = Boosts
-
-   function initializeCharacter() {
-    stats.forEach(stat => {
+    let highBoostedUsed = false; // Tracks if the special +2 boost (for scores 14–17) has been used
+    
+    // ASI tracking: each ASI slot at levels 5,10,15 gives one opportunity.
+    let asiApplied = 0;
+    
+    // Initialize character state
+    function initializeCharacter() {
+      stats.forEach(stat => {
         baseStats[stat] = 8;
         raceModifiers[stat] = 0;
         backgroundModifiers[stat] = 0;
         boostModifiers[stat] = 0;
         boostedStats[stat] = false;
-    });
-    pointsRemaining = 12;
-    boostsRemaining = 5;
-    step = 1;
+      });
+      pointsRemaining = 12;
+      boostsRemaining = 5;
+      step = 1;
+      highBoostedUsed = false;
+      asiApplied = 0;
+      updateDisplay();
+    }
     
-    updateDisplay(); // ✅ Make sure this runs at the end
-}
-
-   function updateDisplay() {
-    document.getElementById("points-remaining").innerText = pointsRemaining;
-    document.getElementById("boosts-remaining").innerText = boostsRemaining;
-    document.getElementById("race-total").innerText = Object.values(raceModifiers).reduce((a, b) => a + b, 0);
-    document.getElementById("background-total").innerText = Object.values(backgroundModifiers).reduce((a, b) => a + b, 0);
-
-    let raceTotal = Object.values(raceModifiers).reduce((a, b) => a + b, 0);
-    let backgroundTotal = Object.values(backgroundModifiers).reduce((a, b) => a + b, 0);
-
-    // **Fix: Unlock next step as soon as the current one is completed**
-    if (step === 1 && pointsRemaining === 0) step = 2; // Unlock race selection
-    if (step === 2 && raceTotal >= 4) step = 3; // Unlock background selection
-    if (step === 3 && backgroundTotal >= 3) step = 4; // Unlock boost selection
-
-    let tableContent = "";
-    stats.forEach(stat => {
+    function updateDisplay() {
+      document.getElementById("points-remaining").innerText = pointsRemaining;
+      document.getElementById("boosts-remaining").innerText = boostsRemaining;
+      document.getElementById("race-total").innerText = Object.values(raceModifiers).reduce((a, b) => a + b, 0);
+      document.getElementById("background-total").innerText = Object.values(backgroundModifiers).reduce((a, b) => a + b, 0);
+      
+      let raceTotal = Object.values(raceModifiers).reduce((a, b) => a + b, 0);
+      let backgroundTotal = Object.values(backgroundModifiers).reduce((a, b) => a + b, 0);
+      
+      // Unlock next stages as previous ones are completed
+      if (step === 1 && pointsRemaining === 0) step = 2;
+      if (step === 2 && raceTotal >= 4) step = 3;
+      if (step === 3 && backgroundTotal >= 3) step = 4;
+      
+      let tableContent = "";
+      stats.forEach(stat => {
         let finalValue = baseStats[stat] + raceModifiers[stat] + backgroundModifiers[stat] + boostModifiers[stat];
-
         tableContent += `
-            <tr>
-                <td>${stat}</td>
-                <td>
-                    <button onclick="adjustStat('${stat}', 1)" ${step !== 1 ? 'class="disabled"' : ''}>+</button>
-                    ${baseStats[stat]}
-                    <button onclick="adjustStat('${stat}', -1)" ${step !== 1 ? 'class="disabled"' : ''}>-</button>
-                </td>
-                <td>
-                    <button onclick="adjustRace('${stat}', 3)" ${step < 2 ? 'class="disabled"' : ''}>+3</button>
-                    <button onclick="adjustRace('${stat}', 2)" ${step < 2 ? 'class="disabled"' : ''}>+2</button>
-                    <button onclick="adjustRace('${stat}', 1)" ${step < 2 ? 'class="disabled"' : ''}>+1</button>
-                    <button onclick="adjustRace('${stat}', -1)" ${step < 2 ? 'class="disabled"' : ''}>-1</button>
-                    ${raceModifiers[stat]}
-                </td>
-                <td>
-                    <button onclick="adjustBackground('${stat}', 1)" ${step < 3 ? 'class="disabled"' : ''}>+1</button>
-                    <button onclick="adjustBackground('${stat}', 2)" ${step < 3 ? 'class="disabled"' : ''}>+2</button>
-                    ${backgroundModifiers[stat]}
-                </td>
-                <td>
-                    <button onclick="applyBoost('${stat}', 3)" ${step < 4 || boostedStats[stat] ? 'class="disabled"' : ''}>+3</button>
-                    <button onclick="applyBoost('${stat}', 2)" ${step < 4 || boostedStats[stat] ? 'class="disabled"' : ''}>+2</button>
-                    <button onclick="applyBoost('${stat}', 1)" ${step < 4 || boostedStats[stat] ? 'class="disabled"' : ''}>+1</button>
-                    ${boostModifiers[stat]}
-                </td>
-                <td>${finalValue}</td>
-            </tr>
+          <tr>
+            <td>${stat}</td>
+            <td>
+              <button onclick="adjustStat('${stat}', 1)" ${step !== 1 ? 'class="disabled"' : ''}>+</button>
+              ${baseStats[stat]}
+              <button onclick="adjustStat('${stat}', -1)" ${step !== 1 ? 'class="disabled"' : ''}>-</button>
+            </td>
+            <td>
+              <button onclick="adjustRace('${stat}', 3)" ${step < 2 ? 'class="disabled"' : ''}>+3</button>
+              <button onclick="adjustRace('${stat}', 2)" ${step < 2 ? 'class="disabled"' : ''}>+2</button>
+              <button onclick="adjustRace('${stat}', 1)" ${step < 2 ? 'class="disabled"' : ''}>+1</button>
+              <button onclick="adjustRace('${stat}', -1)" ${step < 2 ? 'class="disabled"' : ''}>-1</button>
+              ${raceModifiers[stat]}
+            </td>
+            <td>
+              <button onclick="adjustBackground('${stat}', 1)" ${step < 3 ? 'class="disabled"' : ''}>+1</button>
+              <button onclick="adjustBackground('${stat}', 2)" ${step < 3 ? 'class="disabled"' : ''}>+2</button>
+              ${backgroundModifiers[stat]}
+            </td>
+            <td>
+              <button onclick="applyBoost('${stat}', 3)" ${step < 4 || boostedStats[stat] ? 'class="disabled"' : ''}>+3</button>
+              <button onclick="applyBoost('${stat}', 2)" ${step < 4 || boostedStats[stat] ? 'class="disabled"' : ''}>+2</button>
+              <button onclick="applyBoost('${stat}', 1)" ${step < 4 || boostedStats[stat] ? 'class="disabled"' : ''}>+1</button>
+              ${boostModifiers[stat]}
+            </td>
+            <td>${finalValue}</td>
+          </tr>
         `;
-    });
-
-    document.getElementById("stat-table").innerHTML = tableContent;
-}
-
+      });
+      document.getElementById("stat-table").innerHTML = tableContent;
+      updateASISection();
+    }
+    
     function adjustStat(stat, amount) {
-        if (step !== 1) return;
-        if (amount === 1 && pointsRemaining > 0 && baseStats[stat] < 13) {
-            baseStats[stat]++;
-            pointsRemaining--;
-        } else if (amount === -1 && baseStats[stat] > 8) {
-            baseStats[stat]--;
-            pointsRemaining++;
-        }
-        updateDisplay();
+      if (step !== 1) return;
+      if (amount === 1 && pointsRemaining > 0 && baseStats[stat] < 13) {
+        baseStats[stat]++;
+        pointsRemaining--;
+      } else if (amount === -1 && baseStats[stat] > 8) {
+        baseStats[stat]--;
+        pointsRemaining++;
+      }
+      updateDisplay();
     }
-
+    
     function adjustRace(stat, value) {
-        if (step < 2) return;
-        let newTotal = Object.values(raceModifiers).reduce((a, b) => a + b, 0) + value - raceModifiers[stat];
-        if (newTotal > 4) return;
-        raceModifiers[stat] = value;
-        updateDisplay();
+      if (step < 2) return;
+      let newTotal = Object.values(raceModifiers).reduce((a, b) => a + b, 0) + value - raceModifiers[stat];
+      if (newTotal > 4) return;
+      raceModifiers[stat] = value;
+      updateDisplay();
     }
-
+    
     function adjustBackground(stat, value) {
-        if (step < 3) return;
-        let newTotal = Object.values(backgroundModifiers).reduce((a, b) => a + b, 0) + value - backgroundModifiers[stat];
-        if (newTotal > 3) return;
-        backgroundModifiers[stat] = value;
-        updateDisplay();
+      if (step < 3) return;
+      let newTotal = Object.values(backgroundModifiers).reduce((a, b) => a + b, 0) + value - backgroundModifiers[stat];
+      if (newTotal > 3) return;
+      backgroundModifiers[stat] = value;
+      updateDisplay();
     }
-
-   
-
-let highBoostedUsed = false; // Global flag to track if ANY +2 boost was used in 14-17 range
-
-function applyBoost(stat, value) {
-    if (step < 4 || boostedStats[stat]) return; // Ensure boosting is only allowed in step 4 & can only be used once per stat
-    if (boostsRemaining <= 0) return; // Prevent applying boosts when none are left
-
-    let currentScore = baseStats[stat] + raceModifiers[stat] + backgroundModifiers[stat];
-
-    // **Boost Rules**
-    if (value === 2 && currentScore >= 14 && currentScore <= 17) {
-        if (highBoostedUsed) return; // +2 at 14-17 can only be used ONCE across all stats
+    
+    function applyBoost(stat, value) {
+      if (step < 4 || boostedStats[stat]) return;
+      if (boostsRemaining <= 0) return;
+    
+      let currentScore = baseStats[stat] + raceModifiers[stat] + backgroundModifiers[stat];
+    
+      // Boost Rules:
+      if (value === 2 && currentScore >= 14 && currentScore <= 17) {
+        if (highBoostedUsed) return;
         if (boostsRemaining >= 2) {
-            boostModifiers[stat] += 2;
-            boostsRemaining -= 2;
-            highBoostedUsed = true; // Mark that this special +2 has been used
+          boostModifiers[stat] += 2;
+          boostsRemaining -= 2;
+          highBoostedUsed = true;
+        } else {
+          return;
         }
-    } else if (value === 1 && currentScore >= 14) {
-        if (currentScore + 1 > 19)
-return; // Prevent exceeding 18
+      } else if (value === 1 && currentScore >= 14) {
+        if (currentScore + 1 > 19) return;
         boostModifiers[stat] += 1;
         boostsRemaining--;
-    } else if (value === 2 && currentScore <= 13) {
+      } else if (value === 2 && currentScore <= 13) {
         boostModifiers[stat] += 2;
         boostsRemaining--;
-    } else if (value === 3 && currentScore <= 10) {
+      } else if (value === 3 && currentScore <= 10) {
         boostModifiers[stat] += 3;
         boostsRemaining--;
-    } else {
-        return; // If no valid condition is met, do nothing
+      } else {
+        return;
+      }
+    
+      boostedStats[stat] = true;
+      updateDisplay();
     }
-
-    boostedStats[stat] = true; // Mark this stat as boosted
-    updateDisplay();
-}
-
+    
     function resetRace() {
-        raceModifiers = stats.reduce((obj, key) => ({ ...obj, [key]: 0 }), {});
-        step = 2;
-        updateDisplay();
+      stats.forEach(stat => { raceModifiers[stat] = 0; });
+      step = Math.max(step, 2);
+      updateDisplay();
     }
-
+    
     function resetBackground() {
-        backgroundModifiers = stats.reduce((obj, key) => ({ ...obj, [key]: 0 }), {});
-        step = 3;
-        updateDisplay();
+      stats.forEach(stat => { backgroundModifiers[stat] = 0; });
+      step = Math.max(step, 3);
+      updateDisplay();
     }
-
+    
     function resetBoosts() {
-        boostModifiers = stats.reduce((obj, key) => ({ ...obj, [key]: 0 }), {});
-        boostedStats = {};
-        boostsRemaining = 5;
-        step = 4;
-        updateDisplay();
-        highBoostedUsed = false;
+      stats.forEach(stat => { boostModifiers[stat] = 0; });
+      boostedStats = {};
+      boostsRemaining = 5;
+      highBoostedUsed = false;
+      step = Math.max(step, 4);
+      updateDisplay();
     }
-
+    
     function resetCharacter() {
-        initializeCharacter();
-
-        highBoostedUsed = false;
-
+      initializeCharacter();
     }
-
+    
+    // Save and Load Ability Scores using localStorage
+    function saveAbilityScores() {
+      const savedState = {
+        baseStats,
+        raceModifiers,
+        backgroundModifiers,
+        boostModifiers,
+        pointsRemaining,
+        boostsRemaining,
+        step,
+        highBoostedUsed,
+        boostedStats,
+        asiApplied
+      };
+      localStorage.setItem("lorCharacter", JSON.stringify(savedState));
+      alert("Ability scores saved!");
+    }
+    
+    function loadAbilityScores() {
+      const savedState = localStorage.getItem("lorCharacter");
+      if (savedState) {
+        const state = JSON.parse(savedState);
+        baseStats = state.baseStats;
+        raceModifiers = state.raceModifiers;
+        backgroundModifiers = state.backgroundModifiers;
+        boostModifiers = state.boostModifiers;
+        pointsRemaining = state.pointsRemaining;
+        boostsRemaining = state.boostsRemaining;
+        step = state.step;
+        highBoostedUsed = state.highBoostedUsed;
+        boostedStats = state.boostedStats;
+        asiApplied = state.asiApplied || 0;
+        updateDisplay();
+        alert("Ability scores loaded!");
+      } else {
+        alert("No saved ability scores found!");
+      }
+    }
+    
+    // ASI Functions
+    
+    function getAvailableASI() {
+      let level = parseInt(document.getElementById('level').value);
+      if (isNaN(level)) return 0;
+      if (level >= 15) return 3;
+      if (level >= 10) return 2;
+      if (level >= 5) return 1;
+      return 0;
+    }
+    
+    function updateASISection() {
+      let available = getAvailableASI();
+      let remaining = available - asiApplied;
+      if (remaining > 0) {
+        document.getElementById("asi-section").style.display = "block";
+        document.getElementById("asi-info").innerText = `You have ${remaining} ASI slot(s) available.`;
+      } else {
+        document.getElementById("asi-section").style.display = "none";
+      }
+      
+      // Populate single ASI selector
+      let asiAbilitySingle = document.getElementById("asiAbilitySingle");
+      asiAbilitySingle.innerHTML = "";
+      stats.forEach(ability => {
+        if (baseStats[ability] < 24) {
+          let bonus = (baseStats[ability] <= 20) ? 2 : 1;
+          let option = document.createElement("option");
+          option.value = ability;
+          option.text = `${ability} (Current: ${baseStats[ability]}, Eligible for ${bonus >= 2 ? "+2" : "+1"})`;
+          asiAbilitySingle.appendChild(option);
+        }
+      });
+      
+      // Populate double ASI selectors
+      let asiAbilityFirst = document.getElementById("asiAbilityFirst");
+      let asiAbilitySecond = document.getElementById("asiAbilitySecond");
+      asiAbilityFirst.innerHTML = "";
+      asiAbilitySecond.innerHTML = "";
+      stats.forEach(ability => {
+        if (baseStats[ability] < 24) {
+          let option1 = document.createElement("option");
+          option1.value = ability;
+          option1.text = `${ability} (Current: ${baseStats[ability]})`;
+          asiAbilityFirst.appendChild(option1);
+          
+          let option2 = document.createElement("option");
+          option2.value = ability;
+          option2.text = `${ability} (Current: ${baseStats[ability]})`;
+          asiAbilitySecond.appendChild(option2);
+        }
+      });
+    }
+    
+    function toggleASITypes() {
+      let option = document.querySelector('input[name="asiOption"]:checked').value;
+      if (option === "single") {
+        document.getElementById("asiSingleDiv").style.display = "block";
+        document.getElementById("asiDoubleDiv").style.display = "none";
+      } else {
+        document.getElementById("asiSingleDiv").style.display = "none";
+        document.getElementById("asiDoubleDiv").style.display = "block";
+      }
+    }
+    
+    function applyASI() {
+      let option = document.querySelector('input[name="asiOption"]:checked').value;
+      if (option === "single") {
+        let ability = document.getElementById("asiAbilitySingle").value;
+        if (!ability) {
+          alert("No ability selected.");
+          return;
+        }
+        let bonus = (baseStats[ability] <= 20) ? 2 : 1;
+        bonus = Math.min(bonus, 24 - baseStats[ability]);
+        if (bonus <= 0) {
+          alert(`${ability} is already at the maximum of 24.`);
+          return;
+        }
+        baseStats[ability] += bonus;
+        alert(`Applied ASI to ${ability}: +${bonus} (New value: ${baseStats[ability]})`);
+      } else if (option === "double") {
+        let ability1 = document.getElementById("asiAbilityFirst").value;
+        let ability2 = document.getElementById("asiAbilitySecond").value;
+        if (!ability1 || !ability2) {
+          alert("Please select two abilities.");
+          return;
+        }
+        if (ability1 === ability2) {
+          alert("Please select two different abilities for the +1 bonus.");
+          return;
+        }
+        if (baseStats[ability1] >= 24) {
+          alert(`${ability1} is already at the maximum of 24.`);
+          return;
+        }
+        if (baseStats[ability2] >= 24) {
+          alert(`${ability2} is already at the maximum of 24.`);
+          return;
+        }
+        baseStats[ability1] += 1;
+        baseStats[ability2] += 1;
+        alert(`Applied ASI: +1 to ${ability1} (New: ${baseStats[ability1]}) and +1 to ${ability2} (New: ${baseStats[ability2]})`);
+      }
+      asiApplied++;
+      updateDisplay();
+    }
+    
+    // Defense Calculator Functions
+    
+    function calculateDodge() {
+      // Dodge = 8 + min((Dex modifier × 2), Armor Dex Cap) + Proficiency Bonus
+      let finalDex = baseStats["Dexterity"] + raceModifiers["Dexterity"] + backgroundModifiers["Dexterity"] + boostModifiers["Dexterity"];
+      let dexMod = Math.floor((finalDex - 10) / 2);
+      let doubleDex = dexMod * 2;
+      let armorDexCap = parseInt(document.getElementById('armorDexCap').value) || 0;
+      let cappedDex = Math.min(doubleDex, armorDexCap);
+      let level = parseInt(document.getElementById('level').value);
+      let proficiencyBonus = parseInt(document.getElementById('proficiency').value) + Math.ceil(level / 2);
+      let dodge = 8 + cappedDex + proficiencyBonus;
+      document.getElementById('dodgeResult').innerHTML = `<p>Dodge Value: ${dodge} (8 + min(${doubleDex}, ${armorDexCap}) + ${proficiencyBonus})</p>`;
+    }
+    
+    function calculateArmor() {
+      // Armor Score = Armor Base Score + (Armor Proficiency Bonus + half level)
+      let armorBase = parseInt(document.getElementById('armorBaseScore').value) || 0;
+      let armorProf = parseInt(document.getElementById('armorProfBonus').value) || 0;
+      let level = parseInt(document.getElementById('level').value);
+      let armorProfBonus = armorProf + Math.ceil(level / 2);
+      let armorScore = armorBase + armorProfBonus;
+      document.getElementById('armorResult').innerHTML = `<p>Armor Score: ${armorScore} (Base: ${armorBase} + Proficiency: ${armorProfBonus})</p>`;
+      window.calculatedArmorScore = armorScore;
+    }
+    
+    function calculateDamageReduction() {
+      if (window.calculatedArmorScore === undefined) {
+        calculateArmor();
+      }
+      let armorScore = window.calculatedArmorScore;
+      let incomingDamage = parseInt(document.getElementById('incomingDamage').value) || 0;
+      let attackRoll = parseInt(document.getElementById('incomingAttackRoll').value) || 0;
+      let apModifier = parseInt(document.getElementById('incomingAPModifier').value) || 0;
+      let armorPiercingScore = Math.floor(attackRoll / 2) + apModifier;
+      let reduction = armorScore - armorPiercingScore;
+      let damageTaken = incomingDamage - reduction;
+      if (damageTaken < 0) damageTaken = 0;
+      document.getElementById('damageReductionResult').innerHTML = `<p>Armor Piercing Score: ${armorPiercingScore}</p>
+      <p>Damage Reduction: ${reduction}</p>
+      <p>Damage Taken: ${damageTaken}</p>`;
+    }
+    
+    function calculateWardProtection() {
+      if (window.calculatedArmorScore === undefined) {
+        calculateArmor();
+      }
+      let armorScore = window.calculatedArmorScore;
+      let wardValue = parseInt(document.getElementById('wardValue').value) || 1;
+      let wardProtection = Math.ceil(armorScore / wardValue);
+      document.getElementById('wardResult').innerHTML = `<p>Ward Protection: ${wardProtection}</p>`;
+    }
+    
+    function toggleBonusFields() {
+      let rollType = document.getElementById('rollType').value;
+      let attackBonusDiv = document.getElementById('attackBonuses');
+      let abilitySelectContainer = document.getElementById('abilitySelectContainer');
+      let abilitySelect = document.getElementById('abilitySelect');
+    
+      if (rollType === "attack" || rollType === "finesse" || rollType === "spell_attack") {
+        attackBonusDiv.style.display = "block";
+      } else {
+        attackBonusDiv.style.display = "none";
+      }
+    
+      if (rollType === "spell_attack") {
+        abilitySelectContainer.style.display = "block";
+        abilitySelect.innerHTML = "";
+        ["Intelligence", "Wisdom", "Charisma"].forEach(opt => {
+          abilitySelect.innerHTML += `<option value="${opt}">${opt}</option>`;
+        });
+      } else if (rollType === "skill") {
+        abilitySelectContainer.style.display = "block";
+        abilitySelect.innerHTML = "";
+        stats.forEach(opt => {
+          abilitySelect.innerHTML += `<option value="${opt}">${opt}</option>`;
+        });
+      } else {
+        abilitySelectContainer.style.display = "none";
+      }
+    }
+    
+    function rollD20() {
+      return Math.floor(Math.random() * 20) + 1;
+    }
+    
+    function calculateStats() {
+      let level = parseInt(document.getElementById('level').value);
+      if (isNaN(level) || level < 1) {
+        alert("Please enter a valid level.");
+        return;
+      }
+      let prof = parseInt(document.getElementById('proficiency').value) + Math.ceil(level / 2);
+      let rollType = document.getElementById('rollType').value;
+      let attackBonus = parseInt(document.getElementById('attackBonus').value) || 0;
+      let apBonus = parseInt(document.getElementById('apBonus').value) || 0;
+      let baseRoll = rollD20();
+    
+      let ability = "";
+      if (rollType === "spell_attack" || rollType === "skill") {
+        ability = document.getElementById('abilitySelect').value;
+      } else {
+        switch (rollType) {
+          case "attack":
+            ability = "Strength";
+            break;
+          case "finesse":
+            ability = "Dexterity";
+            break;
+          case "reflex":
+            ability = "Dexterity";
+            break;
+          case "fortitude":
+            ability = "Constitution";
+            break;
+          case "will":
+            ability = "Wisdom";
+            break;
+          default:
+            ability = "Intelligence";
+            break;
+        }
+      }
+    
+      let abilityValue = baseStats[ability] + raceModifiers[ability] + backgroundModifiers[ability] + boostModifiers[ability];
+      let abilityMod = Math.floor((abilityValue - 10) / 2);
+      let total = baseRoll + abilityMod + prof + ((rollType === "attack" || rollType === "finesse") ? attackBonus : 0);
+    
+      let resultHtml = `<p><strong>D20 Roll:</strong> ${baseRoll}</p>
+                        <p><strong>${ability} Modifier:</strong> ${abilityMod}</p>
+                        <p><strong>Proficiency Bonus:</strong> ${prof}</p>
+                        <p><strong>Total Roll:</strong> ${total}</p>`;
+      if (rollType === "attack" || rollType === "finesse") {
+        resultHtml += `<p><strong>Armor Piercing:</strong> ${Math.floor(total / 2) + apBonus}</p>`;
+      }
+      document.getElementById('results').innerHTML = resultHtml;
+    }
+    
+    document.getElementById("level").addEventListener("change", updateASISection);
+    
+    // Initialize the character when the page loads
     initializeCharacter();
-</script>
-
+  </script>
 </body>
 </html>
-
-{% endblock %}
