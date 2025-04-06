@@ -1,0 +1,643 @@
+{% extends "home/base.html" %}
+{% block title %}Create Character – Stage 1{% endblock %}
+{% block content %}
+
+<h2 style="text-align:center;">Stage 1: Basic Character Creation</h2>
+<p style="text-align:center;">Enter your character’s name, choose your race (and subrace if available) and background, provide a backstory, and adjust your ability scores using the point-buy system.</p>
+
+<form method="post" id="characterForm" style="max-width:900px; margin: 0 auto; border:1px solid #ddd; padding:20px; background:#fff;">
+  {% csrf_token %}
+  
+  <!-- Basic Information Section -->
+  <div style="background:#f9f9f9; padding:15px; margin-bottom:20px; border:1px solid #ddd;">
+    <label for="name" style="display:block; margin-top:10px;">Character Name:</label>
+    <input type="text" name="name" id="name" required style="width:100%; padding:8px;">
+    
+    <label for="race" style="display:block; margin-top:10px;">Race:</label>
+    <select name="race" id="race" required style="width:100%; padding:8px;">
+      <option value="">-- Select a Race --</option>
+      <option value="human">Human</option>
+      <option value="dwarf">Dwarf</option>
+      <option value="elf">Elf</option>
+      <option value="gnome">Gnome</option>
+      <option value="tiefling">Tiefling</option>
+      <option value="half_elf">Half-Elf</option>
+      <option value="lizardfolk">Lizardfolk</option>
+      <option value="halfling">Halfling</option>
+      <option value="half_orc">Half-Orc</option>
+      <option value="tabaxi">Tabaxi</option>
+      <option value="goliath">Goliath</option>
+      <option value="goblin">Goblin</option>
+      <option value="githyanki">Githyanki</option>
+      <option value="warforged">Warforged</option>
+      <option value="elf_nymph">Elf-Nymph</option>
+      <option value="yuan_ti">Yuan-Ti</option>
+      <option value="kitsune">Kitsune</option>
+    </select>
+    
+    <!-- Subrace dropdown: appears for races that have subrace options -->
+    <div id="subrace-container" style="display:none; margin-top:10px;">
+      <label for="subrace">Subrace:</label>
+      <select name="subrace" id="subrace" style="width:100%; padding:8px;"></select>
+    </div>
+    
+    <label for="background" style="display:block; margin-top:10px;">Background:</label>
+    <select name="background" id="background" required style="width:100%; padding:8px;">
+      <option value="noble">Noble</option>
+      <option value="commoner">Commoner</option>
+      <option value="artisan">Artisan</option>
+    </select>
+    
+    <label for="backstory" style="display:block; margin-top:10px;">Backstory:</label>
+    <textarea name="backstory" id="backstory" rows="4" style="width:100%; padding:8px;"></textarea>
+  </div>
+  
+  <!-- Hidden field for final race value -->
+  <input type="hidden" name="final_race" id="finalRace" value="">
+  
+  <!-- Hidden Inputs for Ability Scores (default to 8) -->
+  <input type="hidden" name="strength" id="strengthInput" value="8">
+  <input type="hidden" name="dexterity" id="dexterityInput" value="8">
+  <input type="hidden" name="constitution" id="constitutionInput" value="8">
+  <input type="hidden" name="intelligence" id="intelligenceInput" value="8">
+  <input type="hidden" name="wisdom" id="wisdomInput" value="8">
+  <input type="hidden" name="charisma" id="charismaInput" value="8">
+  
+  <!-- Ability Score Calculator Section -->
+  <div class="container" style="border:1px solid #ddd; padding:15px; background:#f9f9f9; margin-bottom:20px;">
+    <h2 style="margin-top:0;">LOR Character Stats Calculator</h2>
+    <div id="score-section">
+      <h3>Add in Order: Point Buy > Race > Background > Boost</h3>
+      <p><strong>Point Buy Remaining:</strong> <span id="points-remaining">12</span></p>
+      <p>
+        <strong>Race Modifier Total:</strong>
+        <span id="race-total">0</span> / 4 
+        <button onclick="resetRace()">Reset Race</button>
+      </p>
+      <p>
+        <strong>Background Modifier Total:</strong>
+        <span id="background-total">0</span> / 3 
+        <button onclick="resetBackground()">Reset Background</button>
+      </p>
+      <p>
+        <strong>Boost Slots Remaining:</strong>
+        <span id="boosts-remaining">5</span> 
+        <button onclick="resetBoosts()">Reset Boosts</button>
+      </p>
+    
+      <h3>Adjust Base Scores (Point Buy)</h3>
+      <p><strong>Point Buy Remaining:</strong> <span id="points-remaining">12</span></p>
+      <table style="width:100%; border-collapse:collapse; margin-top:10px;">
+        <thead>
+          <tr style="background:#eee;">
+            <th style="padding:8px; border:1px solid #ccc;">Ability</th>
+            <th style="padding:8px; border:1px solid #ccc;">Base Score (8–13)</th>
+            <th style="padding:8px; border:1px solid #ccc;">Race Mod</th>
+            <th style="padding:8px; border:1px solid #ccc;">Background Mod</th>
+            <th style="padding:8px; border:1px solid #ccc;">Boost Mod</th>
+            <th style="padding:8px; border:1px solid #ccc;">Final Value</th>
+          </tr>
+        </thead>
+        <tbody id="stat-table"></tbody>
+      </table>
+      <button type="button" onclick="resetCharacter()" style="margin-top:10px;">Reset All</button>
+    </div>
+ 
+  
+  <!-- Racial Bonus Allocation UI (for customizable races) -->
+  <div id="racial-allocation-section" style="display:none; border:1px solid #ddd; padding:10px; background:#eef; margin-bottom:20px;">
+    <h3>Allocate Your Racial Bonus Points</h3>
+    <p>You have <span id="racial-points"></span> bonus point(s) to allocate among your abilities.</p>
+    <div style="display:flex; flex-wrap:wrap; gap:10px;">
+      <label>Strength: <input type="number" id="racial-strength" value="0" min="0" style="width:50px;"></label>
+      <label>Dexterity: <input type="number" id="racial-dexterity" value="0" min="0" style="width:50px;"></label>
+      <label>Constitution: <input type="number" id="racial-constitution" value="0" min="0" style="width:50px;"></label>
+      <label>Intelligence: <input type="number" id="racial-intelligence" value="0" min="0" style="width:50px;"></label>
+      <label>Wisdom: <input type="number" id="racial-wisdom" value="0" min="0" style="width:50px;"></label>
+      <label>Charisma: <input type="number" id="racial-charisma" value="0" min="0" style="width:50px;"></label>
+    </div>
+    <button type="button" onclick="applyRacialAllocation()" style="margin-top:10px;">Apply Racial Bonuses</button>
+  </div>
+  
+  <div style="text-align:center;">
+    <button type="submit" style="padding:10px 20px; font-size:16px;">Finish Stage 1 & Create Character</button>
+  </div>
+</form>
+
+<script>
+  // Global state for point-buy system
+  const stats = ["Strength", "Dexterity", "Constitution", "Intelligence", "Wisdom", "Charisma"];
+      let baseStats = {}, raceModifiers = {}, backgroundModifiers = {}, boostModifiers = {};
+      let pointsRemaining = 12, boostsRemaining = 5;
+      let boostedStats = {};
+      let step = 1; // 1 = Point Buy, 2 = Race, 3 = Background, 4 = Boosts
+      let highBoostedUsed = false;
+      let asiApplied = 0;
+      
+      // Initialize character state
+      function initializeCharacter() {
+        stats.forEach(stat => {
+          baseStats[stat] = 8;
+          raceModifiers[stat] = 0;
+          backgroundModifiers[stat] = 0;
+          boostModifiers[stat] = 0;
+          boostedStats[stat] = false;
+        });
+        pointsRemaining = 12;
+        boostsRemaining = 5;
+        step = 1;
+        highBoostedUsed = false;
+        asiApplied = 0;
+        updateDisplay();
+      }
+      
+  // Racial modifiers that are fixed per subrace.
+  const racialModifiersDict = {
+    // Humans – bonus is 0 because human bonus is customizable.
+    'human':         { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 },
+    'rodanin':       { "Strength": 1, "Dexterity": 1, "Constitution": 1, "Intelligence": 0, "Wisdom": 0, "Charisma": 1 },
+    'naskrimni':     { "Strength": 0, "Dexterity": 1, "Constitution": 2, "Intelligence": 0, "Wisdom": 1, "Charisma": 0 },
+    'turami':        { "Strength": 0, "Dexterity": 1, "Constitution": 1, "Intelligence": 1, "Wisdom": 1, "Charisma": 0 },
+    'ithiskar':      { "Strength": 0, "Dexterity": 1, "Constitution": 1, "Intelligence": 1, "Wisdom": 0, "Charisma": 1 },
+    'cadmir':        { "Strength": 1, "Dexterity": 1, "Constitution": 1, "Intelligence": 0, "Wisdom": 1, "Charisma": 0 },
+    'illuskan':      { "Strength": 0, "Dexterity": 0, "Constitution": 1, "Intelligence": 1, "Wisdom": 1, "Charisma": 1 },
+    'shurinese':     { "Strength": 1, "Dexterity": 1, "Constitution": 1, "Intelligence": 0, "Wisdom": 0, "Charisma": 1 },
+    'ferro':         { "Strength": 0, "Dexterity": 1, "Constitution": 1, "Intelligence": 1, "Wisdom": 1, "Charisma": 0 },
+    'unaligned':     { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 },
+    
+    // Dwarfs subraces (fixed)
+    'hill_dwarf':    { "Strength": 1, "Dexterity": 0, "Constitution": 3, "Intelligence": 0, "Wisdom": 1, "Charisma": 0 },
+    'mountain_dwarf':{ "Strength": 2, "Dexterity": -1, "Constitution": 3, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 },
+    'dwarf':         { "Strength": 0, "Dexterity": 0, "Constitution": 3, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 },
+    
+    // Elves subraces (fixed)
+    'high_elf':      { "Strength": 0, "Dexterity": 3, "Constitution": -1, "Intelligence": 2, "Wisdom": 0, "Charisma": 0 },
+    'wood_elf':      { "Strength": 0, "Dexterity": 3, "Constitution": -1, "Intelligence": 0, "Wisdom": 2, "Charisma": 0 },
+    'drow':          { "Strength": 0, "Dexterity": 3, "Constitution": -1, "Intelligence": 0, "Wisdom": 0, "Charisma": 2 },
+    'elf':           { "Strength": 0, "Dexterity": 3, "Constitution": -1, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 },
+    
+    // Gnomes subraces (fixed)
+    'rock_gnome':    { "Strength": 0, "Dexterity": 0, "Constitution": 1, "Intelligence": 2, "Wisdom": 0, "Charisma": 0 },
+    'stone_gnome':   { "Strength": 0, "Dexterity": 0, "Constitution": 1, "Intelligence": 2, "Wisdom": 0, "Charisma": 1 },
+    'gnome':         { "Strength": 0, "Dexterity": 0, "Constitution": 1, "Intelligence": 2, "Wisdom": 0, "Charisma": 0 },
+    
+    // Other races (fixed)
+    'tiefling':      { "Strength": 0, "Dexterity": 1, "Constitution": 0, "Intelligence": 1, "Wisdom": 0, "Charisma": 2 },
+    'lizardfolk':    { "Strength": 1, "Dexterity": 1, "Constitution": 2, "Intelligence": 0, "Wisdom": 1, "Charisma": -1 },
+    'halfling':      { "Strength": 0, "Dexterity": 2, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 2 },
+    // For customizable bonus races, set fixed bonus to 0:
+    'half_orc':      { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 },
+    'tabaxi':        { "Strength": 0, "Dexterity": 2, "Constitution": 0, "Intelligence": 1, "Wisdom": 0, "Charisma": 1 },
+    'goliath':       { "Strength": 3, "Dexterity": 0, "Constitution": 2, "Intelligence": -1, "Wisdom": 0, "Charisma": 0 },
+    'goblin':        { "Strength": 1, "Dexterity": 3, "Constitution": 2, "Intelligence": 0, "Wisdom": 0, "Charisma": -2 },
+    'githyanki':     { "Strength": 1, "Dexterity": 1, "Constitution": 0, "Intelligence": 2, "Wisdom": 0, "Charisma": 0 },
+    'warforged':     { "Strength": 2, "Dexterity": 0, "Constitution": 2, "Intelligence": 1, "Wisdom": 0, "Charisma": -1 },
+    'elf_nymph':     { "Strength": -2, "Dexterity": 2, "Constitution": -2, "Intelligence": 0, "Wisdom": 2, "Charisma": 2 },
+    'yuan_ti':       { "Strength": 0, "Dexterity": 0, "Constitution": 2, "Intelligence": 1, "Wisdom": 0, "Charisma": 1 },
+    'kitsune':       { "Strength": 0, "Dexterity": 1, "Constitution": 0, "Intelligence": 1, "Wisdom": 0, "Charisma": 2 },
+    
+    // Half-Elf subrace options:
+    'half_elf_elf_dominated':   { "Strength": 0, "Dexterity": 1, "Constitution": 0, "Intelligence": 1, "Wisdom": 0, "Charisma": 0 },
+    'half_elf_wood_elf':        { "Strength": 0, "Dexterity": 1, "Constitution": 0, "Intelligence": 0, "Wisdom": 1, "Charisma": 0 },
+    'half_elf_dark_elf':        { "Strength": 0, "Dexterity": 1, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 1 },
+    // For customizable bonus half-elves, set to 0 and let user allocate:
+    'half_elf_human_dominated': { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 },
+    'half_elf_fully':           { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 }
+  };
+
+  // Define available subrace options.
+  const subracesDict = {
+    'human': [
+      { value: 'rodanin', label: 'Rodanin' },
+      { value: 'naskrimni', label: 'Naskrimni' },
+      { value: 'turami', label: 'Turami' },
+      { value: 'ithiskar', label: 'Ithiskar' },
+      { value: 'cadmir', label: 'Cadmir' },
+      { value: 'illuskan', label: 'Illuskan' },
+      { value: 'shurinese', label: 'Shurinese' },
+      { value: 'ferro', label: 'Ferro' },
+      { value: 'unaligned', label: 'Unaligned' }
+    ],
+    'dwarf': [
+      { value: 'hill_dwarf', label: 'Hill Dwarf' },
+      { value: 'mountain_dwarf', label: 'Mountain Dwarf' }
+    ],
+    'elf': [
+      { value: 'high_elf', label: 'High Elf' },
+      { value: 'wood_elf', label: 'Wood Elf' },
+      { value: 'drow', label: 'Drow (Dark Elf)' }
+    ],
+    'gnome': [
+      { value: 'rock_gnome', label: 'Rock Gnome' },
+      { value: 'stone_gnome', label: 'Stone Gnome' }
+    ],
+    'half_elf': [
+      { value: 'half_elf_elf_dominated', label: 'Elf-Dominated (High Elf: +1 Int, +1 Dex)' },
+      { value: 'half_elf_wood_elf', label: 'Elf-Dominated (Wood Elf: +1 Wis, +1 Dex)' },
+      { value: 'half_elf_dark_elf', label: 'Elf-Dominated (Dark Elf: +1 Cha, +1 Dex)' },
+      { value: 'half_elf_human_dominated', label: 'Human-Dominated (+1 to any 2 abilities)' },
+      { value: 'half_elf_fully', label: 'Fully Half-Blooded (+1 to any ability, plus bonus per elf type)' }
+    ]
+  };
+
+  // Define which races require customizable racial bonus allocation
+  const customizableRaces = {
+    'human': 4,
+    'half_elf_human_dominated': 2,
+    'half_orc': 1,
+    'half_elf_fully': 1
+  };
+
+  // Initially, fixed racial modifiers are used.
+  let currentRacialModifiers = { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 };
+
+  // Initialize base scores (point-buy)
+  function initializeCharacter() {
+    stats.forEach(stat => {
+      baseStats[stat] = 8;
+    });
+    pointsRemaining = 12;
+    updateDisplay();
+  }
+  
+  // Update the ability score table and hidden inputs
+ 
+  
+  // Adjust base stats
+  function adjustStat(stat, amount) {
+    if (amount === 1 && pointsRemaining > 0 && baseStats[stat] < 13) {
+      baseStats[stat]++;
+      pointsRemaining--;
+    } else if (amount === -1 && baseStats[stat] > 8) {
+      baseStats[stat]--;
+      pointsRemaining++;
+    }
+    updateDisplay();
+  }
+  
+  // When the main race dropdown changes, check for subrace options and customizable bonus.
+  document.getElementById("race").addEventListener("change", function() {
+    const selectedMainRace = this.value;
+    // If the selected race has subraces defined, show subrace dropdown.
+    if (subracesDict[selectedMainRace]) {
+      document.getElementById("subrace-container").style.display = "block";
+      const subraceSelect = document.getElementById("subrace");
+      subraceSelect.innerHTML = "";
+      subracesDict[selectedMainRace].forEach(option => {
+        let opt = document.createElement("option");
+        opt.value = option.value;
+        opt.text = option.label;
+        subraceSelect.appendChild(opt);
+      });
+      // Reset racial modifiers until a subrace is chosen.
+      currentRacialModifiers = { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 };
+    } else {
+      document.getElementById("subrace-container").style.display = "none";
+      currentRacialModifiers = racialModifiersDict[selectedMainRace] || { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 };
+    }
+    checkForCustomizable();
+    updateDisplay();
+  });
+  
+  // When the subrace dropdown changes, update racial modifiers based on subrace.
+  document.getElementById("subrace").addEventListener("change", function() {
+    const selectedSubrace = this.value;
+    currentRacialModifiers = racialModifiersDict[selectedSubrace] || { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 };
+    checkForCustomizable();
+    updateDisplay();
+  });
+
+  // Global state for racial ASI customization
+let racialASIBonus = {
+  "Strength": 0,
+  "Dexterity": 0,
+  "Constitution": 0,
+  "Intelligence": 0,
+  "Wisdom": 0,
+  "Charisma": 0
+};
+let racialASIPoints = 0; // Total bonus points available from the race (if customizable)
+
+// Update display function modified to include custom racial ASI
+
+
+// Function to adjust custom racial ASI allocation for a given stat
+function adjustRacialASI(stat, amount) {
+  // Only allow adjustment if you have points remaining (or if reducing a bonus)
+  if(amount > 0 && racialASIPoints > 0) {
+    racialASIBonus[stat] += 1;
+    racialASIPoints -= 1;
+  } else if(amount < 0 && racialASIBonus[stat] > 0) {
+    racialASIBonus[stat] -= 1;
+    racialASIPoints += 1;
+  }
+  updateDisplay();
+}
+
+// Modify the race dropdown change event to also check if the selected race uses custom ASI.
+// For example, assume that "human" and "half_elf_human_dominated" and "half_orc" (if desired) allow custom allocation.
+document.getElementById("race").addEventListener("change", function() {
+  const selectedMainRace = this.value;
+  if(subracesDict[selectedMainRace]) {
+    document.getElementById("subrace-container").style.display = "block";
+    const subraceSelect = document.getElementById("subrace");
+    subraceSelect.innerHTML = "";
+    subracesDict[selectedMainRace].forEach(option => {
+      let opt = document.createElement("option");
+      opt.value = option.value;
+      opt.text = option.label;
+      subraceSelect.appendChild(opt);
+    });
+    // Reset fixed racial modifiers until subrace is chosen.
+    currentRacialModifiers = { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 };
+  } else {
+    document.getElementById("subrace-container").style.display = "none";
+    currentRacialModifiers = racialModifiersDict[selectedMainRace] || { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 };
+  }
+
+  // Now, if the selected race is one that allows customizable ASI, show the additional UI.
+  // For example, if selectedMainRace is 'human' or if the chosen half-elf subrace is "half_elf_human_dominated"
+  // (Adjust the logic below according to your core rules.)
+  if (selectedMainRace === "human" || selectedMainRace === "half_orc") {
+    // For these, set custom ASI points available (for instance, 2 points) and show the custom ASI container.
+    racialASIPoints = 2;
+    document.getElementById("racial-asi-container").style.display = "block";
+  } else {
+    racialASIPoints = 0;
+    document.getElementById("racial-asi-container").style.display = "none";
+    // Also reset any custom ASI bonuses.
+    for(let stat of stats) {
+      racialASIBonus[stat] = 0;
+    }
+  }
+  updateDisplay();
+});
+
+document.getElementById("subrace").addEventListener("change", function() {
+  const selectedSubrace = this.value;
+  currentRacialModifiers = racialModifiersDict[selectedSubrace] || { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 };
+
+  // For Half-Elf, check if the selected subrace is one that allows custom allocation.
+  if (document.getElementById("race").value === "half_elf") {
+    if (selectedSubrace === "half_elf_human_dominated" || selectedSubrace === "half_elf_fully") {
+      // Enable custom allocation for these options
+      // For Human-Dominated, you might allow +1 to any 2 abilities (handled later by your UI logic)
+      // For Fully Half-Blooded, allow 1 extra free point plus an elf-type bonus (user chooses)
+      racialASIPoints = 1; // or however many points per your core rules
+      document.getElementById("racial-asi-container").style.display = "block";
+    } else {
+      // For fixed elf-dominated options, no extra allocation.
+      racialASIPoints = 0;
+      document.getElementById("racial-asi-container").style.display = "none";
+      for(let stat of stats) { racialASIBonus[stat] = 0; }
+    }
+  }
+  updateDisplay();
+});
+
+// Before form submission, set the final race value (subrace if selected, otherwise main race)
+document.getElementById("characterForm").addEventListener("submit", function() {
+  let finalRaceValue = "";
+  if (document.getElementById("subrace-container").style.display !== "none") {
+    finalRaceValue = document.getElementById("subrace").value;
+  } else {
+    finalRaceValue = document.getElementById("race").value;
+  }
+  document.getElementById("finalRace").value = finalRaceValue;
+});
+
+// Existing functions for initializing and adjusting point-buy stats remain the same
+
+  
+  // Check if the currently selected race/subrace requires customizable allocation.
+  function checkForCustomizable() {
+    let raceValue = document.getElementById("subrace-container").style.display !== "none" ? document.getElementById("subrace").value : document.getElementById("race").value;
+    if (customizableRaces.hasOwnProperty(raceValue)) {
+      document.getElementById("racial-allocation-section").style.display = "block";
+      document.getElementById("racial-points").innerText = customizableRaces[raceValue];
+    } else {
+      document.getElementById("racial-allocation-section").style.display = "none";
+      // For fixed races, currentRacialModifiers remain as in the dictionary.
+    }
+  }
+  
+  // Apply the racial bonus allocation from the UI
+  function applyRacialAllocation() {
+    let total = Number(document.getElementById("racial-strength").value) +
+                Number(document.getElementById("racial-dexterity").value) +
+                Number(document.getElementById("racial-constitution").value) +
+                Number(document.getElementById("racial-intelligence").value) +
+                Number(document.getElementById("racial-wisdom").value) +
+                Number(document.getElementById("racial-charisma").value);
+    let raceValue = document.getElementById("subrace-container").style.display !== "none" ? document.getElementById("subrace").value : document.getElementById("race").value;
+    const allowed = customizableRaces[raceValue];
+    if (total !== allowed) {
+      alert("Please allocate exactly " + allowed + " bonus point(s).");
+      return;
+    }
+    // Update current racial modifiers by adding the allocated points.
+    currentRacialModifiers["Strength"] = Number(document.getElementById("racial-strength").value);
+    currentRacialModifiers["Dexterity"] = Number(document.getElementById("racial-dexterity").value);
+    currentRacialModifiers["Constitution"] = Number(document.getElementById("racial-constitution").value);
+    currentRacialModifiers["Intelligence"] = Number(document.getElementById("racial-intelligence").value);
+    currentRacialModifiers["Wisdom"] = Number(document.getElementById("racial-wisdom").value);
+    currentRacialModifiers["Charisma"] = Number(document.getElementById("racial-charisma").value);
+    updateDisplay();
+    alert("Racial bonuses applied!");
+  }
+  
+  // Before form submission, set the final race value (subrace if selected, otherwise main race)
+  document.getElementById("characterForm").addEventListener("submit", function() {
+    let finalRaceValue = "";
+    if (document.getElementById("subrace-container").style.display !== "none") {
+      finalRaceValue = document.getElementById("subrace").value;
+    } else {
+      finalRaceValue = document.getElementById("race").value;
+    }
+    document.getElementById("finalRace").value = finalRaceValue;
+  });
+
+  function updateDisplay() {
+  // Update remaining points displays
+  document.getElementById("points-remaining").innerText = pointsRemaining;
+  document.getElementById("boosts-remaining").innerText = boostsRemaining;
+  document.getElementById("race-total").innerText = Object.values(raceModifiers).reduce((a, b) => a + b, 0);
+  document.getElementById("background-total").innerText = Object.values(backgroundModifiers).reduce((a, b) => a + b, 0);
+
+  // Advance steps if prerequisites are met
+  if (step === 1 && pointsRemaining === 0) {
+    step = 2;
+  }
+  if (step === 2 && Object.values(raceModifiers).reduce((a, b) => a + b, 0) >= 4) {
+    step = 3;
+  }
+  if (step === 3 && Object.values(backgroundModifiers).reduce((a, b) => a + b, 0) >= 3) {
+    step = 4;
+  }
+
+  // Build the stat table rows
+  let tableContent = "";
+  stats.forEach(stat => {
+    // Calculate final value: base + fixed race mod + background mod + boost mod + any custom racial bonus (ASI)
+    let base = baseStats[stat];
+    let fixedRace = raceModifiers[stat] || 0;
+    let bgMod = backgroundModifiers[stat] || 0;
+    let boostMod = boostModifiers[stat] || 0;
+    let customBonus = racialASIBonus[stat] || 0;
+    let finalValue = base + fixedRace + bgMod + boostMod + customBonus;
+
+    tableContent += `
+      <tr>
+        <td style="padding:8px; border:1px solid #ccc;">${stat}</td>
+        <td style="padding:8px; border:1px solid #ccc;">
+          <button type="button" onclick="adjustStat('${stat}', 1)" ${step !== 1 ? 'class="disabled"' : ''}>+</button>
+          ${base}
+          <button type="button" onclick="adjustStat('${stat}', -1)" ${step !== 1 || base <= 8 ? 'class="disabled"' : ''}>-</button>
+        </td>
+        <td style="padding:8px; border:1px solid #ccc;">${fixedRace}</td>
+        <td style="padding:8px; border:1px solid #ccc;">
+          <button type="button" onclick="adjustBackground('${stat}', 1)" ${step < 3 ? 'class="disabled"' : ''}>+1</button>
+          <button type="button" onclick="adjustBackground('${stat}', 2)" ${step < 3 ? 'class="disabled"' : ''}>+2</button>
+          ${bgMod}
+        </td>
+        <td style="padding:8px; border:1px solid #ccc;">
+          <button type="button" onclick="applyBoost('${stat}', 3)" ${step < 4 || boostedStats[stat] ? 'class="disabled"' : ''}>+3</button>
+          <button type="button" onclick="applyBoost('${stat}', 2)" ${step < 4 || boostedStats[stat] ? 'class="disabled"' : ''}>+2</button>
+          <button type="button" onclick="applyBoost('${stat}', 1)" ${step < 4 || boostedStats[stat] ? 'class="disabled"' : ''}>+1</button>
+          ${boostMod}
+        </td>
+        <td style="padding:8px; border:1px solid #ccc;">${finalValue}</td>
+      </tr>
+    `;
+  });
+  document.getElementById("stat-table").innerHTML = tableContent;
+
+  // Update the hidden input fields with the final computed ability scores
+  document.getElementById("strengthInput").value = baseStats["Strength"] + (raceModifiers["Strength"] || 0) + (backgroundModifiers["Strength"] || 0) + (racialASIBonus["Strength"] || 0);
+  document.getElementById("dexterityInput").value = baseStats["Dexterity"] + (raceModifiers["Dexterity"] || 0) + (backgroundModifiers["Dexterity"] || 0) + (racialASIBonus["Dexterity"] || 0);
+  document.getElementById("constitutionInput").value = baseStats["Constitution"] + (raceModifiers["Constitution"] || 0) + (backgroundModifiers["Constitution"] || 0) + (racialASIBonus["Constitution"] || 0);
+  document.getElementById("intelligenceInput").value = baseStats["Intelligence"] + (raceModifiers["Intelligence"] || 0) + (backgroundModifiers["Intelligence"] || 0) + (racialASIBonus["Intelligence"] || 0);
+  document.getElementById("wisdomInput").value = baseStats["Wisdom"] + (raceModifiers["Wisdom"] || 0) + (backgroundModifiers["Wisdom"] || 0) + (racialASIBonus["Wisdom"] || 0);
+  document.getElementById("charismaInput").value = baseStats["Charisma"] + (raceModifiers["Charisma"] || 0) + (backgroundModifiers["Charisma"] || 0) + (racialASIBonus["Charisma"] || 0);
+
+  // If the racial allocation UI (custom bonus) is visible, update the displayed remaining bonus points
+  let racialContainer = document.getElementById("racial-allocation-section");
+  if (racialContainer && racialContainer.style.display !== "none") {
+    document.getElementById("racial-points").innerText = racialASIPoints;
+  }
+
+  // Update the ASI section (if defined) after updating the main table.
+  updateASISection();
+}
+
+      
+      function adjustStat(stat, amount) {
+        if (step !== 1) return;
+        if (amount === 1 && pointsRemaining > 0 && baseStats[stat] < 13) {
+          baseStats[stat]++;
+          pointsRemaining--;
+        } else if (amount === -1 && baseStats[stat] > 8) {
+          baseStats[stat]--;
+          pointsRemaining++;
+        }
+        updateDisplay();
+      }
+      
+      // Remove adjustRace function since racial boosts are now applied automatically.
+      
+      function adjustBackground(stat, value) {
+        if (step < 3) return;
+        let newTotal = Object.values(backgroundModifiers).reduce((a, b) => a + b, 0) + value - backgroundModifiers[stat];
+        if (newTotal > 3) return;
+        backgroundModifiers[stat] = value;
+        updateDisplay();
+      }
+      
+      function applyBoost(stat, value) {
+        if (step < 4 || boostedStats[stat]) return;
+        if (boostsRemaining <= 0) return;
+        let currentScore = baseStats[stat] + raceModifiers[stat] + backgroundModifiers[stat];
+        if (value === 2 && currentScore >= 14 && currentScore <= 17) {
+          if (highBoostedUsed) return;
+          if (boostsRemaining >= 2) {
+            boostModifiers[stat] += 2;
+            boostsRemaining -= 2;
+            highBoostedUsed = true;
+          } else { return; }
+        } else if (value === 1 && currentScore >= 14) {
+          if (currentScore + 1 > 19) return;
+          boostModifiers[stat] += 1;
+          boostsRemaining--;
+        } else if (value === 2 && currentScore <= 13) {
+          boostModifiers[stat] += 2;
+          boostsRemaining--;
+        } else if (value === 3 && currentScore <= 10) {
+          boostModifiers[stat] += 3;
+          boostsRemaining--;
+        } else { return; }
+        boostedStats[stat] = true;
+        updateDisplay();
+      }
+      
+      function resetRace() {
+        stats.forEach(stat => { raceModifiers[stat] = 0; });
+        step = Math.max(step, 2);
+        updateDisplay();
+      }
+      
+      function resetBackground() {
+        stats.forEach(stat => { backgroundModifiers[stat] = 0; });
+        step = Math.max(step, 3);
+        updateDisplay();
+      }
+      
+      function resetBoosts() {
+        stats.forEach(stat => { boostModifiers[stat] = 0; });
+        boostedStats = {};
+        boostsRemaining = 5;
+        highBoostedUsed = false;
+        step = Math.max(step, 4);
+        updateDisplay();
+      }
+      
+      function resetCharacter() {
+        initializeCharacter();
+      }
+      
+      // Save/Load functions remain the same…
+      
+      // Race selection event handler: automatically apply racial boosts
+      document.getElementById("race").addEventListener("change", function() {
+        const selectedMainRace = this.value;
+        if (subracesDict[selectedMainRace]) {
+          document.getElementById("subrace-container").style.display = "block";
+          const subraceSelect = document.getElementById("subrace");
+          subraceSelect.innerHTML = "";
+          subracesDict[selectedMainRace].forEach(option => {
+            let opt = document.createElement("option");
+            opt.value = option.value;
+            opt.text = option.label;
+            subraceSelect.appendChild(opt);
+          });
+          // Reset racial modifiers until a subrace is chosen.
+          raceModifiers = { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 };
+        } else {
+          document.getElementById("subrace-container").style.display = "none";
+          raceModifiers = racialModifiersDict[selectedMainRace] || { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 };
+        }
+        updateDisplay();
+      });
+      
+      // Subrace selection event handler
+      document.getElementById("subrace").addEventListener("change", function() {
+        const selectedSubrace = this.value;
+        raceModifiers = racialModifiersDict[selectedSubrace] || { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 };
+        updateDisplay();
+      });
+  // Reset point-buy section
+
+  // Initialize on page load
+  initializeCharacter();
+</script>
+
+{% endblock %}

@@ -1,54 +1,83 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}LOR Website{% endblock %}</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}LOR Website{% endblock %}</title>
 
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-            background-color: #f4f4f4;
-        }
-        .navbar {
-            background-color: #333;
-            color: white;
-            padding: 10px 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .navbar a {
-            color: white;
-            text-decoration: none;
-            margin: 0 15px;
-        }
-        .navbar a:hover {
-            text-decoration: underline;
-        }
-        .content {
-            text-align: center;
-            padding: 50px;
-        }
-    </style>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f4f4f4;
+    }
+    .navbar {
+      background-color: #333;
+      color: white;
+      padding: 10px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .navbar a {
+      color: white;
+      text-decoration: none;
+      margin: 0 15px;
+    }
+    .navbar a:hover {
+      text-decoration: underline;
+    }
+    .navbar .nav-links {
+      display: flex;
+      align-items: center;
+    }
+    .navbar .user-info {
+      margin-right: 20px;
+      font-style: italic;
+    }
+    .content {
+      text-align: center;
+      padding: 50px;
+    }
+  </style>
 
-    {% block extra_styles %}{% endblock %} <!-- Additional styles for child templates -->
-
+  {% block extra_styles %}{% endblock %}
 </head>
 <body>
 
-    <div class="navbar">
-        <a href="{% url 'home' %}">Home</a>
-        <a href="{% url 'character_creator' %}">Character Creator</a>
+  <div class="navbar">
+    <div class="nav-links">
+      <a href="{% url 'home' %}">Home</a>
+      <a href="{% url 'character_creator' %}">Sample Character and Calculator</a>
+      {% if user.is_authenticated %}
+        <a href="{% url 'campaigns:campaign_list' %}">Campaigns</a>
+      {% endif %}
+      
+      {% if user.is_authenticated %}
+      <a href="{% url 'characters:create_character_stage1' %}">Create Character</a>
+
+      {% endif %}
     </div>
-
-    <div class="content">
-        {% block content %}{% endblock %}
+    <div class="nav-links">
+      {% if user.is_authenticated %}
+        <span class="user-info">Hello, {{ user.username }}</span>
+        <form action="{% url 'accounts:logout' %}" method="post" style="display:inline;">
+            {% csrf_token %}
+            <button type="submit">Logout</button>
+          </form>
+          
+      {% else %}
+        <a href="{% url 'accounts:login' %}">Login</a>
+        <a href="{% url 'accounts:register' %}">Register</a>
+      {% endif %}
     </div>
+  </div>
 
-    {% block extra_scripts %}{% endblock %} <!-- Additional scripts for child templates -->
+  <div class="content">
+    {% block content %}{% endblock %}
+  </div>
 
+  {% block extra_scripts %}{% endblock %}
 </body>
 </html>

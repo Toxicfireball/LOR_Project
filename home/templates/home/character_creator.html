@@ -1,8 +1,12 @@
 
 
 
-<!DOCTYPE html>
-<html lang="en">
+{% extends "home/base.html" %}
+
+{% block title %}Character Creator{% endblock %}
+
+{% block content %}
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -651,4 +655,6 @@
     initializeCharacter();
   </script>
 </body>
-</html>
+
+
+{% endblock %}

@@ -21,5 +21,8 @@ from django.urls import path, include
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('', include('home.urls')),  # ← Include the home app's URLs
+    path('', include('home.urls')),  
+    path('accounts/', include('accounts.urls')),   # User auth URLs
+    path('campaigns/', include('campaigns.urls')),   # Campaign system URLs (we’ll create these next)
+    path('characters/', include('characters.urls')),
 ]

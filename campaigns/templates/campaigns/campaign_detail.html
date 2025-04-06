@@ -1,0 +1,50 @@
+<!-- campaigns/templates/campaigns/campaign_detail.html -->
+
+{% extends "home/base.html" %}
+
+{% block title %}
+  Campaign Detail
+{% endblock %}
+
+{% block content %}
+<body>
+    <h2>{{ campaign.name }}</h2>
+    <p>{{ campaign.description }}</p>
+    <h3>Members</h3>
+    <ul>
+      {% for membership in memberships %}
+        <li>{{ membership.user.username }} - {{ membership.get_role_display }}</li>
+      {% empty %}
+        <li>No members yet.</li>
+      {% endfor %}
+    </ul>
+    <!-- If the user is not already a member, show a join button -->
+    {% if not campaign.members.filter(id=request.user.id).exists %}
+      <a href="{% url 'campaigns:join_campaign' campaign.id %}">Join Campaign as Player</a>
+    {% endif %}
+    <p><a href="{% url 'campaigns:campaign_list' %}">Back to Campaign List</a></p>
+
+    <ul>
+        {% for character in campaign.characters.all %}
+          <li>{{ character.name }} ({{ character.user.username }})</li>
+        {% empty %}
+          <li>No characters linked to this campaign yet.</li>
+        {% endfor %}
+      </ul>
+      
+      <!-- If the logged-in user has characters not yet linked, show a link to choose one -->
+      {% if user.is_authenticated %}
+        <h4>Link one of your characters to this campaign:</h4>
+        <ul>
+          {% for character in user.characters.all %}
+            {% if not character.campaign %}
+              <li>
+                {{ character.name }} 
+                <a href="{% url 'characters:link_character' character.id campaign.id %}">Join Campaign</a>
+              </li>
+            {% endif %}
+          {% endfor %}
+        </ul>
+</body>
+</html>
+{% endblock %}

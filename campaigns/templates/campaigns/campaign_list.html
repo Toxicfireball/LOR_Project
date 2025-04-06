@@ -1,0 +1,29 @@
+<!-- campaigns/templates/campaigns/campaign_list.html -->
+
+{% extends "home/base.html" %}
+
+{% block title %}
+ Campaign_list
+{% endblock %}
+
+{% block content %}
+<head>
+    <meta charset="UTF-8">
+    <title>Campaign List</title>
+</head>
+<body>
+    <h2>All Campaigns</h2>
+    <a href="{% url 'campaigns:create_campaign' %}">Create a New Campaign</a>
+    <ul>
+      {% for campaign in campaigns %}
+        <li>
+          <a href="{% url 'campaigns:campaign_detail' campaign.id %}">
+            {{ campaign.name }}
+          </a>
+        </li>
+      {% endfor %}
+    </ul>
+    <p><a href="{% url 'accounts:logout' %}">Logout</a></p>
+</body>
+</html>
+{% endblock %}
