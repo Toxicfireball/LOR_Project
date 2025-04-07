@@ -4,6 +4,7 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from .models import Campaign, CampaignMembership
 from .forms import CampaignCreationForm
+from django.shortcuts import get_object_or_404, render
 
 @login_required
 def campaign_list(request):
@@ -11,10 +12,22 @@ def campaign_list(request):
     campaigns = Campaign.objects.all()
     return render(request, 'campaigns/campaign_list.html', {'campaigns': campaigns})
 @login_required
+# views.py
+
+
 def campaign_detail(request, campaign_id):
     campaign = get_object_or_404(Campaign, id=campaign_id)
-    memberships = CampaignMembership.objects.filter(campaign=campaign)
-    return render(request, 'campaigns/campaign_detail.html', {'campaign': campaign, 'memberships': memberships})
+    # Compute membership here
+    is_member = campaign.members.filter(id=request.user.id).exists()
+    memberships = campaign.campaignmembership_set.all()
+
+
+    context = {
+        'campaign': campaign,
+        'memberships': memberships,
+        'is_member': is_member,
+    }
+    return render(request, 'campaigns/campaign_detail.html', context)
 @login_required
 def join_campaign(request, campaign_id):
     campaign = get_object_or_404(Campaign, id=campaign_id)
