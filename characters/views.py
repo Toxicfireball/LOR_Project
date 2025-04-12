@@ -29,19 +29,51 @@ from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
-from .forms import CharacterCreationStage1Form
+from .forms import CharacterCreationForm
+
+
+# views.py
+import json
+from django.shortcuts import render, redirect
+from .forms import CharacterCreationForm
+
+# characters/views.py
+from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib.auth.decorators import login_required
+from .forms import CharacterCreationForm
+from .models import Character
+
 
 @login_required
-def create_character_stage1(request):
+def create_character(request):
     if request.method == 'POST':
-        form = CharacterCreationStage1Form(request.POST)
+        # Make a mutable copy of the POST data
+        post_data = request.POST.copy()
+        
+        # If the side_background_2 field is missing (due to the missing name attribute in HTML),
+        # add it as an empty string.
+        if 'side_background_2' not in post_data:
+            post_data['side_background_2'] = ''
+        
+        # Instantiate the form with the modified POST data
+        form = CharacterCreationForm(post_data)
+        
         if form.is_valid():
             character = form.save(commit=False)
             character.user = request.user
-            character.level = 0  # Character is created at level 0 in Stage 1
             character.save()
-            # Redirect to the dashboard or home page that shows all characters/campaigns
-            return redirect('home')
+            return redirect('character_detail', pk=character.pk)
+        else:
+            print("Form errors:", form.errors)
     else:
-        form = CharacterCreationStage1Form()
-    return render(request, 'characters/create_character_stage1.html', {'form': form})
+        form = CharacterCreationForm()
+    
+    return render(request, 'characters/create_character.html', {'form': form})
+
+
+
+@login_required
+def character_detail(request, pk):
+    # Ensure that the character belongs to the current user.
+    character = get_object_or_404(Character, pk=pk, user=request.user)
+    return render(request, 'characters/character_detail.html', {'character': character})

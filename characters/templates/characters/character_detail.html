@@ -1,0 +1,81 @@
+{% extends "home/base.html" %}
+{% block title %}{{ character.name }} – Character Details{% endblock %}
+
+{% block content %}
+  <div style="max-width:900px; margin: 0 auto; padding: 20px; background: #fff; border: 1px solid #ddd;">
+    <h2 style="text-align:center;">{{ character.name }}</h2>
+
+    <h3>Basic Information</h3>
+    <ul>
+      <li><strong>Race:</strong> {{ character.race }}</li>
+      {% if character.subrace %}
+        <li><strong>Subrace:</strong> {{ character.subrace }}</li>
+      {% endif %}
+      {% if character.half_elf_origin %}
+        <li><strong>Half-Elf Origin:</strong> {{ character.half_elf_origin }}</li>
+      {% endif %}
+      <li><strong>Background Combination:</strong> {{ character.bg_combo }}</li>
+      <li><strong>Main Background:</strong> {{ character.main_background }}</li>
+      {% if character.side_background_1 %}
+        <li><strong>Side Background 1:</strong> {{ character.side_background_1 }}</li>
+      {% endif %}
+      {% if character.side_background_2 %}
+        <li><strong>Side Background 2:</strong> {{ character.side_background_2 }}</li>
+      {% endif %}
+    </ul>
+
+    <h3>Ability Scores</h3>
+    <table style="width:100%; border-collapse:collapse;">
+      <thead>
+        <tr style="background:#eee;">
+          <th style="padding:8px; border:1px solid #ccc;">Ability</th>
+          <th style="padding:8px; border:1px solid #ccc;">Score</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="padding:8px; border:1px solid #ccc;">Strength</td>
+          <td style="padding:8px; border:1px solid #ccc;">{{ character.strength }}</td>
+        </tr>
+        <tr>
+          <td style="padding:8px; border:1px solid #ccc;">Dexterity</td>
+          <td style="padding:8px; border:1px solid #ccc;">{{ character.dexterity }}</td>
+        </tr>
+        <tr>
+          <td style="padding:8px; border:1px solid #ccc;">Constitution</td>
+          <td style="padding:8px; border:1px solid #ccc;">{{ character.constitution }}</td>
+        </tr>
+        <tr>
+          <td style="padding:8px; border:1px solid #ccc;">Intelligence</td>
+          <td style="padding:8px; border:1px solid #ccc;">{{ character.intelligence }}</td>
+        </tr>
+        <tr>
+          <td style="padding:8px; border:1px solid #ccc;">Wisdom</td>
+          <td style="padding:8px; border:1px solid #ccc;">{{ character.wisdom }}</td>
+        </tr>
+        <tr>
+          <td style="padding:8px; border:1px solid #ccc;">Charisma</td>
+          <td style="padding:8px; border:1px solid #ccc;">{{ character.charisma }}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Skill Proficiencies</h3>
+    {% if character.skill_proficiencies %}
+      <ul>
+        {% for skill, proficiency in character.skill_proficiencies.items %}
+          <li><strong>{{ skill }}:</strong> {{ proficiency }}</li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p>No skill proficiencies available.</p>
+    {% endif %}
+
+    <h3>Backstory</h3>
+    <p>{{ character.backstory|linebreaks }}</p>
+
+    <div style="margin-top:20px; text-align:center;">
+      <a href="{% url 'character_list' %}" style="padding:10px 20px; background:#007BFF; color:#fff; text-decoration:none; border-radius:4px;">Back to Character List</a>
+    </div>
+  </div>
+{% endblock %}
