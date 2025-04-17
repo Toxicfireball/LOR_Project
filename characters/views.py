@@ -42,6 +42,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from .forms import CharacterCreationForm
 from .models import Character
+from .models import SubSkill, ProficiencyLevel, CharacterSkillProficiency
 
 
 @login_required
@@ -62,7 +63,18 @@ def create_character(request):
             character = form.save(commit=False)
             character.user = request.user
             character.save()
-            return redirect('character_detail', pk=character.pk)
+            raw_profs = request.POST.get('computed_skill_proficiencies')
+            if raw_profs:
+                    try:
+                        prof_data = json.loads(raw_profs)
+                        for name, prof in prof_data.items():
+                            category_name, subskill_name = name.split(" - ", 1)
+                            sub = SubSkill.objects.get(name=subskill_name, category__name=category_name)
+                            prof_lvl = ProficiencyLevel.objects.get(name=prof)
+                            CharacterSkillProficiency.objects.create(character=character, subskill=sub, proficiency=prof_lvl)
+                    except Exception as e:
+                        print("Skill parsing failed:", e)
+                    return redirect('character_detail', pk=character.pk)
         else:
             print("Form errors:", form.errors)
     else:

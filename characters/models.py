@@ -33,9 +33,7 @@ class Character(models.Model):
     charisma = models.IntegerField(default=8)
     
     # Skill proficiencies: a mapping of each skill to its proficiency tier
-    # (e.g., "Acrobatics": "Trained", "Arcana": "Trained", etc.)
-    skill_proficiencies = models.JSONField(default=dict, blank=True)
-    
+    # (e.g., "Acrobatics": "Trained", "Arcana": "Trained", etc.)    
     # Later progression fields
     level = models.IntegerField(default=0)  # Level 0 after Stage 1
     character_class = models.CharField(max_length=50, blank=True)
@@ -47,3 +45,32 @@ class Character(models.Model):
 
     def __str__(self):
         return self.name or f"Character {self.id}"
+class SkillCategory(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    ability = models.CharField(max_length=3)  # e.g. DEX, INT
+
+    def __str__(self):
+        return self.name
+
+class SubSkill(models.Model):
+    category = models.ForeignKey(SkillCategory, on_delete=models.CASCADE, related_name='subskills')
+    name = models.CharField(max_length=100)
+
+    def __str__(self):
+        return f"{self.category.name} - {self.name}"
+
+class ProficiencyLevel(models.Model):
+    name = models.CharField(max_length=20)  # Trained, Expert, Master
+    tier = models.IntegerField()  # 0: Trained, 1: Expert, 2: Master
+    bonus = models.IntegerField()  # 0, 1, 2
+
+    def __str__(self):
+        return self.name
+
+class CharacterSkillProficiency(models.Model):
+    character = models.ForeignKey('characters.Character', on_delete=models.CASCADE, related_name='skill_proficiencies')
+    subskill = models.ForeignKey(SubSkill, on_delete=models.CASCADE)
+    proficiency = models.ForeignKey(ProficiencyLevel, on_delete=models.CASCADE)
+
+    class Meta:
+        unique_together = ('character', 'subskill')

@@ -1138,6 +1138,14 @@ const sideBg2Skill = document.getElementById("side_bg2_skill_choice");
 if (sideBg2Skill) {
   sideBg2Skill.addEventListener("change", updateBackgroundModifiers);
 }
+document.getElementById("characterForm").addEventListener("submit", function () {
+  const skillMap = {
+    "Arcana - Spellcraft": "Expert",
+    "Lore - History": "Trained"
+    // Replace this with your actual JS logic that builds the map
+  };
+  document.getElementById("computed_skill_proficiencies").value = JSON.stringify(skillMap);
+});
 
 
   // Finalize background validation on form submission.

@@ -37,13 +37,7 @@ class CharacterCreationForm(forms.ModelForm):
     from background selections and other bonuses. However, if no value is provided,
     we default all skills to "Trained".
     """
-    # You might choose to use a JSONField if your model supports it, or a CharField with a HiddenInput.
-    # Here we use a CharField that holds JSON.
-    skill_proficiencies = forms.CharField(
-        widget=forms.HiddenInput(),
-        required=False,
-        help_text="A JSON string mapping skills to proficiency tiers."
-    )
+
 
     class Meta:
         model = Character
@@ -63,7 +57,6 @@ class CharacterCreationForm(forms.ModelForm):
             "intelligence",
             "wisdom",
             "charisma",
-            "skill_proficiencies",
         ]
         widgets = {
             "main_background": forms.Select(attrs={"id": "main_background", "name": "main_background"}),
