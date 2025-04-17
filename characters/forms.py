@@ -5,26 +5,7 @@ from .models import Character
 
 # Define a dictionary for the default skill proficiencies.
 # In LOR, during character creation every skill is by default Trained.
-DEFAULT_SKILL_PROFICIENCIES = {
-    "Acrobatics": "Trained",
-    "Animal Handling": "Trained",
-    "Arcana": "Trained",
-    "Arts": "Trained",
-    "Athletics": "Trained",
-    "Charm": "Trained",
-    "Deception": "Trained",
-    "Insight": "Trained",
-    "Investigation": "Trained",
-    "Linguistic": "Trained",
-    "Local Instinct": "Trained",
-    "General Knowledge": "Trained",
-    "Lore": "Trained",
-    "Memory": "Trained",
-    "Sleight of Hand": "Trained",
-    "Stealth": "Trained",
-    "Survival": "Trained",
-    "Technology": "Trained",
-}
+
 
 class CharacterCreationForm(forms.ModelForm):
     """
@@ -83,8 +64,6 @@ class CharacterCreationForm(forms.ModelForm):
 
         # Optionally, if you want to default skill_proficiencies to the default dictionary,
         # you can set the initial value as a JSON string.
-        if not self.initial.get("skill_proficiencies"):
-            self.fields["skill_proficiencies"].initial = json.dumps(DEFAULT_SKILL_PROFICIENCIES)
 
     def clean_skill_proficiencies(self):
         """
