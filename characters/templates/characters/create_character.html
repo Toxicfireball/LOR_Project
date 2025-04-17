@@ -313,10 +313,7 @@
     </div>
   </div>
 
-  <!-- Background Summary -->
-  <div class="section" id="background-skill-display"></div>
-  <h3>Background Summary</h3>
-  <div id="background-summary">No skill proficiencies allocated yet.</div>
+
 
   <!-- Hidden fields -->
   <input type="hidden" name="final_race" id="finalRace" value="">
@@ -536,9 +533,11 @@ document.addEventListener("DOMContentLoaded", function() {
     bgAbilityBonuses[ability] = Math.min((bgAbilityBonuses[ability] || 0) + bonus, 2);
   }
   function addSkill(skillName) {
-    if (!skillName) return;
-    bgSkillProficiencies[skillName] = Math.min((bgSkillProficiencies[skillName] || 0) + 1, 2);
-  }
+  if (!skillName) return;
+  // Only “Trained” once—no stacking
+  bgSkillProficiencies[skillName] = 1;
+}
+
   function updateBackgroundSummary() {
     let summary = "<h4>Ability Bonuses from Backgrounds:</h4>";
     for (let ability in bgAbilityBonuses) {
@@ -548,9 +547,9 @@ document.addEventListener("DOMContentLoaded", function() {
     }
     summary += "<h4>Skill Proficiencies from Backgrounds:</h4>";
     for (let skill in bgSkillProficiencies) {
-      summary += `<strong>${skill}</strong>: ${bgSkillProficiencies[skill]} proficiency<br>`;
-    }
-    document.getElementById("background-summary").innerHTML = summary;
+  summary += `<strong>${skill}</strong>: Trained<br>`;
+}
+
   }
   function updateBackgroundModifiers() {
     resetBackgroundState();
@@ -559,131 +558,71 @@ document.addEventListener("DOMContentLoaded", function() {
     if (!mainKey || !backgrounds[mainKey]) return;
     const mainBG = backgrounds[mainKey];
     if (combo === "0") {
-      addAbilityBonus(mainBG.primary.ability, mainBG.primary.bonus);
-      addAbilityBonus(mainBG.secondary.ability, mainBG.secondary.bonus);
-      addSkill(mainBG.primary.skill);
-      addSkill(mainBG.secondary.skill);
-    } else {
+  // only primary +2, never the +1
+  addAbilityBonus(mainBG.primary.ability, mainBG.primary.bonus);
+  // (no secondary)
+  addSkill(mainBG.primary.skill);
+}
+ else {
       addAbilityBonus(mainBG.primary.ability, mainBG.primary.bonus);
       addSkill(mainBG.primary.skill);
       if (combo === "1") {
-  // First, add Main Background’s primary benefits
+  // 1) Main Background: Primary only (+2 & primary skill)
   addAbilityBonus(mainBG.primary.ability, mainBG.primary.bonus);
   addSkill(mainBG.primary.skill);
-  
-  // Then, process the one Side Background: add both its ability bonus and its skill proficiency.
-  const side1Key = document.getElementById("side_background_1").value;
-  if (side1Key && backgrounds[side1Key]) {
-    // Always add ability bonus from Side BG 1:
-    let abilityChoice = "";
-    const abilityElem = document.getElementById("side_bg1_ability_choice");
-    if (abilityElem) {
-      abilityChoice = abilityElem.value;
-    } else {
-      console.error("Element 'side_bg1_ability_choice' not found; defaulting to 'primary'");
-      abilityChoice = "primary";
-    }
-    if (backgrounds[side1Key][abilityChoice]) {
-      addAbilityBonus(backgrounds[side1Key][abilityChoice].ability, 1);
-    } else {
-      console.error("Invalid ability choice for Side BG 1:", abilityChoice);
-    }
-    
-    // Then always add the skill proficiency from Side BG 1:
-    let skillChoice = "";
-    const skillElem = document.getElementById("side_bg1_skill_choice");
-    if (skillElem) {
-      skillChoice = skillElem.value;
-    } else {
-      console.error("Element 'side_bg1_skill_choice' not found; defaulting to 'primary'");
-      skillChoice = "primary";
-    }
-    if (backgrounds[side1Key][skillChoice]) {
-      addSkill(backgrounds[side1Key][skillChoice].skill);
-    } else {
-      console.error("Invalid skill choice for Side BG 1:", skillChoice);
-    }
+
+  // 2) Side Background: exactly one ability (+1) and one skill
+  const sideKey = document.getElementById("side_background_1").value;
+  if (sideKey && backgrounds[sideKey]) {
+    // Ability: from primary or secondary, but max +1
+    const abilityChoice = document.getElementById("side_bg1_ability_choice").value;
+    addAbilityBonus(backgrounds[sideKey][abilityChoice].ability, 1);
+
+    // Skill: from primary or secondary
+    const skillChoice = document.getElementById("side_bg1_skill_choice").value;
+    addSkill(backgrounds[sideKey][skillChoice].skill);
   }
 }
 
 
 
-      if (combo === "2") {
-        const side1Key = document.getElementById("side_background_1").value;
-        if (side1Key && backgrounds[side1Key]) {
-          const side1Type = document.querySelector('input[name="side1_bonus_type_combo2"]:checked')?.value;
-          if (side1Type === "ability") {
-  let abilityChoice = "";
-  const abilityElem = document.getElementById("side_bg1_ability_choice");
-  if (abilityElem) {
-    abilityChoice = abilityElem.value;
-  } else {
-    console.error("Element 'side_bg1_ability_choice' not found for Side BG 1 in combo 2. Defaulting to 'primary'.");
-    abilityChoice = "primary";
-  }
-  if (backgrounds[side1Key] && backgrounds[side1Key][abilityChoice]) {
-    addAbilityBonus(backgrounds[side1Key][abilityChoice].ability, 1);
-  } else {
-    console.error("Invalid ability choice for Side BG 1 in combo 2:", abilityChoice);
-  }
-} else {
-  const sideBg1SkillElem = document.getElementById("side_bg1_skill_choice");
-  let skillChoice = sideBg1SkillElem ? sideBg1SkillElem.value : "";
-  if (skillChoice !== "primary" && skillChoice !== "secondary") {
-    console.error("Invalid skill choice for Side BG 1 in combo 2:", skillChoice);
-  } else if (backgrounds[side1Key] && backgrounds[side1Key][skillChoice]) {
-    addSkill(backgrounds[side1Key][skillChoice].skill);
-  } else {
-    console.error("No valid backgrounds entry for", side1Key, "with key", skillChoice);
-  }
-}
+if (combo === "2") {
+  // 1) Main: Primary only
+  addAbilityBonus(mainBG.primary.ability, mainBG.primary.bonus);
+  addSkill(mainBG.primary.skill);
 
+  // 2) Two Sides: one ability (+1) from either side, one skill from the other
+  //    Choice radios determine which side gives which benefit.
 
-        }
+  // Determine which side gives the ability bonus:
+  const abilitySide = document.querySelector('input[name="sideAbilityForTwo"]:checked').value;
+  const skillSide   = abilitySide === 'side1' ? 'side2' : 'side1';
 
-        const side2Key = document.getElementById("side_background_2").value;
-if (side2Key && backgrounds[side2Key]) {
-  const side2Type = document.querySelector('input[name="side2_bonus_type"]:checked').value;
-  if (side2Type === "ability") {
-  let abilityChoice = "";
-  const abilityElem2 = document.getElementById("side_bg2_ability_choice");
-  if (abilityElem2) {
-    abilityChoice = abilityElem2.value;
-  } else {
-    console.error("Element 'side_bg2_ability_choice' not found for Side BG 2. Defaulting to 'primary'.");
-    abilityChoice = "primary";
+  // Side X: ability
+  const sideAbilityKey = document.getElementById(abilitySide === 'side1'
+    ? 'side_background_1'
+    : 'side_background_2').value;
+  if (sideAbilityKey) {
+    const elem = abilitySide === 'side1'
+      ? document.getElementById('side_bg1_ability_choice')
+      : document.getElementById('side_bg2_ability_choice');
+    addAbilityBonus(backgrounds[sideAbilityKey][elem.value].ability, 1);
   }
-  if (backgrounds[side2Key] && backgrounds[side2Key][abilityChoice]) {
-    addAbilityBonus(backgrounds[side2Key][abilityChoice].ability, 1);
-  } else {
-    console.error("Invalid ability choice for Side BG 2:", abilityChoice);
-  }
-} else {
-  const sideBg2SkillElem = document.getElementById("side_bg2_skill_choice");
-  let skillChoice = sideBg2SkillElem ? sideBg2SkillElem.value : "";
-  if (skillChoice !== "primary" && skillChoice !== "secondary") {
-    console.error("Invalid skill choice for Side BG 2:", skillChoice);
-  } else if (backgrounds[side2Key] && backgrounds[side2Key][skillChoice]) {
-    addSkill(backgrounds[side2Key][skillChoice].skill);
-  } else {
-    console.error("No valid backgrounds entry for", side2Key, "with key", skillChoice);
+
+  // Side Y: skill
+  const sideSkillKey = document.getElementById(skillSide === 'side1'
+    ? 'side_background_1'
+    : 'side_background_2').value;
+  if (sideSkillKey) {
+    const elem = skillSide === 'side1'
+      ? document.getElementById('side_bg1_skill_choice')
+      : document.getElementById('side_bg2_skill_choice');
+    addSkill(backgrounds[sideSkillKey][elem.value].skill);
   }
 }
 
-
-}
-
-        const s1Radio = document.querySelector('input[name="side1_bonus_type_combo2"]:checked');
-const s1Type = s1Radio ? s1Radio.value : "";
-const s2Radio = document.querySelector('input[name="side2_bonus_type"]:checked');
-const s2Type = s2Radio ? s2Radio.value : "";
-if (s1Type && s2Type && s1Type === s2Type) {
-  alert("For two side backgrounds, one must supply an ability bonus and the other a skill proficiency.");
-}
-
-      }
-      backgroundModifiers = Object.assign({}, bgAbilityBonuses);
     }
+    backgroundModifiers = Object.assign({}, bgAbilityBonuses);
     updateBackgroundSummary();
   }
 
@@ -991,11 +930,14 @@ if (side2Key && backgrounds[side2Key]) {
     document.getElementById("boosts-remaining").innerText = boostsRemaining;
     document.getElementById("background-total").innerText =
       Object.values(backgroundModifiers).reduce((a, b) => a + b, 0);
-    if (step === 1 && pointsRemaining === 0 && document.getElementById("race").value !== "") { step = 2; }
-    if (step === 2 && document.getElementById("race").value !== "" &&
-        Object.values(effectiveModifiers).reduce((a, b) => a + b, 0) >= 4) { step = 3; }
-    if (step === 3 && document.getElementById("main_background").value !== "" &&
-        Object.values(backgroundModifiers).reduce((a, b) => a + b, 0) >= 3) { step = 4; }
+// Only advance to Boosts (step=4) once Point‑Buy, Race & Background are done:
+const raceChosen = !!document.getElementById("race").value;
+const bgChosen   = !!document.getElementById("main_background").value;
+const bgOK       = Object.values(backgroundModifiers).reduce((a, b) => a + b, 0) >= 3;
+const pbOK       = pointsRemaining === 0;
+
+step = (pbOK && raceChosen && bgChosen && bgOK) ? 4 : 1;
+
     let tableContent = "";
     stats.forEach(stat => {
       let base = baseStats[stat];
@@ -1007,9 +949,14 @@ if (side2Key && backgrounds[side2Key]) {
         <tr>
           <td>${stat}</td>
           <td>
-            <button type="button" onclick="adjustStat('${stat}', 1)" ${step !== 1 ? 'disabled' : ''}>+</button>
+            <button type="button"
+        onclick="adjustStat('${stat}', 1)"
+        ${step === 4 ? 'disabled' : ''}>+</button>
+
             ${base}
-            <button type="button" onclick="adjustStat('${stat}', -1)" ${step !== 1 || base <= 8 ? 'disabled' : ''}>-</button>
+<button type="button"
+        onclick="adjustStat('${stat}', -1)"
+        ${step === 4 || base <= 8 ? 'disabled' : ''}>-</button>
           </td>
           <td>${fixedRace}</td>
           <td>${bgMod}</td>
@@ -1139,13 +1086,15 @@ if (sideBg2Skill) {
   sideBg2Skill.addEventListener("change", updateBackgroundModifiers);
 }
 document.getElementById("characterForm").addEventListener("submit", function () {
-  const skillMap = {
-    "Arcana - Spellcraft": "Expert",
-    "Lore - History": "Trained"
-    // Replace this with your actual JS logic that builds the map
-  };
+  const skillMap = {};
+  for (let skill in bgSkillProficiencies) {
+    if (bgSkillProficiencies[skill]) {
+      skillMap[skill] = "Trained";
+    }
+  }
   document.getElementById("computed_skill_proficiencies").value = JSON.stringify(skillMap);
 });
+
 
 
   // Finalize background validation on form submission.
