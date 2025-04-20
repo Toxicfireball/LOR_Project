@@ -1,0 +1,13 @@
+{# templates/characters/widgets/formula_builder.html #}
+{% load static %}
+
+<div class="formula-builder">
+  <div class="fb-pills"></div>
+
+  {# THIS will render your <textarea> with data‑vars & data‑dice attrs #}
+  {{ widget }}
+
+  <div class="fb-error" style="display:none;color:#e44;">
+    Invalid formula
+  </div>
+</div>

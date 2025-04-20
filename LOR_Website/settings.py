@@ -9,13 +9,18 @@ https://docs.djangoproject.com/en/5.1/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.1/ref/settings/
 """
-
+import pathlib
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = pathlib.Path(__file__).resolve().parent.parent# Where `manage.py collectstatic` will put all the files
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
-
+# (Optional) Where your “app‑level” static/ directories live 
+# so that collectstatic can find them.
+STATICFILES_DIRS = [
+  BASE_DIR / "static",
+]
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 

@@ -1,0 +1,15 @@
+{% extends "home/base.html" %}
+{% block title %}Your Characters{% endblock %}
+{% block content %}
+<h2>Your Characters</h2>
+<ul>
+  {% for char in characters %}
+    <li>
+      <strong>{{ char.name }}</strong> (Level {{ char.level }})
+      — <a href="{% url 'characters:level_up' char.id %}">Level Up / Edit</a>
+    </li>
+  {% empty %}
+    <li>You haven’t created any characters yet. <a href="{% url 'characters:create_character' %}">Create one now</a>.</li>
+  {% endfor %}
+</ul>
+{% endblock %}

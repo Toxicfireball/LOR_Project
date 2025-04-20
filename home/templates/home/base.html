@@ -58,6 +58,11 @@
       <a href="{% url 'characters:create_character' %}">Create Character</a>
 
       {% endif %}
+
+      {% if user.is_authenticated %}
+      <a href="{% url 'characters:character_list' %}">View Characters</a>
+
+      {% endif %}
     </div>
     <div class="nav-links">
       {% if user.is_authenticated %}

@@ -6,6 +6,34 @@ from .models import Character
 # Define a dictionary for the default skill proficiencies.
 # In LOR, during character creation every skill is by default Trained.
 
+# forms.py (app `characters`)
+from django import forms
+from .models import CharacterClass, CharacterClassProgress
+
+class LevelUpForm(forms.Form):
+    # For level 0: choose base class
+    base_class = forms.ModelChoiceField(
+        queryset=CharacterClass.objects.all(),
+        required=False,
+        label="Choose a Class"
+    )
+    # For existing: choose which class to advance
+    advance_class = forms.ModelChoiceField(
+        queryset=CharacterClass.objects.none(),
+        required=False,
+        label="Advance which Class"
+    )
+
+    def __init__(self, *args, character=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if character:
+            qs = CharacterClassProgress.objects.filter(character=character)
+            self.fields['advance_class'].queryset = CharacterClass.objects.filter(
+                pk__in=[p.character_class.pk for p in qs]
+            )
+        else:
+            self.fields['advance_class'].queryset = CharacterClass.objects.none()
+
 
 class CharacterCreationForm(forms.ModelForm):
     """
@@ -71,18 +99,6 @@ class CharacterCreationForm(forms.ModelForm):
         If the field is empty, we assign the default skill proficiencies.
         """
         data = self.cleaned_data.get("skill_proficiencies")
-        if not data:
-            # If nothing was provided, return the default mapping.
-            return DEFAULT_SKILL_PROFICIENCIES
-        try:
-            proficiencies = json.loads(data)
-            # Optionally, validate that all required skills are present.
-            for skill in DEFAULT_SKILL_PROFICIENCIES:
-                if skill not in proficiencies:
-                    proficiencies[skill] = DEFAULT_SKILL_PROFICIENCIES[skill]
-            return proficiencies
-        except ValueError:
-            raise forms.ValidationError("Invalid format for skill proficiencies. Please contact support.")
 
     def clean(self):
         """
@@ -99,3 +115,53 @@ class CharacterCreationForm(forms.ModelForm):
             if bg_combo == "2" and not cleaned_data.get("side_background_2"):
                 self.add_error("side_background_2", "This field is required when selecting 2 side backgrounds.")
         return cleaned_data
+# characters/forms.py
+from django import forms
+from .models import ClassFeature
+from .widgets import FormulaBuilderWidget
+
+# Pull these in just once so you don’t repeat them in two places:
+from characters.models import CharacterClass
+
+# build your var list here once:
+BASE_VARS = [
+    "level", "class_level", "proficiency_modifier",
+    # plus one “X_level” for each class:
+] + [cls.name.lower() + "_level" for cls in CharacterClass.objects.all()] + [
+    "reflex_save", "fortitude_save", "will_save",
+    "initiative", "perception", "dodge",
+    "spell_attack", "spell_dc", "weapon_attack",
+]
+
+DICE = ["d4","d6","d8","d10","d12","d20"]
+def build_variable_list():
+    base = [
+        "level","class_level","proficiency_modifier",
+        "hp","temp_hp",
+        "reflex_save","fortitude_save","will_save",
+        "initiative","perception","dodge",
+        "spell_attack","spell_dc","weapon_attack",
+    ]
+    base += [f"{cls.name.lower()}_level"
+             for cls in CharacterClass.objects.all()]
+    base +=BASE_VARS
+    return base
+# characters/forms.py
+from django import forms
+from .models import ClassFeature, CharacterClass
+from .widgets import FormulaBuilderWidget
+
+class ClassChoiceWithIDField(forms.ModelChoiceField):
+    def label_from_instance(self, obj):
+        # "WZ ‑ Wizard", "FD ‑ Fighter", etc.
+        return f"{obj.class_ID} – {obj.name}"
+    
+
+class Meta:
+    model  = ClassFeature
+    fields = "__all__"
+    widgets = {}          # ← leave empty; we assign in __init__
+
+    class Media:
+        js  = ("characters/js/formula_builder.js",)
+        css = {"all": ("characters/css/formula_builder.css",)}

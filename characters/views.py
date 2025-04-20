@@ -82,10 +82,92 @@ def create_character(request):
     
     return render(request, 'characters/create_character.html', {'form': form})
 
-
+@login_required
+def character_list(request):
+    characters = request.user.characters.all()
+    return render(request, 'characters/character_list.html', {'characters': characters})
 
 @login_required
 def character_detail(request, pk):
     # Ensure that the character belongs to the current user.
     character = get_object_or_404(Character, pk=pk, user=request.user)
     return render(request, 'characters/character_detail.html', {'character': character})
+
+
+from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib.auth.decorators import login_required
+from .models import Character, CharacterClass, ClassLevel, CharacterClassProgress
+from .forms import LevelUpForm
+
+@login_required
+def level_up(request, char_id):
+    character = get_object_or_404(Character, id=char_id, user=request.user)
+    form = LevelUpForm(request.POST or None, character=character)
+
+    # Determine default preview of next level features
+    if character.level == 0:
+        default_class = CharacterClass.objects.first()
+        next_lvl = 1
+    else:
+        first_prog = character.class_progress.first()
+        if first_prog:
+            default_class = first_prog.character_class
+            next_lvl = first_prog.levels + 1
+        else:
+            default_class = None
+            next_lvl = None
+    preview_features = []
+    if default_class and next_lvl:
+        try:
+            cl = ClassLevel.objects.get(character_class=default_class, level=next_lvl)
+            preview_features = cl.features
+        except ClassLevel.DoesNotExist:
+            preview_features = []
+
+    # Map feature tags to option lists when applicable
+    feature_options = {
+        'WZ11A': [
+            'Abjuration','Conjuration','Divination','Enchantment','Evocation',
+            'Illusion','Necromancy','Transmutation','War Magic','Biomancy',
+            'Chronology','Psionics','Elemental Magic','Battle Mages'
+        ]
+    }
+
+    # Handle form submission
+    if request.method == 'POST' and form.is_valid():
+        # First level assignment
+        if character.level == 0 and form.cleaned_data['base_class']:
+            cls = form.cleaned_data['base_class']
+            progress = CharacterClassProgress.objects.create(
+                character=character,
+                character_class=cls,
+                levels=1
+            )
+            cl = ClassLevel.objects.get(character_class=cls, level=1)
+            # TODO: apply cl.proficiency_tier & cl.features to character
+            character.level = 1
+            character.save()
+        # Adding a level to existing class
+        elif form.cleaned_data['advance_class']:
+            cls = form.cleaned_data['advance_class']
+            progress = CharacterClassProgress.objects.get(
+                character=character, character_class=cls
+            )
+            new_level = progress.levels + 1
+            cl = ClassLevel.objects.get(character_class=cls, level=new_level)
+            # TODO: apply cl.proficiency_tier & cl.features to character
+            progress.levels = new_level
+            progress.save()
+            character.level += 1
+            character.save()
+        return redirect('characters:character_detail', pk=character.pk)
+
+    context = {
+        'character': character,
+        'form': form,
+        'total_level': character.level,
+        'class_breakdown': character.class_progress.all(),
+        'preview_features': preview_features,
+        'feature_options': feature_options,
+    }
+    return render(request, 'characters/level_up.html', context)

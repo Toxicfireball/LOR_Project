@@ -210,7 +210,7 @@
     <div id="half-elf-origin-container" style="display:none; border:1px solid #ddd; padding:10px; background:#eef; margin-bottom:20px;">
       <h3>Choose Your Half-Elf Origin</h3>
       <p>Select one of the following: High Elf (+1 Int), Wood Elf (+1 Wis), or Dark Elf (+1 Str).</p>
-      <select id="half-elf-origin" name="half_elf_origin">
+      <select id="half-elf-origin" name="half_elf_origin" disabled>
         <option value="high">High Elf</option>
         <option value="wood">Wood Elf</option>
         <option value="dark">Dark Elf</option>
@@ -363,7 +363,7 @@ document.addEventListener("DOMContentLoaded", function() {
     "shurinese": { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 },
     "ferro": { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 },
     "unaligned": { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 },
-    "hill_dwarf": { "Strength": 1, "Dexterity": 0, "Constitution": 3, "Intelligence": 0, "Wisdom": 1, "Charisma": 0 },
+    "hill_dwarf": { "Strength": 1, "Dexterity": -1, "Constitution": 3, "Intelligence": 0, "Wisdom": 1, "Charisma": 0 },
     "mountain_dwarf": { "Strength": 2, "Dexterity": -1, "Constitution": 3, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 },
     "dwarf": { "Strength": 0, "Dexterity": 0, "Constitution": 3, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 },
     "high_elf": { "Strength": 0, "Dexterity": 3, "Constitution": -1, "Intelligence": 2, "Wisdom": 0, "Charisma": 0 },
@@ -913,14 +913,21 @@ if (side2Key && backgrounds[side2Key]) {
 
   // Update half-elf origin display.
   function updateHalfElfOriginDisplay() {
-    let raceValue = (document.getElementById("subrace-container").style.display !== "none") ?
-                     document.getElementById("subrace").value : document.getElementById("race").value;
-    if (raceValue === "half_elf_fully") {
-      document.getElementById("half-elf-origin-container").style.display = "block";
-    } else {
-      document.getElementById("half-elf-origin-container").style.display = "none";
-    }
+  const raceValue = (document.getElementById("subrace-container").style.display !== "none")
+    ? document.getElementById("subrace").value
+    : document.getElementById("race").value;
+  const container = document.getElementById("half-elf-origin-container");
+  const select    = document.getElementById("half-elf-origin");
+  if (raceValue === "half_elf_fully") {
+    container.style.display = "block";
+    select.disabled = false;
+  } else {
+    container.style.display = "none";
+    select.disabled = true;
+    select.value = "";    // clear any leftover value
   }
+}
+
 
   // Update main display: stats table, hidden inputs, and stage transitions.
   function updateDisplay() {
