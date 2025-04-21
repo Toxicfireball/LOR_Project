@@ -53,7 +53,9 @@ Development piorities
 
 ensure create_character.html can submit all data. Currently certain fields are not uploaded 
 to database
+
 ensure admin can create class, class features and ensure modularity and they can be for all cases
+
 ensure a type of class feature of feats can be connected to a google sheet
-add races into admin. So stage 1 character creation can display race traits using same format as
-class features. 
+
+add races into admin. So stage 1 character creation can display race traits using same format as class features. 
