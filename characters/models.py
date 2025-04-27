@@ -74,7 +74,6 @@ class SkillCategory(models.Model):
     def __str__(self):
         return self.name
 
-
 class SubSkill(models.Model):
     category = models.ForeignKey(SkillCategory, on_delete=models.CASCADE, related_name='subskills')
     name     = models.CharField(max_length=100)
@@ -104,6 +103,13 @@ class CharacterSkillProficiency(models.Model):
 # ------------------------------------------------------------------------------
 # Classes, Levels, Features
 # ------------------------------------------------------------------------------
+class ClassTag(models.Model):
+    name = models.CharField(max_length=50, unique=True)
+
+    def __str__(self):
+        return self.name
+
+
 class CharacterClass(models.Model):
     name        = models.CharField(max_length=100, unique=True)
     description = models.TextField(blank=True)
@@ -113,10 +119,88 @@ class CharacterClass(models.Model):
                       default=8,
                       help_text="Your class’s Hit Die"
                   )
-
+    tags = models.ManyToManyField(
+        'ClassTag',
+        blank=True,
+        related_name='classes',
+        help_text="High‑level archetype tags (e.g. Martial, Spellcaster…)"
+    )
     def __str__(self):
         return self.name
+    
+class SubclassGroup(models.Model):
+    character_class = models.ForeignKey(
+        CharacterClass,
+        on_delete=models.CASCADE,
+        related_name="subclass_groups",
+    )
 
+    SYSTEM_LINEAR         = "linear"
+    SYSTEM_MODULAR_LINEAR = "modular_linear"
+    SYSTEM_MODULAR_MASTERY= "modular_mastery"
+
+    SYSTEM_CHOICES = [
+        (SYSTEM_LINEAR,          "Linear (fixed level)"),
+        (SYSTEM_MODULAR_LINEAR,  "Modular Linear (tiered)"),
+        (SYSTEM_MODULAR_MASTERY, "Modular Mastery (pick & master)"),
+    ]
+
+    system_type = models.CharField(
+        max_length=20,
+        choices=SYSTEM_CHOICES,
+        default=SYSTEM_LINEAR,
+    )    
+    name  = models.CharField(max_length=100, help_text="Umbrella / Order name (e.g. Moon Circle)")
+    code        = models.CharField(max_length=20, blank=True)
+    class Meta:
+        unique_together = ("character_class", "name")
+        ordering        = ["character_class", "name"]
+    def __str__(self):
+        return f"{self.character_class.name} – {self.name}"
+
+
+
+class ClassSubclass(models.Model):
+    """Optional ‘archetype’ or specialization of a base CharacterClass."""
+
+    group       = models.ForeignKey(
+        SubclassGroup,
+        on_delete=models.CASCADE,
+        related_name="subclasses",
+        blank=True, null=True,
+        help_text="Which umbrella / order this belongs to"
+    )
+
+    base_class  = models.ForeignKey(
+        CharacterClass,
+        on_delete=models.CASCADE,
+        related_name='subclasses',
+    )
+    name        = models.CharField(max_length=100)
+    description = models.CharField(max_length=100, blank=True, null=True)
+    code        = models.CharField(
+        max_length=20,
+        blank=True,
+        help_text="Optional shorthand code for this subclass"
+    )
+
+    # ← NEW
+
+    modular_rules = models.JSONField(
+        blank=True, null=True,
+        help_text=(
+            "Extra numbers for modular systems.  "
+            "eg. {\"modules_per_mastery\":2, \"ability_req\":{\"0\":13,\"1\":15}}"
+        )
+    )
+    @property
+    def system_type(self):
+        return self.group.system_type if self.group else None
+    class Meta:
+        unique_together = ('base_class', 'name')
+
+    def __str__(self):
+        return f"{self.base_class.name} – {self.name}"
 
 class ProficiencyTier(models.Model):
     """
@@ -160,6 +244,9 @@ class CharacterClassProgress(models.Model):
     def __str__(self):
         return f"{self.character.name} – {self.character_class.name} L{self.levels}"
 
+# models.py
+
+
 
 class ClassFeature(models.Model):
     # ← new!
@@ -171,15 +258,18 @@ class ClassFeature(models.Model):
         null=True,    # ← allow existing rows to be empty
         blank=True,
     )
-    FEAT_TYPE_CHOICES = [
-        ('Class Trait', 'Class Trait'),
-        ('class', 'Class feat'),
-        ('skill', 'Skill feat'),
+    FEATURE_TYPE_CHOICES = [
+        ("class_trait",   "Class Trait"),
+        ("class_feat",    "Class Feat"),
+        ("skill_feat",    "Skill Feat"),
+        ("martial_mastery","Martial Mastery"),
+        ("subclass_choice","Subclass Choice"),   # new
+        ("subclass_feat", "Subclass Feature"),   # renamed for clarity
     ]
-    feat_type       = models.CharField(
+    feature_type       = models.CharField(
         max_length=100,
-        choices=FEAT_TYPE_CHOICES,
-        default='class',
+        choices=FEATURE_TYPE_CHOICES,
+        default='class_feat',
         help_text="Type of trait"
     )
     code        = models.CharField(max_length=10, unique=True)
@@ -202,6 +292,20 @@ class ClassFeature(models.Model):
         blank=True,
         help_text="How many times? e.g. 'level', '1', 'level/3 round down +1'"
     )
+    subclass_group = models.ForeignKey(
+        SubclassGroup,
+        on_delete=models.CASCADE,
+        blank=True, null=True,
+        related_name="choice_features",
+        help_text="For a subclass_choice, pick the umbrella shown to the player."
+    )
+    subclasses = models.ManyToManyField(
+        ClassSubclass,
+        blank=True,
+        related_name="features",
+        help_text="For subclass_feat, which subclasses receive this?",
+    )
+    
     FORMULA_TARGETS =  [
         ("acrobatics",     "Acrobatics (DEX)"),
         ("animal_handling","Animal Handling (WIS)"),
