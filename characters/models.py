@@ -355,10 +355,12 @@ class ClassFeature(models.Model):
       # … add whatever else you need …
     ]
     formula_target = models.CharField(
-       max_length=20,
-       choices=FORMULA_TARGETS,
-       default='attack_roll',
-       help_text="What kind of roll this formula is used for"
+        max_length=20,
+        choices=FORMULA_TARGETS,
+        blank=True,         # allow it to be left blank in forms
+        null=True,          # allow NULL in the database
+        default=None,       # default to NULL instead of a fixed choice
+        help_text="What kind of roll this formula is used for (optional)"
     )
 
 
