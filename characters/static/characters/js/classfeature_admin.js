@@ -1,36 +1,35 @@
 // characters/static/characters/js/classfeature_admin.js
 window.addEventListener("DOMContentLoaded", function(){
-  console.log("▶️ toggleSubs init");
+  const ftype      = document.getElementById("id_feature_type");
+  const subRow     = document.querySelector(".form-row.field-subclasses");
+  const groupRow   = document.querySelector(".form-row.field-subclass_group");
 
-  // 1) find the <select> and the wrapping <div>
-  const ftype  = document.getElementById("id_feature_type");
-  const subRow = document.querySelector(".form-row.field-subclasses");
+  const canRow     = document.querySelector(".form-row.field-cantrips_formula");
+  const knownRow   = document.querySelector(".form-row.field-spells_known_formula");
+  const slotGroup  = document.getElementById("spell_slot_rows-group");
 
-  console.log(" feature_type select:", ftype);
-  console.log(" subclasses wrapper:", subRow);
+  function toggleAll(){
+    const val       = ftype.value;
+    // also show for subclass_choice
+    const showSubs  = (val === "subclass_feat"  ||  val === "subclass_choice");
+    const showTable = (val === "spell_table");
 
-  if (!ftype || !subRow) {
-    console.warn("Toggle script couldn't find the elements.");
-    return;
-  }
+    if (subRow)   subRow.style.display   = showSubs  ? "" : "none";
+    if (groupRow) groupRow.style.display = showSubs  ? "" : "none";
 
-  // 2) show/hide and clear the M2M if needed
-  function toggleSubclasses(){
-    console.log(" toggleSubclasses() →", ftype.value);
-    if (ftype.value === "subclass_feat") {
-      subRow.style.display = "";
-    } else {
-      subRow.style.display = "none";
-      // clear any chosen options
-      subRow.querySelectorAll("select option[selected]").forEach(opt => {
-        opt.selected = false;
-      });
+    if (canRow)   canRow.style.display   = showTable ? "" : "none";
+    if (knownRow) knownRow.style.display = showTable ? "" : "none";
+    if (slotGroup)slotGroup.style.display= showTable ? "" : "none";
+
+    if (!showSubs && subRow) {
+      subRow.querySelectorAll("select option:checked")
+            .forEach(o=>o.selected = false);
     }
   }
 
-  // 3) wire it up
-  ftype.addEventListener("change", toggleSubclasses);
+  ftype.addEventListener("change", toggleAll);
+  toggleAll();
 
-  // 4) initial run
-  toggleSubclasses();
+  const umbrella = document.getElementById("id_subclass_group");
+  if (umbrella) umbrella.addEventListener("change", ()=>umbrella.form.submit());
 });

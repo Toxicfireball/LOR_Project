@@ -265,7 +265,16 @@ class ClassFeature(models.Model):
         ("martial_mastery","Martial Mastery"),
         ("subclass_choice","Subclass Choice"),   # new
         ("subclass_feat", "Subclass Feature"),   # renamed for clarity
+       ("spell_table",    "Spell Slot Table"),
     ]
+    cantrips_formula    = models.CharField(
+        max_length=100, blank=True,
+        help_text="Formula for number of cantrips known per class level, e.g. '1 + level//4'"
+    )
+    spells_known_formula = models.CharField(
+        max_length=100, blank=True,
+        help_text="Formula for number of spells known per class level, e.g. '2 + level//2'"
+    )
     feature_type       = models.CharField(
         max_length=100,
         choices=FEATURE_TYPE_CHOICES,
@@ -367,7 +376,38 @@ class ClassFeature(models.Model):
     def __str__(self):
         return f"{self.character_class.name}: {self.code} – {self.name}"
 
+class SpellSlotRow(models.Model):
+    """
+    One row per (spell_table feature × character level),
+    with up to 10 slot columns.
+    """
+    feature = models.ForeignKey(
+        ClassFeature,
+        on_delete=models.CASCADE,
+        related_name="spell_slot_rows"
+    )
+    level = models.PositiveSmallIntegerField(
+        choices=[(i, f"Level {i}") for i in range(1,21)],
+        help_text="Character level"
+    )
+    # up to 10 ranks of slots
+    slot1 = models.PositiveSmallIntegerField(default=0, help_text="1st-rank slots")
+    slot2 = models.PositiveSmallIntegerField(default=0, help_text="2nd-rank slots")
+    slot3 = models.PositiveSmallIntegerField(default=0, help_text="3rd-rank slots")
+    slot4 = models.PositiveSmallIntegerField(default=0, help_text="4th-rank slots")
+    slot5 = models.PositiveSmallIntegerField(default=0, help_text="5th-rank slots")
+    slot6 = models.PositiveSmallIntegerField(default=0, help_text="6th-rank slots")
+    slot7 = models.PositiveSmallIntegerField(default=0, help_text="7th-rank slots")
+    slot8 = models.PositiveSmallIntegerField(default=0, help_text="8th-rank slots")
+    slot9 = models.PositiveSmallIntegerField(default=0, help_text="9th-rank slots")
+    slot10 = models.PositiveSmallIntegerField(default=0, help_text="10th-rank slots")
 
+    class Meta:
+        unique_together = ("feature", "level")
+        ordering        = ["level"]
+
+    def __str__(self):
+        return f"{self.feature.code} @ L{self.level}"
 
 class FeatureOption(models.Model):
     feature        = models.ForeignKey(
