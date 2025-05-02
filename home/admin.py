@@ -20,7 +20,7 @@ from characters.models import (
 from django.contrib.admin.widgets import FilteredSelectMultiple
 from characters.widgets import FormulaBuilderWidget, CharacterClassSelect
 
-
+from django.shortcuts import get_object_or_404
 
 class SubclassGroupForm(forms.ModelForm):
     """
@@ -95,7 +95,28 @@ class ClassProficiencyProgressInline(admin.TabularInline):
 
 
 
+class ClassSubclassForm(forms.ModelForm):
+    class Meta:
+        model = ClassSubclass
+        fields = "__all__"
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # figure out which base_class is in play (either from POST or from the instance)
+        base_cls_id = (
+            self.data.get("base_class")
+            or getattr(self.instance, "base_class_id", None)
+        )
+
+        if base_cls_id:
+            # limit the group choices to exactly those SubclassGroups for that CharacterClass
+            self.fields["group"].queryset = SubclassGroup.objects.filter(
+                character_class_id=base_cls_id
+            )
+        else:
+            # no class selected yet → no group choices
+            self.fields["group"].queryset = SubclassGroup.objects.none()
 
 
 class ClassLevelFeatureInline(admin.TabularInline):
@@ -120,24 +141,50 @@ class ClassTagAdmin(admin.ModelAdmin):
     search_fields  = ('name',)
 
 
+# characters/admin.py
+# characters/admin.py
+from django.contrib import admin
+
+# characters/admin.py
+
+
 @admin.register(ClassSubclass)
 class ClassSubclassAdmin(admin.ModelAdmin):
-    list_display  = ("base_class", "name", "group", "system_type", "code")
-    list_filter   = ("base_class", "group", "group__system_type")
-    search_fields = ("name", "code")
+    form = ClassSubclassForm
+    list_display  = ("base_class","name","group","system_type","code")
+    list_filter   = ("base_class","group__system_type","group")
+    search_fields = ("name","code")
     list_editable = ("group",)
-    def get_system_type(self, obj):
-        return getattr(obj.group, "system_type", "—")
-    
-    # ── filters ───────────────────────────────────────────
-    list_filter  = (
-        "base_class",
-        ("group__system_type", admin.ChoicesFieldListFilter),  # filter by umbrella’s type
-        "group",
-    )
+    class Media:
+        js = ("characters/js/classsubclass_admin.js",)
 
-    search_fields = ("name", "code")
-    list_editable = ("group",)   
+    def get_form(self, request, obj=None, **kwargs):
+        Base = super().get_form(request, obj, **kwargs)
+        # look in POST *or* GET *or* fallback to the instance
+        base_pk = (
+            request.POST.get("base_class")
+            or request.GET.get("base_class")
+            or (obj.base_class_id if obj else None)
+        )
+
+        class ChainedForm(Base):
+            def __init__(self, *a, **kw):
+                super().__init__(*a, **kw)
+                if base_pk:
+                    self.fields["group"].queryset = SubclassGroup.objects.filter(
+                        character_class_id=base_pk
+                    )
+                else:
+                    self.fields["group"].queryset = SubclassGroup.objects.none()
+
+        return ChainedForm
+
+
+        return ChainedForm        
+
+
+
+
 class SubclassGroupInline(admin.TabularInline):
     model  = SubclassGroup
     extra  = 1
@@ -377,6 +424,7 @@ class ClassFeatureAdmin(admin.ModelAdmin):
         "uses",
         "cantrips_formula",
         "spells_known_formula",
+         "modify_proficiency_target", "modify_proficiency_amount",
     ]
     def get_fieldsets(self, request, obj=None):
         # determine the feature_type (None on initial GET)
