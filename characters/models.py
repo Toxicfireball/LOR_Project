@@ -177,7 +177,7 @@ class ClassSubclass(models.Model):
         related_name='subclasses',
     )
     name        = models.CharField(max_length=100)
-    description = models.CharField(max_length=100, blank=True, null=True)
+    description = models.CharField(max_length=1000, blank=True, null=True)
     code        = models.CharField(
         max_length=20,
         blank=True,
@@ -266,7 +266,20 @@ class ClassFeature(models.Model):
         ("subclass_choice","Subclass Choice"),   # new
         ("subclass_feat", "Subclass Feature"),   # renamed for clarity
        ("spell_table",    "Spell Slot Table"),
+       ("modify_proficiency", "Modify Proficiency"),
     ]
+    modify_proficiency_target = models.CharField(
+        max_length=20,
+        choices=PROFICIENCY_TYPES,
+        blank=True,
+        help_text="Which proficiency to modify"
+    )
+    # amount – either absolute tier or “+1”, “-2”, etc.
+    modify_proficiency_amount = models.CharField(
+        max_length=10,
+        blank=True,
+        help_text="Tier name or +/- adjustment (e.g. '+1', 'Expert')"
+    )
     cantrips_formula    = models.CharField(
         max_length=100, blank=True,
         help_text="Formula for number of cantrips known per class level, e.g. '1 + level//4'"
