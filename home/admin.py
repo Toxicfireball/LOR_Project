@@ -15,10 +15,12 @@ from characters.models import (
     FeatureOption,
     SubclassGroup,
     SpellSlotRow , 
+    ResourceType, ClassResource, CharacterResource
 )
 
 from django.contrib.admin.widgets import FilteredSelectMultiple
 from characters.widgets import FormulaBuilderWidget, CharacterClassSelect
+from characters.models import ResourceType, ClassResource, CharacterResource
 
 from django.shortcuts import get_object_or_404
 
@@ -91,6 +93,7 @@ class ClassProficiencyProgressInline(admin.TabularInline):
     model  = ClassProficiencyProgress
     extra  = 1
     fields = ('proficiency_type', 'at_level', 'tier')
+
 
 
 
@@ -191,17 +194,7 @@ class SubclassGroupInline(admin.TabularInline):
     fields = ("name", "code", "system_type")   # ← added
 # ─── CharacterClass, Tiers & Levels ─────────────────────────────────────────────
 
-@admin.register(CharacterClass)
-class CharacterClassAdmin(admin.ModelAdmin):
-    list_display      = ('name', 'hit_die', 'class_ID')
-    search_fields     = ('name', 'tags__name')
-    list_filter       = ('tags',)
-    inlines = (
-        ClassProficiencyProgressInline,
-        SubclassGroupInline,     # <- newly added
-    )
 
-    filter_horizontal = ('tags',)
 
 
 @admin.register(ProficiencyTier)
@@ -228,6 +221,17 @@ VARS = [
     "initiative","weapon_attack","spell_attack","spell_dc",
     "perception","dodge",
 ]
+class ClassResourceForm(forms.ModelForm):
+    class Meta:
+        model = ClassResource
+        fields = ("resource_type", "formula")
+        widgets = {
+            "formula": FormulaBuilderWidget(
+                variables=VARS + [f"{rt.code}_points" for rt in ResourceType.objects.all()],
+                dice=DICE,
+                attrs={"rows":2, "cols":40},
+            )
+        }
 
 class ClassFeatureForm(forms.ModelForm):
     class Meta:
@@ -236,6 +240,7 @@ class ClassFeatureForm(forms.ModelForm):
         labels = {
             "character_class": "Applies To Class",
             "feature_type":    "Feature Category",
+            "activity_type":  "Active / Passive",
             "subclass_group":  "Umbrella (if subclass-related)",
             "subclasses":      "Which Subclasses",
             "code":            "Unique Code",
@@ -254,6 +259,7 @@ class ClassFeatureForm(forms.ModelForm):
                 "• subclass_choice: present options from umbrella\n"
                 "• subclass_feat: actual subclass-specific feature"
             ),
+            "activity_type": "Select active (uses) or passive (static bonus).",
             "subclass_group":  (
                 "If this is a subclass_choice or subclass_feat, pick the umbrella here."
             ),
@@ -279,6 +285,43 @@ class ClassFeatureForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        # 1) build the “static” variable list you already have:
+        from characters.models import CharacterClass
+        DICE = ["d4","d6","d8","d10","d12","d20"]
+        base_vars = [
+            "level", "class_level", "proficiency_modifier",
+            "hp", "temp_hp",
+        ] + [f"{cls.name.lower()}_level"
+            for cls in CharacterClass.objects.all()
+        ] + [
+            "reflex_save","fortitude_save","will_save",
+            "initiative","weapon_attack","spell_attack","spell_dc",
+            "perception","dodge",
+        ]
+
+        # 2) only the resources defined on *this* class:
+        from characters.models import ClassResource
+        # try POST (new) or existing instance
+        cls_id = self.data.get("character_class") or getattr(self.instance, "character_class_id", None)
+        if cls_id:
+            resource_qs = ClassResource.objects.filter(character_class_id=cls_id)
+            resource_vars = [f"{cr.resource_type.code}_points" for cr in resource_qs]
+        else:
+            resource_vars = []
+        
+        all_vars = base_vars + resource_vars
+        # 3) reassign your FormulaBuilderWidgets:
+        self.fields["formula"].widget = FormulaBuilderWidget(
+            variables=all_vars,
+            dice=DICE,
+            attrs={"rows":4, "cols":40}
+        )
+        self.fields["uses"].widget = FormulaBuilderWidget(
+            variables=all_vars,
+            dice=DICE,
+            attrs={"rows":4, "cols":40}
+        )
 
         # chain subclasses → based on subclass_group, or fallback to class
         if "subclasses" in self.fields:
@@ -394,6 +437,10 @@ class SpellSlotRowInline(admin.TabularInline):
 
 
 
+@admin.register(ResourceType)
+class ResourceTypeAdmin(admin.ModelAdmin):
+    list_display = ("code", "name")
+    search_fields = ("code", "name")
 
 
 
@@ -407,12 +454,13 @@ class ClassFeatureAdmin(admin.ModelAdmin):
         'formula','uses',
     )
     list_filter  = ('character_class','feature_type','subclass_group',)
-
+    autocomplete_fields = ('subclasses',)
     # 1) our core fields (must include subclasses!)
 
     base_fields = [
         "character_class",
         "feature_type",
+        "activity_type",
         "subclass_group",
         "subclasses",
         "code",
@@ -450,9 +498,36 @@ class ClassFeatureAdmin(admin.ModelAdmin):
             fields += ["cantrips_formula", "spells_known_formula"]
 
         return [(None, {"fields": fields})]
+    def formfield_for_manytomany(self, db_field, request, **kwargs):
+        """
+        Whenever Django renders the 'subclasses' m2m widget,
+        filter its queryset to the selected subclass_group.
+        """
+        if db_field.name == "subclasses":
+            # Try POST (on auto-submit) or GET (on reload)
+            group_id = request.POST.get("subclass_group") or request.GET.get("subclass_group")
+            if group_id:
+                kwargs["queryset"] = ClassSubclass.objects.filter(group_id=group_id)
+            else:
+                kwargs["queryset"] = ClassSubclass.objects.none()
+        return super().formfield_for_manytomany(db_field, request, **kwargs)
+    def get_inline_instances(self, request, obj=None):
+        """
+        Only filter out the FeatureOptionInline on POST.
+        On GET we always include it so the JS can hide/show it.
+        """
+        inline_instances = super().get_inline_instances(request, obj)
 
+        if request.method == "POST":
+            # checkbox values can come through as "on", "true", "1"
+            has_opt = request.POST.get("has_options") in ("true", "on", "1")
+            if not has_opt:
+                inline_instances = [
+                    inst for inst in inline_instances
+                    if not isinstance(inst, FeatureOptionInline)
+                ]
 
-
+        return inline_instances
 
 
     class Media:
@@ -465,6 +540,25 @@ class ClassFeatureAdmin(admin.ModelAdmin):
         }
 
 
+    
+class ClassResourceInline(admin.TabularInline):
+    model = ClassResource
+    form  = ClassResourceForm
+    extra = 1
+    fields = ("resource_type","formula")
+    # no more max_points here!
+@admin.register(CharacterClass)
+class CharacterClassAdmin(admin.ModelAdmin):
+    list_display      = ('name', 'hit_die', 'class_ID')
+    search_fields     = ('name', 'tags__name')
+    list_filter       = ('tags',)
+    inlines = [
+        ClassProficiencyProgressInline,
+        SubclassGroupInline,
+        ClassResourceInline,     # ← add this
+    ]
+
+    filter_horizontal = ('tags',)   
 @admin.register(SubclassGroup)
 class SubclassGroupAdmin(admin.ModelAdmin):
     form         = SubclassGroupForm

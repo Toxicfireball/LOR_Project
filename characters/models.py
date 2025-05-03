@@ -150,6 +150,10 @@ class SubclassGroup(models.Model):
         choices=SYSTEM_CHOICES,
         default=SYSTEM_LINEAR,
     )    
+    modular_rules = models.JSONField(
+    blank=True, null=True,
+    help_text="Extra numbers for modular systems (e.g. {modules_per_mastery:2, max_mastery_3:1})"
+)
     name  = models.CharField(max_length=100, help_text="Umbrella / Order name (e.g. Moon Circle)")
     code        = models.CharField(max_length=20, blank=True)
     class Meta:
@@ -294,6 +298,16 @@ class ClassFeature(models.Model):
         default='class_feat',
         help_text="Type of trait"
     )
+    ACTIVITY_CHOICES = [
+        ("active",  "Active"),
+        ("passive", "Passive"),
+    ]
+    activity_type = models.CharField(
+        max_length=7,
+        choices=ACTIVITY_CHOICES,
+        default="active",
+        help_text="For class_trait & subclass_choice: active consumes uses; passive is static."
+    )
     code        = models.CharField(max_length=10, unique=True)
     name        = models.CharField(max_length=100)
     description = models.TextField(blank=True)
@@ -388,6 +402,66 @@ class ClassFeature(models.Model):
 
     def __str__(self):
         return f"{self.character_class.name}: {self.code} – {self.name}"
+class ResourceType(models.Model):
+    """
+    A kind of pool: bloodline points, nature points, rage points, etc.
+    """
+    code = models.SlugField(
+        max_length=50,
+        unique=True,
+        help_text="Identifier for formulas, e.g. 'bloodline_points'"
+    )
+    name = models.CharField(max_length=100)
+
+    def __str__(self):
+        return self.name
+
+
+class ClassResource(models.Model):
+    """
+    “Wizard gets Arcane Points,” “Druid gets Nature Points,” etc.
+    Default points per class level, and optional cap.
+    """
+    character_class   = models.ForeignKey(
+        CharacterClass,
+        on_delete=models.CASCADE,
+        related_name="resources"
+    )
+    resource_type     = models.ForeignKey(ResourceType, on_delete=models.CASCADE)
+    formula = models.CharField(
+        max_length=100,
+       blank=True,
+        help_text=(
+          "Formula for how many points this class grants at a given level, "
+          "e.g. 'ceil(level/2) + strength_modifier', "
+          "or 'floor(level/3)+1', etc."
+        )
+    )
+    max_points        = models.IntegerField(
+        default=0,
+        help_text="Maximum pool size (0 = no cap)"
+    )
+
+    class Meta:
+        unique_together = ("character_class", "resource_type")
+
+    def __str__(self):
+        return f"{self.character_class.name} → {self.resource_type.code}"
+
+
+class CharacterResource(models.Model):
+    """
+    Tracks each character’s current and max points of a given ResourceType.
+    """
+    character     = models.ForeignKey(Character, on_delete=models.CASCADE, related_name="pools")
+    resource_type = models.ForeignKey(ResourceType, on_delete=models.CASCADE)
+    current       = models.IntegerField(default=0)
+
+    class Meta:
+        unique_together = ("character", "resource_type")
+
+    def __str__(self):
+        return f"{self.character.name}: {self.resource_type.code} {self.current}/{self.maximum}"
 
 class SpellSlotRow(models.Model):
     """

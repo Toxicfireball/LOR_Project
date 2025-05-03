@@ -1,0 +1,13 @@
+.formula-builder { margin-bottom: 1em; }
+.fb-pills { margin-bottom: .5em; }
+.fb-pill {
+  display: inline-block;
+  margin: 2px;
+  padding: 2px 6px;
+  background: #444;
+  color: white;
+  border-radius: 3px;
+  font-size: 0.9em;
+  cursor: pointer;
+}
+.fb-pill:hover { background: #666; }
