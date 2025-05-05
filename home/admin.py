@@ -250,6 +250,8 @@ class ClassFeatureForm(forms.ModelForm):
             "formula":         "Dice Formula",
             "uses":            "Usage Frequency",
             "formula_target":  "Roll Type",
+              "action_type": "Action Required",
+              "modify_proficiency_amount": "Override Proficiency Tier",
         }
         help_texts = {
             "character_class": "Which CharacterClass grants this feature.",
@@ -272,6 +274,8 @@ class ClassFeatureForm(forms.ModelForm):
             "formula":         "Dice+attribute expression, e.g. '1d10+level'.",
             "uses":            "How many times? e.g. 'level/3 round down +1'.",
             "formula_target":  "What kind of roll this formula applies to.",
+            "modify_proficiency_amount": "Select the tier you want instead of the character’s base.",
+                      "action_type": "Choose whether this ability takes your Action, Bonus Action or Reaction."
         }
         widgets = {
             "character_class": CharacterClassSelect(),
@@ -279,6 +283,9 @@ class ClassFeatureForm(forms.ModelForm):
             "uses":            FormulaBuilderWidget(variables=VARS, dice=DICE, attrs={"rows":4,"cols":40}),
             "cantrips_formula":    FormulaBuilderWidget(variables=VARS, dice=DICE, attrs={"rows":2,"cols":40}),
             "spells_known_formula": FormulaBuilderWidget(variables=VARS, dice=DICE, attrs={"rows":2,"cols":40}),
+            "spells_prepared_formula": FormulaBuilderWidget(variables=VARS, dice=DICE, attrs={"rows":2,"cols":40}),
+
+
             "subclasses": FilteredSelectMultiple("Subclasses", is_stacked=True),
 
         }
@@ -286,13 +293,22 @@ class ClassFeatureForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # 1) build the “static” variable list you already have:
-        from characters.models import CharacterClass
+        # 1) hide action_type if the form actually has it
+        if "action_type" in self.fields:
+            if (
+                self.data.get("activity_type") != "active"
+                and getattr(self.instance, "activity_type", None) != "active"
+            ):
+                self.fields["action_type"].widget = forms.HiddenInput()
+
+        # 2) build your variable list exactly as before…
+        from characters.models import CharacterClass, ClassResource
         DICE = ["d4","d6","d8","d10","d12","d20"]
         base_vars = [
             "level", "class_level", "proficiency_modifier",
             "hp", "temp_hp",
-        ] + [f"{cls.name.lower()}_level"
+        ] + [
+            f"{cls.name.lower()}_level"
             for cls in CharacterClass.objects.all()
         ] + [
             "reflex_save","fortitude_save","will_save",
@@ -300,41 +316,47 @@ class ClassFeatureForm(forms.ModelForm):
             "perception","dodge",
         ]
 
-        # 2) only the resources defined on *this* class:
-        from characters.models import ClassResource
-        # try POST (new) or existing instance
-        cls_id = self.data.get("character_class") or getattr(self.instance, "character_class_id", None)
+        cls_id = (
+            self.data.get("character_class")
+            or getattr(self.instance, "character_class_id", None)
+        )
         if cls_id:
-            resource_qs = ClassResource.objects.filter(character_class_id=cls_id)
+            resource_qs   = ClassResource.objects.filter(character_class_id=cls_id)
             resource_vars = [f"{cr.resource_type.code}_points" for cr in resource_qs]
         else:
             resource_vars = []
-        
-        all_vars = base_vars + resource_vars
-        # 3) reassign your FormulaBuilderWidgets:
-        self.fields["formula"].widget = FormulaBuilderWidget(
-            variables=all_vars,
-            dice=DICE,
-            attrs={"rows":4, "cols":40}
-        )
-        self.fields["uses"].widget = FormulaBuilderWidget(
-            variables=all_vars,
-            dice=DICE,
-            attrs={"rows":4, "cols":40}
-        )
 
-        # chain subclasses → based on subclass_group, or fallback to class
+        all_vars = base_vars + resource_vars
+
+        # 3) only override the widget if those fields survived your get_fieldsets
+        if "formula" in self.fields:
+            self.fields["formula"].widget = FormulaBuilderWidget(
+                variables=all_vars, dice=DICE, attrs={"rows":4,"cols":40}
+            )
+        if "uses" in self.fields:
+            self.fields["uses"].widget = FormulaBuilderWidget(
+                variables=all_vars, dice=DICE, attrs={"rows":4,"cols":40}
+            )
+
+        # 4) chain subclasses only if that M2M was included
         if "subclasses" in self.fields:
-            group_id = self.data.get("subclass_group") or getattr(
-                self.instance, "subclass_group_id", None
+            group_id = (
+                self.data.get("subclass_group")
+                or getattr(self.instance, "subclass_group_id", None)
             )
             if group_id:
                 qs = ClassSubclass.objects.filter(group_id=group_id)
             else:
-                cls_id = self.data.get("character_class") or getattr(
-                    self.instance, "character_class_id", None
+                base_cls = (
+                    self.data.get("character_class")
+                    or getattr(self.instance, "character_class_id", None)
                 )
-                qs = ClassSubclass.objects.filter(base_class_id=cls_id) if cls_id else ClassSubclass.objects.none()
+                qs = ClassSubclass.objects.filter(base_class_id=base_cls) if base_cls else ClassSubclass.objects.none()
+
+            self.fields["subclasses"].queryset = qs
+            self.fields["subclasses"].widget.attrs.update({
+                "style":"width:30em;height:15em;", "size":10
+            })
             self.fields["subclasses"].queryset = qs
             w = self.fields["subclasses"].widget
             w.attrs.update({"style": "width:30em; height:15em;", "size": 10})
@@ -342,7 +364,8 @@ class ClassFeatureForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
-        ft = self.data.get("feature_type") or getattr(self.instance, "feature_type", None)        
+        ft = cleaned.get("kind") or getattr(self.instance, "kind", None)   
+        scope = cleaned.get("scope")     
         grp = cleaned.get("subclass_group")
 
         # enforce modular_mastery rules entirely from JSON
@@ -383,13 +406,18 @@ class ClassFeatureForm(forms.ModelForm):
                     )
 
         # ensure only subclass-feat may set subclass_group
-        if ft == 'subclass_feat' and not grp:
-            self.add_error('subclass_group',
-                           "Pick an umbrella for subclass_feat features.")
-        if ft != 'subclass_feat' and grp:
-            self.add_error('subclass_group',
-                           "Only subclass_feat may set a subclass-umbrella.")
+        if scope in ("subclass_choice", "subclass_feat") and not grp:
+            self.add_error(
+                "subclass_group",
+                "Pick an umbrella for subclass_choice or subclass_feat features."
+            )
 
+        # forbid umbrella everywhere else
+        if grp and scope not in ("subclass_choice", "subclass_feat"):
+            self.add_error(
+                "subclass_group",
+                "Only subclass_choice or subclass_feat may set a subclass-umbrella."
+            )
         return cleaned
 
 
@@ -449,18 +477,20 @@ class ClassFeatureAdmin(admin.ModelAdmin):
     form         = ClassFeatureForm
     inlines      = [FeatureOptionInline, SpellSlotRowInline]
     list_display = (
-        'character_class','feature_type','subclass_group',
+        'character_class','scope','kind','subclass_group',
         'code','name','formula_target','has_options',
         'formula','uses',
     )
-    list_filter  = ('character_class','feature_type','subclass_group',)
+
+    list_filter  = ('character_class','scope','kind','subclass_group',)
     autocomplete_fields = ('subclasses',)
     # 1) our core fields (must include subclasses!)
-
     base_fields = [
         "character_class",
-        "feature_type",
+        "scope",      # ← new
+        "kind",       # ← new
         "activity_type",
+        "action_type",  # ← ADD THIS LINE
         "subclass_group",
         "subclasses",
         "code",
@@ -472,63 +502,29 @@ class ClassFeatureAdmin(admin.ModelAdmin):
         "uses",
         "cantrips_formula",
         "spells_known_formula",
-         "modify_proficiency_target", "modify_proficiency_amount",
+        "spells_prepared_formula",   # ← add this here
+        "modify_proficiency_target",
+        "modify_proficiency_amount",
+        
     ]
+# characters/admin.py
+
     def get_fieldsets(self, request, obj=None):
-        # determine the feature_type (None on initial GET)
-        if request.method == "POST":
-            ft = request.POST.get("feature_type")
-        elif obj:
-            ft = obj.feature_type
-        else:
-            ft = None
+        return [(None, {"fields": self.base_fields})]
 
-        # start with all core fields (including "subclasses")
-        fields = self.base_fields[:]
 
-        # if it's actually a subclass_feat, move subclasses next to code
-        if ft == "subclass_feat":
-            # ensure it's present, then reposition
-            if "subclasses" in fields:
-                fields.remove("subclasses")
-            fields.insert(fields.index("code"), "subclasses")
 
-        # only show these formulas if it's a spell table
-        if ft == "spell_table":
-            fields += ["cantrips_formula", "spells_known_formula"]
-
-        return [(None, {"fields": fields})]
-    def formfield_for_manytomany(self, db_field, request, **kwargs):
-        """
-        Whenever Django renders the 'subclasses' m2m widget,
-        filter its queryset to the selected subclass_group.
-        """
-        if db_field.name == "subclasses":
-            # Try POST (on auto-submit) or GET (on reload)
-            group_id = request.POST.get("subclass_group") or request.GET.get("subclass_group")
-            if group_id:
-                kwargs["queryset"] = ClassSubclass.objects.filter(group_id=group_id)
-            else:
-                kwargs["queryset"] = ClassSubclass.objects.none()
-        return super().formfield_for_manytomany(db_field, request, **kwargs)
     def get_inline_instances(self, request, obj=None):
-        """
-        Only filter out the FeatureOptionInline on POST.
-        On GET we always include it so the JS can hide/show it.
-        """
-        inline_instances = super().get_inline_instances(request, obj)
-
+        inlines = super().get_inline_instances(request, obj)
+        # if they haven’t checked “has_options” don’t show the FeatureOptionInline
         if request.method == "POST":
-            # checkbox values can come through as "on", "true", "1"
-            has_opt = request.POST.get("has_options") in ("true", "on", "1")
-            if not has_opt:
-                inline_instances = [
-                    inst for inst in inline_instances
-                    if not isinstance(inst, FeatureOptionInline)
+            want = request.POST.get("has_options") in ("1","true","on")
+            if not want:
+                inlines = [
+                    i for i in inlines
+                    if not isinstance(i, FeatureOptionInline)
                 ]
-
-        return inline_instances
-
+        return inlines
 
     class Media:
         js = (
@@ -559,6 +555,7 @@ class CharacterClassAdmin(admin.ModelAdmin):
     ]
 
     filter_horizontal = ('tags',)   
+
 @admin.register(SubclassGroup)
 class SubclassGroupAdmin(admin.ModelAdmin):
     form         = SubclassGroupForm
@@ -587,3 +584,6 @@ class SubclassGroupAdmin(admin.ModelAdmin):
             .filter(group=grp)
             .exclude(pk__in=chosen_ids)
             .update(group=None))
+        
+
+

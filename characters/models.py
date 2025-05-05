@@ -262,27 +262,46 @@ class ClassFeature(models.Model):
         null=True,    # ← allow existing rows to be empty
         blank=True,
     )
-    FEATURE_TYPE_CHOICES = [
-        ("class_trait",   "Class Trait"),
-        ("class_feat",    "Class Feat"),
-        ("skill_feat",    "Skill Feat"),
-        ("martial_mastery","Martial Mastery"),
-        ("subclass_choice","Subclass Choice"),   # new
-        ("subclass_feat", "Subclass Feature"),   # renamed for clarity
-       ("spell_table",    "Spell Slot Table"),
-       ("modify_proficiency", "Modify Proficiency"),
+
+    SCOPE_CHOICES = [
+        ("class_feat",      "Class Feature"),
+        ("subclass_feat",   "Subclass Feature"),
+        ("subclass_choice", "Subclass Choice"),
     ]
+    scope = models.CharField(
+        max_length=20,
+        choices=SCOPE_CHOICES,
+        default="class_feat",
+        help_text="Does this belong to the base class, a subclass, or is it a subclass-choice?"
+    )
+
+    KIND_CHOICES = [
+        ("class_feat",         "Class Feat"),
+        ("class_trait",         "Class Trait"),
+        ("skill_feat",         "Skill Feat"),
+        ("martial_mastery",    "Martial Mastery"),
+        ("modify_proficiency", "Modify Proficiency"),
+        ("spell_table",        "Spell Slot Table"),
+    ]
+
+    
+    kind = models.CharField(
+        max_length=20,
+        choices=KIND_CHOICES,
+        default="class_feat",
+        help_text="What *type* of feature this is."
+    )
     modify_proficiency_target = models.CharField(
         max_length=20,
         choices=PROFICIENCY_TYPES,
         blank=True,
         help_text="Which proficiency to modify"
     )
-    # amount – either absolute tier or “+1”, “-2”, etc.
-    modify_proficiency_amount = models.CharField(
-        max_length=10,
-        blank=True,
-        help_text="Tier name or +/- adjustment (e.g. '+1', 'Expert')"
+    modify_proficiency_amount = models.ForeignKey(
+        ProficiencyTier,
+        on_delete=models.SET_NULL,
+        blank=True, null=True,
+        help_text="Pick the exact proficiency tier to grant (overrides current tier)"
     )
     cantrips_formula    = models.CharField(
         max_length=100, blank=True,
@@ -292,16 +311,30 @@ class ClassFeature(models.Model):
         max_length=100, blank=True,
         help_text="Formula for number of spells known per class level, e.g. '2 + level//2'"
     )
-    feature_type       = models.CharField(
-        max_length=100,
-        choices=FEATURE_TYPE_CHOICES,
-        default='class_feat',
-        help_text="Type of trait"
+    spells_prepared_formula = models.CharField(
+        max_length=100, blank=True,
+        help_text="Formula for number of spells you can prepare per class level, e.g. 'intelligence//2 + level//3'"
     )
     ACTIVITY_CHOICES = [
         ("active",  "Active"),
         ("passive", "Passive"),
     ]
+
+    ACTION_TYPES = (
+    ('action_1', "One Action"),
+    ('action_2', "Two Actions"),
+    ('action_3', "Three Actions"),
+    ('reaction', "Reaction"),
+    ('free',     "Free Action"),
+    )    
+    action_type = models.CharField(
+        'Action Required',
+        max_length=10,
+        choices=ACTION_TYPES,
+        blank=True,
+        null=True,
+        help_text="What kind of action this ability consumes."
+    )
     activity_type = models.CharField(
         max_length=7,
         choices=ACTIVITY_CHOICES,

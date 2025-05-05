@@ -1,96 +1,102 @@
-window.addEventListener("DOMContentLoaded", function(){
-  const ftype               = document.getElementById("id_feature_type");
-  const activitySelect      = document.getElementById("id_activity_type");
-  const hasOptionsCheckbox  = document.getElementById("id_has_options");
-  const subRow              = document.querySelector(".form-row.field-subclasses");
-  const grpRow              = document.querySelector(".form-row.field-subclass_group");
-  const activityRow         = document.querySelector(".form-row.field-activity_type");
-  const usesRow             = document.querySelector(".form-row.field-uses");
-  const formulaRow          = document.querySelector(".form-row.field-formula");
-  const formulaTargetRow    = document.querySelector(".form-row.field-formula_target");
-  const canRow              = document.querySelector(".form-row.field-cantrips_formula");
-  const knownRow            = document.querySelector(".form-row.field-spells_known_formula");
-  const slotGrp             = document.getElementById("spell_slot_rows-group");
-  const profTargetRow       = document.querySelector(".form-row.field-modify_proficiency_target");
-  const profAmtRow          = document.querySelector(".form-row.field-modify_proficiency_amount");
-  const optionsGrp          = document.getElementById("options-group");
-  const umbrella            = document.getElementById("id_subclass_group");
+// characters/static/characters/js/classfeature_admin.js
+(function(){
+  window.addEventListener("DOMContentLoaded", function(){
+    // grab your three selectors + the “has options?” checkbox
+    const scopeEl    = document.getElementById("id_scope");
+    const kindEl     = document.getElementById("id_kind");
+    const activityEl = document.getElementById("id_activity_type");
+    const optsEl     = document.getElementById("id_has_options");
 
-  function toggleAll(){
-    const v       = ftype.value;
-    const isTrait = (v === "class_trait");
-    const isChoice= (v === "subclass_choice");
-    const isFeat  = (v === "subclass_feat");
-    const isTable = (v === "spell_table");
-    const isMod   = (v === "modify_proficiency");
+    // helper: single‐element lookup by Django’s row CSS
+    function row(fieldName){
+      return document.querySelector(".form-row.field-" + fieldName);
+    }
+    // helper: your spell-slot inline is marked with this class
+    function inlineSpellTable(){
+      return document.querySelector(".spell-slot-inline");
+    }
 
-    // 1) hide everything
-    [
-      subRow, grpRow,
-      activityRow, usesRow,
-      formulaRow, formulaTargetRow,
-      canRow, knownRow, slotGrp,
-      profTargetRow, profAmtRow
-    ].forEach(el => el && (el.style.display = "none"));
-    optionsGrp && (optionsGrp.style.display = "none");
+    // cache all the bits we’ll be toggling
+    const rows = {
+      subgroup:   row("subclass_group"),
+      subclasses: row("subclasses"),
 
-    // 2) class_trait
-    if (isTrait) {
-      activityRow.style.display      = "";
-      formulaRow.style.display       = "";
-      formulaTargetRow.style.display = "";
-      if (activitySelect.value === "active") {
-        usesRow.style.display = "";
+      activity:      row("activity_type"),
+      formula:       row("formula"),
+      formulaTarget: row("formula_target"),
+      uses:          row("uses"),
+      action:        row("action_type"),
+
+      profTarget:    row("modify_proficiency_target"),
+      profAmount:    row("modify_proficiency_amount"),
+
+      cantrips:      row("cantrips_formula"),
+      known:         row("spells_known_formula"),
+      prepared:      row("spells_prepared_formula"),
+      slots:         inlineSpellTable(),
+
+      optionsInline: document.getElementById("options-group"),
+    };
+
+    function toggleAll(){
+      const s = scopeEl    ? scopeEl.value    : "";
+      const k = kindEl     ? kindEl.value     : "";
+      const a = activityEl ? activityEl.value : "";
+
+      // first: hide absolutely everything
+      Object.values(rows).forEach(el=>{
+        if(el) el.style.display = "none";
+      });
+
+      // 1) subclass pickers for both subclass_*
+      if (s==="subclass_feat" || s==="subclass_choice"){
+        rows.subgroup && (rows.subgroup.style.display = "");
+        rows.subclasses && (rows.subclasses.style.display = "");
+      }
+
+      // 2) dice-based features for class-feats & traits & skill_feat & martial_mastery
+      if (["class_feat","class_trait","skill_feat","martial_mastery"].includes(k)){
+        rows.activity      && (rows.activity.style.display      = "");
+        rows.formulaTarget && (rows.formulaTarget.style.display = "");
+        rows.formula       && (rows.formula.style.display       = "");
+        if(a==="active"){
+          rows.uses  && (rows.uses.style.display  = "");
+          rows.action && (rows.action.style.display = "");
+        }
+      }
+
+      // 3) modify proficiency
+      if (k==="modify_proficiency"){
+        rows.profTarget && (rows.profTarget.style.display = "");
+        rows.profAmount && (rows.profAmount.style.display = "");
+      }
+
+      // 4) spell_table
+      if (k==="spell_table"){
+        rows.cantrips && (rows.cantrips.style.display = "");
+        rows.known    && (rows.known.style.display    = "");
+        rows.prepared && (rows.prepared.style.display = "");
+        rows.slots    && (rows.slots.style.display    = "");
+      }
+
+      // 5) FeatureOption inline if “Has options?” is checked
+      if (optsEl && optsEl.checked){
+        rows.optionsInline && (rows.optionsInline.style.display = "");
       }
     }
 
-    // 3) subclass_choice
-    if (isChoice) {
-      activityRow.style.display      = "";
-      formulaRow.style.display       = "";
-      formulaTargetRow.style.display = "";
-      if (activitySelect.value === "active") {
-        usesRow.style.display = "";
-      }
-      grpRow.style.display = "";
-      subRow.style.display = "";
-    }
-
-    // 4) subclass_feat
-    if (isFeat) {
-      grpRow.style.display = "";
-      subRow.style.display = "";
-    }
-
-    // 5) spell_table
-    if (isTable) {
-      canRow.style.display  = "";
-      knownRow.style.display= "";
-      slotGrp.style.display = "";
-    }
-
-    // 6) modify_proficiency
-    if (isMod) {
-      profTargetRow.style.display = "";
-      profAmtRow.style.display    = "";
-    }
-
-    // 7) feature options inline
-    if (optionsGrp && hasOptionsCheckbox.checked) {
-      optionsGrp.style.display = "";
-    }
-  }
-
-  // listeners
-  ftype.addEventListener("change", toggleAll);
-  activitySelect.addEventListener("change", toggleAll);
-  hasOptionsCheckbox.addEventListener("change", toggleAll);
-
-  // auto-submit on umbrella change so server can refill the subclass queryset
-  if (umbrella) {
-    umbrella.addEventListener("change", ()=> umbrella.form.submit());
-  }
-
-  // initial run
-  toggleAll();
-});
+    // re‐run whenever any of the four controllers change
+    [scopeEl, kindEl, activityEl, optsEl].forEach(el=>{
+      if(el) el.addEventListener("change", toggleAll);
+    
+    });
+        const umbrella = document.getElementById("id_subclass_group");
+        if (umbrella) {
+          umbrella.addEventListener("change", ()=>{
+            umbrella.form.submit();
+          });
+       }
+    // initial hide/show
+    toggleAll();
+  });
+})();
