@@ -254,6 +254,56 @@ class CharacterClassProgress(models.Model):
 
 class ClassFeature(models.Model):
     # ← new!
+
+
+    DAMAGE_TYPE_PHYSICAL_BLUDGEONING = "physical_bludgeoning"
+    DAMAGE_TYPE_PHYSICAL_SLASHING     = "physical_slashing"
+    DAMAGE_TYPE_PHYSICAL_PIERCING     = "physical_piercing"
+    DAMAGE_TYPE_EXPLOSIVE             = "explosive"
+    DAMAGE_TYPE_MAGICAL_BLUDGEONING  = "magical_bludgeoning"
+    DAMAGE_TYPE_MAGICAL_SLASHING      = "magical_slashing"
+    DAMAGE_TYPE_MAGICAL_PIERCING      = "magical_piercing"
+    DAMAGE_TYPE_ACID                  = "acid"
+    DAMAGE_TYPE_COLD                  = "cold"
+    DAMAGE_TYPE_FIRE                  = "fire"
+    DAMAGE_TYPE_FORCE                 = "force"
+    DAMAGE_TYPE_LIGHTNING             = "lightning"
+    DAMAGE_TYPE_NECROTIC              = "necrotic"
+    DAMAGE_TYPE_POISON                = "poison"
+    DAMAGE_TYPE_PSYCHIC               = "psychic"
+    DAMAGE_TYPE_RADIANT               = "radiant"
+    DAMAGE_TYPE_THUNDER               = "thunder"
+    DAMAGE_TYPE_TRUE                  = "true"
+
+    DAMAGE_TYPE_CHOICES = [
+        (DAMAGE_TYPE_PHYSICAL_BLUDGEONING,  "Physical Bludgeoning"),
+        (DAMAGE_TYPE_PHYSICAL_SLASHING,      "Physical Slashing"),
+        (DAMAGE_TYPE_PHYSICAL_PIERCING,      "Physical Piercing"),
+        (DAMAGE_TYPE_EXPLOSIVE,              "Explosive"),
+        (DAMAGE_TYPE_MAGICAL_BLUDGEONING,   "Magical Bludgeoning"),
+        (DAMAGE_TYPE_MAGICAL_SLASHING,       "Magical Slashing"),
+        (DAMAGE_TYPE_MAGICAL_PIERCING,       "Magical Piercing"),
+        (DAMAGE_TYPE_ACID,                   "Acid"),
+        (DAMAGE_TYPE_COLD,                   "Cold"),
+        (DAMAGE_TYPE_FIRE,                   "Fire"),
+        (DAMAGE_TYPE_FORCE,                  "Force"),
+        (DAMAGE_TYPE_LIGHTNING,              "Lightning"),
+        (DAMAGE_TYPE_NECROTIC,               "Necrotic"),
+        (DAMAGE_TYPE_POISON,                 "Poison"),
+        (DAMAGE_TYPE_PSYCHIC,                "Psychic"),
+        (DAMAGE_TYPE_RADIANT,                "Radiant"),
+        (DAMAGE_TYPE_THUNDER,                "Thunder"),
+        (DAMAGE_TYPE_TRUE,                   "True"),
+    ]
+
+    # ← NEW FIELD
+    damage_type = models.CharField(
+        max_length=25,
+        choices=DAMAGE_TYPE_CHOICES,
+        blank=True,
+        null=True,
+        help_text="If this feature deals damage, pick its damage type (optional)."
+    )    
     character_class = models.ForeignKey(
         CharacterClass,
         on_delete=models.CASCADE,
@@ -376,6 +426,12 @@ class ClassFeature(models.Model):
     )
     
     FORMULA_TARGETS =  [
+        ("strength",     "Strength"),
+        ("dexterity",     "Dexterity"),
+        ("intelligence",     "Intelligence"),
+        ("wisdom",     "Wisdom"),
+        ("constitution",     "Constitution"),
+        ("charisma",     "Charisma"),
         ("acrobatics",     "Acrobatics (DEX)"),
         ("animal_handling","Animal Handling (WIS)"),
         ("arcana",         "Arcana (INT)"),

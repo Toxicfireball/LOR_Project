@@ -211,16 +211,30 @@ class ClassLevelAdmin(admin.ModelAdmin):
 
 
 # ─── ClassFeature ────────────────────────────────────────────────────────────────
+from django.apps import apps
+from django.db import models
 
 DICE = ["d4","d6","d8","d10","d12","d20"]
-VARS = [
-    "level", "class_level", "proficiency_modifier",
-    "hp", "temp_hp",
-] + [f"{cls.name.lower()}_level" for cls in CharacterClass.objects.all()] + [
-    "reflex_save","fortitude_save","will_save",
-    "initiative","weapon_attack","spell_attack","spell_dc",
-    "perception","dodge",
-]
+Character = apps.get_model("characters", "Character")
+ABILITY_NAMES = ("strength","dexterity","constitution","intelligence","wisdom","charisma")
+ABILITY_FIELDS = [
+     f.name
+     for f in Character._meta.get_fields()
+     if isinstance(f, models.IntegerField) and f.name in ABILITY_NAMES
+ ]
+
+# the rest of your VARS (levels, saves, class_level, plus any “_level” fields)
+OTHER_VARS = [
+     "level", "class_level", "proficiency_modifier",
+     "hp", "temp_hp",
+ ] + [f"{cls.name.lower()}_level" for cls in CharacterClass.objects.all()] + [
+     "reflex_save","fortitude_save","will_save",
+     "initiative","weapon_attack","spell_attack","spell_dc",
+     "perception","dodge",
+ ]
+
+
+VARS = ABILITY_FIELDS + OTHER_VARS
 class ClassResourceForm(forms.ModelForm):
     class Meta:
         model = ClassResource
@@ -292,6 +306,9 @@ class ClassFeatureForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # ❗️ force the admin to require a CharacterClass
+        self.fields['character_class'].required = True
+
 
         # 1) hide action_type if the form actually has it
         if "action_type" in self.fields:
@@ -304,17 +321,24 @@ class ClassFeatureForm(forms.ModelForm):
         # 2) build your variable list exactly as before…
         from characters.models import CharacterClass, ClassResource
         DICE = ["d4","d6","d8","d10","d12","d20"]
-        base_vars = [
+        Character = apps.get_model("characters", "Character")
+        ABILITY_NAMES = ("strength","dexterity","constitution","intelligence","wisdom","charisma")
+        ABILITY_FIELDS = [
+            f.name
+            for f in Character._meta.get_fields()
+            if isinstance(f, models.IntegerField) and f.name in ABILITY_NAMES
+        ]
+
+        base_vars = (
+            ABILITY_FIELDS + [
             "level", "class_level", "proficiency_modifier",
             "hp", "temp_hp",
-        ] + [
-            f"{cls.name.lower()}_level"
-            for cls in CharacterClass.objects.all()
-        ] + [
-            "reflex_save","fortitude_save","will_save",
+            ]
+            + [f"{cls.name.lower()}_level" for cls in CharacterClass.objects.all()]
+            + ["reflex_save","fortitude_save","will_save",
             "initiative","weapon_attack","spell_attack","spell_dc",
-            "perception","dodge",
-        ]
+            "perception","dodge"]
+        )
 
         cls_id = (
             self.data.get("character_class")
@@ -484,13 +508,13 @@ class ClassFeatureAdmin(admin.ModelAdmin):
 
     list_filter  = ('character_class','scope','kind','subclass_group',)
     autocomplete_fields = ('subclasses',)
-    # 1) our core fields (must include subclasses!)
     base_fields = [
         "character_class",
-        "scope",      # ← new
-        "kind",       # ← new
+        "scope",      
+        "kind",       
         "activity_type",
-        "action_type",  # ← ADD THIS LINE
+        "action_type",
+        
         "subclass_group",
         "subclasses",
         "code",
@@ -498,16 +522,16 @@ class ClassFeatureAdmin(admin.ModelAdmin):
         "description",
         "has_options",
         "formula_target",
+        "damage_type",   
         "formula",
         "uses",
         "cantrips_formula",
         "spells_known_formula",
-        "spells_prepared_formula",   # ← add this here
+        "spells_prepared_formula",   
         "modify_proficiency_target",
         "modify_proficiency_amount",
         
     ]
-# characters/admin.py
 
     def get_fieldsets(self, request, obj=None):
         return [(None, {"fields": self.base_fields})]
@@ -516,7 +540,6 @@ class ClassFeatureAdmin(admin.ModelAdmin):
 
     def get_inline_instances(self, request, obj=None):
         inlines = super().get_inline_instances(request, obj)
-        # if they haven’t checked “has_options” don’t show the FeatureOptionInline
         if request.method == "POST":
             want = request.POST.get("has_options") in ("1","true","on")
             if not want:
