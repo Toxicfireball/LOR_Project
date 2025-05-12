@@ -34,6 +34,7 @@
       known:         row("spells_known_formula"),
       prepared:      row("spells_prepared_formula"),
       slots:         inlineSpellTable(),
+      damage:        row("damage_type"),
 
       optionsInline: document.getElementById("options-group"),
     };
@@ -55,13 +56,14 @@
       }
 
       // 2) dice-based features for class-feats & traits & skill_feat & martial_mastery
-      if (["class_feat","class_trait","skill_feat","martial_mastery"].includes(k)){
+      if (kindEl.value === "class_trait") {
         rows.activity      && (rows.activity.style.display      = "");
         rows.formulaTarget && (rows.formulaTarget.style.display = "");
         rows.formula       && (rows.formula.style.display       = "");
-        if(a==="active"){
-          rows.uses  && (rows.uses.style.display  = "");
+        if (activityEl.value === "active") {
+          rows.uses   && (rows.uses.style.display   = "");
           rows.action && (rows.action.style.display = "");
+          rows.damage && (rows.damage.style.display = "");
         }
       }
 
