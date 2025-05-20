@@ -7,7 +7,8 @@ from .models import Character  # adjust the import if your model is elsewhere
 
 # only allow these operators and tokens
 _VALID_RE = re.compile(
-    r'^\s*([\d+\-*/().\s]|[A-Za-z_]\w*|\d+d(?:4|6|8|10|12|20)|round\s+(?:up|down))+\s*$'
+    r'^\s*([\d+\-*/().\s]|[A-Za-z_]\w*|\d*d\b|\d+d(?:4|6|8|10|12|20)|round\s+(?:up|down))+\s*$',
+    flags=re.IGNORECASE
 )
 _DICE_RE = re.compile(r'(\d+)d(4|6|8|10|12|20)')      # match “2d6”, “1d10”, etc
 _VAR_RE  = re.compile(r'\b([A-Za-z_]\w*)\b')            # match identifiers
@@ -20,6 +21,17 @@ def parse_formula(formula: str, character: Character) -> int:
     """
 
     f = formula.strip().lower()
+
+    # ─── DYNAMIC “D” EXPANSION ────────────────────────────────────────────────
+    # turn “D” or “2D” etc into real dice of whatever this character’s hit_die is
+    def _expand_dynamic_D(m):
+        count = m.group(1) or "1"
+        faces = character.class_progress.first().character_class.hit_die
+        return f"{count}d{faces}"
+    # \b(\d*)d\b matches “d” or “2d” with no faces …
+    f = re.sub(r"\b(\d*)d\b", _expand_dynamic_D, f, flags=re.IGNORECASE)
+    # ───────────────────────────────────────────────────────────────────────────
+
     if not f:
         return 0
 

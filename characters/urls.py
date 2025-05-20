@@ -2,7 +2,7 @@
 
 from django.urls import path
 from . import views
-from .views import character_detail, create_character, character_list
+from .views import character_detail, create_character, character_list, spell_list, feat_list
 
 app_name = 'characters'
 
@@ -13,4 +13,6 @@ urlpatterns = [
 path('<int:pk>/', character_detail, name='character_detail'),
 path('', views.character_list, name='character_list'),
  path('<int:char_id>/level-up/', views.level_up, name='level_up'),
+     path('spells/', views.spell_list, name='spell_list'),
+    path('feats/', views.feat_list, name='feat_list'),
 ]

@@ -1,0 +1,165 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block content %}
+<link rel="stylesheet" href="{% static 'characters/css/style.css' %}">
+
+<h1>All Feats</h1>
+
+<div class="tabs">
+  {% for type in types %}
+    <button class="tab-button" onclick="showTab('{{ type|slugify }}')" id="tab-btn-{{ type|slugify }}">{{ type }}</button>
+  {% endfor %}
+</div>
+
+{% for type in types %}
+  <div class="tab-content" id="tab-{{ type|slugify }}" style="display: none;">
+    <input type="text" class="search-box" placeholder="Search {{ type }} feats..." onkeyup="filterTable(this, 'table-{{ type|slugify }}')">
+
+    <table class="styled-table sortable" id="table-{{ type|slugify }}">
+      <thead>
+        <tr>
+          <th onclick="sortTable('table-{{ type|slugify }}', 0)">Name</th>
+          <th>
+            Feat Type
+            <div class="dropdown-filter" onclick="event.stopPropagation(); toggleDropdown('feat-type-{{ type|slugify }}')">
+              ⏷
+              <div class="dropdown-content" id="feat-type-{{ type|slugify }}">
+                {% for t in feat_types %}
+                  <label><input type="checkbox" value="{{ t }}" checked onchange="applyCheckboxFilter('table-{{ type|slugify }}', 1, 'feat-type-{{ type|slugify }}')"> {{ t }}</label><br>
+                {% endfor %}
+              </div>
+            </div>
+          </th>
+          <th onclick="sortTable('table-{{ type|slugify }}', 2)">Class</th>
+          <th onclick="sortTable('table-{{ type|slugify }}', 3)">Race</th>
+          <th onclick="sortTable('table-{{ type|slugify }}', 4)">Level Req</th>
+          <th>Details</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for feat in feats %}
+          {% if feat.feat_type == type %}
+            <tr>
+              <td>{{ feat.name }}</td>
+              <td>{{ feat.feat_type }}</td>
+              <td>{{ feat.class_name }}</td>
+              <td>{{ feat.race }}</td>
+              <td>{{ feat.level_prerequisite }}</td>
+              <td><button onclick="toggleDetails('feat-{{ feat.id }}')">Show</button></td>
+            </tr>
+            <tr id="feat-{{ feat.id }}" class="detail-row" style="display: none;">
+              <td colspan="6">
+                <strong>Description:</strong> {{ feat.description }}<br>
+                <strong>Tags:</strong> {{ feat.tags }}<br>
+                <strong>Prerequisites:</strong> {{ feat.prerequisites }}
+              </td>
+            </tr>
+          {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endfor %}
+
+<script>
+function showTab(typeSlug) {
+  const tabs = document.querySelectorAll(".tab-content");
+  tabs.forEach(tab => tab.style.display = "none");
+  document.getElementById(`tab-${typeSlug}`).style.display = "block";
+
+  const buttons = document.querySelectorAll(".tab-button");
+  buttons.forEach(btn => btn.classList.remove("active"));
+  document.getElementById(`tab-btn-${typeSlug}`).classList.add("active");
+}
+
+function toggleDetails(id) {
+  const row = document.getElementById(id);
+  row.style.display = row.style.display === 'none' ? '' : 'none';
+}
+
+function toggleDropdown(id) {
+  document.querySelectorAll('.dropdown-content').forEach(el => {
+    if (el.id !== id) el.style.display = 'none';
+  });
+  const target = document.getElementById(id);
+  target.style.display = target.style.display === 'block' ? 'none' : 'block';
+}
+
+document.addEventListener('click', function() {
+  document.querySelectorAll('.dropdown-content').forEach(el => {
+    el.style.display = 'none';
+  });
+});
+
+document.querySelectorAll('.dropdown-filter').forEach(filter => {
+  filter.addEventListener('click', function(event) {
+    event.stopPropagation();
+  });
+});
+
+function applyCheckboxFilter(tableId, colIndex, dropdownId) {
+  const checkedValues = Array.from(document.querySelectorAll(`#${dropdownId} input:checked`)).map(input => input.value.toLowerCase());
+  const table = document.getElementById(tableId);
+  const rows = table.querySelectorAll("tbody tr:not(.detail-row)");
+
+  rows.forEach(row => {
+    const text = row.cells[colIndex].textContent.toLowerCase();
+    const match = checkedValues.some(val => text.split(',').map(v => v.trim()).includes(val));
+    row.style.display = match ? '' : 'none';
+    const detailRow = row.nextElementSibling;
+    if (detailRow && detailRow.classList.contains("detail-row")) {
+      detailRow.style.display = 'none';
+    }
+  });
+}
+
+function sortTable(tableId, colIndex) {
+  const table = document.getElementById(tableId);
+  const rows = Array.from(table.querySelectorAll("tbody tr:not(.detail-row)"));
+  const detailMap = new Map();
+  rows.forEach(row => {
+    const detailRow = row.nextElementSibling;
+    if (detailRow && detailRow.classList.contains("detail-row")) {
+      detailMap.set(row, detailRow);
+    }
+  });
+  const sorted = rows.sort((a, b) => {
+    const cellA = a.cells[colIndex].textContent.toLowerCase();
+    const cellB = b.cells[colIndex].textContent.toLowerCase();
+    return cellA.localeCompare(cellB);
+  });
+  const tbody = table.querySelector("tbody");
+  sorted.forEach(row => {
+    const detail = detailMap.get(row);
+    tbody.appendChild(row);
+    if (detail) tbody.appendChild(detail);
+  });
+}
+
+showTab("{{ types.0|slugify }}");
+</script>
+
+<style>
+.dropdown-filter {
+  display: inline-block;
+  position: relative;
+  cursor: pointer;
+  font-weight: normal;
+  font-size: 0.9rem;
+  margin-left: 5px;
+}
+.dropdown-content {
+  display: none;
+  position: absolute;
+  background: white;
+  border: 1px solid #ccc;
+  padding: 8px;
+  z-index: 100;
+  max-height: 200px;
+  overflow-y: auto;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+  font-size: 0.85rem;
+  min-width: 150px;
+}
+</style>
+{% endblock %}

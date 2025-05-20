@@ -44,6 +44,82 @@ from .forms import CharacterCreationForm
 from .models import Character
 from .models import SubSkill, ProficiencyLevel, CharacterSkillProficiency
 
+from django.shortcuts import render
+from characters.models import Spell, ClassFeat
+
+
+from django.shortcuts import render
+from .models import Spell
+
+from django.shortcuts import render
+from .models import Spell
+
+from django.shortcuts import render
+from .models import Spell
+
+def spell_list(request):
+    spells = Spell.objects.all()
+
+    query = request.GET.get('q')
+    if query:
+        spells = spells.filter(name__icontains=query) | spells.filter(tags__icontains=query)
+
+    level = request.GET.get('level')
+    if level:
+        spells = spells.filter(level=level)
+
+    spells = spells.order_by('level', 'name')
+
+    levels = sorted(set(spells.values_list('level', flat=True)))
+
+    # ✅ Fixed 4 origins
+    origins = ["Arcane", "Divine", "Primal", "Occult"]
+
+    # ✅ Split classification keywords across all spells
+    classifications_raw = Spell.objects.values_list('classification', flat=True)
+    classifications = sorted({tag.strip() for string in classifications_raw for tag in string.split(',') if tag.strip()})
+
+    return render(request, 'characters/spell_list.html', {
+        'spells': spells,
+        'levels': levels,
+        'origins': origins,
+        'classifications': classifications,
+        'query': query,
+        'selected_level': level,
+    })
+
+
+
+
+def feat_list(request):
+    feats = ClassFeat.objects.all()
+
+    query = request.GET.get('q')
+    if query:
+        feats = feats.filter(name__icontains=query) | feats.filter(tags__icontains=query)
+
+    feat_type = request.GET.get('type')
+    if feat_type:
+        feats = feats.filter(feat_type__icontains=feat_type)
+
+    feats = feats.order_by('name')
+
+    # Tabs
+    types = sorted(set(feats.values_list('feat_type', flat=True)))
+
+    # Dropdown filter (individual feat types split from combo strings)
+    raw_feat_types = feats.values_list('feat_type', flat=True)
+    feat_types = sorted({ft.strip() for val in raw_feat_types for ft in val.split(',') if ft.strip()})
+
+    return render(request, 'characters/feat_list.html', {
+        'feats': feats,
+        'types': types,
+        'feat_types': feat_types,  # ✅ new for filter dropdown
+        'query': query,
+        'selected_type': feat_type,
+    })
+
+
 
 @login_required
 def create_character(request):

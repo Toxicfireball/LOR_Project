@@ -1,0 +1,186 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block content %}
+<link rel="stylesheet" href="{% static 'characters/css/style.css' %}">
+
+<h1>All Spells</h1>
+
+<!-- Tabs for each spell level -->
+<div class="tabs">
+  {% for level in levels %}
+    <button class="tab-button" onclick="showTab({{ level }})" id="tab-btn-{{ level }}">Level {{ level }}</button>
+  {% endfor %}
+</div>
+
+<!-- Spell tables per level -->
+{% for level in levels %}
+  <div class="tab-content" id="tab-{{ level }}" style="display: none;">
+    <input type="text" class="search-box" placeholder="Search level {{ level }} spells..." onkeyup="filterTable(this, 'table-{{ level }}')">
+
+    <table class="styled-table sortable" id="table-{{ level }}">
+      <thead>
+        <tr>
+          <th>
+            Origin
+            <div class="dropdown-filter" onclick="event.stopPropagation(); toggleDropdown('origin-filter-{{ level }}')">
+              ⏷
+              <div class="dropdown-content" id="origin-filter-{{ level }}">
+                {% for o in origins %}
+                  <label><input type="checkbox" value="{{ o }}" checked onchange="applyCheckboxFilter('table-{{ level }}', 0, 'origin-filter-{{ level }}')"> {{ o }}</label><br>
+                {% endfor %}
+              </div>
+            </div>
+          </th>
+          <th onclick="sortTable('table-{{ level }}', 1)">Name</th>
+          <th>
+            Classification
+            <div class="dropdown-filter" onclick="event.stopPropagation(); toggleDropdown('class-filter-{{ level }}')">
+              ⏷
+              <div class="dropdown-content" id="class-filter-{{ level }}">
+                {% for c in classifications %}
+                  <label><input type="checkbox" value="{{ c }}" checked onchange="applyCheckboxFilter('table-{{ level }}', 2, 'class-filter-{{ level }}')"> {{ c }}</label><br>
+                {% endfor %}
+              </div>
+            </div>
+          </th>
+          <th>Description</th>
+          <th>Details</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for spell in spells %}
+          {% if spell.level == level %}
+            <tr>
+              <td>{{ spell.origin }}</td>
+              <td>{{ spell.name }}</td>
+              <td>{{ spell.classification }}</td>
+              <td>{{ spell.description }}</td>
+              <td><button onclick="toggleDetails('spell-{{ spell.id }}')">Show</button></td>
+            </tr>
+            <tr id="spell-{{ spell.id }}" class="detail-row" style="display: none;">
+              <td colspan="5">
+                <strong>Effect:</strong> {{ spell.effect }}<br>
+                <strong>Upcast Effect:</strong> {{ spell.upcast_effect }}<br>
+                <strong>Saving Throw:</strong> {{ spell.saving_throw }}<br>
+                <strong>Casting Time:</strong> {{ spell.casting_time }}<br>
+                <strong>Duration:</strong> {{ spell.duration }}<br>
+                <strong>Components:</strong> {{ spell.components }}<br>
+                <strong>Range:</strong> {{ spell.range }}<br>
+                <strong>Target:</strong> {{ spell.target }}<br>
+                <strong>School:</strong> {{ spell.school }}<br>
+                <strong>Sub Origin:</strong> {{ spell.sub_origin }}<br>
+                <strong>Mastery Req:</strong> {{ spell.mastery_req }}<br>
+                <strong>Tags:</strong> {{ spell.tags }}
+              </td>
+            </tr>
+          {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endfor %}
+
+<script>
+function showTab(level) {
+  const tabs = document.querySelectorAll(".tab-content");
+  tabs.forEach(tab => tab.style.display = "none");
+  document.getElementById(`tab-${level}`).style.display = "block";
+
+  const buttons = document.querySelectorAll(".tab-button");
+  buttons.forEach(btn => btn.classList.remove("active"));
+  document.getElementById(`tab-btn-${level}`).classList.add("active");
+}
+
+function toggleDetails(id) {
+  const row = document.getElementById(id);
+  row.style.display = row.style.display === 'none' ? '' : 'none';
+}
+
+function toggleDropdown(id) {
+  document.querySelectorAll('.dropdown-content').forEach(el => {
+    if (el.id !== id) el.style.display = 'none';
+  });
+  const target = document.getElementById(id);
+  target.style.display = target.style.display === 'block' ? 'none' : 'block';
+}
+
+document.addEventListener('click', function() {
+  document.querySelectorAll('.dropdown-content').forEach(el => {
+    el.style.display = 'none';
+  });
+});
+
+document.querySelectorAll('.dropdown-filter').forEach(filter => {
+  filter.addEventListener('click', function(event) {
+    event.stopPropagation();
+  });
+});
+
+function applyCheckboxFilter(tableId, colIndex, dropdownId) {
+  const checkedValues = Array.from(document.querySelectorAll(`#${dropdownId} input:checked`)).map(input => input.value.toLowerCase());
+  const table = document.getElementById(tableId);
+  const rows = table.querySelectorAll("tbody tr:not(.detail-row)");
+
+  rows.forEach(row => {
+    const text = row.cells[colIndex].textContent.toLowerCase();
+    const match = checkedValues.some(val => text.split(',').map(v => v.trim()).includes(val));
+    row.style.display = match ? '' : 'none';
+    const detailRow = row.nextElementSibling;
+    if (detailRow && detailRow.classList.contains("detail-row")) {
+      detailRow.style.display = 'none';
+    }
+  });
+}
+
+function sortTable(tableId, colIndex) {
+  const table = document.getElementById(tableId);
+  const rows = Array.from(table.querySelectorAll("tbody tr:not(.detail-row)"));
+  const detailMap = new Map();
+  rows.forEach(row => {
+    const detailRow = row.nextElementSibling;
+    if (detailRow && detailRow.classList.contains("detail-row")) {
+      detailMap.set(row, detailRow);
+    }
+  });
+  const sorted = rows.sort((a, b) => {
+    const cellA = a.cells[colIndex].textContent.toLowerCase();
+    const cellB = b.cells[colIndex].textContent.toLowerCase();
+    return cellA.localeCompare(cellB);
+  });
+  const tbody = table.querySelector("tbody");
+  sorted.forEach(row => {
+    const detail = detailMap.get(row);
+    tbody.appendChild(row);
+    if (detail) tbody.appendChild(detail);
+  });
+}
+
+// Auto-activate first tab
+showTab({{ levels.0 }});
+</script>
+
+<style>
+.dropdown-filter {
+  display: inline-block;
+  position: relative;
+  cursor: pointer;
+  font-weight: normal;
+  font-size: 0.9rem;
+  margin-left: 5px;
+}
+.dropdown-content {
+  display: none;
+  position: absolute;
+  background: white;
+  border: 1px solid #ccc;
+  padding: 8px;
+  z-index: 100;
+  max-height: 200px;
+  overflow-y: auto;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+  font-size: 0.85rem;
+  min-width: 150px;
+}
+</style>
+
+{% endblock %}

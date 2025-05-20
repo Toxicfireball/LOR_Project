@@ -1,0 +1,22 @@
+.styled-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+  font-size: 0.95rem;
+}
+.styled-table th, .styled-table td {
+  padding: 0.75rem;
+  border: 1px solid #ddd;
+  text-align: left;
+}
+.styled-table thead {
+  background-color: #f0f0f0;
+}
+.styled-table tbody tr.detail-row td {
+  background-color: #fafafa;
+}
+button {
+  padding: 0.4rem 0.7rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}

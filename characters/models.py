@@ -253,7 +253,69 @@ class CharacterClassProgress(models.Model):
 
 
 class ClassFeature(models.Model):
-    # ← new!
+   # ← new!
+    saving_throw_required = models.BooleanField(
+        default=False,
+        help_text="Does this ability allow a saving throw?"
+    )
+
+    # 2) If so, which save?
+    SAVING_THROW_TYPE_CHOICES = [
+        ("reflex",    "Reflex"),
+        ("fortitude", "Fortitude"),
+        ("will",      "Will"),
+    ]
+    saving_throw_type = models.CharField(
+        max_length=10,
+        choices=SAVING_THROW_TYPE_CHOICES,
+        blank=True, null=True,
+        help_text="Which saving throw?"
+    )
+
+    # 3) Basic vs Normal
+    SAVING_THROW_GRAN_CHOICES = [
+        ("basic",  "Basic (Success / Failure)"),
+        ("normal", "Normal (Crit Success / Success / Failure / Crit Failure)"),
+    ]
+    saving_throw_granularity = models.CharField(
+        max_length=10,
+        choices=SAVING_THROW_GRAN_CHOICES,
+        blank=True, null=True,
+        help_text="Simple or full save table?"
+    )
+
+    # 4a) Outcomes for basic
+    SAVING_THROW_BASIC_OUTCOME_CHOICES = [
+        ("success", "Success"),
+        ("failure", "Failure"),
+    ]
+    # ─── Basic‐save outcomes ────────────────────────────────────────────────────
+    saving_throw_basic_success = models.CharField(
+        max_length=255, blank=True,
+        help_text="What happens on a basic save: Success"
+    )
+    saving_throw_basic_failure = models.CharField(
+        max_length=255, blank=True,
+        help_text="What happens on a basic save: Failure"
+    )
+
+    # ─── Full‐save outcomes ─────────────────────────────────────────────────────
+    saving_throw_critical_success = models.CharField(
+        max_length=255, blank=True,
+        help_text="What happens on a full save: Critical Success"
+    )
+    saving_throw_success = models.CharField(
+        max_length=255, blank=True,
+        help_text="What happens on a full save: Success"
+    )
+    saving_throw_failure = models.CharField(
+        max_length=255, blank=True,
+        help_text="What happens on a full save: Failure"
+    )
+    saving_throw_critical_failure = models.CharField(
+        max_length=255, blank=True,
+        help_text="What happens on a full save: Critical Failure"
+    )
 
 
     DAMAGE_TYPE_PHYSICAL_BLUDGEONING = "physical_bludgeoning"
@@ -653,3 +715,40 @@ class ClassLevelFeature(models.Model):
         if self.feature.has_options:
             return f"{self.class_level} → {self.feature.code} [picked {self.chosen_option}]"
         return f"{self.class_level} → {self.feature.code}"
+
+
+
+#GOOGLE TRANSFER STUFFF 
+#MODELS FOR THEM 
+
+from django.db import models
+
+class Spell(models.Model):
+    name = models.CharField(max_length=128)
+    level = models.IntegerField()  # 0 = Cantrip
+    classification = models.CharField(max_length=64, blank=True)
+    description = models.TextField()
+    effect = models.TextField(blank=True)
+    upcast_effect = models.TextField(blank=True)
+    saving_throw = models.CharField(max_length=64, blank=True)
+    casting_time = models.CharField(max_length=64)
+    duration = models.CharField(max_length=64)
+    components = models.CharField(max_length=64)
+    range = models.CharField(max_length=64)
+    target = models.CharField(max_length=128)
+    origin = models.CharField(max_length=64)
+    sub_origin = models.CharField(max_length=64, blank=True)
+    mastery_req = models.CharField(max_length=64, blank=True)
+    tags = models.TextField(blank=True)
+    last_synced = models.DateTimeField(auto_now=True)
+
+class ClassFeat(models.Model):
+    name = models.CharField(max_length=128)
+    description = models.TextField()
+    level_prerequisite = models.CharField(max_length=32, blank=True)
+    feat_type = models.CharField(max_length=64)
+    class_name = models.CharField(max_length=64, blank=True)
+    race = models.CharField(max_length=64, blank=True)
+    tags = models.TextField(blank=True)
+    prerequisites = models.TextField(blank=True)
+    last_synced = models.DateTimeField(auto_now=True)

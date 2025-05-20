@@ -1,0 +1,11 @@
+<div class="pagination">
+  {% if page_obj.has_previous %}
+    <a href="?{% if query %}q={{ query }}&{% endif %}page=1">&laquo; First</a>
+    <a href="?{% if query %}q={{ query }}&{% endif %}page={{ page_obj.previous_page_number }}">← Prev</a>
+  {% endif %}
+  <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+  {% if page_obj.has_next %}
+    <a href="?{% if query %}q={{ query }}&{% endif %}page={{ page_obj.next_page_number }}">Next →</a>
+    <a href="?{% if query %}q={{ query }}&{% endif %}page={{ page_obj.paginator.num_pages }}">Last &raquo;</a>
+  {% endif %}
+</div>

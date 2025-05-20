@@ -15,7 +15,7 @@ from characters.models import (
     FeatureOption,
     SubclassGroup,
     SpellSlotRow , 
-    ResourceType, ClassResource, CharacterResource
+    ResourceType, ClassResource, CharacterResource, Spell
 )
 
 from django.contrib.admin.widgets import FilteredSelectMultiple
@@ -23,6 +23,45 @@ from characters.widgets import FormulaBuilderWidget, CharacterClassSelect
 from characters.models import ResourceType, ClassResource, CharacterResource
 
 from django.shortcuts import get_object_or_404
+from django.forms.models import BaseInlineFormSet
+from django.core.exceptions import ValidationError
+
+class ModularLinearFeatureFormSet(BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+        # “self.instance” is the ClassLevel object; it has .level and .character_class
+        this_level = self.instance.level
+
+        # collect all (level, tier) tuples for this group
+        picks = []
+        for form in self.forms:
+            if self.can_delete and form.cleaned_data.get("DELETE"):
+                continue
+            feature = form.cleaned_data.get("feature")
+            if not feature or not feature.subclass_group:
+                continue
+            grp = feature.subclass_group
+            if grp.system_type != SubclassGroup.SYSTEM_MODULAR_LINEAR:
+                continue
+
+            # assume your subclass_feat codes end in _1, _2, _3… to indicate “tier”
+            try:
+                tier = int(feature.code.rsplit("_", 1)[1])
+            except (ValueError, IndexError):
+                raise ValidationError(
+                    f"Modular‐linear subclass_feats must have codes ending in _<tier>, got {feature.code!r}"
+                )
+            picks.append((this_level, tier))
+
+        # now, for each pick of tier N at level L, ensure you have a tier N-1 at some L' < L
+        for level, tier in picks:
+            if tier == 1:
+                continue
+            if not any(prev_level < level and prev_tier == tier - 1 for prev_level, prev_tier in picks):
+                raise ValidationError(
+                    f"You tried to give tier {tier} at class‐level {level}, "
+                    f"but you haven’t picked tier {tier - 1} at any lower level yet."
+                )
 
 class SubclassGroupForm(forms.ModelForm):
     """
@@ -121,11 +160,15 @@ class ClassSubclassForm(forms.ModelForm):
             # no class selected yet → no group choices
             self.fields["group"].queryset = SubclassGroup.objects.none()
 
-
+@admin.register(Spell)
+class SpellAdmin(admin.ModelAdmin):
+    list_display = ('name', 'level', 'origin')
+    search_fields = ('name',  'origin')
 class ClassLevelFeatureInline(admin.TabularInline):
     model  = ClassLevelFeature
     extra  = 1
     fields = ('feature', 'chosen_option')
+    formset = ModularLinearFeatureFormSet
 
 
 class FeatureOptionInline(admin.TabularInline):
@@ -213,7 +256,7 @@ class ClassLevelAdmin(admin.ModelAdmin):
 # ─── ClassFeature ────────────────────────────────────────────────────────────────
 from django.apps import apps
 from django.db import models
-
+from django.db.models import IntegerField
 DICE = ["d4","d6","d8","d10","d12","d20"]
 Character = apps.get_model("characters", "Character")
 ABILITY_NAMES = ("strength","dexterity","constitution","intelligence","wisdom","charisma")
@@ -223,6 +266,11 @@ ABILITY_FIELDS = [
      if isinstance(f, models.IntegerField) and f.name in ABILITY_NAMES
  ]
 
+ALL_INT_FIELDS = [
+    f.name
+    for f in Character._meta.get_fields()
+    if isinstance(f, IntegerField)
+]
 # the rest of your VARS (levels, saves, class_level, plus any “_level” fields)
 OTHER_VARS = [
      "level", "class_level", "proficiency_modifier",
@@ -234,7 +282,7 @@ OTHER_VARS = [
  ]
 
 
-VARS = ABILITY_FIELDS + OTHER_VARS
+VARS = ABILITY_FIELDS + OTHER_VARS + ALL_INT_FIELDS
 class ClassResourceForm(forms.ModelForm):
     class Meta:
         model = ClassResource
@@ -514,7 +562,7 @@ class ClassFeatureAdmin(admin.ModelAdmin):
         "kind",       
         "activity_type",
         "action_type",
-        
+
         "subclass_group",
         "subclasses",
         "code",
@@ -530,6 +578,16 @@ class ClassFeatureAdmin(admin.ModelAdmin):
         "spells_prepared_formula",   
         "modify_proficiency_target",
         "modify_proficiency_amount",
+        "saving_throw_required",
+        "saving_throw_type",
+        "saving_throw_granularity",
+        "saving_throw_basic_success",
+        "saving_throw_basic_failure",
+        "saving_throw_critical_success",
+        "saving_throw_success",
+        "saving_throw_failure",
+        "saving_throw_critical_failure",
+
         
     ]
 
