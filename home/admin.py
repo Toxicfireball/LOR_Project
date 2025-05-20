@@ -272,28 +272,51 @@ ALL_INT_FIELDS = [
     if isinstance(f, IntegerField)
 ]
 # the rest of your VARS (levels, saves, class_level, plus any “_level” fields)
-OTHER_VARS = [
-     "level", "class_level", "proficiency_modifier",
-     "hp", "temp_hp",
- ] + [f"{cls.name.lower()}_level" for cls in CharacterClass.objects.all()] + [
-     "reflex_save","fortitude_save","will_save",
-     "initiative","weapon_attack","spell_attack","spell_dc",
-     "perception","dodge",
- ]
+from django.db import connection
 
 
-VARS = ABILITY_FIELDS + OTHER_VARS + ALL_INT_FIELDS
+def get_other_vars():
+    try:
+        from characters.models import CharacterClass
+        if CharacterClass._meta.db_table in connection.introspection.table_names():
+            class_fields = [f"{cls.name.lower()}_level" for cls in CharacterClass.objects.all()]
+        else:
+            class_fields = []
+    except Exception:
+        class_fields = []
+
+    return [
+        "level", "class_level", "proficiency_modifier",
+        "hp", "temp_hp",
+    ] + class_fields + [
+        "reflex_save", "fortitude_save", "will_save",
+        "initiative", "weapon_attack", "spell_attack", "spell_dc",
+        "perception", "dodge",
+    ]
+
+
+VARS = ABILITY_FIELDS + get_other_vars() + ALL_INT_FIELDS
 class ClassResourceForm(forms.ModelForm):
     class Meta:
         model = ClassResource
         fields = ("resource_type", "formula")
-        widgets = {
-            "formula": FormulaBuilderWidget(
-                variables=VARS + [f"{rt.code}_points" for rt in ResourceType.objects.all()],
-                dice=DICE,
-                attrs={"rows":2, "cols":40},
-            )
-        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        from characters.models import ResourceType
+
+        try:
+            resource_vars = [f"{rt.code}_points" for rt in ResourceType.objects.all()]
+        except Exception:
+            resource_vars = []
+
+        self.fields["formula"].widget = FormulaBuilderWidget(
+            variables=VARS + resource_vars,
+            dice=DICE,
+            attrs={"rows": 2, "cols": 40},
+        )
+
 
 class ClassFeatureForm(forms.ModelForm):
     class Meta:

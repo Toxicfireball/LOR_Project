@@ -119,19 +119,28 @@ class CharacterCreationForm(forms.ModelForm):
 from django import forms
 from .models import ClassFeature
 from .widgets import FormulaBuilderWidget
-
+from django.apps import apps
 # Pull these in just once so you don’t repeat them in two places:
 from characters.models import CharacterClass
-
+from django.db import connection
+def safe_class_level_vars():
+    try:
+        if not apps.ready:
+            return []
+        if CharacterClass._meta.db_table not in connection.introspection.table_names():
+            return []
+        return [f"{cls.name.lower()}_level" for cls in CharacterClass.objects.all()]
+    except Exception:
+        return []
 # build your var list here once:
 BASE_VARS = [
     "level", "class_level", "proficiency_modifier",
-    # plus one “X_level” for each class:
-] + [cls.name.lower() + "_level" for cls in CharacterClass.objects.all()] + [
+] + safe_class_level_vars() + [
     "reflex_save", "fortitude_save", "will_save",
     "initiative", "perception", "dodge",
     "spell_attack", "spell_dc", "weapon_attack",
 ]
+
 
 DICE = ["d4","d6","d8","d10","d12","d20"]
 def build_variable_list():
@@ -142,8 +151,7 @@ def build_variable_list():
         "initiative","perception","dodge",
         "spell_attack","spell_dc","weapon_attack",
     ]
-    base += [f"{cls.name.lower()}_level"
-             for cls in CharacterClass.objects.all()]
+    base += safe_class_level_vars()
     base +=BASE_VARS
     return base
 # characters/forms.py
