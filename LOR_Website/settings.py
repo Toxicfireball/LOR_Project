@@ -12,7 +12,7 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 import pathlib
 from pathlib import Path
 import os
-
+import dj_database_url
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent# Where `manage.py collectstatic` will put all the files
 STATIC_ROOT = BASE_DIR / "staticfiles"
@@ -87,8 +87,8 @@ WSGI_APPLICATION = 'LOR_Website.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'default': dj_database_url.config(conn_max_age=600),
+
     }
 }
 
