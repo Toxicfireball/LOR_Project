@@ -40,7 +40,13 @@ SECRET_KEY = 'django-insecure-wm5ej4&6+ve6-#=t396=l68%@fb+r2fev*(a0_&$00@evg_5a&
 DEBUG = True
 
 ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    "lorbuilder.com",
+    "www.lorbuilder.com",
+]
 
+CSRF_COOKIE_SECURE = True
+SESSION_COOKIE_SECURE = True
 
 # Application definition
 
@@ -89,6 +95,10 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'LOR_Website.wsgi.application'
 
+CSRF_TRUSTED_ORIGINS = [
+    "https://www.lorbuilder.com",
+    "https://lorbuilder.com",
+]
 
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
