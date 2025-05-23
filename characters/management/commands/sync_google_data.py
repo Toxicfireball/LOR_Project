@@ -29,7 +29,10 @@ class Command(BaseCommand):
     help = "Sync spells and feats from Google Sheets"
 
     def handle(self, *args, **options):
+        print("🟢 SYNC JOB STARTED")
+
         try:
+            # Setup auth
             json_creds = os.environ.get("GOOGLE_SHEETS_CREDENTIALS_JSON")
             if not json_creds:
                 print("❌ ERROR: GOOGLE_SHEETS_CREDENTIALS_JSON not set")
@@ -39,114 +42,84 @@ class Command(BaseCommand):
             scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
             creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
             client = gspread.authorize(creds)
-
             print("✅ Google Sheets client initialized")
-            
-            # Verify access works
-            spreadsheet = client.open_by_key("1tUP5rXleImOKnrOVGBnmxNHHDAyU0HHxeuODgLDX8SM")
-            print(f"📘 Found spell spreadsheet: {spreadsheet.title}")
-            
-            from characters.models import Spell
-            print(f"🧪 Spells before: {Spell.objects.count()}")
 
-        except Exception as e:
-            print("❌ Exception occurred:", str(e))
-            import traceback
-            traceback.print_exc()
-            return       
-        print("📡 SYNC JOB STARTED")
-        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        if not os.environ.get("GOOGLE_SHEETS_CREDENTIALS_JSON"):
-            print("❌ ERROR: GOOGLE_SHEETS_CREDENTIALS_JSON is not set!")
-            return
+            # SPELLS
+            spell_sheet = client.open_by_key("1tUP5rXleImOKnrOVGBnmxNHHDAyU0HHxeuODgLDX8SM")
+            for sheet in spell_sheet.worksheets():
+                print(f"📘 Processing sheet: {sheet.title}")
+                level = LEVEL_MAP.get(sheet.title.strip(), 0)
+                rows = sheet.get_all_records()
+                print(f"🔢 {len(rows)} rows in {sheet.title}")
 
+                for row in rows:
+                    row = {k.strip(): v.strip() if isinstance(v, str) else v for k, v in row.items()}
+                    spell_name = row.get('Spell Name', '').strip()
+                    if not spell_name:
+                        print("⚠️ Skipping row with no spell name")
+                        continue
 
-        json_creds = os.environ.get("GOOGLE_SHEETS_CREDENTIALS_JSON")
-        if not json_creds:
-            raise ValueError("GOOGLE_SHEETS_CREDENTIALS_JSON not set")
+                    Spell.objects.update_or_create(
+                        name=spell_name,
+                        defaults={
+                            'level': level,
+                            'classification': safe_str(row.get('Classification', '')),
+                            'description': safe_str(row.get('Description', '')),
+                            'effect': safe_str(row.get('Effect', '')),
+                            'upcast_effect': safe_str(row.get('Upcasted Effect', '')),
+                            'saving_throw': safe_str(row.get('Saving Throw', '')),
+                            'casting_time': safe_str(row.get('Casting Time', '')),
+                            'duration': safe_str(row.get('Duration', '')),
+                            'components': safe_str(row.get('Components', '')),
+                            'range': safe_str(row.get('Range', '')),
+                            'target': safe_str(row.get('Target', '')),
+                            'school': safe_str(row.get('School', '')),
+                            'origin': safe_str(row.get('Origin', '')),
+                            'sub_origin': safe_str(row.get('Sub Origin', '')),
+                            'mastery_req': safe_str(row.get('Mastery Req', '')),
+                            'tags': safe_str(row.get('Other Tags', '')),
+                        }
+                    )
 
-        creds_dict = json.loads(json_creds)
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-
-        client = gspread.authorize(creds)
-
-        # SPELLS IMPORT
-        spell_sheet = client.open_by_key("1tUP5rXleImOKnrOVGBnmxNHHDAyU0HHxeuODgLDX8SM")
-        for sheet in spell_sheet.worksheets():
-            print(f"📘 Processing sheet: {sheet.title}")
-            level_title = sheet.title.strip()
-            level = LEVEL_MAP.get(level_title, 0)
-            
-            rows = sheet.get_all_records()
-            print(f"🔢 Found {len(rows)} rows in sheet '{sheet.title}'")
+            # FEATS
+            feat_sheet = client.open_by_key("1-WHN5KXt7O7kRmgyOZ0rXKLA6s6CbaOWFmvPflzD5bQ").sheet1
+            rows = feat_sheet.get_all_records()
 
             for row in rows:
-                row = {
-                    k.strip(): v.strip() if isinstance(v, str) else v
-                    for k, v in row.items()
-                }
-                print("🔍 Row:", row)  # Debug row content
-                spell_name = row.get('Spell Name', '').strip()
-                if not spell_name:
-                    print("⚠️ Skipping empty row.")
+                feat_name = row.get('Feat', '').strip()
+                if not feat_name:
+                    print("⚠️ Skipping row with no Feat name:", row)
                     continue
 
-                # Insert Spell
-                Spell.objects.update_or_create(
-                    name=spell_name,
-                    
+                raw_type = row.get('Feat Type', '')
+                cleaned = raw_type.lower().replace('/', ',').replace('\\', ',')
+                parts = [p.strip().capitalize() for p in cleaned.split(',') if p.strip()]
+                parts = ['General' if p == 'Racial' else p for p in parts]
+                parts = sorted(set(parts), key=lambda x: ['General', 'Class', 'Skill'].index(x) if x in ['General', 'Class', 'Skill'] else x)
+                normalized_feat_type = ", ".join(parts)
+
+                ClassFeat.objects.update_or_create(
+                    name=feat_name,
                     defaults={
-                        'level': level,
-                        'classification': safe_str(row.get('Classification', '')),
-                        'description': safe_str(row.get('Description', '')),
-                        'effect': safe_str(row.get('Effect', '')),
-                        'upcast_effect': safe_str(row.get('Upcasted Effect', '')),
-                        'saving_throw': safe_str(row.get('Saving Throw', '')),
-                        'casting_time': safe_str(row.get('Casting Time', '')),
-                        'duration': safe_str(row.get('Duration', '')),
-                        'components': safe_str(row.get('Components', '')),
-                        'range': safe_str(row.get('Range', '')),
-                        'target': safe_str(row.get('Target', '')),
-                        'school': safe_str(row.get('School', '')),
-                        'origin': safe_str(row.get('Origin', '')),
-                        'sub_origin': safe_str(row.get('Sub Origin', '')),
-                        'mastery_req': safe_str(row.get('Mastery Req', '')),
-                        'tags': safe_str(row.get('Other Tags', '')),
+                        'description': row.get('Description', ''),
+                        'level_prerequisite': row.get('Level Prerequisite', ''),
+                        'feat_type': normalized_feat_type,
+                        'class_name': row.get('Class', ''),
+                        'race': row.get('Race', ''),
+                        'tags': row.get('Tags', ''),
+                        'prerequisites': row.get('Pre-req', '')
                     }
                 )
 
+            from characters.models import Spell, ClassFeat
+            print(f"📦 Total spells: {Spell.objects.count()}")
+            print(f"📦 Total feats: {ClassFeat.objects.count()}")
 
-        # FEATS IMPORT
-        feat_sheet = client.open_by_key("1-WHN5KXt7O7kRmgyOZ0rXKLA6s6CbaOWFmvPflzD5bQ").sheet1
-        rows = feat_sheet.get_all_records()
+            print("✅ SYNC JOB DONE")
+            self.stdout.write(self.style.SUCCESS("Spells and Class Feats synced successfully."))
 
-        for row in rows:
-            feat_name = row.get('Feat', '').strip()
-            if not feat_name:
-                print("⚠️ Skipping row with no Feat name:", row)
-                continue
-
-            # --- Clean Feat Type ---
-            raw_type = row.get('Feat Type', '')
-            cleaned = raw_type.lower().replace('/', ',').replace('\\', ',')
-            parts = [p.strip().capitalize() for p in cleaned.split(',') if p.strip()]
-            parts = ['General' if p == 'Racial' else p for p in parts]
-            parts = sorted(set(parts), key=lambda x: ['General', 'Class', 'Skill'].index(x) if x in ['General', 'Class', 'Skill'] else x)
-            normalized_feat_type = ", ".join(parts)
-
-            ClassFeat.objects.update_or_create(
-                name=feat_name,
-                defaults={
-                    'description': row.get('Description', ''),
-                    'level_prerequisite': row.get('Level Prerequisite', ''),
-                    'feat_type': normalized_feat_type,
-                    'class_name': row.get('Class', ''),
-                    'race': row.get('Race', ''),
-                    'tags': row.get('Tags', ''),
-                    'prerequisites': row.get('Pre-req', '')
-                }
-            )
-
-        print("SYNC JOB DONE")
-        self.stdout.write(self.style.SUCCESS("Spells and Class Feats synced successfully."))
-
+        except Exception as e:
+            print("❌ Exception occurred:")
+            print(e)
+            import traceback
+            traceback.print_exc()
