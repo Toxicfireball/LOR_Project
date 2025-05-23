@@ -93,7 +93,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'LOR_website.wsgi.application'
+WSGI_APPLICATION = 'LOR_Website.wsgi.application'
 
 CSRF_TRUSTED_ORIGINS = [
     "https://www.lorbuilder.com",
