@@ -29,7 +29,11 @@ class Command(BaseCommand):
     help = "Sync spells and feats from Google Sheets"
 
     def handle(self, *args, **options):
+        print("📡 SYNC JOB STARTED")
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+        if not os.environ.get("GOOGLE_SHEETS_CREDENTIALS_JSON"):
+            print("❌ ERROR: GOOGLE_SHEETS_CREDENTIALS_JSON is not set!")
+            return
 
 
         json_creds = os.environ.get("GOOGLE_SHEETS_CREDENTIALS_JSON")
@@ -118,6 +122,6 @@ class Command(BaseCommand):
                 }
             )
 
-
+        print("SYNC JOB DONE")
         self.stdout.write(self.style.SUCCESS("Spells and Class Feats synced successfully."))
 

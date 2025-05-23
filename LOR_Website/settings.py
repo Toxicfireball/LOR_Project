@@ -28,9 +28,6 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 # (Optional) Where your “app‑level” static/ directories live 
 # so that collectstatic can find them.
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
-STATICFILES_DIRS = [
-  BASE_DIR / "static",
-]
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
