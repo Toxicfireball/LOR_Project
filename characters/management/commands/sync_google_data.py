@@ -3,7 +3,8 @@ import gspread
 from django.core.management.base import BaseCommand
 from oauth2client.service_account import ServiceAccountCredentials
 from characters.models import Spell, ClassFeat
-
+import json, os
+from io import StringIO
 # Define the mapping from sheet level to index
 LEVEL_MAP = {
     'Cantrips': 0,
@@ -29,7 +30,15 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        creds = ServiceAccountCredentials.from_json_keyfile_name('google-credentials.json', scope)
+
+
+        json_creds = os.environ.get("GOOGLE_SHEETS_CREDENTIALS_JSON")
+        if not json_creds:
+            raise ValueError("GOOGLE_SHEETS_CREDENTIALS_JSON not set")
+
+        creds_dict = json.loads(json_creds)
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+
         client = gspread.authorize(creds)
 
         # SPELLS IMPORT
@@ -79,35 +88,35 @@ class Command(BaseCommand):
 
 
         # FEATS IMPORT
-            feat_sheet = client.open_by_key("1-WHN5KXt7O7kRmgyOZ0rXKLA6s6CbaOWFmvPflzD5bQ").sheet1
-            rows = feat_sheet.get_all_records()
+        feat_sheet = client.open_by_key("1-WHN5KXt7O7kRmgyOZ0rXKLA6s6CbaOWFmvPflzD5bQ").sheet1
+        rows = feat_sheet.get_all_records()
 
-            for row in rows:
-                feat_name = row.get('Feat', '').strip()
-                if not feat_name:
-                    print("⚠️ Skipping row with no Feat name:", row)
-                    continue
+        for row in rows:
+            feat_name = row.get('Feat', '').strip()
+            if not feat_name:
+                print("⚠️ Skipping row with no Feat name:", row)
+                continue
 
-                # --- Clean Feat Type ---
-                raw_type = row.get('Feat Type', '')
-                cleaned = raw_type.lower().replace('/', ',').replace('\\', ',')
-                parts = [p.strip().capitalize() for p in cleaned.split(',') if p.strip()]
-                parts = ['General' if p == 'Racial' else p for p in parts]
-                parts = sorted(set(parts), key=lambda x: ['General', 'Class', 'Skill'].index(x) if x in ['General', 'Class', 'Skill'] else x)
-                normalized_feat_type = ", ".join(parts)
+            # --- Clean Feat Type ---
+            raw_type = row.get('Feat Type', '')
+            cleaned = raw_type.lower().replace('/', ',').replace('\\', ',')
+            parts = [p.strip().capitalize() for p in cleaned.split(',') if p.strip()]
+            parts = ['General' if p == 'Racial' else p for p in parts]
+            parts = sorted(set(parts), key=lambda x: ['General', 'Class', 'Skill'].index(x) if x in ['General', 'Class', 'Skill'] else x)
+            normalized_feat_type = ", ".join(parts)
 
-                ClassFeat.objects.update_or_create(
-                    name=feat_name,
-                    defaults={
-                        'description': row.get('Description', ''),
-                        'level_prerequisite': row.get('Level Prerequisite', ''),
-                        'feat_type': normalized_feat_type,
-                        'class_name': row.get('Class', ''),
-                        'race': row.get('Race', ''),
-                        'tags': row.get('Tags', ''),
-                        'prerequisites': row.get('Pre-req', '')
-                    }
-                )
+            ClassFeat.objects.update_or_create(
+                name=feat_name,
+                defaults={
+                    'description': row.get('Description', ''),
+                    'level_prerequisite': row.get('Level Prerequisite', ''),
+                    'feat_type': normalized_feat_type,
+                    'class_name': row.get('Class', ''),
+                    'race': row.get('Race', ''),
+                    'tags': row.get('Tags', ''),
+                    'prerequisites': row.get('Pre-req', '')
+                }
+            )
 
 
         self.stdout.write(self.style.SUCCESS("Spells and Class Feats synced successfully."))
