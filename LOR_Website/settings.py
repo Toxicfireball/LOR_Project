@@ -27,6 +27,7 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # (Optional) Where your “app‑level” static/ directories live 
 # so that collectstatic can find them.
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 STATICFILES_DIRS = [
   BASE_DIR / "static",
 ]
@@ -72,6 +73,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    "whitenoise.middleware.WhiteNoiseMiddleware",
 ]
 
 ROOT_URLCONF = 'LOR_Website.urls'
