@@ -18,7 +18,7 @@ import pathlib
 from pathlib import Path
 import os
 import dj_database_url
-
+LOGIN_REDIRECT_URL = '/'
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
