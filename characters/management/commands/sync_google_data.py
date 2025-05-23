@@ -29,6 +29,31 @@ class Command(BaseCommand):
     help = "Sync spells and feats from Google Sheets"
 
     def handle(self, *args, **options):
+        try:
+            json_creds = os.environ.get("GOOGLE_SHEETS_CREDENTIALS_JSON")
+            if not json_creds:
+                print("❌ ERROR: GOOGLE_SHEETS_CREDENTIALS_JSON not set")
+                return
+
+            creds_dict = json.loads(json_creds)
+            scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+            client = gspread.authorize(creds)
+
+            print("✅ Google Sheets client initialized")
+            
+            # Verify access works
+            spreadsheet = client.open_by_key("1tUP5rXleImOKnrOVGBnmxNHHDAyU0HHxeuODgLDX8SM")
+            print(f"📘 Found spell spreadsheet: {spreadsheet.title}")
+            
+            from characters.models import Spell
+            print(f"🧪 Spells before: {Spell.objects.count()}")
+
+        except Exception as e:
+            print("❌ Exception occurred:", str(e))
+            import traceback
+            traceback.print_exc()
+            return       
         print("📡 SYNC JOB STARTED")
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
         if not os.environ.get("GOOGLE_SHEETS_CREDENTIALS_JSON"):
