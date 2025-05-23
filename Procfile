@@ -1,1 +1,1 @@
-web: gunicorn lor_Website.wsgi
+web: gunicorn LOR_Website.wsgi

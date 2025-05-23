@@ -27,7 +27,9 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # (Optional) Where your “app‑level” static/ directories live 
 # so that collectstatic can find them.
-
+STATICFILES_DIRS = [
+  BASE_DIR / "static",
+]
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
@@ -72,7 +74,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-ROOT_URLCONF = 'lor_Website.urls'
+ROOT_URLCONF = 'LOR_Website.urls'
 
 TEMPLATES = [
     {
@@ -91,7 +93,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'lor_website.wsgi.application'
+WSGI_APPLICATION = 'LOR_website.wsgi.application'
 
 CSRF_TRUSTED_ORIGINS = [
     "https://www.lorbuilder.com",
