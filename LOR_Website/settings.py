@@ -74,7 +74,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-ROOT_URLCONF = 'LOR_Website.urls'
+ROOT_URLCONF = 'lor_Website.urls'
 
 TEMPLATES = [
     {
@@ -93,7 +93,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'LOR_Website.wsgi.application'
+WSGI_APPLICATION = 'lor_website.wsgi.application'
 
 CSRF_TRUSTED_ORIGINS = [
     "https://www.lorbuilder.com",
