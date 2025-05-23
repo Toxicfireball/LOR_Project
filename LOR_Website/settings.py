@@ -98,26 +98,25 @@ WSGI_APPLICATION = 'LOR_Website.wsgi.application'
 import dj_database_url
 import os
 
-DATABASES = {
-    'default': dj_database_url.config(
-        default='sqlite:///' + str(BASE_DIR / "db.sqlite3"),
-        conn_max_age=600
-    )
-}
-import dj_database_url
+# settings.py
+
 import os
+import dj_database_url
 
-
-
-DATABASES = {
-    'default': dj_database_url.config(
-        default='sqlite:///' + str(BASE_DIR / "db.sqlite3"),
-        conn_max_age=600
-    )
-}
-
-
-
+if os.getenv("USE_LOCAL", "").lower() == "true":
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
+else:
+    DATABASES = {
+        'default': dj_database_url.config(
+            default='postgresql://...',  # Optional fallback
+            conn_max_age=600
+        )
+    }
 
 
 
