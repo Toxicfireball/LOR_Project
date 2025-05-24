@@ -59,8 +59,8 @@
             </tr>
             <tr id="spell-{{ spell.id }}" class="detail-row" style="display: none;">
               <td colspan="5">
-                <strong>Effect:</strong> {{ spell.effect }}<br>
-                <strong>Upcast Effect:</strong> {{ spell.upcast_effect }}<br>
+                <strong>Effect:</strong> <p>{{ spell.effect|linebreaks }}</p><br>
+                <strong>Upcast Effect:</strong> {{ spell.upcast_effect|linebreaks  }}<br>
                 <strong>Saving Throw:</strong> {{ spell.saving_throw }}<br>
                 <strong>Casting Time:</strong> {{ spell.casting_time }}<br>
                 <strong>Duration:</strong> {{ spell.duration }}<br>

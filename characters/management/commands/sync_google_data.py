@@ -102,17 +102,18 @@ class Command(BaseCommand):
                 normalized_feat_type = ", ".join(parts)
 
                 ClassFeat.objects.update_or_create(
-                    name=feat_name,
+                    name=safe_str(feat_name),
                     defaults={
-                        'description': row.get('Description', ''),
-                        'level_prerequisite': row.get('Level Prerequisite', ''),
-                        'feat_type': normalized_feat_type,
-                        'class_name': row.get('Class', ''),
-                        'race': row.get('Race', ''),
-                        'tags': row.get('Tags', ''),
-                        'prerequisites': row.get('Pre-req', '')
+                        'description': safe_str(row.get('Description', '')),
+                        'level_prerequisite': safe_str(row.get('Level Prerequisite', '')),
+                        'feat_type': safe_str(normalized_feat_type),
+                        'class_name': safe_str(row.get('Class', '')),
+                        'race': safe_str(row.get('Race', '')),
+                        'tags': safe_str(row.get('Tags', '')),
+                        'prerequisites': safe_str(row.get('Pre-req', ''))
                     }
                 )
+
 
             print(f"📦 Total spells: {Spell.objects.count()}", flush=True)
             print(f"📦 Total feats: {ClassFeat.objects.count()}", flush=True)

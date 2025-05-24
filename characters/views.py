@@ -30,7 +30,7 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from .forms import CharacterCreationForm
-
+import re
 
 # views.py
 import json
@@ -91,32 +91,76 @@ def spell_list(request):
 
 
 
+WORD_BOUNDARY = r'\b{}\b'
+
 def feat_list(request):
     feats = ClassFeat.objects.all()
 
-    query = request.GET.get('q')
-    if query:
-        feats = feats.filter(name__icontains=query) | feats.filter(tags__icontains=query)
+    # ——— text search “q” ———
+    q = request.GET.get('q')
+    if q:
+        feats = feats.filter(name__icontains=q) | feats.filter(tags__icontains=q)
 
-    feat_type = request.GET.get('type')
-    if feat_type:
-        feats = feats.filter(feat_type__icontains=feat_type)
+    # ——— feat_type filter ———
+    ft = request.GET.get('type')
+    if ft:
+        # match “Thievery” won’t catch “Rogue”, but “Rogue” catches “Rogue (Thief)”
+        pattern = WORD_BOUNDARY.format(re.escape(ft))
+        feats = feats.filter(feat_type__iregex=pattern)
+
+    # ——— class filter ———
+    cls = request.GET.get('class')
+    if cls:
+        pattern = WORD_BOUNDARY.format(re.escape(cls))
+        feats = feats.filter(class_name__iregex=pattern)
+
+    # ——— race filter ———
+    rc = request.GET.get('race')
+    if rc:
+        pattern = WORD_BOUNDARY.format(re.escape(rc))
+        feats = feats.filter(race__iregex=pattern)
 
     feats = feats.order_by('name')
 
-    # Tabs
+    # ——— tabs (full feat_type strings) ———
     types = sorted(set(feats.values_list('feat_type', flat=True)))
 
-    # Dropdown filter (individual feat types split from combo strings)
+    # ——— dropdown lists ———
     raw_feat_types = feats.values_list('feat_type', flat=True)
-    feat_types = sorted({ft.strip() for val in raw_feat_types for ft in val.split(',') if ft.strip()})
+    feat_types = sorted({
+        part.strip()
+        for full in raw_feat_types
+        for part in full.split(',')
+        if part.strip()
+    })
+
+    raw_classes = feats.values_list('class_name', flat=True)
+    class_names = sorted({
+        part.strip()
+        for full in raw_classes
+        for part in full.split(',')
+        if part.strip()
+    })
+
+    raw_races = feats.values_list('race', flat=True)
+    race_names = sorted({
+        part.strip()
+        for full in raw_races
+        for part in full.split(',')
+        if part.strip()
+    })
 
     return render(request, 'characters/feat_list.html', {
-        'feats': feats,
-        'types': types,
-        'feat_types': feat_types,  # ✅ new for filter dropdown
-        'query': query,
-        'selected_type': feat_type,
+        'feats':          feats,
+        'types':          types,
+        'feat_types':     feat_types,
+        'class_names':    class_names,
+        'race_names':     race_names,
+        # so your template can re-check the boxes on reload
+        'selected_type':  ft,
+        'selected_class': cls,
+        'selected_race':  rc,
+        'query':          q,
     })
 
 

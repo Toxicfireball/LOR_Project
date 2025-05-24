@@ -52,7 +52,7 @@
       <a href="{% url 'home' %}">Home</a>
       <a href="{% url 'character_creator' %}">Sample Character and Calculator</a>
       <a href="{% url 'characters:spell_list' %}">Spell List</a>
-      <a href="{% url 'characters:feat_list' %}">Spell List</a>
+      <a href="{% url 'characters:feat_list' %}">Feat List</a>
 
       {% if user.is_authenticated %}
         <a href="{% url 'campaigns:campaign_list' %}">Campaigns</a>
