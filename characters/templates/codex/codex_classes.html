@@ -24,12 +24,20 @@
   {% endfor %}
 </ul>
 
-<h2 class="text-xl font-semibold mt-6 mb-2">Subclasses</h2>
-<ul class="list-disc ml-6">
-  {% for sc in subclasses %}
-    <li><strong>{{ sc.name }}</strong>{% if sc.description %}: {{ sc.description|linebreaksbr }}{% endif %}</li>
-  {% endfor %}
-</ul>
+<h2 class="text-xl font-semibold mt-6 mb-2">Subclass Groups</h2>
+{% for group in cls.subclass_groups.all %}
+  <div class="mb-4">
+    <h3 class="text-lg font-semibold">{{ group.name }}</h3>
+    {% if group.system_type %}<p class="text-sm italic text-gray-600">System: {{ group.get_system_type_display }}</p>{% endif %}
+    <ul class="list-disc ml-6">
+      {% for subclass in group.subclasses.all %}
+        <li><strong>{{ subclass.name }}</strong>{% if subclass.description %}: {{ subclass.description|linebreaksbr }}{% endif %}</li>
+      {% endfor %}
+    </ul>
+  </div>
+{% empty %}
+  <p class="text-gray-500">No subclass groups available.</p>
+{% endfor %}
 
 <h2 class="text-xl font-semibold mt-6 mb-2">Level Progression</h2>
 <ul class="list-disc ml-6">
