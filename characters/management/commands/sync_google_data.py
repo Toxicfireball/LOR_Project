@@ -29,34 +29,34 @@ class Command(BaseCommand):
     help = "Sync spells and feats from Google Sheets"
 
     def handle(self, *args, **options):
-        print("🟢 SYNC JOB STARTED")
+        print("🟢 SYNC JOB STARTED", flush=True)
 
         try:
             # Setup auth
             json_creds = os.environ.get("GOOGLE_SHEETS_CREDENTIALS_JSON")
             if not json_creds:
-                print("❌ ERROR: GOOGLE_SHEETS_CREDENTIALS_JSON not set")
+                print("❌ ERROR: GOOGLE_SHEETS_CREDENTIALS_JSON not set", flush=True)
                 return
 
             creds_dict = json.loads(json_creds)
             scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
             creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
             client = gspread.authorize(creds)
-            print("✅ Google Sheets client initialized")
+            print("✅ Google Sheets client initialized", flush=True)
 
             # SPELLS
             spell_sheet = client.open_by_key("1tUP5rXleImOKnrOVGBnmxNHHDAyU0HHxeuODgLDX8SM")
             for sheet in spell_sheet.worksheets():
-                print(f"📘 Processing sheet: {sheet.title}")
+                print(f"📘 Processing sheet: {sheet.title}", flush=True)
                 level = LEVEL_MAP.get(sheet.title.strip(), 0)
                 rows = sheet.get_all_records()
-                print(f"🔢 {len(rows)} rows in {sheet.title}")
+                print(f"🔢 {len(rows)} rows in {sheet.title}", flush=True)
 
                 for row in rows:
                     row = {k.strip(): v.strip() if isinstance(v, str) else v for k, v in row.items()}
                     spell_name = row.get('Spell Name', '').strip()
                     if not spell_name:
-                        print("⚠️ Skipping row with no spell name")
+                        print("⚠️ Skipping row with no spell name", flush=True)
                         continue
 
                     Spell.objects.update_or_create(
@@ -88,7 +88,7 @@ class Command(BaseCommand):
             for row in rows:
                 feat_name = row.get('Feat', '').strip()
                 if not feat_name:
-                    print("⚠️ Skipping row with no Feat name:", row)
+                    print("⚠️ Skipping row with no Feat name:", row, flush=True)
                     continue
 
                 raw_type = row.get('Feat Type', '')
@@ -111,14 +111,14 @@ class Command(BaseCommand):
                     }
                 )
 
-            print(f"📦 Total spells: {Spell.objects.count()}")
-            print(f"📦 Total feats: {ClassFeat.objects.count()}")
+            print(f"📦 Total spells: {Spell.objects.count()}", flush=True)
+            print(f"📦 Total feats: {ClassFeat.objects.count()}", flush=True)
 
-            print("✅ SYNC JOB DONE")
+            print("✅ SYNC JOB DONE", flush=True)
             self.stdout.write(self.style.SUCCESS("Spells and Class Feats synced successfully."))
 
         except Exception as e:
-            print("❌ Exception occurred:")
-            print(e)
+            print("❌ Exception occurred:", flush=True)
+            print(e, flush=True)
             import traceback
             traceback.print_exc()
