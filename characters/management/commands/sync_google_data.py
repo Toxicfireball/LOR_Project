@@ -19,6 +19,9 @@ LEVEL_MAP = {
     '9th Level': 9,
     '10th Level': 10,
 }
+from django.db import connection
+print("📡 DB ENGINE:", connection.settings_dict['ENGINE'], flush=True)
+print("📡 DB NAME:", connection.settings_dict['NAME'], flush=True)
 
 
 def safe_str(value):
