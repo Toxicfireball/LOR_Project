@@ -111,20 +111,23 @@ import os
 
 import os
 import dj_database_url
-
-if os.getenv("USE_LOCAL", "").lower() == "true":
+DATABASE_URL = os.getenv("DATABASE_URL")
+if DATABASE_URL:
+    # parse any valid postgres://… string
     DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
-        }
+        "default": dj_database_url.parse(
+            DATABASE_URL,
+            conn_max_age=600,
+            ssl_require=True
+        )
     }
 else:
+    # fallback for when you really want SQLite
     DATABASES = {
-        'default': dj_database_url.config(
-            default='postgresql://...',  # Optional fallback
-            conn_max_age=600
-        )
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
     }
 
 
