@@ -45,7 +45,8 @@ from .models import Character
 from .models import SubSkill, ProficiencyLevel, CharacterSkillProficiency
 
 from django.shortcuts import render
-from characters.models import Spell, ClassFeat
+from characters.models import Spell, ClassFeat, CharacterClass, ClassFeature, ClassSubclass, SubclassGroup
+
 
 
 from django.shortcuts import render
@@ -161,6 +162,42 @@ def feat_list(request):
         'selected_class': cls,
         'selected_race':  rc,
         'query':          q,
+    })
+
+def codex_index(request):
+    return render(request, 'characters/codex/index.html')
+
+def class_list(request):
+    classes = CharacterClass.objects.all().order_by('name')
+    return render(request, 'characters/codex/class_list.html', {'classes': classes})
+
+def class_feature_list(request):
+    features = ClassFeature.objects.all().order_by('character_class__name', 'name')
+    return render(request, 'characters/codex/features.html', {'features': features})
+
+
+
+def class_subclass_list(request):
+    subclasses = ClassSubclass.objects.select_related('base_class').order_by('base_class__name', 'name')
+    return render(request, 'characters/codex/subclasses.html', {'subclasses': subclasses})
+
+def subclass_group_list(request):
+    groups = SubclassGroup.objects.select_related('character_class').order_by('character_class__name', 'name')
+    return render(request, 'characters/codex/groups.html', {'groups': groups})
+
+
+from characters.models import CharacterClass, ClassFeature, ClassSubclass, SubclassGroup, ClassLevel
+
+def class_detail(request, pk):
+    cls = get_object_or_404(CharacterClass, pk=pk)
+    features = ClassFeature.objects.filter(character_class=cls).order_by('name')
+    subclasses = ClassSubclass.objects.filter(base_class=cls).order_by('name')
+    levels = ClassLevel.objects.filter(character_class=cls).order_by('level')
+    return render(request, 'characters/codex_classes.html', {
+        'cls': cls,
+        'features': features,
+        'subclasses': subclasses,
+        'levels': levels,
     })
 
 
