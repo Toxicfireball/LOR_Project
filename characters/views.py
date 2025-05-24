@@ -191,7 +191,7 @@ def class_detail(request, pk):
     subclasses = ClassSubclass.objects.filter(base_class=cls).order_by('name')
     levels = ClassLevel.objects.filter(character_class=cls).prefetch_related('features').order_by('level')
 
-    return render(request, 'characters/codex/class_detail.html', {
+    return render(request, 'codex/class_detail.html', {
         'cls': cls,
         'features': features,
         'subclasses': subclasses,
