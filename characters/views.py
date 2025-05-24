@@ -165,12 +165,12 @@ def feat_list(request):
     })
 
 def codex_index(request):
-    return render(request, 'codex/index.html')
+    return render(request, 'codex/codex_index.html')
 
 
 def class_list(request):
     classes = CharacterClass.objects.all().order_by('name')
-    return render(request, '=codex/class_list.html', {'classes': classes})
+    return render(request, 'codex/class_list.html', {'classes': classes})
 
 
 

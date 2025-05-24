@@ -162,9 +162,7 @@ USE_I18N = True
 
 USE_TZ = True
 
-import os
 
-DEBUG = os.getenv('DEBUG', 'False') == 'True'
 SECRET_KEY = os.getenv('SECRET_KEY', 'fallback_dev_key')
 
 ALLOWED_HOSTS = ['*']  # Later replace with your Railway domain
