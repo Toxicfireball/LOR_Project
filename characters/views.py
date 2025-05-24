@@ -165,22 +165,22 @@ def feat_list(request):
     })
 
 def codex_index(request):
-    return render(request, 'characters/codex/index.html')
+    return render(request, 'codex/index.html')
 
 
 def class_list(request):
     classes = CharacterClass.objects.all().order_by('name')
-    return render(request, 'characters/codex/class_list.html', {'classes': classes})
+    return render(request, '=codex/class_list.html', {'classes': classes})
 
 
 
 def class_subclass_list(request):
     subclasses = ClassSubclass.objects.select_related('base_class').order_by('base_class__name', 'name')
-    return render(request, 'characters/codex/subclasses.html', {'subclasses': subclasses})
+    return render(request, 'codex/subclasses.html', {'subclasses': subclasses})
 
 def subclass_group_list(request):
     groups = SubclassGroup.objects.select_related('character_class').order_by('character_class__name', 'name')
-    return render(request, 'characters/codex/groups.html', {'groups': groups})
+    return render(request, 'codex/groups.html', {'groups': groups})
 
 
 from characters.models import CharacterClass, ClassFeature, ClassSubclass, SubclassGroup, ClassLevel
