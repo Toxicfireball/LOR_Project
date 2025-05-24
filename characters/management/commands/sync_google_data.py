@@ -111,7 +111,6 @@ class Command(BaseCommand):
                     }
                 )
 
-            from characters.models import Spell, ClassFeat
             print(f"📦 Total spells: {Spell.objects.count()}")
             print(f"📦 Total feats: {ClassFeat.objects.count()}")
 
