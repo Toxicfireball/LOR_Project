@@ -71,6 +71,24 @@
   display: block;
 }
 
+  .dropdown { position: relative; }
+  .dropdown-content {
+    display: none;
+    position: absolute;
+    background-color: #444;
+    min-width: 160px;
+    z-index: 1;
+  }
+  .dropdown-content a {
+    color: white;
+    padding: 8px 12px;
+    display: block;
+    text-decoration: none;
+  }
+  .dropdown:hover .dropdown-content {
+    display: block;
+  }
+
 
   </style>
 
@@ -82,17 +100,14 @@
     <div class="nav-links">
       <a href="{% url 'home' %}">Home</a>
       <a href="{% url 'character_creator' %}">Sample Character and Calculator</a>
-<div class="dropdown">
-  <a href="{% url 'codex_index' %}">Codex ▾</a>
-  <div class="dropdown-content">
-    <a href="{% url 'codex_spells' %}">Spells</a>
-    <a href="{% url 'codex_feats' %}">Feats</a>
-    <a href="{% url 'codex_classes' %}">Classes</a>
-    <a href="{% url 'codex_features' %}">Class Features</a>
-    <a href="{% url 'codex_subclasses' %}">Subclasses</a>
-    <a href="{% url 'codex_subgroups' %}">Subclass Groups</a>
-  </div>
-</div>
+    <div class="dropdown">
+      <a href="{% url 'characters:codex_index' %}">Codex ▾</a>
+      <div class="dropdown-content">
+        <a href="{% url 'characters:codex_spells' %}">Spells</a>
+        <a href="{% url 'characters:codex_feats' %}">Feats</a>
+        <a href="{% url 'characters:codex_classes' %}">Classes</a>
+      </div>
+    </div>
 
     <a href="#">Forge</a>
     <a href="#">Loremaster</a>

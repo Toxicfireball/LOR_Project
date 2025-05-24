@@ -1,0 +1,108 @@
+{% extends 'base.html' %}
+{% block title %}{{ cls.name }} Details{% endblock %}
+
+{% block content %}
+<h1 class="text-3xl font-bold mb-6">{{ cls.name }}</h1>
+
+<div class="mb-6">
+  <h2 class="text-xl font-semibold">Description</h2>
+  <p class="text-gray-700 mt-2">{{ cls.description }}</p>
+</div>
+
+<div class="mb-6">
+  <h2 class="text-xl font-semibold">Tags</h2>
+  <ul class="list-disc list-inside text-gray-700">
+    {% for tag in cls.tags.all %}
+      <li>{{ tag.name }}</li>
+    {% empty %}
+      <li>No tags available</li>
+    {% endfor %}
+  </ul>
+</div>
+
+<div class="mb-6">
+  <h2 class="text-xl font-semibold">Hit Die</h2>
+  <p class="text-gray-700">d{{ cls.hit_die }}</p>
+</div>
+
+<div class="mb-6">
+  <h2 class="text-xl font-semibold">Proficiency Progression</h2>
+  <table class="w-full border text-left text-sm">
+    <thead class="bg-gray-100">
+      <tr>
+        <th class="border px-2 py-1">Proficiency Type</th>
+        <th class="border px-2 py-1">Level</th>
+        <th class="border px-2 py-1">Tier</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for prog in cls.prof_progress.all %}
+      <tr>
+        <td class="border px-2 py-1">{{ prog.get_proficiency_type_display }}</td>
+        <td class="border px-2 py-1">{{ prog.at_level }}</td>
+        <td class="border px-2 py-1">{{ prog.tier.name }}</td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="3" class="text-center text-gray-500 py-2">No proficiency data.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="mb-6">
+  <h2 class="text-xl font-semibold">Subclasses</h2>
+  <ul class="list-disc list-inside text-gray-700">
+    {% for subclass in subclasses %}
+      <li><strong>{{ subclass.name }}</strong>: {{ subclass.description }}</li>
+    {% empty %}
+      <li>No subclasses available.</li>
+    {% endfor %}
+  </ul>
+</div>
+
+<div class="mb-6">
+  <h2 class="text-xl font-semibold">Class Features</h2>
+  <ul class="list-disc list-inside text-gray-700">
+    {% for feature in features %}
+      <li><strong>{{ feature.name }}</strong>: {{ feature.description }}</li>
+    {% empty %}
+      <li>No features found.</li>
+    {% endfor %}
+  </ul>
+</div>
+
+<div class="mb-6">
+  <h2 class="text-xl font-semibold">Level Progression</h2>
+  <table class="w-full border text-left text-sm">
+    <thead class="bg-gray-100">
+      <tr>
+        <th class="border px-2 py-1">Level</th>
+        <th class="border px-2 py-1">Features</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for lvl in levels %}
+        <tr>
+          <td class="border px-2 py-1">Level {{ lvl.level }}</td>
+          <td class="border px-2 py-1">
+            {% for f in lvl.features.all %}
+              <div><strong>{{ f.name }}</strong>: {{ f.description|truncatechars:100 }}</div>
+            {% empty %}
+              <em>No features</em>
+            {% endfor %}
+          </td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="2" class="text-center text-gray-500 py-2">No level data.</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<a href="{% url 'characters:codex_classes' %}" class="text-blue-600 hover:underline">Back to all classes</a>
+
+{% endblock %}

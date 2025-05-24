@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+{% block title %}Codex: Classes{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-4">All Classes</h1>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+  {% for cls in classes %}
+  <a href="{% url 'characters:codex_class_detail' cls.pk %}" class="block border p-4 rounded shadow hover:shadow-lg">
+    <h2 class="text-xl font-semibold">{{ cls.name }}</h2>
+    <p class="text-sm text-gray-700">{{ cls.description|truncatewords:25 }}</p>
+  </a>
+  {% endfor %}
+</div>
+{% endblock %}

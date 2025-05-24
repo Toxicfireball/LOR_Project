@@ -80,7 +80,7 @@ def spell_list(request):
     classifications_raw = Spell.objects.values_list('classification', flat=True)
     classifications = sorted({tag.strip() for string in classifications_raw for tag in string.split(',') if tag.strip()})
 
-    return render(request, 'characters/spell_list.html', {
+    return render(request, 'codex/spell_list.html', {
         'spells': spells,
         'levels': levels,
         'origins': origins,
@@ -151,7 +151,7 @@ def feat_list(request):
         if part.strip()
     })
 
-    return render(request, 'characters/feat_list.html', {
+    return render(request, 'codex/feat_list.html', {
         'feats':          feats,
         'types':          types,
         'feat_types':     feat_types,
@@ -167,13 +167,10 @@ def feat_list(request):
 def codex_index(request):
     return render(request, 'characters/codex/index.html')
 
+
 def class_list(request):
     classes = CharacterClass.objects.all().order_by('name')
     return render(request, 'characters/codex/class_list.html', {'classes': classes})
-
-def class_feature_list(request):
-    features = ClassFeature.objects.all().order_by('character_class__name', 'name')
-    return render(request, 'characters/codex/features.html', {'features': features})
 
 
 
@@ -192,14 +189,14 @@ def class_detail(request, pk):
     cls = get_object_or_404(CharacterClass, pk=pk)
     features = ClassFeature.objects.filter(character_class=cls).order_by('name')
     subclasses = ClassSubclass.objects.filter(base_class=cls).order_by('name')
-    levels = ClassLevel.objects.filter(character_class=cls).order_by('level')
-    return render(request, 'characters/codex_classes.html', {
+    levels = ClassLevel.objects.filter(character_class=cls).prefetch_related('features').order_by('level')
+
+    return render(request, 'characters/codex/class_detail.html', {
         'cls': cls,
         'features': features,
         'subclasses': subclasses,
         'levels': levels,
     })
-
 
 
 @login_required
@@ -239,10 +236,7 @@ def create_character(request):
     
     return render(request, 'characters/create_character.html', {'form': form})
 
-@login_required
-def character_list(request):
-    characters = request.user.characters.all()
-    return render(request, 'characters/character_list.html', {'characters': characters})
+
 
 @login_required
 def character_detail(request, pk):

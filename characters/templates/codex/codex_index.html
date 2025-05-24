@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block title %}Codex Index{% endblock %}
+
+{% block content %}
+<h1 class="text-3xl font-bold mb-6">Codex</h1>
+
+<div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+  <a href="{% url 'characters:codex_spells' %}" class="block border rounded-lg shadow-md hover:shadow-lg overflow-hidden">
+    <img src="https://via.placeholder.com/400x200?text=Spells" alt="Spells" class="w-full h-auto">
+    <div class="p-4">
+      <h2 class="text-xl font-semibold">Spells</h2>
+      <p class="text-sm text-gray-600">Browse all spells with tags, effects, and search filters.</p>
+    </div>
+  </a>
+
+  <a href="{% url 'characters:codex_feats' %}" class="block border rounded-lg shadow-md hover:shadow-lg overflow-hidden">
+    <img src="https://via.placeholder.com/400x200?text=Feats" alt="Feats" class="w-full h-auto">
+    <div class="p-4">
+      <h2 class="text-xl font-semibold">Feats</h2>
+      <p class="text-sm text-gray-600">View and filter feats by class, race, or type.</p>
+    </div>
+  </a>
+
+  <a href="{% url 'characters:codex_classes' %}" class="block border rounded-lg shadow-md hover:shadow-lg overflow-hidden">
+    <img src="https://via.placeholder.com/400x200?text=Classes" alt="Classes" class="w-full h-auto">
+    <div class="p-4">
+      <h2 class="text-xl font-semibold">Classes</h2>
+      <p class="text-sm text-gray-600">Explore all character classes, their features, and subclasses.</p>
+    </div>
+  </a>
+</div>
+
+{% endblock %}

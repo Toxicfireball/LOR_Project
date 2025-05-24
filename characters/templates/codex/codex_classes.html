@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+{% block title %}{{ cls.name }} — Class Details{% endblock %}
+{% block content %}
+
+<h1 class="text-3xl font-bold mb-6">{{ cls.name }}</h1>
+<p class="mb-6 text-gray-700">{{ cls.description }}</p>
+
+<h2 class="text-xl font-semibold mt-6 mb-2">Hit Die</h2>
+<p class="mb-4">d{{ cls.hit_die }}</p>
+
+<h2 class="text-xl font-semibold mt-6 mb-2">Tags</h2>
+<ul class="list-disc ml-6 mb-4">
+  {% for tag in cls.tags.all %}
+    <li>{{ tag.name }}</li>
+  {% empty %}
+    <li>No tags</li>
+  {% endfor %}
+</ul>
+
+<h2 class="text-xl font-semibold mt-6 mb-2">Features</h2>
+<ul class="list-disc ml-6">
+  {% for feat in features %}
+    <li><strong>{{ feat.name }}</strong>: {{ feat.description|linebreaksbr }}</li>
+  {% endfor %}
+</ul>
+
+<h2 class="text-xl font-semibold mt-6 mb-2">Subclasses</h2>
+<ul class="list-disc ml-6">
+  {% for sc in subclasses %}
+    <li><strong>{{ sc.name }}</strong>{% if sc.description %}: {{ sc.description|linebreaksbr }}{% endif %}</li>
+  {% endfor %}
+</ul>
+
+<h2 class="text-xl font-semibold mt-6 mb-2">Level Progression</h2>
+<ul class="list-disc ml-6">
+  {% for lvl in levels %}
+    <li><strong>Level {{ lvl.level }}</strong> — {{ lvl.features.count }} feature(s)</li>
+  {% endfor %}
+</ul>
+
+{% endblock %}
