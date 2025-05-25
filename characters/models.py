@@ -26,6 +26,36 @@ HIT_DIE_CHOICES = [
 ]
 
 
+#RACE
+
+
+
+class Race(models.Model):
+    code        = models.SlugField(max_length=20, unique=True,
+                                   help_text="Identifier, e.g. 'elf'")
+    name        = models.CharField(max_length=100, unique=True)
+    description = models.TextField(blank=True)
+
+    def __str__(self):
+        return self.name
+
+
+class Subrace(models.Model):
+    race        = models.ForeignKey(Race, on_delete=models.CASCADE, related_name="subraces")
+    code        = models.SlugField(max_length=20, unique=True,
+                                   help_text="Identifier, e.g. 'wood_elf'")
+    name        = models.CharField(max_length=100)
+    description = models.TextField(blank=True)
+
+    class Meta:
+        unique_together = ("race", "name")
+
+    def __str__(self):
+        return f"{self.race.name} – {self.name}"
+
+
+
+
 # ------------------------------------------------------------------------------
 # Core Character
 # ------------------------------------------------------------------------------
@@ -33,8 +63,11 @@ class Character(models.Model):
     user               = models.ForeignKey(User, on_delete=models.CASCADE, related_name='characters')
     name               = models.CharField(max_length=255)
     # Stage 1 fields
-    race               = models.CharField(max_length=50)
-    subrace            = models.CharField(max_length=50, blank=True)
+    race    = models.ForeignKey(Race,    on_delete=models.SET_NULL,
+                                null=True, blank=True, related_name="characters")
+    subrace = models.ForeignKey(Subrace, on_delete=models.SET_NULL,
+                                null=True, blank=True, related_name="characters")
+
     half_elf_origin    = models.CharField(max_length=20, blank=True)
     bg_combo           = models.CharField(max_length=10, blank=True)
     main_background    = models.CharField(max_length=50, blank=True)
@@ -566,6 +599,31 @@ class ResourceType(models.Model):
 
     def __str__(self):
         return self.name
+class RacialFeature(models.Model):
+    race     = models.ForeignKey(Race,     on_delete=models.CASCADE, related_name="features")
+    subrace  = models.ForeignKey(Subrace,  on_delete=models.CASCADE,
+                                  related_name="features", blank=True, null=True)
+    code     = models.CharField(max_length=10, unique=True)
+    name     = models.CharField(max_length=100)
+    description = models.TextField(blank=True)
+
+    # duplicate any of the ClassFeature fields you care about; e.g.:
+    saving_throw_required     = models.BooleanField(default=False)
+    saving_throw_type         = models.CharField(max_length=10,
+                                    choices=ClassFeature.SAVING_THROW_TYPE_CHOICES,
+                                    blank=True, null=True)
+    damage_type               = models.CharField(max_length=25,
+                                    choices=ClassFeature.DAMAGE_TYPE_CHOICES,
+                                    blank=True, null=True)
+    formula                   = models.CharField(max_length=100, blank=True)
+    uses                      = models.CharField(max_length=100, blank=True)
+
+    class Meta:
+        unique_together = ("race", "code")
+
+    def __str__(self):
+        owner = self.subrace or self.race
+        return f"{owner}: {self.code} – {self.name}"
 
 
 class ClassResource(models.Model):
@@ -752,3 +810,4 @@ class ClassFeat(models.Model):
     tags = models.TextField(blank=True)
     prerequisites = models.TextField(blank=True)
     last_synced = models.DateTimeField(auto_now=True)
+

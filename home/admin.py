@@ -725,3 +725,21 @@ class SubclassGroupAdmin(admin.ModelAdmin):
         
 
 
+# characters/admin.py
+
+from django.contrib import admin
+from .models import Race, Subrace, RacialFeature
+
+class RacialFeatureInline(admin.TabularInline):
+    model = RacialFeature
+    extra = 1
+    fields = ("code","name","description","saving_throw_required","damage_type","formula","uses")
+
+@admin.register(Race)
+class RaceAdmin(admin.ModelAdmin):
+    list_display = ("name","code")
+    inlines     = (RacialFeatureInline,)
+
+@admin.register(Subrace)
+class SubraceAdmin(admin.ModelAdmin):
+    list_display = ("name","race","code")
