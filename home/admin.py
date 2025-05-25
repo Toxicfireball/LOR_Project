@@ -728,18 +728,59 @@ class SubclassGroupAdmin(admin.ModelAdmin):
 # characters/admin.py
 
 from django.contrib import admin
-from characters.models import Race, Subrace, RacialFeature
+from characters.models import Race, Subrace, RacialFeature, RaceFeatureOption, RaceTag
+from django.contrib import admin
 
-class RacialFeatureInline(admin.TabularInline):
-    model = RacialFeature
+
+@admin.register(RaceTag)
+class RaceTagAdmin(admin.ModelAdmin):
+    list_display         = ("name", "slug")
+    prepopulated_fields = {"slug": ("name",)}
+    search_fields        = ("name",)
+
+class RaceFeatureInline(admin.TabularInline):
+    model  = RacialFeature
+    extra  = 1
+    fields = (
+        "code","name","description",
+        "saving_throw_required","saving_throw_type","saving_throw_granularity",
+        "saving_throw_basic_success","saving_throw_basic_failure",
+        "saving_throw_critical_success","saving_throw_success",
+        "saving_throw_failure","saving_throw_critical_failure",
+        "damage_type","formula","uses",
+    )
+
+
+class RaceFeatureOptionInline(admin.TabularInline):
+    model = RaceFeatureOption
+    fk_name = "feature"
     extra = 1
-    fields = ("code","name","description","saving_throw_required","damage_type","formula","uses")
+
+@admin.register(RacialFeature)
+class RaceFeatureAdmin(admin.ModelAdmin):
+    form               = ClassFeatureForm           # reuse your existing
+    inlines            = [RaceFeatureOptionInline]      # if you want options
+    list_display       = ("race","subrace","code","name")
+    list_filter        = ("race","subrace",)
+    search_fields      = ("code","name","description")
+    autocomplete_fields= ("subrace",)
+    class Media:
+        js  = ('characters/js/classfeature_admin.js',)
+        css = {'all': ('characters/css/formula_builder.css',)}
 
 @admin.register(Race)
 class RaceAdmin(admin.ModelAdmin):
-    list_display = ("name","code")
-    inlines     = (RacialFeatureInline,)
+    list_display       = ("name","code","size","speed")
+    filter_horizontal = ("tags",)
+    inlines            = [RaceFeatureInline]
+    # … any other config …
 
 @admin.register(Subrace)
 class SubraceAdmin(admin.ModelAdmin):
-    list_display = ("name","race","code")
+    list_display       = ("name","race","code")
+    filter_horizontal = ("tags",)
+    search_fields      = ("name","code")      # ← ADD THIS    
+    inlines            = [RaceFeatureInline]
+
+
+

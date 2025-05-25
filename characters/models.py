@@ -27,33 +27,49 @@ HIT_DIE_CHOICES = [
 
 
 #RACE
-
-
-
-class Race(models.Model):
-    code        = models.SlugField(max_length=20, unique=True,
-                                   help_text="Identifier, e.g. 'elf'")
-    name        = models.CharField(max_length=100, unique=True)
-    description = models.TextField(blank=True)
-
-    def __str__(self):
-        return self.name
-
-
-class Subrace(models.Model):
-    race        = models.ForeignKey(Race, on_delete=models.CASCADE, related_name="subraces")
-    code        = models.SlugField(max_length=20, unique=True,
-                                   help_text="Identifier, e.g. 'wood_elf'")
+class BaseRace(models.Model):
+    code        = models.SlugField(max_length=20, unique=True)
     name        = models.CharField(max_length=100)
     description = models.TextField(blank=True)
 
+    SIZE_CHOICES = [
+    ("small", "Small"),
+    ("medium","Medium"),
+    ("large","Large"),
+    ]
+    size = models.CharField(
+        max_length=6,
+        choices=SIZE_CHOICES,
+        default="medium",            # ← sensible default for existing rows
+        help_text="Small / Medium / Large"
+    )
+
+
+    tags = models.ManyToManyField("RaceTag", blank=True)
+    speed = models.PositiveIntegerField(default=30)
+
+
+    # six fixed bonuses instead of a JSON blob:
+    strength_bonus     = models.IntegerField(default=0, help_text="Strength increase")
+    dexterity_bonus    = models.IntegerField(default=0, help_text="Dexterity increase")
+    constitution_bonus = models.IntegerField(default=0, help_text="Constitution increase")
+    intelligence_bonus = models.IntegerField(default=0, help_text="Intelligence increase")
+    wisdom_bonus       = models.IntegerField(default=0, help_text="Wisdom increase")
+    charisma_bonus     = models.IntegerField(default=0, help_text="Charisma increase")
+
     class Meta:
-        unique_together = ("race", "name")
-
-    def __str__(self):
-        return f"{self.race.name} – {self.name}"
+         abstract = True
 
 
+
+class Race(BaseRace):
+    pass
+
+class Subrace(BaseRace):
+    race = models.ForeignKey(Race, on_delete=models.CASCADE, related_name="subraces")
+
+    class Meta:
+        unique_together = ("race","name")
 
 
 # ------------------------------------------------------------------------------
@@ -95,6 +111,11 @@ class Character(models.Model):
 
     def __str__(self):
         return self.name or f"Character {self.id}"
+class RaceTag(models.Model):
+    name = models.CharField(max_length=50, unique=True)
+    slug = models.SlugField(max_length=50, unique=True, blank=True)
+    def __str__(self):
+        return self.name
 
 
 # ------------------------------------------------------------------------------
@@ -600,30 +621,89 @@ class ResourceType(models.Model):
     def __str__(self):
         return self.name
 class RacialFeature(models.Model):
-    race     = models.ForeignKey(Race,     on_delete=models.CASCADE, related_name="features")
-    subrace  = models.ForeignKey(Subrace,  on_delete=models.CASCADE,
-                                  related_name="features", blank=True, null=True)
-    code     = models.CharField(max_length=10, unique=True)
-    name     = models.CharField(max_length=100)
+    race       = models.ForeignKey(
+        Race,
+        on_delete=models.CASCADE,
+        related_name="features",
+        help_text="Which Race grants this feature?",
+    )
+    subrace    = models.ForeignKey(
+        Subrace,
+        on_delete=models.CASCADE,
+        related_name="features",
+        blank=True,
+        null=True,
+        help_text="(Optional) only this Subrace gets it",
+    )
+    code       = models.CharField(
+        max_length=10,
+        unique=True,
+        help_text="Short identifier, e.g. 'darkvision'",
+    )
+    name       = models.CharField(max_length=100)
     description = models.TextField(blank=True)
 
-    # duplicate any of the ClassFeature fields you care about; e.g.:
-    saving_throw_required     = models.BooleanField(default=False)
-    saving_throw_type         = models.CharField(max_length=10,
-                                    choices=ClassFeature.SAVING_THROW_TYPE_CHOICES,
-                                    blank=True, null=True)
-    damage_type               = models.CharField(max_length=25,
-                                    choices=ClassFeature.DAMAGE_TYPE_CHOICES,
-                                    blank=True, null=True)
-    formula                   = models.CharField(max_length=100, blank=True)
-    uses                      = models.CharField(max_length=100, blank=True)
+    # ── copy in exactly the same fields you use on ClassFeature ────────────────
+    saving_throw_required     = models.BooleanField(
+        default=False,
+        help_text="Does this allow a saving throw?"
+    )
+    saving_throw_type         = models.CharField(
+        max_length=10,
+        choices=ClassFeature.SAVING_THROW_TYPE_CHOICES,
+        blank=True, null=True,
+        help_text="Which save?"
+    )
+    saving_throw_granularity  = models.CharField(
+        max_length=10,
+        choices=ClassFeature.SAVING_THROW_GRAN_CHOICES,
+        blank=True, null=True,
+        help_text="Basic or full-table?"
+    )
+    saving_throw_basic_success   = models.CharField(max_length=255, blank=True)
+    saving_throw_basic_failure   = models.CharField(max_length=255, blank=True)
+    saving_throw_critical_success= models.CharField(max_length=255, blank=True)
+    saving_throw_success         = models.CharField(max_length=255, blank=True)
+    saving_throw_failure         = models.CharField(max_length=255, blank=True)
+    saving_throw_critical_failure= models.CharField(max_length=255, blank=True)
+
+    damage_type = models.CharField(
+        max_length=25,
+        choices=ClassFeature.DAMAGE_TYPE_CHOICES,
+        blank=True, null=True,
+        help_text="If this deals damage, pick its damage type"
+    )
+    formula     = models.CharField(max_length=100, blank=True)
+    uses        = models.CharField(max_length=100, blank=True)
+    has_options = models.BooleanField(
+        default=False,
+        help_text="If checked, you must add at least one Option below."
+    )
 
     class Meta:
         unique_together = ("race", "code")
+        ordering        = ["race", "code"]
 
     def __str__(self):
         owner = self.subrace or self.race
         return f"{owner}: {self.code} – {self.name}"
+# in models.py
+class RaceFeatureOption(models.Model):
+    feature       = models.ForeignKey(
+        RacialFeature,
+        on_delete=models.CASCADE,
+        related_name="options"
+    )
+    
+    label         = models.CharField(max_length=100)
+    grants_feature = models.ForeignKey(
+        RacialFeature,
+        on_delete=models.SET_NULL,
+        blank=True, null=True,
+        related_name="granted_by_options"
+    )
+    def __str__(self):
+        return self.label
 
 
 class ClassResource(models.Model):
