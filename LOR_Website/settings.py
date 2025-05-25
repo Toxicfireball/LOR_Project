@@ -18,7 +18,31 @@ import pathlib
 from pathlib import Path
 import os
 import dj_database_url
+import os
+import dj_database_url
+from django.core.exceptions import ImproperlyConfigured
+
+
 LOGIN_REDIRECT_URL = '/'
+BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env", override=True)
+
+# Try the “standard” var (for local), then fall back to Railway’s
+SECRET_KEY = os.getenv("SECRET_KEY", "fallback_dev_key")
+DEBUG      = os.getenv("DEBUG", "False").lower() in ("1", "true")
+
+# ─── force a single Postgres connection │ NO sqlite fallback ────────────────────
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise ImproperlyConfigured("DATABASE_URL must be set in your .env")
+
+DATABASES = {
+    "default": dj_database_url.parse(
+        DATABASE_URL,
+        conn_max_age=600,
+        ssl_require=True,   # assume your cloud Postgres wants SSL
+    )
+}
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -35,7 +59,7 @@ STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 SECRET_KEY = 'django-insecure-wm5ej4&6+ve6-#=t396=l68%@fb+r2fev*(a0_&$00@evg_5a&'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = False
+DEBUG = os.getenv("DEBUG", "True").lower() in ("1", "true")
 
 ALLOWED_HOSTS = []
 ALLOWED_HOSTS = [
@@ -109,26 +133,6 @@ import os
 
 # settings.py
 
-import os
-import dj_database_url
-DATABASE_URL = os.getenv("DATABASE_URL")
-if DATABASE_URL:
-    # parse any valid postgres://… string
-    DATABASES = {
-        "default": dj_database_url.parse(
-            DATABASE_URL,
-            conn_max_age=600,
-            ssl_require=True
-        )
-    }
-else:
-    # fallback for when you really want SQLite
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "db.sqlite3",
-        }
-    }
 
 
 

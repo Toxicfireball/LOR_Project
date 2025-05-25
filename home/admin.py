@@ -17,7 +17,7 @@ from characters.models import (
     SpellSlotRow , 
     ResourceType, ClassResource, CharacterResource, Spell
 )
-
+from django.urls import resolve
 from django.contrib.admin.widgets import FilteredSelectMultiple
 from characters.widgets import FormulaBuilderWidget, CharacterClassSelect
 from characters.models import ResourceType, ClassResource, CharacterResource
@@ -170,7 +170,28 @@ class ClassLevelFeatureInline(admin.TabularInline):
     fields = ('feature', 'chosen_option')
     formset = ModularLinearFeatureFormSet
 
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "feature":
+            # on change page, grab object_id
+            match = resolve(request.path)
+            lvl_id = match.kwargs.get("object_id")
+            if lvl_id:
+                lvl = ClassLevel.objects.get(pk=lvl_id)
+                kwargs["queryset"] = ClassFeature.objects.filter(
+                    character_class=lvl.character_class
+                )
+            else:
+                # add page: look for GET
+                cc = request.GET.get("character_class")
+                if cc:
+                    kwargs["queryset"] = ClassFeature.objects.filter(
+                        character_class_id=cc
+                    )
+                else:
+                    kwargs["queryset"] = ClassFeature.objects.none()
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 class FeatureOptionInline(admin.TabularInline):
     model   = FeatureOption
     fk_name = "feature"
@@ -252,6 +273,19 @@ class ClassLevelAdmin(admin.ModelAdmin):
     list_filter    = ('character_class',)
     inlines        = (ClassLevelFeatureInline,)
 
+    def get_form(self, request, obj=None, **kwargs):
+        # grab the normal form
+        form = super().get_form(request, obj, **kwargs)
+        # inject a plain-JS onchange on the CharacterClass widget
+        if 'character_class' in form.base_fields:
+            widget = form.base_fields['character_class'].widget
+            widget.attrs['onchange'] = (
+                "window.location.search='character_class='+this.value;"
+            )
+        return form
+
+    class Media:
+        js = ('characters/js/classlevel_admin.js',)
 
 # ─── ClassFeature ────────────────────────────────────────────────────────────────
 from django.apps import apps
