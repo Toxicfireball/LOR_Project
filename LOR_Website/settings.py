@@ -29,7 +29,7 @@ load_dotenv(BASE_DIR / ".env", override=True)
 
 # Try the “standard” var (for local), then fall back to Railway’s
 SECRET_KEY = os.getenv("SECRET_KEY", "fallback_dev_key")
-DEBUG      = os.getenv("DEBUG", "False").lower() in ("1", "true")
+DEBUG      = True
 
 # ─── force a single Postgres connection │ NO sqlite fallback ────────────────────
 DATABASE_URL = os.getenv("DATABASE_URL")
