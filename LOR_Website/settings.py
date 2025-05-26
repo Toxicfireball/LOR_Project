@@ -47,8 +47,7 @@ DATABASES = {
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent# Where `manage.py collectstatic` will put all the files
-STATIC_ROOT = BASE_DIR / "staticfiles"
-
+STATIC_URL = '/static/'
 # (Optional) Where your “app‑level” static/ directories live 
 # so that collectstatic can find them.
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
@@ -87,13 +86,14 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    "whitenoise.middleware.WhiteNoiseMiddleware",
+    
 ]
 
 ROOT_URLCONF = 'LOR_Website.urls'
@@ -169,8 +169,7 @@ USE_TZ = True
 SECRET_KEY = os.getenv('SECRET_KEY', 'fallback_dev_key')
 
 ALLOWED_HOSTS = ['*']  # Later replace with your Railway domain
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
