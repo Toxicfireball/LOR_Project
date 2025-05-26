@@ -209,7 +209,9 @@ class ClassLevelFeatureInline(admin.TabularInline):
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     class Media:
-        js = ('characters/js/classlevelfeature_admin.js',)
+        js = (
+            'characters/js/classlevelfeature_admin.js',
+        )
 class FeatureOptionInline(admin.TabularInline):
     model   = FeatureOption
     fk_name = "feature"
