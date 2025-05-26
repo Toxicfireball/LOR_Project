@@ -30,6 +30,23 @@ class ModularLinearFeatureFormSet(BaseInlineFormSet):
     def clean(self):
         super().clean()
         # “self.instance” is the ClassLevel object; it has .level and .character_class
+        # 1) server-side duplicate check
+        feats = [
+            f.cleaned_data.get('feature')
+            for f in self.forms
+            if not (self.can_delete and f.cleaned_data.get('DELETE'))
+               and f.cleaned_data.get('feature')
+        ]
+        seen = set()
+        dupes = [f for f in feats if f in seen or seen.add(f)]
+        if dupes:
+            names = ", ".join(str(f) for f in dupes)
+            raise ValidationError(
+                f"Duplicate feature selected more than once: {names}"
+            )
+
+
+
         this_level = self.instance.level
 
         # collect all (level, tier) tuples for this group
@@ -191,7 +208,8 @@ class ClassLevelFeatureInline(admin.TabularInline):
                     kwargs["queryset"] = ClassFeature.objects.none()
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
-        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+    class Media:
+        js = ('characters/js/classlevelfeature_admin.js',)
 class FeatureOptionInline(admin.TabularInline):
     model   = FeatureOption
     fk_name = "feature"
