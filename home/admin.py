@@ -269,20 +269,22 @@ class ProficiencyTierAdmin(admin.ModelAdmin):
 
 @admin.register(ClassLevel)
 class ClassLevelAdmin(admin.ModelAdmin):
-    list_display   = ('character_class', 'level')
-    list_filter    = ('character_class',)
-    inlines        = (ClassLevelFeatureInline,)
+    list_display = ('character_class', 'level')
+    list_filter  = ('character_class',)
+    inlines      = (ClassLevelFeatureInline,)
 
     def get_form(self, request, obj=None, **kwargs):
-        # grab the normal form
         form = super().get_form(request, obj, **kwargs)
-        # inject a plain-JS onchange on the CharacterClass widget
-        if 'character_class' in form.base_fields:
+
+        # Only on the “add” form (obj is None), wire up the onchange:
+        if obj is None and 'character_class' in form.base_fields:
             widget = form.base_fields['character_class'].widget
             widget.attrs['onchange'] = (
                 "window.location.search='character_class='+this.value;"
             )
+
         return form
+
 
     class Media:
         js = ('characters/js/classlevel_admin.js',)
