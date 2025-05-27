@@ -184,7 +184,7 @@ class SpellAdmin(admin.ModelAdmin):
 class ClassLevelFeatureInline(admin.TabularInline):
     model  = ClassLevelFeature
     extra  = 1
-    fields = ('feature', 'chosen_option')
+    fields = ('feature',)
     formset = ModularLinearFeatureFormSet
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):

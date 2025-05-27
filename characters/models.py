@@ -833,25 +833,13 @@ class ClassLevelFeature(models.Model):
     """
     class_level   = models.ForeignKey(ClassLevel, on_delete=models.CASCADE)
     feature       = models.ForeignKey(ClassFeature, on_delete=models.CASCADE)
-    chosen_option = models.CharField(
-                        max_length=100, blank=True,
-                        help_text="One of the parent feature’s option labels"
-                    )
+
 
     class Meta:
         unique_together = ("class_level", "feature")
 
-    def clean(self):
-        super().clean()
-        if self.feature.has_options:
-            valid_labels = {opt.label for opt in self.feature.options.all()}
-            if self.chosen_option not in valid_labels:
-                from django.core.exceptions import ValidationError
-                raise ValidationError("chosen_option must match one of the feature’s option labels")
 
     def __str__(self):
-        if self.feature.has_options:
-            return f"{self.class_level} → {self.feature.code} [picked {self.chosen_option}]"
         return f"{self.class_level} → {self.feature.code}"
 
 
