@@ -293,17 +293,7 @@ class ClassLevelAdmin(admin.ModelAdmin):
     list_filter  = ('character_class',)
     inlines      = (ClassLevelFeatureInline,)
 
-    def get_form(self, request, obj=None, **kwargs):
-        form = super().get_form(request, obj, **kwargs)
 
-        # Only on the “add” form (obj is None), wire up the onchange:
-        if obj is None and 'character_class' in form.base_fields:
-            widget = form.base_fields['character_class'].widget
-            widget.attrs['onchange'] = (
-                "window.location.search='character_class='+this.value;"
-            )
-
-        return form
 
 
     class Media:
