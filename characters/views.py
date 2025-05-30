@@ -182,6 +182,7 @@ def subclass_group_list(request):
     groups = SubclassGroup.objects.select_related('character_class').order_by('character_class__name', 'name')
     return render(request, 'codex/groups.html', {'groups': groups})
 
+from collections import OrderedDict
 
 from characters.models import CharacterClass, ClassFeature, ClassSubclass, SubclassGroup, ClassLevel, ClassLevelFeature
 
@@ -220,54 +221,40 @@ def class_detail(request, pk):
     # ── 3) Base‐class features by level ────────────────────────────────────────
     levels = (
         ClassLevel.objects
-        .filter(character_class=cls)
-        .order_by('level')
-        .prefetch_related(
-            Prefetch(
-                'features',
-                queryset=ClassFeature.objects.select_related('modify_proficiency_amount')
-            )
-        )
+          .filter(character_class=cls)
+          .order_by('level')
+          .prefetch_related(
+              Prefetch(
+                  'features',
+                  queryset=ClassFeature.objects
+                    .select_related('modify_proficiency_amount')
+                    .prefetch_related('subclasses'),
+              )
+          )
     )
 
-    # ── 4) Subclass groups + prefetch each subclass’s ordered_features ─────────
-
-    # build per-subclass by-level map
+    # Load each group & its subclasses
     subclass_groups = (
         cls.subclass_groups
            .order_by('name')
-           .prefetch_related(
-               Prefetch(
-                   'subclasses',
-                   queryset=ClassSubclass.objects.prefetch_related(
-                       Prefetch(
-                           'features',
-                           queryset=ClassFeature.objects.order_by('code'),
-                           to_attr='ordered_features'
-                       )
-                   )
-               )
-           )
+           .prefetch_related('subclasses')
     )
 
-    # ── Build a per-group, per-level map from the ClassLevelFeature thru-table ──
+    # For each individual subclass, build its own level→features map
     for group in subclass_groups:
-        lvl_map = {}
-        # for each ClassLevel you already prefetched above
-        for cl in levels:
-            # pick out only those features that
-            #  • are scope=subclass_feat AND
-            #  • actually assigned to this level in the thru-table
-            sub_feats = [
-                f for f in cl.features.all()
-                if f.scope == 'subclass_feat'
-                   and f in getattr(f, 'ordered_features', f.subclasses.filter(pk__in=[s.pk for s in group.subclasses.all()]))
-            ]
-            if sub_feats:
-                lvl_map[cl.level] = sub_feats
-
-        group.features_by_level = lvl_map
-
+        for sub in group.subclasses.all():
+            fbylevel = {}
+            for cl in levels:
+                # pick only the features you inlined AND that list this sub
+                feats = [
+                    f for f in cl.features.all()
+                    if f.scope == 'subclass_feat' and sub in f.subclasses.all()
+                ]
+                if feats:
+                    fbylevel[cl.level] = feats
+            # Sort by level so L2 comes before L5, etc.
+            sub.features_by_level = OrderedDict(sorted(fbylevel.items()))
+    
 
     # ── 5) Summary 1…20 ────────────────────────────────────────────────────────
     max_lvl = max(levels.aggregate(Max('level'))['level__max'] or 1, 20)
