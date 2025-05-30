@@ -767,10 +767,18 @@ class RaceFeatureOptionInline(admin.TabularInline):
     model = RaceFeatureOption
     fk_name = "feature"
     extra = 1
+    autocomplete_fields = ("grants_feature",)
+
+
+class RacialFeatureForm(forms.ModelForm):
+    class Meta:
+        model = RacialFeature
+        fields = "__all__"
+
 
 @admin.register(RacialFeature)
 class RaceFeatureAdmin(admin.ModelAdmin):
-    form               = ClassFeatureForm           # reuse your existing
+    form               = RacialFeatureForm                # reuse your existing
     inlines            = [RaceFeatureOptionInline]      # if you want options
     list_display       = ("race","subrace","code","name")
     list_filter        = ("race","subrace",)
@@ -783,8 +791,8 @@ class RaceFeatureAdmin(admin.ModelAdmin):
 @admin.register(Race)
 class RaceAdmin(admin.ModelAdmin):
     list_display       = ("name","code","size","speed")
-    filter_horizontal = ("tags",)
-    inlines            = [RaceFeatureInline]
+    filter_horizontal  = ("tags", "features")
+    
     # … any other config …
 
 @admin.register(Subrace)

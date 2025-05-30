@@ -63,8 +63,12 @@ class BaseRace(models.Model):
 
 
 class Race(BaseRace):
-    pass
-
+    features = models.ManyToManyField(
+        "RacialFeature",
+        blank=True,
+        related_name="races",
+        help_text="Pick which pre-defined racial features apply to this race",
+    )
 class Subrace(BaseRace):
     race = models.ForeignKey(Race, on_delete=models.CASCADE, related_name="subraces")
 
@@ -624,13 +628,13 @@ class RacialFeature(models.Model):
     race       = models.ForeignKey(
         Race,
         on_delete=models.CASCADE,
-        related_name="features",
+        related_name="racial_features",
         help_text="Which Race grants this feature?",
     )
     subrace    = models.ForeignKey(
         Subrace,
         on_delete=models.CASCADE,
-        related_name="features",
+        related_name="subrace_racial_features",
         blank=True,
         null=True,
         help_text="(Optional) only this Subrace gets it",
