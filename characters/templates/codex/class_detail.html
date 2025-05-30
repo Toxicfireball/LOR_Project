@@ -1,100 +1,227 @@
-{% extends 'base.html' %}
-{% block title %}{{ cls.name }} — Class Details{% endblock %}
-{% block content %}
+{# Header #}
+<h1 class="text-4xl font-bold mb-2">{{ cls.name }}</h1>
+<p class="text-gray-700 mb-6">{{ cls.description }}</p>
 
-<h1 class="text-3xl font-bold mb-6">{{ cls.name }}</h1>
-<p class="mb-6 text-gray-700">{{ cls.description }}</p>
-
-<h2 class="text-xl font-semibold mt-6 mb-2">Hit Die</h2>
-<p class="mb-4">d{{ cls.hit_die }}</p>
-
-<h2 class="text-xl font-semibold mt-6 mb-2">Tags</h2>
-<ul class="list-disc ml-6 mb-4">
-  {% for tag in cls.tags.all %}
-    <li>{{ tag.name }}</li>
-  {% empty %}
-    <li>No tags</li>
-  {% endfor %}
-</ul>
-
-<h2 class="text-xl font-semibold mt-6 mb-2">Proficiency Progression</h2>
-<table class="w-full border text-left text-sm">
-  <thead class="bg-gray-100">
-    <tr>
-      <th class="border px-2 py-1">Proficiency Type</th>
-      <th class="border px-2 py-1">Level</th>
-      <th class="border px-2 py-1">Tier</th>
+{# Proficiency pivot table #}
+<h2 class="text-2xl font-semibold mb-2">Proficiencies & Hit Die</h2>
+<table class="table-auto w-full border-collapse border border-gray-300 mb-8">
+  <thead>
+    <tr class="bg-gray-100">
+      <th class="border border-gray-300 px-4 py-2">Proficiency</th>
+      {% for tier in tier_names %}
+        <th class="border border-gray-300 px-4 py-2">{{ tier }}</th>
+      {% endfor %}
     </tr>
   </thead>
   <tbody>
-    {% for prog in cls.prof_progress.all %}
-    <tr>
-      <td class="border px-2 py-1">{{ prog.get_proficiency_type_display }}</td>
-      <td class="border px-2 py-1">{{ prog.at_level }}</td>
-      <td class="border px-2 py-1">{{ prog.tier.name }}</td>
-    </tr>
-    {% empty %}
-    <tr>
-      <td colspan="3" class="text-center text-gray-500 py-2">No proficiency data.</td>
-    </tr>
+    {% for row in prof_rows %}
+      <tr class="{% cycle 'bg-white' 'bg-gray-50' %}">
+        <td class="border border-gray-300 px-4 py-2">{{ row.type }}</td>
+        {% for lvl in row.levels %}
+          <td class="border border-gray-300 px-4 py-2">
+            {% if lvl %}L{{ lvl }}{% else %}&mdash;{% endif %}
+          </td>
+        {% endfor %}
+      </tr>
     {% endfor %}
   </tbody>
 </table>
+<p class="mb-8"><strong>Hit Die:</strong> d{{ hit_die }}</p>
 
-<h2 class="text-xl font-semibold mt-6 mb-2">Subclass Groups</h2>
-{% for group in cls.subclass_groups.all %}
-  <div class="mb-4">
-    <h3 class="text-lg font-semibold">{{ group.name }}</h3>
-    {% if group.system_type %}<p class="text-sm italic text-gray-600">System: {{ group.get_system_type_display }}</p>{% endif %}
-    <ul class="list-disc ml-6">
-      {% for subclass in group.subclasses.all %}
-        <li><strong>{{ subclass.name }}</strong>{% if subclass.description %}: {{ subclass.description|linebreaksbr }}{% endif %}</li>
-      {% empty %}
-        <li>No subclasses under this group.</li>
+{# Full-detail features by level #}
+<h2 class="text-2xl font-semibold mb-2">Class Features</h2>
+{% for lvl in levels %}
+  {% with feats=lvl.features.all %}
+    {% if feats %}
+      <h3 class="text-xl font-medium mt-6">Level {{ lvl.level }}</h3>
+      {% for f in feats %}
+        {% if f.scope in allowed_scopes %}
+          <div class="border rounded p-4 mb-4 bg-white shadow-sm">
+            <h4 class="text-lg font-semibold">{{ f.name }} <small>({{ f.code }})</small></h4>
+            <p class="mt-2 mb-3">{{ f.description }}</p>
+            <dl class="grid grid-cols-2 gap-x-6 text-sm">
+              {% if f.action_type %}
+                <dt class="font-medium">Action</dt><dd>{{ f.get_action_type_display }}</dd>
+              {% endif %}
+              {% if f.activity_type %}
+                <dt class="font-medium">Usage</dt><dd>{{ f.get_activity_type_display }}</dd>
+              {% endif %}
+              {% if f.uses %}
+                <dt class="font-medium">Uses</dt><dd>{{ f.uses }}</dd>
+              {% endif %}
+              {% if f.formula %}
+                <dt class="font-medium">Formula</dt><dd><code>{{ f.formula }}</code></dd>
+              {% endif %}
+              {% if f.modify_proficiency_target %}
+                <dt class="font-medium">Proficiency Set</dt>
+                <dd>
+                  {{ f.modify_proficiency_target }} → {{ f.modify_proficiency_amount.name }}
+                </dd>
+              {% endif %}
+              {% if f.saving_throw_required %}
+                <dt class="font-medium">Save ({{ f.get_saving_throw_type_display }})</dt>
+                <dd class="text-sm">
+                  {% if f.saving_throw_granularity == 'basic' %}
+                    Success: {{ f.saving_throw_basic_success }}<br>
+                    Failure: {{ f.saving_throw_basic_failure }}
+                  {% else %}
+                    Crit Success: {{ f.saving_throw_critical_success }}<br>
+                    Success: {{ f.saving_throw_success }}<br>
+                    Failure: {{ f.saving_throw_failure }}<br>
+                    Crit Failure: {{ f.saving_throw_critical_failure }}
+                  {% endif %}
+                </dd>
+              {% endif %}
+            </dl>
+          </div>
+        {% endif %}
       {% endfor %}
-    </ul>
-  </div>
-{% empty %}
-  <p class="text-gray-500">No subclass groups available.</p>
+    {% endif %}
+  {% endwith %}
 {% endfor %}
 
-<h2 class="text-xl font-semibold mt-6 mb-2">Class Features</h2>
-<ul class="list-disc list-inside text-gray-700">
-  {% for feature in features %}
-    <li><strong>{{ feature.name }}</strong>: {{ feature.description }}</li>
-  {% empty %}
-    <li>No features found.</li>
-  {% endfor %}
-</ul>
+{# Subclasses accordion #}
+<h2 class="text-2xl font-semibold mb-2">Subclasses</h2>
+{% for group in subclass_groups %}
+  <h3 class="text-xl font-medium mt-4">{{ group.name }}</h3>
+  <div class="ml-4">
+    {% if group.features_by_level %}
+      {# grouped by level #}
+      {% for lvl, feats in group.features_by_level.items|dictsort:"0" %}
+        <h5 class="font-medium mt-3">Level {{ lvl }}</h5>
+        {% for sf in feats %}
+          <div class="border rounded p-4 mb-4 bg-white shadow-sm">
+            <h4 class="text-lg font-semibold">{{ sf.name }} <small>({{ sf.code }})</small></h4>
+            <p class="mt-2 mb-3">{{ sf.description }}</p>
+            <dl class="grid grid-cols-2 gap-x-6 text-sm">
+              {% if sf.action_type %}
+                <dt class="font-medium">Action</dt>
+                <dd>{{ sf.get_action_type_display }}</dd>
+              {% endif %}
+              {% if sf.activity_type %}
+                <dt class="font-medium">Usage</dt>
+                <dd>{{ sf.get_activity_type_display }}</dd>
+              {% endif %}
+              {% if sf.uses %}
+                <dt class="font-medium">Uses</dt>
+                <dd>{{ sf.uses }}</dd>
+              {% endif %}
+              {% if sf.formula %}
+                <dt class="font-medium">Formula</dt>
+                <dd><code>{{ sf.formula }}</code></dd>
+              {% endif %}
+              {% if sf.modify_proficiency_target %}
+                <dt class="font-medium">Proficiency Set</dt>
+                <dd>
+                  {{ sf.modify_proficiency_target }} → {{ sf.modify_proficiency_amount.name }}
+                </dd>
+              {% endif %}
+              {% if sf.saving_throw_required %}
+                <dt class="font-medium">
+                  Save ({{ sf.get_saving_throw_type_display }})
+                </dt>
+                <dd class="text-sm">
+                  {% if sf.saving_throw_granularity == 'basic' %}
+                    Success: {{ sf.saving_throw_basic_success }}<br>
+                    Failure: {{ sf.saving_throw_basic_failure }}
+                  {% else %}
+                    Crit Success: {{ sf.saving_throw_critical_success }}<br>
+                    Success: {{ sf.saving_throw_success }}<br>
+                    Failure: {{ sf.saving_throw_failure }}<br>
+                    Crit Failure: {{ sf.saving_throw_critical_failure }}
+                  {% endif %}
+                </dd>
+              {% endif %}
+            </dl>
+          </div>
+        {% endfor %}
+      {% endfor %}
+    {% else %}
+      {# fallback: list every ordered_features in full detail #}
+      {% for sub in group.subclasses.all %}
+        <details class="mb-4 border rounded bg-white">
+          <summary class="cursor-pointer px-4 py-2 font-semibold">{{ sub.name }}</summary>
+          <div class="px-4 py-3">
+            <p class="italic mb-3">{{ sub.description }}</p>
+            {% for sf in sub.ordered_features %}
+              <div class="border rounded p-4 mb-4 bg-white shadow-sm">
+                <h4 class="text-lg font-semibold">{{ sf.name }} <small>({{ sf.code }})</small></h4>
+                <p class="mt-2 mb-3">{{ sf.description }}</p>
+                <dl class="grid grid-cols-2 gap-x-6 text-sm">
+                  {% if sf.action_type %}
+                    <dt class="font-medium">Action</dt>
+                    <dd>{{ sf.get_action_type_display }}</dd>
+                  {% endif %}
+                  {% if sf.activity_type %}
+                    <dt class="font-medium">Usage</dt>
+                    <dd>{{ sf.get_activity_type_display }}</dd>
+                  {% endif %}
+                  {% if sf.uses %}
+                    <dt class="font-medium">Uses</dt>
+                    <dd>{{ sf.uses }}</dd>
+                  {% endif %}
+                  {% if sf.formula %}
+                    <dt class="font-medium">Formula</dt>
+                    <dd><code>{{ sf.formula }}</code></dd>
+                  {% endif %}
+                  {% if sf.modify_proficiency_target %}
+                    <dt class="font-medium">Proficiency Set</dt>
+                    <dd>
+                      {{ sf.modify_proficiency_target }} → {{ sf.modify_proficiency_amount.name }}
+                    </dd>
+                  {% endif %}
+                  {% if sf.saving_throw_required %}
+                    <dt class="font-medium">
+                      Save ({{ sf.get_saving_throw_type_display }})
+                    </dt>
+                    <dd class="text-sm">
+                      {% if sf.saving_throw_granularity == 'basic' %}
+                        Success: {{ sf.saving_throw_basic_success }}<br>
+                        Failure: {{ sf.saving_throw_basic_failure }}
+                      {% else %}
+                        Crit Success: {{ sf.saving_throw_critical_success }}<br>
+                        Success: {{ sf.saving_throw_success }}<br>
+                        Failure: {{ sf.saving_throw_failure }}<br>
+                        Crit Failure: {{ sf.saving_throw_critical_failure }}
+                      {% endif %}
+                    </dd>
+                  {% endif %}
+                </dl>
+              </div>
+            {% empty %}
+              <p class="text-gray-600">No subclass features.</p>
+            {% endfor %}
+          </div>
+        </details>
+      {% endfor %}
+    {% endif %}
+  </div>
+{% empty %}
+  <p>No subclass groups defined.</p>
+{% endfor %}
 
-<h2 class="text-xl font-semibold mt-6 mb-2">Level Progression</h2>
-<table class="w-full border text-left text-sm">
-  <thead class="bg-gray-100">
-    <tr>
-      <th class="border px-2 py-1">Level</th>
-      <th class="border px-2 py-1">Features</th>
+
+{# Summary 1–20 #}
+<h2 class="text-2xl font-semibold mt-8 mb-2">Feature Summary by Level</h2>
+<table class="table-auto w-full border-collapse border border-gray-300 mb-12">
+  <thead>
+    <tr class="bg-gray-100">
+      <th class="border border-gray-300 px-4 py-2">Level</th>
+      <th class="border border-gray-300 px-4 py-2">Features</th>
     </tr>
   </thead>
   <tbody>
-    {% for lvl in levels %}
-      <tr>
-        <td class="border px-2 py-1">Level {{ lvl.level }}</td>
-        <td class="border px-2 py-1">
-          {% for f in lvl.features.all %}
-            <div><strong>{{ f.name }}</strong>: {{ f.description|truncatechars:100 }}</div>
-          {% empty %}
-            <em>No features</em>
-          {% endfor %}
+    {% for row in summary %}
+      <tr class="{% cycle 'bg-white' 'bg-gray-50' %}">
+        <td class="border border-gray-300 px-4 py-2">L{{ row.level }}</td>
+        <td class="border border-gray-300 px-4 py-2">
+          {% if row.features %}
+            {{ row.features|join:", " }}
+          {% else %}
+            &mdash;
+          {% endif %}
         </td>
-      </tr>
-    {% empty %}
-      <tr>
-        <td colspan="2" class="text-center text-gray-500 py-2">No level data.</td>
       </tr>
     {% endfor %}
   </tbody>
 </table>
-
-<a href="{% url 'characters:codex_classes' %}" class="text-blue-600 hover:underline">Back to all classes</a>
-
-{% endblock %}

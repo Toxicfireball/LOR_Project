@@ -183,19 +183,120 @@ def subclass_group_list(request):
     return render(request, 'codex/groups.html', {'groups': groups})
 
 
-from characters.models import CharacterClass, ClassFeature, ClassSubclass, SubclassGroup, ClassLevel
+from characters.models import CharacterClass, ClassFeature, ClassSubclass, SubclassGroup, ClassLevel, ClassLevelFeature
 
+from django.db.models import Prefetch,Max
 def class_detail(request, pk):
     cls = get_object_or_404(CharacterClass, pk=pk)
-    features = ClassFeature.objects.filter(character_class=cls).order_by('name')
-    subclasses = ClassSubclass.objects.filter(base_class=cls).order_by('name')
-    levels = ClassLevel.objects.filter(character_class=cls).prefetch_related('features').order_by('level')
+
+    # ── 1) Proficiency pivot ────────────────────────────────────────────────────
+    profs = list(
+        cls.prof_progress
+           .select_related('tier')
+           .order_by('proficiency_type', 'tier__bonus')
+    )
+    tiers = sorted({p.tier for p in profs}, key=lambda t: t.bonus)
+    tier_names = [t.name for t in tiers]
+
+    prof_types = []
+    for p in profs:
+        lbl = p.get_proficiency_type_display()
+        if lbl not in prof_types:
+            prof_types.append(lbl)
+
+    # build matrix[proficiency_name][tier_name] = at_level
+    matrix = {pt: {tn: None for tn in tier_names} for pt in prof_types}
+    for p in profs:
+        matrix[p.get_proficiency_type_display()][p.tier.name] = p.at_level
+
+    prof_rows = [
+        {'type': pt, 'levels': [matrix[pt][tn] for tn in tier_names]}
+        for pt in prof_types
+    ]
+
+    # ── 2) Hit die ─────────────────────────────────────────────────────────────
+    hit_die = cls.hit_die
+
+    # ── 3) Base‐class features by level ────────────────────────────────────────
+    levels = (
+        ClassLevel.objects
+        .filter(character_class=cls)
+        .order_by('level')
+        .prefetch_related(
+            Prefetch(
+                'features',
+                queryset=ClassFeature.objects.select_related('modify_proficiency_amount')
+            )
+        )
+    )
+
+    # ── 4) Subclass groups + prefetch each subclass’s ordered_features ─────────
+
+    # build per-subclass by-level map
+    subclass_groups = (
+        cls.subclass_groups
+           .order_by('name')
+           .prefetch_related(
+               Prefetch(
+                   'subclasses',
+                   queryset=ClassSubclass.objects.prefetch_related(
+                       Prefetch(
+                           'features',
+                           queryset=ClassFeature.objects.order_by('code'),
+                           to_attr='ordered_features'
+                       )
+                   )
+               )
+           )
+    )
+
+    # ── Build a per-group, per-level map from the ClassLevelFeature thru-table ──
+    for group in subclass_groups:
+        lvl_map = {}
+        # for each ClassLevel you already prefetched above
+        for cl in levels:
+            # pick out only those features that
+            #  • are scope=subclass_feat AND
+            #  • actually assigned to this level in the thru-table
+            sub_feats = [
+                f for f in cl.features.all()
+                if f.scope == 'subclass_feat'
+                   and f in getattr(f, 'ordered_features', f.subclasses.filter(pk__in=[s.pk for s in group.subclasses.all()]))
+            ]
+            if sub_feats:
+                lvl_map[cl.level] = sub_feats
+
+        group.features_by_level = lvl_map
+
+
+    # ── 5) Summary 1…20 ────────────────────────────────────────────────────────
+    max_lvl = max(levels.aggregate(Max('level'))['level__max'] or 1, 20)
+    summary = []
+    for lvl in range(1, max_lvl + 1):
+        cl = next((c for c in levels if c.level == lvl), None)
+        feats = list(cl.features.all()) if cl else []
+
+        labels = []
+        for f in feats:
+            if f.scope == 'subclass_feat':
+                names = [s.group.name for s in f.subclasses.all()]
+                labels.append(names[0] if names else f"{f.code}–{f.name}")
+            else:
+                labels.append(f"{f.code}–{f.name}")
+
+        # dedupe, preserve order
+        unique = list(dict.fromkeys(labels))
+        summary.append({'level': lvl, 'features': unique})
 
     return render(request, 'codex/class_detail.html', {
         'cls': cls,
-        'features': features,
-        'subclasses': subclasses,
+        'tier_names': tier_names,
+        'prof_rows': prof_rows,
+        'hit_die': hit_die,
         'levels': levels,
+        'allowed_scopes': ['class_feat', 'subclass_choice'],
+        'subclass_groups': subclass_groups,
+        'summary': summary,
     })
 
 
