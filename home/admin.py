@@ -21,7 +21,8 @@ from django.urls import resolve
 from django.contrib.admin.widgets import FilteredSelectMultiple
 from characters.widgets import FormulaBuilderWidget, CharacterClassSelect
 from characters.models import ResourceType, ClassResource, CharacterResource
-
+from django.utils.html import format_html
+from characters.forms import CharacterClassForm
 from django.shortcuts import get_object_or_404
 from django.forms.models import BaseInlineFormSet
 from django.core.exceptions import ValidationError
@@ -695,16 +696,88 @@ class ClassResourceInline(admin.TabularInline):
     # no more max_points here!
 @admin.register(CharacterClass)
 class CharacterClassAdmin(admin.ModelAdmin):
-    list_display      = ('name', 'hit_die', 'class_ID')
-    search_fields     = ('name', 'tags__name')
-    list_filter       = ('tags',)
+    form = CharacterClassForm
+    list_display      = (
+        "name", "hit_die", "class_ID", "display_key_abilities",
+        "secondary_thumbnail", "tertiary_thumbnail"
+    )
+    search_fields     = ("name", "tags__name")
+    list_filter       = ("tags", "key_abilities")
+    filter_horizontal = ("tags", "key_abilities")  # use horizontal filter for the M2M
+
     inlines = [
         ClassProficiencyProgressInline,
         SubclassGroupInline,
-        ClassResourceInline,     # ← add this
+        ClassResourceInline,
     ]
 
-    filter_horizontal = ('tags',)   
+    # show fields in the order you like: primary, secondary, tertiary images plus previews
+    fields = (
+        "name",
+        "description",
+        "class_ID",
+        "hit_die",
+        "tags",
+        "key_abilities",                 # new multi‐select field
+        "primary_image",   "primary_preview",
+        "secondary_image", "secondary_preview",
+        "tertiary_image",  "tertiary_preview",
+        # … any other existing CharacterClass fields …
+    )
+    readonly_fields = ("primary_preview", "secondary_preview", "tertiary_preview")
+
+    def primary_preview(self, obj):
+        if obj.primary_image:
+            return format_html(
+                '<img src="{}" style="max-height:120px; border:1px solid #ccc;" />',
+                obj.primary_image.url
+            )
+        return "(no primary image)"
+    primary_preview.short_description = "Primary Preview"
+
+    def secondary_preview(self, obj):
+        if obj.secondary_image:
+            return format_html(
+                '<img src="{}" style="max-height:120px; border:1px solid #ccc;" />',
+                obj.secondary_image.url
+            )
+        return "(no secondary image)"
+    secondary_preview.short_description = "Secondary Preview"
+
+    def tertiary_preview(self, obj):
+        if obj.tertiary_image:
+            return format_html(
+                '<img src="{}" style="max-height:120px; border:1px solid #ccc;" />',
+                obj.tertiary_image.url
+            )
+        return "(no tertiary image)"
+    tertiary_preview.short_description = "Tertiary Preview"
+
+    # Tiny 40×40 thumbnails for change‐list
+    def secondary_thumbnail(self, obj):
+        if obj.secondary_image:
+            return format_html(
+                '<img src="{}" style="height:40px;width:40px;object-fit:cover;border-radius:4px;" />',
+                obj.secondary_image.url
+            )
+        return "—"
+    secondary_thumbnail.short_description = "2° Img"
+
+    def tertiary_thumbnail(self, obj):
+        if obj.tertiary_image:
+            return format_html(
+                '<img src="{}" style="height:40px;width:40px;object-fit:cover;border-radius:4px;" />',
+                obj.tertiary_image.url
+            )
+        return "—"
+    tertiary_thumbnail.short_description = "3° Img"
+
+    def display_key_abilities(self, obj):
+        """
+        Show the chosen ability(ies) in the changelist
+        """
+        return ", ".join([a.name for a in obj.key_abilities.all()])
+    display_key_abilities.short_description = "Key Abilities"
 
 @admin.register(SubclassGroup)
 class SubclassGroupAdmin(admin.ModelAdmin):
@@ -790,10 +863,65 @@ class RaceFeatureAdmin(admin.ModelAdmin):
 
 @admin.register(Race)
 class RaceAdmin(admin.ModelAdmin):
-    list_display       = ("name","code","size","speed")
+    list_display       = ("name", "code", "size", "speed", "secondary_thumbnail", "tertiary_thumbnail")
     filter_horizontal  = ("tags", "features")
-    
-    # … any other config …
+    inlines            = [RaceFeatureInline]  # unchanged from yours
+
+    fields = (
+        "code", "name", "description", "size",
+        "speed", "tags", "features",
+        "primary_image", "primary_preview",
+        "secondary_image", "secondary_preview",
+        "tertiary_image", "tertiary_preview",
+        # … any other Race‐specific fields …
+    )
+    readonly_fields = ("primary_preview", "secondary_preview", "tertiary_preview")
+
+    def primary_preview(self, obj):
+        if obj.primary_image:
+            return format_html(
+                '<img src="{}" style="max-height:120px; border:1px solid #ccc;" />',
+                obj.primary_image.url
+            )
+        return "(no primary image)"
+    primary_preview.short_description = "Primary Preview"
+
+    def secondary_preview(self, obj):
+        if obj.secondary_image:
+            return format_html(
+                '<img src="{}" style="max-height:120px; border:1px solid #ccc;" />',
+                obj.secondary_image.url
+            )
+        return "(no secondary image)"
+    secondary_preview.short_description = "Secondary Preview"
+
+    def tertiary_preview(self, obj):
+        if obj.tertiary_image:
+            return format_html(
+                '<img src="{}" style="max-height:120px; border:1px solid #ccc;" />',
+                obj.tertiary_image.url
+            )
+        return "(no tertiary image)"
+    tertiary_preview.short_description = "Tertiary Preview"
+
+    # Optional: show tiny 40×40 thumbnails in the change list
+    def secondary_thumbnail(self, obj):
+        if obj.secondary_image:
+            return format_html(
+                '<img src="{}" style="height:40px;width:40px;object-fit:cover;border-radius:4px;" />',
+                obj.secondary_image.url
+            )
+        return "—"
+    secondary_thumbnail.short_description = "2° Img"
+
+    def tertiary_thumbnail(self, obj):
+        if obj.tertiary_image:
+            return format_html(
+                '<img src="{}" style="height:40px;width:40px;object-fit:cover;border-radius:4px;" />',
+                obj.tertiary_image.url
+            )
+        return "—"
+    tertiary_thumbnail.short_description = "3° Img"
 
 @admin.register(Subrace)
 class SubraceAdmin(admin.ModelAdmin):

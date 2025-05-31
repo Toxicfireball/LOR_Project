@@ -18,7 +18,8 @@ path('codex/spells/', views.spell_list, name='codex_spells'),
 path('codex/feats/', views.feat_list, name='codex_feats'),
 path('codex/classes/', views.class_list, name='codex_classes'),
 path('codex/classes/<int:pk>/', views.class_detail, name='class_detail'),
-
+    path("codex/races",  views.race_list,  name="codex_races"),
+    path("codex/races/<int:pk>/", views.race_detail, name="race_detail"),
 
 
 ]

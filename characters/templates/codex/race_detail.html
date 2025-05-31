@@ -1,0 +1,42 @@
+{# templates/characters/race_detail.html #}
+{% extends "base.html" %}
+{% block content %}
+  <div class="max-w-3xl mx-auto p-6 space-y-6">
+    <div class="flex flex-col sm:flex-row sm:items-start sm:space-x-6">
+      
+      {# Primary Image (portrait) #}
+      {% if race.primary_image %}
+        <img
+          src="{{ race.primary_image.url }}"
+          alt="Primary image for {{ race.name }}"
+          class="w-full sm:w-32 h-32 object-cover rounded-full border-2 border-indigo-300"
+        />
+      {% else %}
+        <div class="w-full sm:w-32 h-32 bg-gray-200 flex items-center justify-center text-gray-500 rounded-full border-2 border-indigo-300">
+          No Primary
+        </div>
+      {% endif %}
+
+      <div class="mt-4 sm:mt-0 flex-1">
+        <h1 class="text-3xl font-bold mb-2">{{ race.name }}</h1>
+        <p class="text-sm text-gray-600 mb-2">{{ race.size|capfirst }} (Speed: {{ race.speed }})</p>
+        <p class="text-gray-700">{{ race.description }}</p>
+      </div>
+
+      {# Secondary Image (banner) #}
+      {% if race.secondary_image %}
+        <img
+          src="{{ race.secondary_image.url }}"
+          alt="Secondary image for {{ race.name }}"
+          class="w-full sm:w-32 h-32 object-cover rounded-full border-2 border-indigo-300 mt-4 sm:mt-0"
+        />
+      {% else %}
+        <div class="w-full sm:w-32 h-32 bg-gray-200 flex items-center justify-center text-gray-500 rounded-full border-2 border-indigo-300 mt-4 sm:mt-0">
+          No Secondary
+        </div>
+      {% endif %}
+    </div>
+
+    {# … then whatever other race sections (bonuses, features, etc.) … #}
+  </div>
+{% endblock %}

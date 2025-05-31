@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import User
 from campaigns.models import Campaign  # Make sure the campaigns app is created and in INSTALLED_APPS
+from django.core.exceptions import ValidationError
 
 # ------------------------------------------------------------------------------
 # Constants
@@ -43,8 +44,39 @@ class BaseRace(models.Model):
         default="medium",            # ← sensible default for existing rows
         help_text="Small / Medium / Large"
     )
+    primary_image = models.ImageField(
+        upload_to="race_images/primary/",
+        blank=True,
+        null=True,
+        help_text="Upload the main portrait or icon for this race."
+    )
+    secondary_image = models.ImageField(
+        upload_to="race_images/secondary/",
+        blank=True,
+        null=True,
+        help_text="Upload a second image (e.g. a banner or alternate art) for this race."
+    )
+     
+    tertiary_image = models.ImageField(
+       upload_to="race_images/tertiary/",
+        blank=True,
+        null=True,
+        help_text="Upload a thumbnail or list‐page image for this race."
+    )
+    def __str__(self):
+        return self.name
 
+    @property
+    def primary_image_url(self):
+        return self.primary_image.url if self.primary_image else ""
 
+    @property
+    def secondary_image_url(self):
+        return self.secondary_image.url if self.secondary_image else ""
+    @property
+    def tertiary_image_url(self):
+        return self.tertiary_image.url if self.tertiary_image else ""
+    
     tags = models.ManyToManyField("RaceTag", blank=True)
     speed = models.PositiveIntegerField(default=30)
 
@@ -69,6 +101,7 @@ class Race(BaseRace):
         related_name="races",
         help_text="Pick which pre-defined racial features apply to this race",
     )
+
 class Subrace(BaseRace):
     race = models.ForeignKey(Race, on_delete=models.CASCADE, related_name="subraces")
 
@@ -166,6 +199,17 @@ class ClassTag(models.Model):
 
     def __str__(self):
         return self.name
+class AbilityScore(models.Model):
+    """
+    Lookup table for ability scores (e.g. Strength, Dexterity, ...)
+    """
+    name = models.CharField(max_length=20, unique=True)
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        ordering = ["name"]
 
 
 class CharacterClass(models.Model):
@@ -177,6 +221,29 @@ class CharacterClass(models.Model):
                       default=8,
                       help_text="Your class’s Hit Die"
                   )
+    
+    key_abilities = models.ManyToManyField(
+        AbilityScore,
+        blank=False,
+        help_text="Select exactly one or two key ability scores for this class."
+    )    
+    primary_image = models.ImageField(
+        upload_to="class_images/primary/",
+        blank=True,
+        null=True,
+        help_text="Upload the main portrait or icon for this class."
+    )
+    secondary_image = models.ImageField(
+        upload_to="class_images/secondary/",
+        blank=True,
+        null=True,
+        help_text="Upload a second image (e.g. a symbol or alternate art) for this class."
+    )
+    tertiary_image  = models.ImageField(
+        upload_to="class_images/tertiary/",
+        blank=True, null=True,
+        help_text="Upload a thumbnail or list‐page image for this class."
+    )
     tags = models.ManyToManyField(
         'ClassTag',
         blank=True,
@@ -185,7 +252,27 @@ class CharacterClass(models.Model):
     )
     def __str__(self):
         return self.name
-    
+    @property
+    def primary_image_url(self):
+        return self.primary_image.url if self.primary_image else ""
+    @property
+    def tertiary_image_url(self):
+        return self.tertiary_image.url if self.tertiary_image else ""
+    @property
+    def secondary_image_url(self):
+        return self.secondary_image.url if self.secondary_image else ""    
+    def clean(self):
+        """
+        Enforce exactly one or two abilities in key_abilities.
+        Called when full_clean() or ModelForm.clean() runs.
+        """
+        super().clean()
+        # Only validate if instance already saved (so that .key_abilities.all() is available)
+        if self.pk:
+            chosen = self.key_abilities.all().count()
+            if chosen not in (1, 2):
+                raise ValidationError("Select exactly one or two key ability scores.")   
+
 class SubclassGroup(models.Model):
     character_class = models.ForeignKey(
         CharacterClass,

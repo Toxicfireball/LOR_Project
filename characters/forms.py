@@ -9,7 +9,7 @@ from .models import Character
 # forms.py (app `characters`)
 from django import forms
 from .models import CharacterClass, CharacterClassProgress
-
+from django.core.exceptions import ValidationError
 class LevelUpForm(forms.Form):
     # For level 0: choose base class
     base_class = forms.ModelChoiceField(
@@ -34,7 +34,23 @@ class LevelUpForm(forms.Form):
         else:
             self.fields['advance_class'].queryset = CharacterClass.objects.none()
 
+class CharacterClassForm(forms.ModelForm):
+    class Meta:
+        model  = CharacterClass
+        fields = "__all__"  # includes key_abilities
 
+    def clean_key_abilities(self):
+        abilities = self.cleaned_data.get("key_abilities")
+        if not abilities:
+            raise ValidationError("You must select at least one key ability score.")
+        if abilities.count() not in (1, 2):
+            raise ValidationError("Select exactly one or two key ability scores.")
+        return abilities
+
+    def clean(self):
+        cleaned = super().clean()
+        # Model.clean() also runs, but this ensures form‐level validation first.
+        return cleaned
 class CharacterCreationForm(forms.ModelForm):
     """
     Form for creating a new character.

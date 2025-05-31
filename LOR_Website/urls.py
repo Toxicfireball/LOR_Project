@@ -16,8 +16,11 @@ Including another URLconf
 """
 
 
+
 from django.contrib import admin
 from django.urls import path, include
+from django.conf import settings
+from django.conf.urls.static import static
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -26,3 +29,8 @@ urlpatterns = [
     path('campaigns/', include('campaigns.urls')),   # Campaign system URLs (we’ll create these next)
     path('characters/', include('characters.urls')),
 ]
+
+
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
