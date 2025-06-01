@@ -275,37 +275,29 @@ class CharacterClass(models.Model):
 
 class SubclassGroup(models.Model):
     character_class = models.ForeignKey(
-        CharacterClass,
+        "CharacterClass",
         on_delete=models.CASCADE,
-        related_name="subclass_groups",
+        related_name="subclass_groups"
     )
-
     SYSTEM_LINEAR         = "linear"
     SYSTEM_MODULAR_LINEAR = "modular_linear"
     SYSTEM_MODULAR_MASTERY= "modular_mastery"
-
     SYSTEM_CHOICES = [
         (SYSTEM_LINEAR,          "Linear (fixed level)"),
         (SYSTEM_MODULAR_LINEAR,  "Modular Linear (tiered)"),
         (SYSTEM_MODULAR_MASTERY, "Modular Mastery (pick & master)"),
     ]
+    system_type   = models.CharField(max_length=20, choices=SYSTEM_CHOICES, default=SYSTEM_LINEAR)
+    name          = models.CharField(max_length=100, help_text="Umbrella/Order name (e.g. 'Moon Circle')")
+    code          = models.CharField(max_length=20, blank=True, help_text="Optional shorthand code")
+    modular_rules = models.JSONField(blank=True, null=True)  # you can still use this, but not required for modular-linear
 
-    system_type = models.CharField(
-        max_length=20,
-        choices=SYSTEM_CHOICES,
-        default=SYSTEM_LINEAR,
-    )    
-    modular_rules = models.JSONField(
-    blank=True, null=True,
-    help_text="Extra numbers for modular systems (e.g. {modules_per_mastery:2, max_mastery_3:1})"
-)
-    name  = models.CharField(max_length=100, help_text="Umbrella / Order name (e.g. Moon Circle)")
-    code        = models.CharField(max_length=20, blank=True)
     class Meta:
         unique_together = ("character_class", "name")
         ordering        = ["character_class", "name"]
+
     def __str__(self):
-        return f"{self.character_class.name} – {self.name}"
+        return f"{self.character_class.name} – {self.name}"
 
 
 
@@ -416,7 +408,31 @@ class ClassFeature(models.Model):
         blank=True, null=True,
         help_text="Which saving throw?"
     )
+    min_level = models.PositiveIntegerField(
+        blank=True,
+        null=True,
+        help_text="(Optional) extra minimum class-level required to pick this feature, beyond tier mapping.",
+    )
 
+    # (2) If this feature belongs to a modular_linear SubclassGroup, we store the "tier":  
+    tier = models.PositiveIntegerField(
+        blank=True,
+        null=True,
+        help_text="(Only for modular_linear subclass_feat) Tier index (1, 2, 3, …).",
+    )
+    level_required = models.PositiveIntegerField(
+        blank=True,
+        null=True,
+        help_text="(Only for subclass_feats) The minimum class‐level at which this feature is actually gained."
+    )
+    # (3) If this feature belongs to a modular_mastery SubclassGroup, we store a mastery rank (0…4):
+    MASTER_RANK_CHOICES = [(i, f"Rank {i}") for i in range(0, 5)]
+    mastery_rank = models.PositiveIntegerField(
+        choices=MASTER_RANK_CHOICES,
+        blank=True,
+        null=True,
+        help_text="(Only for modular_mastery subclass_feat) Mastery Rank (0…4).",
+    )
     # 3) Basic vs Normal
     SAVING_THROW_GRAN_CHOICES = [
         ("basic",  "Basic (Success / Failure)"),
@@ -694,10 +710,50 @@ class ClassFeature(models.Model):
         default=None,       # default to NULL instead of a fixed choice
         help_text="What kind of roll this formula is used for (optional)"
     )
+    # … all your fields …
+
+    def clean(self):
+        """Enforce only the minimal rules outside the form. 
+        “scope == 'subclass_feat' ⇒ level_required must be ≥1. 
+         Otherwise we ignore it.”"""
+        errors = {}
+        grp     = self.subclass_group
+        scope   = self.scope
+        lvl_req = self.level_required
+        tier    = self.tier
+        master  = self.mastery_rank
+
+        # 1) If scope is “subclass_feat,” enforce that level_required ≥ 1.
+        if scope == "subclass_feat":
 
 
-    def __str__(self):
-        return f"{self.character_class.name}: {self.code} – {self.name}"
+            # Then enforce the correct tier/mastery logic exactly as before (if you still want it here)
+            if grp:
+                if grp.system_type == SubclassGroup.SYSTEM_LINEAR:
+                    if tier is not None:
+                        errors["tier"] = "Only modular_linear features may have a Tier."
+                    if master is not None:
+                        errors["mastery_rank"] = "Only modular_mastery features may have a Mastery Rank."
+                elif grp.system_type == SubclassGroup.SYSTEM_MODULAR_LINEAR:
+                    if tier is None:
+                        errors["tier"] = "This modular_linear feature must have a Tier (1,2,3…)."
+                    if master is not None:
+                        errors["mastery_rank"] = "Modular_linear features may not have a Mastery Rank."
+                elif grp.system_type == SubclassGroup.SYSTEM_MODULAR_MASTERY:
+                    if master is None:
+                        errors["mastery_rank"] = "This modular_mastery feature must have a Mastery Rank (0…4)."
+                    if tier is not None:
+                        errors["tier"] = "Modular_mastery features may not have a Tier."
+
+        # 2) If scope != “subclass_feat,” we simply do not care what level_required is.
+        #    We do *not* add any error if level_required is non‐null or null—let the form handle it.
+        #    That means we remove any “else: if lvl_req is not None: errors[…]=…” block.
+
+        if errors:
+            raise ValidationError(errors)
+        return super().clean()
+
+
 class ResourceType(models.Model):
     """
     A kind of pool: bloodline points, nature points, rage points, etc.
@@ -711,6 +767,43 @@ class ResourceType(models.Model):
 
     def __str__(self):
         return self.name
+    
+
+
+
+# characters/models.py (continuing after SubclassGroup)
+
+class SubclassTierLevel(models.Model):
+    """
+    For each SubclassGroup and each Tier index, record the class-level at which that tier becomes unlocked.
+    (You already had this.)
+    """
+    subclass_group = models.ForeignKey(
+        "SubclassGroup",
+        on_delete=models.CASCADE,
+        related_name="tier_levels",
+        help_text="Which group this mapping belongs to"
+    )
+    tier = models.PositiveIntegerField(
+        help_text="Tier index (e.g. 1, 2, 3, …). Must match the integer suffix on feature.code."
+    )
+    unlock_level = models.PositiveIntegerField(
+        help_text="Class-level at which this tier becomes available.",
+        null=True,
+    )
+
+    class Meta:
+        unique_together = (
+            ("subclass_group", "tier"),
+            ("subclass_group", "unlock_level"),
+        )
+        ordering = ["subclass_group", "tier"]
+
+    def __str__(self):
+        return f"{self.subclass_group.name} Tier {self.tier} → L{self.unlock_level}"
+
+
+
 class RacialFeature(models.Model):
     race       = models.ForeignKey(
         Race,

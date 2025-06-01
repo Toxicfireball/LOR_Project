@@ -20,66 +20,88 @@ from characters.models import (
 from django.urls import resolve
 from django.contrib.admin.widgets import FilteredSelectMultiple
 from characters.widgets import FormulaBuilderWidget, CharacterClassSelect
-from characters.models import ResourceType, ClassResource, CharacterResource
+from characters.models import ResourceType, ClassResource, CharacterResource, SubclassGroup, SubclassTierLevel
 from django.utils.html import format_html
 from characters.forms import CharacterClassForm
 from django.shortcuts import get_object_or_404
 from django.forms.models import BaseInlineFormSet
 from django.core.exceptions import ValidationError
-
 class ModularLinearFeatureFormSet(BaseInlineFormSet):
+    """
+    For any SubclassGroup with system_type="modular_linear", enforce that:
+    - If you assign a tier N feature at level L, a tier (N-1) feature in that same group
+      must already have been assigned at some lower level < L.
+    """
+
     def clean(self):
         super().clean()
-        # “self.instance” is the ClassLevel object; it has .level and .character_class
-        # 1) server-side duplicate check
-        feats = [
-            f.cleaned_data.get('feature')
-            for f in self.forms
-            if not (self.can_delete and f.cleaned_data.get('DELETE'))
-               and f.cleaned_data.get('feature')
-        ]
-        seen = set()
-        dupes = [f for f in feats if f in seen or seen.add(f)]
-        if dupes:
-            names = ", ".join(str(f) for f in dupes)
-            raise ValidationError(
-                f"Duplicate feature selected more than once: {names}"
-            )
-
-
 
         this_level = self.instance.level
+        cls = self.instance.character_class
 
-        # collect all (level, tier) tuples for this group
         picks = []
+        dupes = []
+        seen = set()
+
         for form in self.forms:
             if self.can_delete and form.cleaned_data.get("DELETE"):
                 continue
             feature = form.cleaned_data.get("feature")
-            if not feature or not feature.subclass_group:
-                continue
-            grp = feature.subclass_group
-            if grp.system_type != SubclassGroup.SYSTEM_MODULAR_LINEAR:
+            if not feature:
                 continue
 
-            # assume your subclass_feat codes end in _1, _2, _3… to indicate “tier”
+            grp = feature.subclass_group
+            if not grp or grp.system_type != SubclassGroup.SYSTEM_MODULAR_LINEAR:
+                # If it isn’t a modular_linear subclass_feat, skip it.
+                continue
+
+            # Extract tier from the code suffix
+            # (Assumes code always ends in "_<integer>".)
             try:
                 tier = int(feature.code.rsplit("_", 1)[1])
             except (ValueError, IndexError):
                 raise ValidationError(
-                    f"Modular‐linear subclass_feats must have codes ending in _<tier>, got {feature.code!r}"
+                    f"Feature code {feature.code!r} does not end in _<tier>."
+                    " Modular‐linear subclass_feats must follow code='something_<tier>'."
                 )
-            picks.append((this_level, tier))
 
-        # now, for each pick of tier N at level L, ensure you have a tier N-1 at some L' < L
-        for level, tier in picks:
+            # Check for duplicates at the same class level
+            if feature in seen:
+                dupes.append(feature)
+            seen.add(feature)
+            picks.append((feature, grp, tier))
+
+        if dupes:
+            names = ", ".join(str(f) for f in dupes)
+            raise ValidationError(f"Duplicate feature selected more than once at this level: {names}")
+
+        # Now enforce the “previous tier exists at lower level” rule:
+        from django.db.models import Q
+
+        for feature, grp, tier in picks:
             if tier == 1:
+                # Tier 1 never requires a prior tier.
                 continue
-            if not any(prev_level < level and prev_tier == tier - 1 for prev_level, prev_tier in picks):
+
+            needed_suffix = f"_{tier - 1}"
+            exists_lower_tier = ClassLevelFeature.objects.filter(
+                class_level__character_class=cls,
+                class_level__level__lt=this_level,
+                feature__subclass_group=grp,
+                feature__code__endswith=needed_suffix
+            ).exists()
+
+            if not exists_lower_tier:
                 raise ValidationError(
-                    f"You tried to give tier {tier} at class‐level {level}, "
-                    f"but you haven’t picked tier {tier - 1} at any lower level yet."
-                )
+                    f"You tried to assign Tier {tier} ({feature.code!r}) at level {this_level}, "
+                    f"but no Tier {tier - 1} feature for {grp.name!r} was assigned at any lower level.")
+            
+
+
+        
+
+
+                
 
 class SubclassGroupForm(forms.ModelForm):
     """
@@ -88,8 +110,8 @@ class SubclassGroupForm(forms.ModelForm):
     subclasses = forms.ModelMultipleChoiceField(
         queryset=ClassSubclass.objects.none(),
         required=False,
-        widget=FilteredSelectMultiple("subclasses", is_stacked=True),
-        help_text="Move → to adopt subclasses into this umbrella."
+        widget=admin.widgets.FilteredSelectMultiple("subclasses", is_stacked=True),
+        help_text="↪ Move right to add existing ClassSubclass rows to this group."
     )
 
     class Meta:
@@ -139,12 +161,26 @@ class SubclassGroupForm(forms.ModelForm):
 
             # prefill if editing
             if self.instance.pk:
+                base_cls = self.instance.character_class
+                self.fields["subclasses"].queryset = ClassSubclass.objects.filter(base_class=base_cls)
                 self.fields["subclasses"].initial = self.instance.subclasses.all()
+            else:
+                self.fields["subclasses"].queryset = ClassSubclass.objects.none()
 
         # apply sizing to the widget so it’s not postage-stamp
         w = self.fields["subclasses"].widget
         w.attrs["style"] = "width:30em; height:15em;"
         w.attrs["size"] = 10
+    def save(self, commit=True):
+        # First, save the SubclassGroup itself:
+        group = super().save(commit=commit)
+        # Then link any selected ClassSubclass rows
+        # (so “move right” in that M2M widget) → set group= this instance on them:
+        chosen = self.cleaned_data.get("subclasses") or []
+        for sub in chosen:
+            sub.group = group
+            sub.save()
+        return group
 
 class ClassProficiencyProgressInline(admin.TabularInline):
     model  = ClassProficiencyProgress
@@ -182,37 +218,10 @@ class ClassSubclassForm(forms.ModelForm):
 class SpellAdmin(admin.ModelAdmin):
     list_display = ('name', 'level', 'origin')
     search_fields = ('name',  'origin')
-class ClassLevelFeatureInline(admin.TabularInline):
-    model  = ClassLevelFeature
-    extra  = 1
-    fields = ('feature',)
-    formset = ModularLinearFeatureFormSet
 
-    def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        if db_field.name == "feature":
-            # on change page, grab object_id
-            match = resolve(request.path)
-            lvl_id = match.kwargs.get("object_id")
-            if lvl_id:
-                lvl = ClassLevel.objects.get(pk=lvl_id)
-                kwargs["queryset"] = ClassFeature.objects.filter(
-                    character_class=lvl.character_class
-                )
-            else:
-                # add page: look for GET
-                cc = request.GET.get("character_class")
-                if cc:
-                    kwargs["queryset"] = ClassFeature.objects.filter(
-                        character_class_id=cc
-                    )
-                else:
-                    kwargs["queryset"] = ClassFeature.objects.none()
-        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
-    class Media:
-        js = (
-            'characters/js/classlevelfeature_admin.js',
-        )
+
+
 class FeatureOptionInline(admin.TabularInline):
     model   = FeatureOption
     fk_name = "feature"
@@ -288,18 +297,50 @@ class ProficiencyTierAdmin(admin.ModelAdmin):
     search_fields  = ('name',)
 
 
+
+
 @admin.register(ClassLevel)
 class ClassLevelAdmin(admin.ModelAdmin):
-    list_display = ('character_class', 'level')
-    list_filter  = ('character_class',)
-    inlines      = (ClassLevelFeatureInline,)
+    list_display = ("character_class", "level")
+    # inlines = ( … remove the inline that previously forced you to pick subclass_feats … )
+    readonly_fields = ("subclass_features_at_this_level",)
 
+    def subclass_features_at_this_level(self, obj):
+        # show all ClassFeature objects that have:
+        #    scope="subclass_feat" 
+        #    AND level_required == obj.level
+        features_qs = ClassFeature.objects.filter(
+            character_class=obj.character_class,
+            scope="subclass_feat",
+            level_required=obj.level
+        )
+        if not features_qs.exists():
+            return "(no subclass feat assigned at this level)"
+        html_list = "<ul>" + "".join(
+            f"<li><b>[Tier {f.tier or f.mastery_rank}]</b> {f.name} ({f.code})</li>"
+            for f in features_qs
+        ) + "</ul>"
+        return format_html(html_list)
 
+    subclass_features_at_this_level.short_description = "Subclass-feats @ this Level"
+
+    class Media:
+        js = ("characters/js/classlevel_admin.js",)
 
 
     class Media:
         js = ('characters/js/classlevel_admin.js',)
 
+class SubclassTierLevelInline(admin.TabularInline):
+    model = SubclassTierLevel
+    extra = 1
+    fields = ("tier", "unlock_level")
+    verbose_name        = "Tier → Level Mapping"
+    verbose_name_plural = "Tier → Level Mappings"
+    help_text           = (
+        "For this SubclassGroup, specify which tier index is unlocked at which class level.\n"
+        "e.g. Tier=1 unlock_level=1,  Tier=2 unlock_level=3, Tier=3 unlock_level=5, etc."
+    )
 # ─── ClassFeature ────────────────────────────────────────────────────────────────
 from django.apps import apps
 from django.db import models
@@ -424,144 +465,123 @@ class ClassFeatureForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # ❗️ force the admin to require a CharacterClass
-        self.fields['character_class'].required = True
+
+        # 1) By default, hide tier, mastery_rank, and min_level
+        self.fields["tier"].widget         = forms.HiddenInput()
+        self.fields["mastery_rank"].widget = forms.HiddenInput()
+        self.fields["min_level"].widget    = forms.HiddenInput()
 
 
-        # 1) hide action_type if the form actually has it
-        if "action_type" in self.fields:
-            if (
-                self.data.get("activity_type") != "active"
-                and getattr(self.instance, "activity_type", None) != "active"
-            ):
-                self.fields["action_type"].widget = forms.HiddenInput()
+        # 2) Look for any posted or initial values for `scope` and `subclass_group`
+        data   = self.data or self.initial
+        grp_id = data.get("subclass_group") or getattr(self.instance, "subclass_group_id", None)
 
-        # 2) build your variable list exactly as before…
-        from characters.models import CharacterClass, ClassResource
-        DICE = ["d4","d6","d8","d10","d12","d20"]
-        Character = apps.get_model("characters", "Character")
-        ABILITY_NAMES = ("strength","dexterity","constitution","intelligence","wisdom","charisma")
-        ABILITY_FIELDS = [
-            f.name
-            for f in Character._meta.get_fields()
-            if isinstance(f, models.IntegerField) and f.name in ABILITY_NAMES
-        ]
+        try:
+            grp = SubclassGroup.objects.get(pk=grp_id) if grp_id else None
+        except SubclassGroup.DoesNotExist:
+            grp = None
 
-        base_vars = (
-            ABILITY_FIELDS + [
-            "level", "class_level", "proficiency_modifier",
-            "hp", "temp_hp",
-            ]
-            + [f"{cls.name.lower()}_level" for cls in CharacterClass.objects.all()]
-            + ["reflex_save","fortitude_save","will_save",
-            "initiative","weapon_attack","spell_attack","spell_dc",
-            "perception","dodge"]
-        )
+        # 3) Likewise get the chosen `scope` (e.g. "class_feat" vs "subclass_feat" etc.)
+        scope_val = data.get("scope") or getattr(self.instance, "scope", None)
 
-        cls_id = (
-            self.data.get("character_class")
-            or getattr(self.instance, "character_class_id", None)
-        )
-        if cls_id:
-            resource_qs   = ClassResource.objects.filter(character_class_id=cls_id)
-            resource_vars = [f"{cr.resource_type.code}_points" for cr in resource_qs]
-        else:
-            resource_vars = []
+        # 4) If this is a "subclass_feat" AND there is a valid group, un-hide accordingly:
+        if scope_val == "subclass_feat" and grp:
+            # ‣ Always show “min_level” whenever it’s a subclass_feat:
+            self.fields["min_level"].widget = forms.NumberInput()
 
-        all_vars = base_vars + resource_vars
+            if grp.system_type == SubclassGroup.SYSTEM_MODULAR_LINEAR:
+                # ‣ Show only “tier” (as a NumberInput) and keep mastery_rank hidden
+                self.fields["tier"].widget = forms.NumberInput()
+                self.fields["mastery_rank"].widget = forms.HiddenInput()
 
-        # 3) only override the widget if those fields survived your get_fieldsets
-        if "formula" in self.fields:
-            self.fields["formula"].widget = FormulaBuilderWidget(
-                variables=all_vars, dice=DICE, attrs={"rows":4,"cols":40}
-            )
-        if "uses" in self.fields:
-            self.fields["uses"].widget = FormulaBuilderWidget(
-                variables=all_vars, dice=DICE, attrs={"rows":4,"cols":40}
-            )
-
-        # 4) chain subclasses only if that M2M was included
-        if "subclasses" in self.fields:
-            group_id = (
-                self.data.get("subclass_group")
-                or getattr(self.instance, "subclass_group_id", None)
-            )
-            if group_id:
-                qs = ClassSubclass.objects.filter(group_id=group_id)
-            else:
-                base_cls = (
-                    self.data.get("character_class")
-                    or getattr(self.instance, "character_class_id", None)
+            elif grp.system_type == SubclassGroup.SYSTEM_MODULAR_MASTERY:
+                # ‣ Show only “mastery_rank” (as a Select) and hide “tier”
+                self.fields["mastery_rank"].widget = forms.Select(
+                    choices=self.fields["mastery_rank"].choices
                 )
-                qs = ClassSubclass.objects.filter(base_class_id=base_cls) if base_cls else ClassSubclass.objects.none()
+                self.fields["tier"].widget = forms.HiddenInput()
 
-            self.fields["subclasses"].queryset = qs
-            self.fields["subclasses"].widget.attrs.update({
-                "style":"width:30em;height:15em;", "size":10
-            })
-            self.fields["subclasses"].queryset = qs
-            w = self.fields["subclasses"].widget
-            w.attrs.update({"style": "width:30em; height:15em;", "size": 10})
+            else:
+                # ‣ If system_type is “linear,” hide both tier & mastery_rank
+                self.fields["tier"].widget         = forms.HiddenInput()
+                self.fields["mastery_rank"].widget = forms.HiddenInput()
+
+        else:
+            # 5) If scope != "subclass_feat" OR grp is None, keep all hidden
+            self.fields["tier"].widget         = forms.HiddenInput()
+            self.fields["mastery_rank"].widget = forms.HiddenInput()
+            self.fields["min_level"].widget    = forms.HiddenInput()
+            self.fields["level_required"].widget = forms.HiddenInput()
 
 
     def clean(self):
         cleaned = super().clean()
-        ft = cleaned.get("kind") or getattr(self.instance, "kind", None)   
-        scope = cleaned.get("scope")     
-        grp = cleaned.get("subclass_group")
+        scope_val = cleaned.get("scope")
+        grp       = cleaned.get("subclass_group")
+        tier_val  = cleaned.get("tier")
+        master_val= cleaned.get("mastery_rank")
+        min_lv    = cleaned.get("min_level")
+        lvl_req   = cleaned.get("level_required")
 
-        # enforce modular_mastery rules entirely from JSON
-        if ft == "subclass_feat" and grp and grp.system_type == SubclassGroup.SYSTEM_MODULAR_MASTERY:
-            rules       = grp.modular_rules or {}
-            per_mastery = rules.get("modules_per_mastery", 2)
-            max_m3      = rules.get("max_mastery_3", 1)
+        # We will accumulate field‐specific errors via self.add_error(…, …)
+        # and if needed, non‐field errors via raise ValidationError([...]).
+        # 1) Only subclass_feats or subclass_choices may set a subclass_group
+        if scope_val in ("subclass_choice", "subclass_feat") and grp is None:
+            self.add_error("subclass_group", "Pick an umbrella (subclass_group) for subclass_feats or subclass_choices.")
+        if grp and scope_val not in ("subclass_choice", "subclass_feat"):
+            self.add_error("subclass_group", "Only subclass_feats (or subclass_choices) may set a subclass_group.")
 
-            total_modules = ClassFeature.objects.filter(
-                feature_type="subclass_choice",
-                subclass_group=grp
-            ).count()
+        # 2) If scope == "subclass_feat", enforce level_required ≥ 1 and then branch on the system_type:
+        if scope_val == "subclass_feat":
 
-            # extract level from code suffix: master_<n>
-            try:
-                my_level = int(cleaned["code"].rsplit("_",1)[1])
-            except Exception:
-                raise forms.ValidationError(
-                    "Mastery codes must end in “_1”, “_2” or “_3”."
-                )
 
-            # must have enough modules to unlock this mastery
-            if my_level > (total_modules // per_mastery):
-                raise forms.ValidationError(
-                    f"{per_mastery*my_level} modules required for Mastery {my_level}."
-                )
+            if grp:
+                stype = grp.system_type
+                if stype == SubclassGroup.SYSTEM_LINEAR:
+                    # In a purely linear system, you shouldn’t set tier or mastery_rank
+                    if tier_val is not None:
+                        self.add_error("tier", "Only modular_linear features may have a Tier.")
+                    if master_val is not None:
+                        self.add_error("mastery_rank", "Only modular_mastery features may have a Mastery Rank.")
 
-            # limit number of Mastery-3 features
-            if my_level == 3:
-                existing_m3 = ClassFeature.objects.filter(
-                    feature_type="subclass_feat",
-                    subclass_group=grp,
-                    code__endswith="_3"
-                ).count()
-                if existing_m3 >= max_m3:
-                    raise forms.ValidationError(
-                        f"Only {max_m3} Mastery 3 features allowed here."
-                    )
+                elif stype == SubclassGroup.SYSTEM_MODULAR_LINEAR:
+                    if tier_val is None:
+                        self.add_error("tier", "This modular_linear feature must have a Tier (1,2,3…).")
+                    if master_val is not None:
+                        self.add_error("mastery_rank", "Modular_linear features may not have a Mastery Rank.")
 
-        # ensure only subclass-feat may set subclass_group
-        if scope in ("subclass_choice", "subclass_feat") and not grp:
-            self.add_error(
-                "subclass_group",
-                "Pick an umbrella for subclass_choice or subclass_feat features."
-            )
+                elif stype == SubclassGroup.SYSTEM_MODULAR_MASTERY:
+                    if master_val is None:
+                        self.add_error("mastery_rank", "This modular_mastery feature must have a Mastery Rank (0…4).")
+                    if tier_val is not None:
+                        self.add_error("tier", "Modular_mastery features may not have a Tier.")
 
-        # forbid umbrella everywhere else
-        if grp and scope not in ("subclass_choice", "subclass_feat"):
-            self.add_error(
-                "subclass_group",
-                "Only subclass_choice or subclass_feat may set a subclass-umbrella."
-            )
+
+        # If any field‐specific errors were added above, Django will refuse to save and show them next to the corresponding widget.
+        # If you need a single “top‐of‐form” message, you can instead call:
+        #     raise ValidationError(["Your top‐level error goes here."])
+        # But in most cases, attaching errors to the exact field is friendlier.
+
         return cleaned
 
+@admin.register(SubclassGroup)
+class SubclassGroupAdmin(admin.ModelAdmin):
+    list_display = ("character_class", "name", "code", "system_type")
+    list_filter  = ("character_class", "system_type")
+    inlines      = (SubclassTierLevelInline,)
+    form         = SubclassGroupForm
+    fields       = ("character_class", "name", "code", "system_type", "modular_rules")
+    readonly_fields = ()  # leave modular_rules visible if you use it for other purposes
+
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        grp = form.instance
+        chosen = form.cleaned_data.get("subclasses", [])
+        chosen_ids = [s.pk for s in chosen]
+        # Link selected subclasses to this group
+        ClassSubclass.objects.filter(pk__in=chosen_ids).update(group=grp)
+        # Unlink any other that used to be in this group
+        ClassSubclass.objects.filter(group=grp).exclude(pk__in=chosen_ids).update(group=None)
 
 # characters/admin.py
 class SpellSlotRowForm(forms.ModelForm):
@@ -662,19 +682,48 @@ class ClassFeatureAdmin(admin.ModelAdmin):
     ]
 
     def get_fieldsets(self, request, obj=None):
-        return [(None, {"fields": self.base_fields})]
+        """
+        We put all fields in one big fieldset, but because our custom form hides/shows
+        tier/mastery_rank/min_level dynamically, this is enough.
+        """
+        return [
+            (
+                None,
+                {
+                    "fields": [
+                        "character_class",
+                        "scope",
+                        "kind",
+                        "activity_type",
+                        "action_type",
+                        "subclass_group",
+                        "subclasses",
+                        "code",
+                        "name",
+                        "description",
+                        "has_options",
+                      # show tier, mastery_rank, level_required & min_level in admin; form hides/shows dynamically
+                        "tier",
+                        "mastery_rank",
+                        "level_required",
+                        "min_level",
+                        "formula_target",
+                        "formula",
+                        "uses",
+                    ]
+                },
+            )
+        ]
 
 
 
     def get_inline_instances(self, request, obj=None):
         inlines = super().get_inline_instances(request, obj)
+        # If the user has not checked “has_options,” remove the FeatureOptionInline entirely:
         if request.method == "POST":
-            want = request.POST.get("has_options") in ("1","true","on")
+            want = request.POST.get("has_options") in ("1", "true", "on")
             if not want:
-                inlines = [
-                    i for i in inlines
-                    if not isinstance(i, FeatureOptionInline)
-                ]
+                inlines = [i for i in inlines if not isinstance(i, FeatureOptionInline)]
         return inlines
 
     class Media:
@@ -779,35 +828,6 @@ class CharacterClassAdmin(admin.ModelAdmin):
         return ", ".join([a.name for a in obj.key_abilities.all()])
     display_key_abilities.short_description = "Key Abilities"
 
-@admin.register(SubclassGroup)
-class SubclassGroupAdmin(admin.ModelAdmin):
-    form         = SubclassGroupForm
-    list_display = ("character_class", "name", "code", "system_type")
-    list_filter  = ("character_class",)
-    inlines      = ()                       # none; widget handles membership
-
-    def save_related(self, request, form, formsets, change):
-        """
-        Runs *after* the SubclassGroup has definitely been written,
-        so `form.instance.pk` is always valid here.
-        """
-        super().save_related(request, form, formsets, change)
-
-        grp         = form.instance
-        chosen      = form.cleaned_data.get("subclasses") or []
-        chosen_ids  = [s.pk for s in chosen]
-
-        # link the selected subclasses …
-        (ClassSubclass.objects
-            .filter(pk__in=chosen_ids)
-            .update(group=grp))
-
-        # … and unlink every other subclass that *used* to belong
-        (ClassSubclass.objects
-            .filter(group=grp)
-            .exclude(pk__in=chosen_ids)
-            .update(group=None))
-        
 
 
 # characters/admin.py
