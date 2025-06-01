@@ -425,6 +425,7 @@ class ClassFeature(models.Model):
         null=True,
         help_text="(Only for subclass_feats) The minimum class‐level at which this feature is actually gained."
     )
+    
     # (3) If this feature belongs to a modular_mastery SubclassGroup, we store a mastery rank (0…4):
     MASTER_RANK_CHOICES = [(i, f"Rank {i}") for i in range(0, 5)]
     mastery_rank = models.PositiveIntegerField(
@@ -537,9 +538,10 @@ class ClassFeature(models.Model):
     )
 
     SCOPE_CHOICES = [
-        ("class_feat",      "Class Feature"),
-        ("subclass_feat",   "Subclass Feature"),
-        ("subclass_choice", "Subclass Choice"),
+        ("class_feat",        "Class Feature"),
+        ("subclass_feat",     "Subclass Feature"),
+        ("subclass_choice",   "Subclass Choice"),
+        ("gain_subclass_feat","Gain Subclass Feature"),   # ← NEW
     ]
     scope = models.CharField(
         max_length=20,
