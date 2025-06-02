@@ -383,7 +383,7 @@ class ClassFeatureForm(forms.ModelForm):
         labels = {
             "character_class": "Applies To Class",
             "feature_type":    "Feature Category",
-            "activity_type":  "Active / Passive",
+            "activity_type":   "Active / Passive",
             "subclass_group":  "Umbrella (if subclass-related)",
             "subclasses":      "Which Subclasses",
             "code":            "Unique Code",
@@ -393,8 +393,8 @@ class ClassFeatureForm(forms.ModelForm):
             "formula":         "Dice Formula",
             "uses":            "Usage Frequency",
             "formula_target":  "Roll Type",
-              "action_type": "Action Required",
-              "modify_proficiency_amount": "Override Proficiency Tier",
+            "action_type":     "Action Required",
+            "modify_proficiency_amount": "Override Proficiency Tier",
         }
         help_texts = {
             "character_class": "Which CharacterClass grants this feature.",
@@ -405,20 +405,20 @@ class ClassFeatureForm(forms.ModelForm):
                 "• subclass_feat: actual subclass-specific feature"
             ),
             "activity_type": "Select active (uses) or passive (static bonus).",
-            "subclass_group":  (
+            "subclass_group": (
                 "If this is a subclass_choice or subclass_feat, pick the umbrella here."
             ),
-            "subclasses":      (
+            "subclasses": (
                 "For subclass_feat only: which subclasses receive it?"
             ),
-            "code":            "Short identifier used in formulas and JSON.",
-            "name":            "Human-readable name shown to players.",
-            "has_options":     "Check to add FeatureOption inlines below.",
-            "formula":         "Dice+attribute expression, e.g. '1d10+level'.",
-            "uses":            "How many times? e.g. 'level/3 round down +1'.",
-            "formula_target":  "What kind of roll this formula applies to.",
+            "code":       "Short identifier used in formulas and JSON.",
+            "name":       "Human-readable name shown to players.",
+            "has_options":"Check to add FeatureOption inlines below.",
+            "formula":    "Dice+attribute expression, e.g. '1d10+level'.",
+            "uses":       "How many times? e.g. 'level/3 round down +1'.",
+            "formula_target": "What kind of roll this formula applies to.",
             "modify_proficiency_amount": "Select the tier you want instead of the character’s base.",
-                      "action_type": "Choose whether this ability takes your Action, Bonus Action or Reaction."
+            "action_type":"Choose whether this ability takes your Action, Bonus Action or Reaction.",
         }
         widgets = {
             "character_class": CharacterClassSelect(),
@@ -427,70 +427,65 @@ class ClassFeatureForm(forms.ModelForm):
             "cantrips_formula":    FormulaBuilderWidget(variables=VARS, dice=DICE, attrs={"rows":2,"cols":40}),
             "spells_known_formula": FormulaBuilderWidget(variables=VARS, dice=DICE, attrs={"rows":2,"cols":40}),
             "spells_prepared_formula": FormulaBuilderWidget(variables=VARS, dice=DICE, attrs={"rows":2,"cols":40}),
-
-
             "subclasses": FilteredSelectMultiple("Subclasses", is_stacked=True),
-
         }
-
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # 1) Always hide tier & mastery_rank by default.
-        self.fields["tier"].widget         = forms.HiddenInput()
-        self.fields["mastery_rank"].widget = forms.HiddenInput()
+        # ─────────────────────────────────────────────────────────────────
+        # 1) **DO NOT** hide tier or mastery_rank in Python.  The JS will do that.
+        #
+        #    In other words, do NOT include lines like:
+        #
+        #        self.fields["tier"].widget = forms.HiddenInput()
+        #        self.fields["mastery_rank"].widget = forms.HiddenInput()
+        #
+        #    Those lines must be removed (or commented out). Otherwise Django
+        #    never renders the “.field-tier” wrapper.
+        # ─────────────────────────────────────────────────────────────────
 
-        # 2) Figure out which subclass_group was “pre‐selected” either via POST or via initial
-        #    (so that on GET with ?subclass_group=123, we actually pick that up).
-        raw_data   = self.data
-        initial    = self.initial or {}
-        # Try POST first, else fall back to initial
-        grp_id = raw_data.get("subclass_group") or initial.get("subclass_group") \
-                 or getattr(self.instance, "subclass_group_id", None)
+        #
+        # 2) Figure out which umbrella was “pre‐selected”:
+        #    - raw_data (POST) or initial (GET) or from instance
+        #
+        raw_data = self.data or {}
+        initial  = self.initial or {}
 
-        system_t = SubclassGroup.objects.get(pk=grp_id).system_type  # → "modular_linear"
+        grp_id = (
+            raw_data.get("subclass_group")
+            or initial.get("subclass_group")
+            or getattr(self.instance, "subclass_group_id", None)
+        )
+
+        system_t = ""
         if grp_id:
             try:
                 system_t = SubclassGroup.objects.get(pk=grp_id).system_type
             except SubclassGroup.DoesNotExist:
                 system_t = ""
 
-        # 3) Always inject data-system-type onto the <select> (even if system_t is empty)
+        #
+        # 3) **Always** inject data-system-type on the <select id="id_subclass_group">
+        #    This is how JS will know whether the chosen Umbrella is “modular_linear”,
+        #    “modular_mastery”, or “linear”.
+        #
         self.fields["subclass_group"].widget.attrs["data-system-type"] = system_t
-        # 4) Only un‐hide tier/mastery_rank when scope is “subclass_feat” or “gain_subclass_feat”
-        scope_val = raw_data.get("scope") or initial.get("scope") or getattr(self.instance, "scope", None)
-        if scope_val in ("subclass_feat", "gain_subclass_feat") and system_t:
-            if system_t == SubclassGroup.SYSTEM_MODULAR_LINEAR:
-                self.fields["tier"].widget         = forms.NumberInput()
-                self.fields["mastery_rank"].widget = forms.HiddenInput()
-            elif system_t == SubclassGroup.SYSTEM_MODULAR_MASTERY:
-                self.fields["mastery_rank"].widget = forms.Select(
-                    choices=self.fields["mastery_rank"].choices
-                )
-                self.fields["tier"].widget         = forms.HiddenInput()
-            else:
-                # linear → hide both
-                self.fields["tier"].widget         = forms.HiddenInput()
-                self.fields["mastery_rank"].widget = forms.HiddenInput()
-        else:
-            # keep both hidden if not in subclass flow
-            self.fields["tier"].widget         = forms.HiddenInput()
-            self.fields["mastery_rank"].widget = forms.HiddenInput()
+
     def clean(self):
         cleaned = super().clean()
-        scope_val = cleaned.get("scope")
-        grp       = cleaned.get("subclass_group")
-        tier_val  = cleaned.get("tier")
-        master_val= cleaned.get("mastery_rank")
+        scope_val  = cleaned.get("scope")
+        grp        = cleaned.get("subclass_group")
+        tier_val   = cleaned.get("tier")
+        master_val = cleaned.get("mastery_rank")
 
-        # 1) Force a group if scope is subclass_choice/feat/gain_subclass_feat
+        # 1) If scope is some subclass‐flow, force them to pick a group
         if scope_val in ("subclass_choice", "subclass_feat", "gain_subclass_feat") and grp is None:
             self.add_error("subclass_group", "Pick an umbrella …")
         if grp and scope_val not in ("subclass_choice", "subclass_feat", "gain_subclass_feat"):
             self.add_error("subclass_group", "Only subclass_feats (or subclass_choices) may set a subclass_group.")
 
-        # 2) If scope is subclass_feat or gain_subclass_feat, enforce tier/mastery logic:
+        # 2) If they are in subclass_feat/gain_subclass_feat, enforce tier/mastery rules:
         if scope_val in ("subclass_feat", "gain_subclass_feat"):
             if grp:
                 if grp.system_type == SubclassGroup.SYSTEM_LINEAR:
@@ -508,7 +503,6 @@ class ClassFeatureForm(forms.ModelForm):
                         self.add_error("mastery_rank", "This modular_mastery feature must have a Mastery Rank (0…4).")
                     if tier_val is not None:
                         self.add_error("tier", "Modular_mastery features may not have a Tier.")
-
         return cleaned
 
 
@@ -697,7 +691,100 @@ class ClassFeatureAdmin(admin.ModelAdmin):
             if not want:
                 inlines = [i for i in inlines if not isinstance(i, FeatureOptionInline)]
         return inlines
+    def get_form(self, request, obj=None, **kwargs):
+        """
+        Wrap the normal form (ClassFeatureForm) so that
+        <select id="id_subclass_group"> always has 
+        data-system-type="…" set correctly.
+        """
+        BaseForm = super().get_form(request, obj, **kwargs)
 
+        class WrappedForm(BaseForm):
+            def __init__(self, *args, **inner_kwargs):
+                super().__init__(*args, **inner_kwargs)
+
+                # 1) Figure out the “pre-selected” umbrella ID:
+                raw_data = self.data or {}
+                initial  = self.initial or {}
+                grp_id = (
+                    raw_data.get("subclass_group")
+                    or initial.get("subclass_group")
+                    or getattr(self.instance, "subclass_group_id", None)
+                )
+
+                # 2) Look up that SubclassGroup’s system_type (linear/modular_linear/modular_mastery)
+                system_t = ""
+                if grp_id:
+                    try:
+                        system_t = SubclassGroup.objects.get(pk=grp_id).system_type
+                    except SubclassGroup.DoesNotExist:
+                        system_t = ""
+
+                # 3) ***Crucial:*** set the exact ASCII hyphen key "data-system-type"
+                self.fields["subclass_group"].widget.attrs["data-system-type"] = system_t
+
+        return WrappedForm
+    
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        """
+        Whenever Django is about to render the ForeignKey “subclass_group” field,
+        this method will be called.  We can intercept it, figure out which SubclassGroup
+        is “pre-selected,” look up its .system_type, and then attach it as
+        `data-system-type="..."` on the HTML <select> widget.
+        """
+        field = super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+        # Only do this injection when rendering the `subclass_group` dropdown:
+        if db_field.name == "subclass_group":
+            # 1) Find the “currently selected” SubclassGroup ID.  
+            #    - If we’re editing, the URL is something like /admin/…/classfeature/123/change/,
+            #      so we can pull obj_id from request.resolver_match.kwargs.
+            #    - If we’re on an “Add” page with a GET param ?subclass_group=XYZ, pick that.
+            #    - If the form has already been POSTed, `request.POST["subclass_group"]` will be the new value.
+            #
+            #    Note:  you might not need all three of these steps at once.  Typically:
+            #    • On “Add” (no instance yet), you read request.GET.get("subclass_group").
+            #    • On “Change” (instance exists), you read obj.subclass_group_id.
+            #    • On a POST (validation errors), you read request.POST["subclass_group"].
+            #
+            selected_id = None
+
+            #  A) If this is a POST submission with an error (re-rendering the form),
+            #     read the posted value:
+            if request.method == "POST" and "subclass_group" in request.POST:
+                selected_id = request.POST.get("subclass_group")
+
+            #  B) Otherwise, if they passed ?subclass_group=… in the URL (e.g. after picking “scope”):
+            if not selected_id:
+                selected_id = request.GET.get("subclass_group")
+
+            #  C) If we’re editing an existing ClassFeature (URL = …/classfeature/123/change/),
+            #     fetch the object from the DB to see which SubclassGroup is already set:
+            if not selected_id:
+                # Extract the “object_id” from the URL resolver (if present):
+                match = resolve(request.path_info)
+                obj_id = match.kwargs.get("object_id")
+                if obj_id:
+                    try:
+                        cf = ClassFeature.objects.get(pk=obj_id)
+                        selected_id = cf.subclass_group_id
+                    except ClassFeature.DoesNotExist:
+                        selected_id = None
+
+            # Now, if we found a valid ID, look it up in SubclassGroup and read .system_type:
+            system_t = ""
+            if selected_id:
+                try:
+                    sg = SubclassGroup.objects.get(pk=selected_id)
+                    # sg.system_type is one of: "linear", "modular_linear", "modular_mastery"
+                    system_t = sg.system_type or ""
+                except SubclassGroup.DoesNotExist:
+                    system_t = ""
+
+            # Finally: attach the exact ASCII-hyphen key "data-system-type" to the <select>:
+            field.widget.attrs["data-system-type"] = system_t
+
+        return field    
     class Media:
         js = (
             'characters/js/formula_builder.js',
