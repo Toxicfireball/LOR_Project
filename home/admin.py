@@ -20,10 +20,9 @@ from characters.models import (
 from django.urls import resolve
 from django.contrib.admin.widgets import FilteredSelectMultiple
 from characters.widgets import FormulaBuilderWidget, CharacterClassSelect
-from characters.models import ResourceType, ClassResource, CharacterResource, SubclassGroup, SubclassTierLevel
-from django.utils.html import format_html
+from characters.models import ResourceType,Weapon, SubSkill, Skill,SkillCategory, WeaponTraitValue,WeaponTrait, ClassResource, CharacterResource, SubclassGroup, SubclassTierLevel
 from characters.forms import CharacterClassForm
-from django.shortcuts import get_object_or_404
+from django.utils.html import format_html
 from django.forms.models import BaseInlineFormSet
 from django.core.exceptions import ValidationError
 class ModularLinearFeatureFormSet(BaseInlineFormSet):
@@ -100,8 +99,49 @@ class ModularLinearFeatureFormSet(BaseInlineFormSet):
 
         
 
+@admin.register(WeaponTrait)
+class WeaponTraitAdmin(admin.ModelAdmin):
+    list_display = ("name", "requires_value")
+    search_fields = ("name",)
 
+class WeaponTraitValueInline(admin.TabularInline):
+    model = WeaponTraitValue
+    extra = 1
+    autocomplete_fields = ("trait",)
+    fields = ("trait", "value")
                 
+@admin.register(Weapon)
+class WeaponAdmin(admin.ModelAdmin):
+    list_display = ("name", "category", "damage", "is_melee")
+    list_filter = ("category", "is_melee")
+    search_fields = ("name", "damage")
+    inlines = [WeaponTraitValueInline]
+
+class SubSkillInline(admin.TabularInline):
+    model = SubSkill
+    extra = 1
+    fields = ("name",)
+
+
+@admin.register(SkillCategory)
+class SkillCategoryAdmin(admin.ModelAdmin):
+    list_display   = ("name", "ability")
+    search_fields  = ("name",)
+    inlines        = [SubSkillInline]
+
+@admin.register(Skill)
+class SkillAdmin(admin.ModelAdmin):
+    list_display = ("name", "ability", "is_advanced")
+    search_fields = ("name",)
+    list_filter = ("ability", "is_advanced")
+
+@admin.register(SubSkill)
+class SubSkillAdmin(admin.ModelAdmin):
+    list_display       = ("name", "category")
+    search_fields      = ("name",)
+    list_filter        = ("category",)
+    autocomplete_fields= ("category",)
+
 
 class SubclassGroupForm(forms.ModelForm):
     """
@@ -513,16 +553,18 @@ from characters.models import ClassLevelFeature
 class ClassLevelFeatureInline(admin.TabularInline):
     model = ClassLevelFeature
     extra = 1
-    autocomplete_fields = ("feature",)
+    
     verbose_name = "Feature granted at this level"
     verbose_name_plural = "Features granted at this level"
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        # Only show ClassFeature rows whose scope="subclass_choice".
-        # These are your “Gain Subclass Feature (Tier N)” entries.
         if db_field.name == "feature":
-            kwargs["queryset"] = ClassFeature.objects.filter(scope="subclass_choice")
+            # Remove the filter; show everything:
+            # kwargs["queryset"] = ClassFeature.objects.filter(scope="subclass_choice")
+            # instead use:
+            kwargs["queryset"] = ClassFeature.objects.all()
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
 
 @admin.register(SubclassGroup)
 class SubclassGroupAdmin(admin.ModelAdmin):
@@ -819,15 +861,18 @@ class ClassLevelAdmin(admin.ModelAdmin):
         ) + "</ul>"
         return format_html(html)
 
-    subclass_features_at_this_level.short_description = "Subclass-feats @ this Level"
-
-    class Media:
-        js = ("characters/js/classlevel_admin.js",)
-
-
-    class Media:
-        js = ('characters/js/classlevel_admin.js',)
     
+
+    class Media:
+        js = ("characters/js/classlevel_admin.js","characters/js/classlevelfeature_admin.js",)
+
+
+
+   
+
+
+
+
 class ClassResourceInline(admin.TabularInline):
     model = ClassResource
     form  = ClassResourceForm

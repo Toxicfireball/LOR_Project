@@ -27,6 +27,13 @@ HIT_DIE_CHOICES = [
 ]
 
 
+class Skill(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    ability = models.CharField(max_length=3, help_text="e.g., DEX, INT")
+    is_advanced = models.BooleanField(default=False, help_text="Advanced skills can't be increased normally.")
+
+    def __str__(self):
+        return self.name
 #RACE
 class BaseRace(models.Model):
     code        = models.SlugField(max_length=20, unique=True)
@@ -387,6 +394,58 @@ class CharacterClassProgress(models.Model):
 
 # models.py
 
+class WeaponTrait(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    description = models.TextField()
+    requires_value = models.BooleanField(default=False, help_text="e.g., Brutal D8/D10 etc.")
+
+    def __str__(self):
+        return self.name
+
+class Weapon(models.Model):
+    CATEGORY_CHOICES = [
+        ('simple', 'Simple'),
+        ('martial', 'Martial'),
+        ('special', 'Special'),
+    ]
+
+    name = models.CharField(max_length=100, unique=True)
+    damage = models.CharField(max_length=50, help_text="e.g., 1d8 Piercing")
+    category = models.CharField(max_length=10, choices=CATEGORY_CHOICES)
+    is_melee = models.BooleanField(default=True)
+    traits = models.ManyToManyField('WeaponTrait', through='WeaponTraitValue', blank=True)
+
+    def __str__(self):
+        return f"{self.name} ({self.get_category_display()})"
+
+class WeaponTraitValue(models.Model):
+    weapon = models.ForeignKey('Weapon', on_delete=models.CASCADE)
+    trait = models.ForeignKey('WeaponTrait', on_delete=models.CASCADE)
+    value = models.CharField(max_length=50, blank=True, null=True, help_text="Only used if trait.requires_value=True")
+
+    class Meta:
+        unique_together = ('weapon', 'trait')
+
+    def __str__(self):
+        return f"{self.weapon.name} – {self.trait.name} {self.value or ''}".strip()
+
+
+
+class CharacterSkillRating(models.Model):
+    character = models.ForeignKey(Character, on_delete=models.CASCADE, related_name='skill_ratings')
+    skill = models.ForeignKey(Skill, on_delete=models.CASCADE)
+    bonus_points = models.IntegerField(default=0, help_text="Allocated from ability score increases, NOT proficiency.")
+
+    class Meta:
+        unique_together = ('character', 'skill')
+
+class CharacterSubSkillProficiency(models.Model):
+    character = models.ForeignKey(Character, on_delete=models.CASCADE, related_name='subskill_proficiencies')
+    subskill = models.ForeignKey(SubSkill, on_delete=models.CASCADE)
+    proficiency = models.ForeignKey(ProficiencyLevel, on_delete=models.CASCADE)
+
+    class Meta:
+        unique_together = ('character', 'subskill')
 
 
 class ClassFeature(models.Model):
@@ -754,7 +813,9 @@ class ClassFeature(models.Model):
         if errors:
             raise ValidationError(errors)
         return super().clean()
-
+    def __str__(self):
+        # render “<code> – <name>”, e.g. “DRUID_1 – Wild Shape”
+        return f"{self.code} – {self.name}"
 
 class ResourceType(models.Model):
     """
