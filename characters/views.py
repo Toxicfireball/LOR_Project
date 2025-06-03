@@ -295,14 +295,7 @@ def class_list(request):
     classes = CharacterClass.objects.all().order_by('name')
     return render(request, 'codex/class_list.html', {'classes': classes})
 
-def class_detail(request, pk):
-    cls = get_object_or_404(CharacterClass, pk=pk)
 
-    # … your existing logic for proficiencies, levels, subclasses, summary …
-    return render(request, 'codex/class_detail.html', {
-        'cls': cls,
-        # … other context (tier_names, prof_rows, etc.) …
-    })
 
 def race_list(request):
     races = Race.objects.all().order_by('name')
