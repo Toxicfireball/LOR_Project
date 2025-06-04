@@ -1051,6 +1051,37 @@ class FeatureOption(models.Model):
         return self.label
 
 
+class UniversalLevelFeature(models.Model):
+    """
+    Declares, for each numeric level, whether ALL classes get
+    a General Feat and/or an Ability Score Increase at that level.
+    """
+    level = models.PositiveIntegerField(
+        unique=True,
+        help_text="Character level (e.g. 1, 2, 3 …)."
+    )
+    grants_general_feat = models.BooleanField(
+        default=False,
+        help_text="If True, then at this level every class gains a General Feat."
+    )
+    grants_asi = models.BooleanField(
+        default=False,
+        help_text="If True, then at this level every class gains an ASI."
+    )
+
+    class Meta:
+        ordering = ["level"]
+        verbose_name = "Universal Level Feature"
+        verbose_name_plural = "Universal Level Features"
+
+    def __str__(self):
+        flags = []
+        if self.grants_general_feat:
+            flags.append("Feat")
+        if self.grants_asi:
+            flags.append("ASI")
+        label = ",".join(flags) or "None"
+        return f"L{self.level} → {label}"
 
 
 class ClassLevel(models.Model):

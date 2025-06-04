@@ -20,7 +20,7 @@ from characters.models import (
 from django.urls import resolve
 from django.contrib.admin.widgets import FilteredSelectMultiple
 from characters.widgets import FormulaBuilderWidget, CharacterClassSelect
-from characters.models import ResourceType,Weapon, SubSkill, Skill,SkillCategory, WeaponTraitValue,WeaponTrait, ClassResource, CharacterResource, SubclassGroup, SubclassTierLevel
+from characters.models import ResourceType,Weapon, SubSkill, UniversalLevelFeature, Skill,SkillCategory, WeaponTraitValue,WeaponTrait, ClassResource, CharacterResource, SubclassGroup, SubclassTierLevel
 from characters.forms import CharacterClassForm
 from django.utils.html import format_html
 from django.forms.models import BaseInlineFormSet
@@ -1088,3 +1088,14 @@ class SubraceAdmin(admin.ModelAdmin):
 
 
 
+
+@admin.register(UniversalLevelFeature)
+class UniversalLevelFeatureAdmin(admin.ModelAdmin):
+    list_display  = ("level", "grants_general_feat", "grants_asi")
+    list_editable = ("grants_general_feat", "grants_asi")
+    list_per_page = 25
+
+    search_fields = ("level",)
+    ordering      = ("level",)
+
+    fields = ("level", "grants_general_feat", "grants_asi")
