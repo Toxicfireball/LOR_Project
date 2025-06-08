@@ -1,76 +1,19 @@
-{% extends "base.html" %}
-{% block title %}Level Up {{ character.name }}{% endblock %}
-{% block content %}
-<h2>Level Up: {{ character.name }}</h2>
-
-<!-- Character Summary -->
-<div class="character-summary">
-  <h3>Current Character Details</h3>
-  <ul>
-    <li><strong>Race:</strong> {{ character.final_race }}</li>
-    <li><strong>Backstory:</strong> {{ character.backstory|linebreaks }}</li>
-    <li><strong>Level:</strong> {{ total_level }}</li>
-    <li><strong>Stats:</strong>
-      Str {{ character.strength }}, Dex {{ character.dexterity }}, Con {{ character.constitution }},
-      Int {{ character.intelligence }}, Wis {{ character.wisdom }}, Cha {{ character.charisma }}
-    </li>
-    <li><strong>Classes:</strong>
-      {% if class_breakdown %}
-        <ul>
-          {% for p in class_breakdown %}
-            <li>{{ p.character_class.name }}: Level {{ p.levels }}</li>
-          {% endfor %}
-        </ul>
-      {% else %}
-        <em>None assigned yet</em>
-      {% endif %}
-    </li>
-  </ul>
-</div>
-
-<form method="post" id="levelUpForm">
+<form method="post">
   {% csrf_token %}
+  <div class="class-picks">
+    {{ form.base_class }} {{ form.advance_class }}
+  </div>
 
-  {% if total_level == 0 %}
-    <div class="form-group">
-      {{ form.base_class.label_tag }} {{ form.base_class }}
-      <p>Select your base class for Level 1.</p>
-    </div>
-  {% else %}
-    <div class="form-group">
-      {{ form.advance_class.label_tag }} {{ form.advance_class }}
-      <p>Choose which class to advance to Level {{ total_level|add:"1" }}.</p>
-    </div>
-  {% endif %}
+  <h4>Level {{ total_level|add:1 }} Features</h4>
+  <div class="feature-grid">
+    {% for bound_field, label in feature_fields %}
+      <div class="feature-item">
+        {{ bound_field }} <span>{{ label }}</span>
+      </div>
+    {% empty %}
+      <p>No features to choose at this level.</p>
+    {% endfor %}
+  </div>
 
-  <!-- Feature Inputs -->
-  <fieldset>
-      <h4>Level {{ total_level|add:"1" }} Features</h4>
-      {% if features_data %}
-        {% for feat in features_data %}
-          <div>
-           <label>{{ feat.tag }}</label>
-            {% if feat.options %}
-              <select name="feature_{{ feat.tag }}">
-                <option value="">-- select --</option>
-                {% for opt in feat.options %}
-                  <option value="{{ opt }}">{{ opt }}</option>
-               {% endfor %}
-              </select>
-            {% else %}
-              <input
-                type="text"
-                name="feature_{{ feat.tag }}"
-                placeholder="Provide {{ feat.tag }} details"
-              />
-            {% endif %}
-          </div>
-        {% endfor %}
-      {% else %}
-       <p>No defined features for next level.</p>
-     {% endif %}
-  </fieldset>
-
-  <button type="submit">Confirm Level Up</button>
+  <button type="submit" class="btn">Confirm Level Up</button>
 </form>
-{% endblock %}

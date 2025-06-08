@@ -20,7 +20,7 @@ from characters.models import (
 from django.urls import resolve
 from django.contrib.admin.widgets import FilteredSelectMultiple
 from characters.widgets import FormulaBuilderWidget, CharacterClassSelect
-from characters.models import ResourceType,Weapon, SubSkill, UniversalLevelFeature, Skill,SkillCategory, WeaponTraitValue,WeaponTrait, ClassResource, CharacterResource, SubclassGroup, SubclassTierLevel
+from characters.models import Background, ResourceType,Weapon, SubSkill, UniversalLevelFeature, Skill,SkillCategory, WeaponTraitValue,WeaponTrait, ClassResource, CharacterResource, SubclassGroup, SubclassTierLevel
 from characters.forms import CharacterClassForm
 from django.utils.html import format_html
 from django.forms.models import BaseInlineFormSet
@@ -835,7 +835,11 @@ class ClassFeatureAdmin(admin.ModelAdmin):
         css = {
             'all': ('characters/css/formula_builder.css',)
         }
-
+@admin.register(Background)
+class BackgroundAdmin(admin.ModelAdmin):
+    list_display = ('code','name',
+                    'primary_ability','primary_bonus','primary_skill',
+                    'secondary_ability','secondary_bonus','secondary_skill')
 @admin.register(ClassLevel)
 class ClassLevelAdmin(admin.ModelAdmin):
     list_display = ("character_class", "level")

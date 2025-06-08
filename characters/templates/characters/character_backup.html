@@ -2,32 +2,7 @@
 {% block title %}Create Character – Stage 1{% endblock %}
 {% block content %}
 
-<script>
-  const races            = {{ races_json|safe }};
-  const backgroundsData  = {{ backgrounds_json|safe }};
-
-  // Build lookup dictionaries
-  const racialModifiersDict = {};
-  const subracesDict        = {};
-  const backgrounds         = {};
-
-  races.forEach(r => {
-    racialModifiersDict[r.code] = r.mods;
-    subracesDict[r.code] = r.subraces.map(s => ({ value: s.code, label: s.name }));
-  });
-
-  backgroundsData.forEach(b => {
-    backgrounds[b.code] = {
-      primary:   { ability: b.primary.ability, bonus: b.primary.bonus, skill: b.primary.skill },
-      secondary: { ability: b.secondary.ability, bonus: b.secondary.bonus, skill: b.secondary.skill }
-    };
-  });
-</script>
-
 <style>
-  /* Global styles */
-  body { background-color: #f4f4f4; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; color: #333; margin: 0; padding: 0; line-height: 1.6; }
-  form#characterForm { max-width: 900px; margin: 20px auto; padding: 20px; background-color: #fff; border: 1px solid #ddd; box-shadow: 0 2px 4px rgba(0,0,0,.1); }
   /* Global styles */
   body {
     background-color: #f4f4f4;
@@ -139,49 +114,85 @@
   form#characterForm > div[style*="text-align:center"] {
     margin-top: 20px;
   }
-
 </style>
 
 <h2 style="text-align:center;">Stage 1: Basic Character Creation</h2>
-<p style="text-align:center;">Enter your character’s name, choose your race (and subrace if available) and background, provide a backstory, and adjust your ability scores using the point-buy system.</p>
+<p style="text-align:center;">
+  Enter your character’s name, choose your race (and subrace if available) and background,
+  provide a backstory, and adjust your ability scores using the point-buy system.
+</p>
 
 <form method="post" id="characterForm" style="max-width:900px; margin: 0 auto; border:1px solid #ddd; padding:20px; background:#fff;">
   {% csrf_token %}
-
-  <!-- Basic Info -->
+  
+  <!-- Basic Info: Name, Race, and Ability Scores -->
   <div style="background:#f9f9f9; padding:15px; margin-bottom:20px; border:1px solid #ddd;">
     <label for="name">Character Name:</label>
     <input type="text" name="name" id="name" required>
 
-    <!-- ability score table -->
     <div class="container" style="border:1px solid #ddd; padding:15px; background:#f9f9f9; margin-bottom:20px;">
       <h2>Add Ability Scores</h2>
       <div id="score-section">
         <h3>Add in Order: Point Buy &gt; Race &gt; Background &gt; Boost</h3>
         <p><strong>Point Buy Remaining:</strong> <span id="points-remaining">12</span></p>
-        <p><strong>Background Modifier Total:</strong> <span id="background-total">0</span> / 3 <button type="button" onclick="resetBackground()">Reset Background</button></p>
-        <p><strong>Boost Slots Remaining:</strong> <span id="boosts-remaining">5</span> <button type="button" onclick="resetBoosts()">Reset Boosts</button></p>
+        <p>
+          <strong>Background Modifier Total:</strong>
+          <span id="background-total">0</span> / 3
+          <button type="button" onclick="resetBackground()">Reset Background</button>
+        </p>
+        <p>
+          <strong>Boost Slots Remaining:</strong>
+          <span id="boosts-remaining">5</span>
+          <button type="button" onclick="resetBoosts()">Reset Boosts</button>
+        </p>
         <h3>Adjust Base Scores (Point Buy)</h3>
-        <table><thead><tr><th>Ability</th><th>Base Score (8–13)</th><th>Race Mod</th><th>Background Mod</th><th>Boost Mod</th><th>Final Value</th></tr></thead>
+        <table>
+          <thead>
+            <tr>
+              <th>Ability</th>
+              <th>Base Score (8–13)</th>
+              <th>Race Mod</th>
+              <th>Background Mod</th>
+              <th>Boost Mod</th>
+              <th>Final Value</th>
+            </tr>
+          </thead>
           <tbody id="stat-table"></tbody>
         </table>
         <button type="button" onclick="resetCharacter()">Reset All</button>
       </div>
     </div>
-
-    <!-- Race & Subrace -->
+    
     <label for="race">Race:</label>
     <select name="race" id="race" required>
       <option value="">-- Select a Race --</option>
+      <option value="human">Human</option>
+      <option value="dwarf">Dwarf</option>
+      <option value="elf">Elf</option>
+      <option value="gnome">Gnome</option>
+      <option value="tiefling">Tiefling</option>
+      <option value="half_elf">Half-Elf</option>
+      <option value="lizardfolk">Lizardfolk</option>
+      <option value="halfling">Halfling</option>
+      <option value="half_orc">Half-Orc</option>
+      <option value="tabaxi">Tabaxi</option>
+      <option value="goliath">Goliath</option>
+      <option value="goblin">Goblin</option>
+      <option value="githyanki">Githyanki</option>
+      <option value="warforged">Warforged</option>
+      <option value="elf_nymph">Elf-Nymph</option>
+      <option value="yuan_ti">Yuan-Ti</option>
+      <option value="kitsune">Kitsune</option>
     </select>
-
+    
+    <!-- Subrace dropdown -->
     <div id="subrace-container" style="display:none; margin-top:10px;">
       <label for="subrace">Subrace:</label>
       <select name="subrace" id="subrace" style="width:100%; padding:8px;"></select>
     </div>
-
-    <!-- Racial allocation -->
-    <div id="racial-allocation-section" style="display:none; border:1px solid #ddd; padding:10px; background:#eef; margin-top:10px;">
+    
+    <!-- Racial Bonus Allocation -->
+    <div id="racial-allocation-section" style="display:none; border:1px solid #ddd; padding:10px; background:#eef; margin-bottom:20px;">
       <h3>Allocate Your Racial Bonus Points</h3>
       <p>You have <span id="racial-points"></span> bonus point(s) to allocate among your abilities.</p>
       <div style="display:flex; flex-wrap:wrap; gap:10px;">
@@ -195,50 +206,116 @@
       <button type="button" onclick="applyRacialAllocation()">Apply Racial Bonuses</button>
     </div>
 
-    <!-- Half-elf origin -->
-    <div id="half-elf-origin-container" style="display:none; border:1px solid #ddd; padding:10px; background:#eef; margin-top:10px;">
+    <!-- For Half-Elf origin -->
+    <div id="half-elf-origin-container" style="display:none; border:1px solid #ddd; padding:10px; background:#eef; margin-bottom:20px;">
       <h3>Choose Your Half-Elf Origin</h3>
-      <p>Select one of the following: High Elf (+1 Int), Wood Elf (+1 Wis), or Dark Elf (+1 Cha).</p>
-      <select id="half-elf-origin" name="half_elf_origin" disabled style="width:100%; padding:8px;">
+      <p>Select one of the following: High Elf (+1 Int), Wood Elf (+1 Wis), or Dark Elf (+1 Str).</p>
+      <select id="half-elf-origin" name="half_elf_origin" disabled>
         <option value="high">High Elf</option>
         <option value="wood">Wood Elf</option>
         <option value="dark">Dark Elf</option>
       </select>
     </div>
-  </div>
+  </div><!-- End Basic Info Container -->
 
-  <!-- Backgrounds -->
+  <!-- Background Combination -->
   <div class="section">
     <h3>Background Combination</h3>
-    <label><input type="radio" name="bg_combo" value="0" checked> Main Background Only</label>
-    <label><input type="radio" name="bg_combo" value="1"> Main + 1 Side Background</label>
-    <label><input type="radio" name="bg_combo" value="2"> Main + 2 Side Backgrounds</label>
+    <p>Select your background combination:</p>
+    <label>
+      <input type="radio" name="bg_combo" value="0" checked> Main Background Only
+    </label>
+    <label>
+      <input type="radio" name="bg_combo" value="1"> Main Background + 1 Side Background
+    </label>
+    <label>
+      <input type="radio" name="bg_combo" value="2"> Main Background + 2 Side Backgrounds
+    </label>
   </div>
-  
+
+  <!-- Main Background -->
   <div class="section">
     <h3>Main Background</h3>
     <label for="main_background">Select Main Background:</label>
-    <select id="main_background" style="width:100%; padding:8px;">
+    <select id="main_background">
       <option value="">-- Select Main Background --</option>
+      <option value="noble">Noble</option>
+      <option value="commoner">Commoner</option>
+      <option value="artisan">Artisan</option>
     </select>
-    <p>(In Main-only mode, you get both primary (+2) and secondary (+1) benefits.)</p>
+    <p>(In Main-only mode, you get both primary (+2 ability bonus & primary skill) and secondary (+1 ability bonus & secondary skill) benefits.)</p>
   </div>
 
-  <div id="side_bg1_container" class="section" style="display:none;">
-    <h3>Side Background 1</h3>
-    <label for="side_background_1">Select Side Background 1:</label>
-    <select id="side_background_1" style="width:100%; padding:8px;"><option value="">-- Select Side Background --</option></select>
-    <div id="side_bg1_fields" style="margin-top:10px;"></div>
+<!-- Side Background 1 -->
+<div class="section" id="side_bg1_container" style="display:none;">
+  <h3>Side Background 1</h3>
+  <label for="side_background_1">Select Side Background 1:</label>
+  <select name="side_background_1" id="side_background_1">
+    <option value="">-- Select Side BG 1 --</option>
+    <option value="noble">Noble</option>
+    <option value="commoner">Commoner</option>
+    <option value="artisan">Artisan</option>
+  </select>
+  <div id="side_bg1_fields" style="margin-top:10px;">
+    <!-- Always display both bonus selectors -->
+    <div id="side_bg1_ability_fields" class="bonus-detail" style="display:block;">
+      <label for="side_bg1_ability_choice">Choose ability bonus (Primary or Secondary):</label>
+      <select id="side_bg1_ability_choice">
+        <option value="primary">Primary (normally +2, counts as +1)</option>
+        <option value="secondary">Secondary (+1)</option>
+      </select>
+    </div>
+    <div id="side_bg1_skill_fields" class="bonus-detail" style="display:block; margin-top:10px;">
+      <label for="side_bg1_skill_choice">Choose skill proficiency (Primary or Secondary):</label>
+      <select id="side_bg1_skill_choice">
+        <option value="primary">Primary Skill</option>
+        <option value="secondary">Secondary Skill</option>
+      </select>
+    </div>
   </div>
+</div>
 
-  <div id="side_bg2_container" class="section" style="display:none;">
+
+
+  <!-- Side Background 2 -->
+  <div class="section" id="side_bg2_container" style="display:none;">
     <h3>Side Background 2</h3>
     <label for="side_background_2">Select Side Background 2:</label>
-    <select id="side_background_2" style="width:100%; padding:8px;"><option value="">-- Select Side Background --</option></select>
-    <div id="side_bg2_fields" style="margin-top:10px;"></div>
+      <select name="side_background_2" id="side_background_2">    
+        <option value="">-- Select Side BG 2 --</option>
+      <option value="">-- Select Side BG 2 --</option>
+      <option value="noble">Noble</option>
+      <option value="commoner">Commoner</option>
+      <option value="artisan">Artisan</option>
+    </select>
+    <div id="side_bg2_fields" style="margin-top:10px;">
+      <p>Choose bonus type for Side BG 2:</p>
+      <label>
+        <input type="radio" name="side2_bonus_type" value="ability" checked> Ability Bonus (+1)
+      </label>
+      <label>
+        <input type="radio" name="side2_bonus_type" value="skill"> Skill Proficiency
+      </label>
+      <div id="side_bg2_ability_fields" class="bonus-detail" style="display:block;">
+        <label for="side_bg2_ability_choice">Choose which bonus (Primary or Secondary):</label>
+        <select id="side_bg2_ability_choice">
+          <option value="primary">Primary (normally +2, counts as +1)</option>
+          <option value="secondary">Secondary (+1)</option>
+        </select>
+      </div>
+      <div id="side_bg2_skill_fields" class="bonus-detail" style="display:none;">
+        <label for="side_bg2_skill_choice">Choose which skill (Primary or Secondary):</label>
+        <select id="side_bg2_skill_choice">
+          <option value="primary">Primary Skill</option>
+          <option value="secondary">Secondary Skill</option>
+        </select>
+      </div>
+    </div>
   </div>
 
-  <!-- Hidden fields for JS to write into -->
+
+
+  <!-- Hidden fields -->
   <input type="hidden" name="final_race" id="finalRace" value="">
   <input type="hidden" name="strength" id="strengthInput" value="8">
   <input type="hidden" name="dexterity" id="dexterityInput" value="8">
@@ -246,14 +323,18 @@
   <input type="hidden" name="intelligence" id="intelligenceInput" value="8">
   <input type="hidden" name="wisdom" id="wisdomInput" value="8">
   <input type="hidden" name="charisma" id="charismaInput" value="8">
-  <input type="hidden" name="computed_skill_proficiencies" id="computed_skill_proficiencies" value="{}">
 
   <!-- Backstory -->
-  <div style="margin-bottom:20px;"><label for="backstory">Backstory:</label><textarea name="backstory" id="backstory" rows="4"></textarea></div>
+  <div style="margin-bottom:20px;">
+    <label for="backstory">Backstory:</label>
+    <textarea name="backstory" id="backstory" rows="4"></textarea>
+  </div>
 
-  <div style="text-align:center;"><button type="submit">Finish Stage 1 &amp; Create Character</button></div>
+  <div style="text-align:center;">
+    <button type="submit">Finish Stage 1 &amp; Create Character</button>
+  </div>
 </form>
-<!-- Full JS logic block -->
+
 <script>
 
 

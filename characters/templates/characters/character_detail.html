@@ -1,81 +1,243 @@
-{% extends "home/base.html" %}
-{% block title %}{{ character.name }} – Character Details{% endblock %}
+{% extends "base.html" %}
+{% load static %}
+
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'css/character.css' %}">
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+  >
+{% endblock %}
 
 {% block content %}
-  <div style="max-width:900px; margin: 0 auto; padding: 20px; background: #fff; border: 1px solid #ddd;">
-    <h2 style="text-align:center;">{{ character.name }}</h2>
-
-    <h3>Basic Information</h3>
-    <ul>
-      <li><strong>Race:</strong> {{ character.race }}</li>
-      {% if character.subrace %}
-        <li><strong>Subrace:</strong> {{ character.subrace }}</li>
-      {% endif %}
-      {% if character.half_elf_origin %}
-        <li><strong>Half-Elf Origin:</strong> {{ character.half_elf_origin }}</li>
-      {% endif %}
-      <li><strong>Background Combination:</strong> {{ character.bg_combo }}</li>
-      <li><strong>Main Background:</strong> {{ character.main_background }}</li>
-      {% if character.side_background_1 %}
-        <li><strong>Side Background 1:</strong> {{ character.side_background_1 }}</li>
-      {% endif %}
-      {% if character.side_background_2 %}
-        <li><strong>Side Background 2:</strong> {{ character.side_background_2 }}</li>
-      {% endif %}
-    </ul>
-
-    <h3>Ability Scores</h3>
-    <table style="width:100%; border-collapse:collapse;">
-      <thead>
-        <tr style="background:#eee;">
-          <th style="padding:8px; border:1px solid #ccc;">Ability</th>
-          <th style="padding:8px; border:1px solid #ccc;">Score</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td style="padding:8px; border:1px solid #ccc;">Strength</td>
-          <td style="padding:8px; border:1px solid #ccc;">{{ character.strength }}</td>
-        </tr>
-        <tr>
-          <td style="padding:8px; border:1px solid #ccc;">Dexterity</td>
-          <td style="padding:8px; border:1px solid #ccc;">{{ character.dexterity }}</td>
-        </tr>
-        <tr>
-          <td style="padding:8px; border:1px solid #ccc;">Constitution</td>
-          <td style="padding:8px; border:1px solid #ccc;">{{ character.constitution }}</td>
-        </tr>
-        <tr>
-          <td style="padding:8px; border:1px solid #ccc;">Intelligence</td>
-          <td style="padding:8px; border:1px solid #ccc;">{{ character.intelligence }}</td>
-        </tr>
-        <tr>
-          <td style="padding:8px; border:1px solid #ccc;">Wisdom</td>
-          <td style="padding:8px; border:1px solid #ccc;">{{ character.wisdom }}</td>
-        </tr>
-        <tr>
-          <td style="padding:8px; border:1px solid #ccc;">Charisma</td>
-          <td style="padding:8px; border:1px solid #ccc;">{{ character.charisma }}</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <h3>Skill Proficiencies</h3>
-    {% if character.skill_proficiencies %}
-      <ul>
-        {% for skill, proficiency in character.skill_proficiencies.items %}
-          <li><strong>{{ skill }}:</strong> {{ proficiency }}</li>
-        {% endfor %}
-      </ul>
-    {% else %}
-      <p>No skill proficiencies available.</p>
-    {% endif %}
-
-    <h3>Backstory</h3>
-    <p>{{ character.backstory|linebreaks }}</p>
-
-    <div style="margin-top:20px; text-align:center;">
-      <a href="{% url 'characters:character_list' %}" style="padding:10px 20px; background:#007BFF; color:#fff; text-decoration:none; border-radius:4px;">Back to Character List</a>
+<div class="container my-4">
+  <!-- HEADER WITH EDIT & LEVEL UP BUTTONS -->
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>{{ character.name }}</h1>
+    <div>
+      <button
+        class="btn btn-secondary me-2"
+        {% if not can_edit %}disabled{% endif %}
+        data-bs-toggle="modal"
+        data-bs-target="#editCharacterModal"
+      >
+        Edit Details
+      </button>
+      <button
+        class="btn btn-primary"
+        data-bs-toggle="modal"
+        data-bs-target="#levelUpModal"
+      >
+        Level Up
+      </button>
     </div>
   </div>
+
+  <div class="row g-4">
+    <!-- LEFT COLUMN: BASIC INFO, ABILITIES, SKILLS, RACIAL FEATURES -->
+    <div class="col-lg-4">
+      <div class="card p-3 mb-3">
+        <h5>Basic Info</h5>
+        <ul class="list-unstyled mb-0">
+          <li><strong>Name:</strong> {{ character.name }}</li>
+          <li><strong>Race:</strong> {{ character.race }}</li>
+          {% if subrace_name %}
+            <li><strong>Subrace:</strong> {{ subrace_name }}</li>
+          {% endif %}
+
+          {% if character.half_elf_origin %}
+            <li><strong>Half-Elf Origin:</strong> {{ character.half_elf_origin }}</li>
+          {% endif %}
+          <li><strong>Background Combo:</strong> {{ character.bg_combo }}</li>
+          <li><strong>Main Background:</strong> {{ character.main_background }}</li>
+          {% if character.side_background_1 %}
+            <li><strong>Side BG 1:</strong> {{ character.side_background_1 }}</li>
+          {% endif %}
+          {% if character.side_background_2 %}
+            <li><strong>Side BG 2:</strong> {{ character.side_background_2 }}</li>
+          {% endif %}
+          <li><strong>HP:</strong> {{ character.HP }}</li>
+          {% if character.temp_HP %}
+            <li><strong>Temp HP:</strong> {{ character.temp_HP }}</li>
+          {% endif %}
+          <li><strong>Level:</strong> {{ character.level }}</li>
+        </ul>
+      </div>
+
+      <div class="card p-3 mb-3">
+        <h5>Ability Scores</h5>
+        <dl class="row mb-0">
+          {% for name, val in ability_map.items %}
+            <dt class="col-6">{{ name }}</dt><dd class="col-6">{{ val }}</dd>
+          {% endfor %}
+        </dl>
+      </div>
+
+      <div class="card p-3 mb-3">
+        <h5>Skill Proficiencies</h5>
+        {% if skill_proficiencies %}
+          <ul class="list-unstyled mb-0">
+            {% for prof in skill_proficiencies %}
+              <li><strong>{{ prof.subskill.name }}:</strong> {{ prof.proficiency.name }}</li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="mb-0">None</p>
+        {% endif %}
+      </div>
+
+      <div class="card p-3">
+        <h5>Racial Features</h5>
+        {% if racial_features %}
+          <ul class="list-unstyled mb-0">
+            {% for rf in racial_features %}
+              <li>{{ rf.code }} – {{ rf.name }}</li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="mb-0">None</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- RIGHT COLUMN: CLASS PROGRESSION, UNIVERSAL FEATS, CHOSEN FEATURES -->
+    <div class="col-lg-8">
+      <div class="card p-3 mb-3">
+        <h5>Class Breakdown</h5>
+        <ul class="list-unstyled mb-0">
+          {% for prog in class_progress %}
+            <li>{{ prog.character_class.name }} (Level {{ prog.levels }})</li>
+          {% endfor %}
+        </ul>
+      </div>
+
+      <div class="card p-3 mb-3">
+        <h5>Universal Feats / ASI</h5>
+        {% if universal_feats %}
+          <ul class="list-unstyled mb-0">
+            {% for uf in universal_feats %}
+              {% if uf.grants_asi %}<li>Ability Score Increase</li>{% endif %}
+              {% if uf.grants_general_feat %}<li>General Feat</li>{% endif %}
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="mb-0">&mdash;</p>
+        {% endif %}
+      </div>
+
+      <div class="card p-3">
+        <h5>Gained Features</h5>
+        <ul class="list-unstyled mb-0">
+          {% for cf in character.features.all %}
+            <li>
+              {% if cf.option %}
+                {{ cf.option.label }}
+              {% elif cf.subclass %}
+                {{ cf.subclass.name }}
+              {% else %}
+                {{ cf.feature.name }}
+              {% endif %}
+              <small class="text-muted">(L{{ cf.level }})</small>
+            </li>
+          {% empty %}
+            <li>No features chosen yet.</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- EDIT CHARACTER MODAL -->
+<div class="modal fade" id="editCharacterModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Edit Character</h5>
+        <button type="button" class="btn-close"
+                data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form method="post">
+          {% csrf_token %}
+          {% for field in edit_form.visible_fields %}
+            <div class="mb-3">
+              {{ field.label_tag }}
+              {{ field }}
+              {% if field.help_text %}
+                <div class="form-text">{{ field.help_text }}</div>
+              {% endif %}
+              {% for err in field.errors %}
+                <div class="text-danger">{{ err }}</div>
+              {% endfor %}
+            </div>
+          {% endfor %}
+          <button type="submit"
+                  name="edit_submit"
+                  class="btn btn-primary">
+            Save Changes
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- LEVEL UP MODAL -->
+<div
+  class="modal fade"
+  id="levelUpModal"
+  tabindex="-1"
+  aria-labelledby="levelUpModalLabel"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="levelUpModalLabel">
+          Level Up to {{ total_level|add:1 }}
+        </h5>
+        <button
+          type="button"
+          class="btn-close"
+          data-bs-dismiss="modal"
+          aria-label="Close"
+        ></button>
+      </div>
+      <div class="modal-body">
+        <form method="post" action="">
+          {% csrf_token %}
+          <div class="row mb-3">
+            <div class="col">
+              {{ form.base_class.label_tag }}
+              {{ form.base_class }}
+            </div>
+            <div class="col">
+              {{ form.advance_class.label_tag }}
+              {{ form.advance_class }}
+            </div>
+          </div>
+          <div class="row gx-3">
+            {% for fld, lbl in feature_fields %}
+              <div class="col-md-6 mb-2">
+                <div class="form-check">
+                  {{ fld }}
+                  <label class="form-check-label">{{ lbl }}</label>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+          <button type="submit" name="level_up_submit" class="btn btn-primary">
+            Confirm Level Up
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 {% endblock %}

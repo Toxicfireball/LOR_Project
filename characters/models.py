@@ -100,7 +100,32 @@ class BaseRace(models.Model):
          abstract = True
 
 
+class Background(models.Model):
+    code        = models.SlugField(max_length=50, unique=True)
+    name        = models.CharField(max_length=100)
+    # primary bonus: ability & amount & skill
+    primary_ability   = models.ForeignKey(
+        'AbilityScore', on_delete=models.PROTECT, related_name='+'
+    )
+    primary_bonus     = models.PositiveSmallIntegerField()
+    primary_skill     = models.ForeignKey(
+        'SubSkill', on_delete=models.PROTECT, related_name='+'
+    )
+    # secondary bonus:
+    secondary_ability = models.ForeignKey(
+        'AbilityScore', on_delete=models.PROTECT, related_name='+'
+    )
+    secondary_bonus   = models.PositiveSmallIntegerField()
+    secondary_skill   = models.ForeignKey(
+        'SubSkill', on_delete=models.PROTECT, related_name='+'
+    )
 
+    class Meta:
+        ordering = ['name']
+    def __str__(self):
+        return self.name
+
+# register in admin.py
 class Race(BaseRace):
     features = models.ManyToManyField(
         "RacialFeature",
@@ -951,6 +976,21 @@ class RaceFeatureOption(models.Model):
     )
     def __str__(self):
         return self.label
+class CharacterFeature(models.Model):
+    """
+    A feature (class, subclass or universal) that a character has chosen or gained.
+    """
+    character     = models.ForeignKey(Character, on_delete=models.CASCADE, related_name="features")
+    feature       = models.ForeignKey("characters.ClassFeature",   on_delete=models.CASCADE, null=True, blank=True)
+    racial_feature= models.ForeignKey("characters.RacialFeature",  on_delete=models.CASCADE, null=True, blank=True)
+    option        = models.ForeignKey("characters.FeatureOption",   on_delete=models.SET_NULL, null=True, blank=True)
+    subclass      = models.ForeignKey("characters.ClassSubclass",  on_delete=models.SET_NULL, null=True, blank=True)
+    level         = models.PositiveIntegerField(help_text="Character level when gained")
+
+    class Meta:
+        unique_together = [
+          ("character","feature","option","subclass","level")
+        ]
 
 
 class ClassResource(models.Model):
@@ -1082,6 +1122,8 @@ class UniversalLevelFeature(models.Model):
             flags.append("ASI")
         label = ",".join(flags) or "None"
         return f"L{self.level} → {label}"
+
+# after you determine cls & new_level:
 
 
 class ClassLevel(models.Model):

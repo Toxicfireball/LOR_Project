@@ -10,29 +10,183 @@ from .models import Character
 from django import forms
 from .models import CharacterClass, CharacterClassProgress
 from django.core.exceptions import ValidationError
-class LevelUpForm(forms.Form):
-    # For level 0: choose base class
-    base_class = forms.ModelChoiceField(
-        queryset=CharacterClass.objects.all(),
-        required=False,
-        label="Choose a Class"
+from django import forms
+from .models import CharacterClass,    Race,Subrace, ClassFeature, ClassSubclass,Background, FeatureOption, UniversalLevelFeature
+class CharacterCreationForm(forms.ModelForm):
+    # — pick race by its slug/code, not by PK
+    race = forms.ModelChoiceField(
+        queryset=Race.objects.all(),
+        to_field_name='code',
+        empty_label="— Select a Race —",
+        widget=forms.Select(attrs={'id': 'id_race'}),
     )
-    # For existing: choose which class to advance
+    # — will be filtered in __init__
+    subrace = forms.ModelChoiceField(
+        queryset=Subrace.objects.none(),
+        to_field_name='code',
+        required=False,
+        empty_label="— Select a Subrace —",
+        widget=forms.Select(attrs={'id': 'id_subrace'}),
+    )
+
+    # backgrounds all come from the DB
+    main_background = forms.ModelChoiceField(
+        queryset=Background.objects.all(),
+        to_field_name='code',
+        empty_label="— Select Main Background —",
+        widget=forms.Select(attrs={'id': 'id_main_background'}),
+    )
+    side_background_1 = forms.ModelChoiceField(
+        queryset=Background.objects.all(),
+        to_field_name='code',
+        required=False,
+        empty_label="— Select Side Background 1 —",
+        widget=forms.Select(attrs={'id': 'id_side_background_1'}),
+    )
+    side_background_2 = forms.ModelChoiceField(
+        queryset=Background.objects.all(),
+        to_field_name='code',
+        required=False,
+        empty_label="— Select Side Background 2 —",
+        widget=forms.Select(attrs={'id': 'id_side_background_2'}),
+    )
+
+    # for half-elf “fully” origin
+    half_elf_origin = forms.ChoiceField(
+        choices=[
+            ('high', 'High Elf (+1 Int)'),
+            ('wood', 'Wood Elf (+1 Wis)'),
+            ('dark', 'Dark Elf (+1 Str)'),
+        ],
+        required=False,
+        widget=forms.Select(attrs={'id': 'id_half_elf_origin'}),
+    )
+
+    # hidden JSON blob of computed skill proficiencies
+    computed_skill_proficiencies = forms.CharField(
+        widget=forms.HiddenInput(), required=False
+    )
+
+    class Meta:
+        model = Character
+        fields = [
+            'name',
+            'race', 'subrace', 'half_elf_origin',
+            'main_background', 'side_background_1', 'side_background_2',
+            'strength', 'dexterity', 'constitution',
+            'intelligence', 'wisdom', 'charisma',
+            'backstory',
+            'computed_skill_proficiencies',
+        ]
+        widgets = {
+            'backstory': forms.Textarea(attrs={'rows': 4, 'cols': 40}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # if the form is bound, filter subrace queryset to that race
+        data = self.data or {}
+        race_code = data.get('race') or getattr(self.instance.race, 'code', None)
+        if race_code:
+            self.fields['subrace'].queryset = Subrace.objects.filter(race__code=race_code)
+        else:
+            self.fields['subrace'].queryset = Subrace.objects.none()
+
+    def clean(self):
+        cleaned = super().clean()
+
+        # enforce that if half_elf_origin is set, race/subrace must be the "fully half-elf" code
+        origin = cleaned.get('half_elf_origin')
+        race   = cleaned.get('race')
+        if origin and race and race.code != 'half_elf_fully':
+            raise ValidationError({
+                'half_elf_origin': "You can only pick a Half-Elf origin when your race is the fully-customizable Half-Elf."
+            })
+
+        return cleaned
+class LevelUpForm(forms.Form):
+    base_class    = forms.ModelChoiceField(
+        queryset=CharacterClass.objects.none(),
+        required=False,
+        label="New Base Class"
+    )
     advance_class = forms.ModelChoiceField(
         queryset=CharacterClass.objects.none(),
         required=False,
-        label="Advance which Class"
+        label="Advance / Multiclass Into"
     )
 
-    def __init__(self, *args, character=None, **kwargs):
+    def __init__(self, *args, character=None, to_choose=None, uni=None, **kwargs):
         super().__init__(*args, **kwargs)
-        if character:
-            qs = CharacterClassProgress.objects.filter(character=character)
-            self.fields['advance_class'].queryset = CharacterClass.objects.filter(
-                pk__in=[p.character_class.pk for p in qs]
-            )
+        self.character = character
+
+        # --- 1) Filter class‐selection fields ---
+        all_classes = CharacterClass.objects.all()
+        taken_pks   = [cp.character_class.pk for cp in character.class_progress.all()]
+
+        if character.level == 0:
+            # very first level
+            self.fields['base_class'].queryset    = all_classes
+            self.fields['advance_class'].widget   = forms.HiddenInput()
         else:
-            self.fields['advance_class'].queryset = CharacterClass.objects.none()
+            # leveling existing class
+            self.fields['base_class'].widget      = forms.HiddenInput()
+            if character.level < 5:
+                # levels 1–4: can only pick an existing class
+                self.fields['advance_class'].queryset = all_classes.filter(pk__in=taken_pks)
+            else:
+                # level ≥5: allow any class (= multiclass)
+                self.fields['advance_class'].queryset = all_classes
+
+        # --- 2) Prepare feature list safely ---
+        to_choose = to_choose or []
+        uni       = uni or UniversalLevelFeature(level=character.level)
+
+        # --- 3) Dynamically add feature fields ---
+        for feat in to_choose:
+            # universal flags
+            if feat == "general_feat":
+                self.fields['general_feat'] = forms.BooleanField(
+                    label="Select a General Feat", required=False
+                )
+                continue
+
+            if feat == "asi":
+                self.fields['asi'] = forms.BooleanField(
+                    label="Ability Score Increase", required=False
+                )
+                continue
+
+            # subclass_choice: pick a specialization
+            if isinstance(feat, ClassFeature) and feat.scope == "subclass_choice":
+                group   = feat.subclass_group
+                choices = [(sc.pk, sc.name) for sc in group.subclasses.all()]
+                self.fields[f"feat_{feat.pk}_subclass"] = forms.ChoiceField(
+                    label=f"Choose your {group.name}",
+                    choices=choices,
+                    required=True
+                )
+                continue
+
+            # features with options
+            if isinstance(feat, ClassFeature) and feat.has_options:
+                opts = [(o.pk, o.label) for o in feat.options.all()]
+                self.fields[f"feat_{feat.pk}_option"] = forms.ChoiceField(
+                    label=feat.name,
+                    choices=opts,
+                    required=True
+                )
+                continue
+
+            # plain feature: a simple tick
+            if isinstance(feat, ClassFeature):
+                self.fields[f"feat_{feat.pk}"] = forms.BooleanField(
+                    label=feat.name,
+                    required=False
+                )
+
+
 
 class CharacterClassForm(forms.ModelForm):
     class Meta:

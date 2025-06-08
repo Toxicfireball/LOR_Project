@@ -48,6 +48,9 @@ DATABASES = {
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent# Where `manage.py collectstatic` will put all the files
 STATIC_URL = '/static/'
+STATICFILES_DIRS = [
+    BASE_DIR / "static",
+]
 # (Optional) Where your “app‑level” static/ directories live 
 # so that collectstatic can find them.
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"

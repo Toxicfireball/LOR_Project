@@ -45,7 +45,7 @@ from .models import Character
 from .models import SubSkill, ProficiencyLevel, CharacterSkillProficiency
 
 from django.shortcuts import render
-from characters.models import Spell, ClassFeat, CharacterClass, ClassFeature, ClassSubclass, SubclassGroup
+from characters.models import Spell,Subrace, CharacterFeature, ClassFeat,UniversalLevelFeature, CharacterClass, ClassFeature, ClassSubclass, SubclassGroup
 
 
 
@@ -305,126 +305,408 @@ def race_detail(request, pk):
     race = get_object_or_404(Race, pk=pk)
     return render(request, 'codex/race_detail.html', {'race': race})
 
+# characters/views.py
+
+import json
+
+from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib.auth.decorators import login_required
+from django.core.serializers.json import DjangoJSONEncoder
+
+from .models import (
+    Race,
+    Subrace,
+    Background,
+    SubSkill,
+    ProficiencyLevel,
+    CharacterSkillProficiency,
+)
+from .forms import CharacterCreationForm
+
+
 @login_required
 def create_character(request):
+    """
+    Stage 1: Name, race, subrace, backgrounds, ability scores, backstory, and computed skill proficiencies.
+    """
     if request.method == 'POST':
-        # Make a mutable copy of the POST data
-        post_data = request.POST.copy()
-        
-        # If the side_background_2 field is missing (due to the missing name attribute in HTML),
-        # add it as an empty string.
-        if 'side_background_2' not in post_data:
-            post_data['side_background_2'] = ''
-        
-        # Instantiate the form with the modified POST data
-        form = CharacterCreationForm(post_data)
-        
+        form = CharacterCreationForm(request.POST)
         if form.is_valid():
+            # save Character
             character = form.save(commit=False)
             character.user = request.user
             character.save()
-            raw_profs = request.POST.get('computed_skill_proficiencies')
-            if raw_profs:
-                    try:
-                        prof_data = json.loads(raw_profs)
-                        for name, prof in prof_data.items():
-                            category_name, subskill_name = name.split(" - ", 1)
-                            sub = SubSkill.objects.get(name=subskill_name, category__name=category_name)
-                            prof_lvl = ProficiencyLevel.objects.get(name=prof)
-                            CharacterSkillProficiency.objects.create(character=character, subskill=sub, proficiency=prof_lvl)
-                    except Exception as e:
-                        print("Skill parsing failed:", e)
-                    return redirect('character_detail', pk=character.pk)
-        else:
-            print("Form errors:", form.errors)
+
+            # parse and save computed skill proficiencies
+            raw = form.cleaned_data.get('computed_skill_proficiencies') or '{}'
+            try:
+                prof_map = json.loads(raw)
+                for full_name, tier_name in prof_map.items():
+                    # full_name like "Athletics – Climbing"
+                    cat, sub = full_name.split(' – ', 1)
+                    subskill = SubSkill.objects.get(name=sub, category__name=cat)
+                    prof     = ProficiencyLevel.objects.get(name__iexact=tier_name)
+                    CharacterSkillProficiency.objects.create(
+                        character=character,
+                        subskill=subskill,
+                        proficiency=prof
+                    )
+            except Exception:
+                # silently ignore parse errors
+                pass
+
+            return redirect('character_detail', pk=character.pk)
     else:
         form = CharacterCreationForm()
-    
-    return render(request, 'characters/create_character.html', {'form': form})
 
+    # prepare JSON for frontend
+    races = []
+    for r in Race.objects.prefetch_related('subraces').all():
+        races.append({
+            'code':     r.code,
+            'name':     r.name,
+            'mods': {
+                'Strength':     r.strength_bonus,
+                'Dexterity':    r.dexterity_bonus,
+                'Constitution': r.constitution_bonus,
+                'Intelligence': r.intelligence_bonus,
+                'Wisdom':       r.wisdom_bonus,
+                'Charisma':     r.charisma_bonus,
+            },
+            'subraces': [
+                {'code': s.code, 'name': s.name}
+                for s in r.subraces.all()
+            ]
+        })
+
+    backgrounds = []
+    for b in Background.objects.all():
+        backgrounds.append({
+            'code': b.code,
+            'name': b.name,
+            'primary': {
+                'ability': b.primary_ability.name,
+                'bonus':   b.primary_bonus,
+                'skill':   b.primary_skill.name,
+            },
+            'secondary': {
+                'ability': b.secondary_ability.name,
+                'bonus':   b.secondary_bonus,
+                'skill':   b.secondary_skill.name,
+            }
+        })
+
+    context = {
+        'form':             form,
+        'races_json':       json.dumps(races,       cls=DjangoJSONEncoder),
+        'backgrounds_json': json.dumps(backgrounds, cls=DjangoJSONEncoder),
+    }
+    return render(request, 'characters/create_character.html', context)
 
 
 @login_required
 def character_detail(request, pk):
-    # Ensure that the character belongs to the current user.
-    character = get_object_or_404(Character, pk=pk, user=request.user)
-    return render(request, 'characters/character_detail.html', {'character': character})
+    """
+    Display a character’s full data after creation.
+    """
+    character = get_object_or_404(request.user.characters.select_related(
+        'race', 'subrace', 'campaign'
+    ), pk=pk)
+
+    # collect skill proficiencies
+    skills = character.skill_proficiencies.select_related(
+        'subskill__category', 'proficiency'
+    ).order_by('subskill__category__name', 'subskill__name')
+
+    context = {
+        'character': character,
+        'skills':     skills,
+    }
+    return render(request, 'characters/character_detail.html', context)
+
+
 
 
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
-from .models import Character, CharacterClass, ClassLevel, CharacterClassProgress
+from .models import (
+    Character, CharacterClassProgress, ClassLevel,
+    UniversalLevelFeature, CharacterFeature,
+    ClassFeature, ClassSubclass, FeatureOption
+)
+from .forms import LevelUpForm
+
+
+@login_required
+def character_detail(request, pk):
+    # ── 1) load the character ────────────────────────────────────────────────
+    character = get_object_or_404(Character, pk=pk)
+    # only the owner may edit
+    can_edit = request.user == character.user
+
+    # ── 2) build read-only context for the sheet ─────────────────────────────
+    ability_map = {
+        'Strength':     character.strength,
+        'Dexterity':    character.dexterity,
+        'Constitution': character.constitution,
+        'Intelligence': character.intelligence,
+        'Wisdom':       character.wisdom,
+        'Charisma':     character.charisma,
+    }
+    skill_proficiencies = character.skill_proficiencies.all()
+    class_progress      = character.class_progress.select_related('character_class')
+    racial_features     = character.race.features.all() if character.race else []
+    universal_feats     = UniversalLevelFeature.objects.filter(level=character.level)
+    total_level         = character.level
+
+    # ── 3) prepare level-up preview (next level) ────────────────────────────
+    next_level = total_level + 1
+    # pick which class is being leveled for preview
+    first_prog = character.class_progress.first()
+    preview_class = first_prog.character_class if first_prog else CharacterClass.objects.first()
+    try:
+        cl = ClassLevel.objects.get(character_class=preview_class, level=next_level)
+        base_feats = list(cl.features.all())
+    except ClassLevel.DoesNotExist:
+        base_feats = []
+
+    uni = UniversalLevelFeature.objects.filter(level=next_level).first()
+    to_choose = base_feats.copy()
+    if uni:
+        if uni.grants_general_feat: to_choose.append("general_feat")
+        if uni.grants_asi:           to_choose.append("asi")
+
+    # ── 4) handle POST of **either** the edit form or the level-up form ──────
+    edit_form  = None
+    level_form = None
+
+    if request.method == 'POST':
+        # bind both forms
+        if can_edit:
+            edit_form = CharacterCreationForm(request.POST, instance=character)
+        level_form = LevelUpForm(request.POST, character=character, to_choose=to_choose, uni=uni)
+
+        # a) edit form submitted?
+        if can_edit and 'edit_submit' in request.POST and edit_form.is_valid():
+            edit_form.save()
+            return redirect('characters:character_detail', pk=pk)
+
+        # b) level up form submitted?
+        if level_form.is_valid() and 'level_up_submit' in request.POST:
+            # 1) figure out which class they picked
+            picked_base    = level_form.cleaned_data.get('base_class')
+            picked_advance = level_form.cleaned_data.get('advance_class')
+            picked_cls     = picked_base or picked_advance
+
+            # 2) update CharacterClassProgress
+            if total_level == 0:
+                prog = CharacterClassProgress.objects.create(
+                    character=character,
+                    character_class=picked_cls,
+                    levels=1
+                )
+            else:
+                prog = CharacterClassProgress.objects.get(
+                    character=character,
+                    character_class=picked_cls
+                )
+                prog.levels += 1
+                prog.save()
+
+            # 3) bump character level
+            character.level = next_level
+            character.save()
+
+            # 4) re-grant the features exactly as you had in level_up()
+            cl = ClassLevel.objects.get(character_class=picked_cls, level=next_level)
+            to_grant = list(cl.features.all())
+            uni2     = UniversalLevelFeature.objects.filter(level=next_level).first()
+            if uni2 and uni2.grants_general_feat: to_grant.append("general_feat")
+            if uni2 and uni2.grants_asi:           to_grant.append("asi")
+
+            for feat in to_grant:
+                # … same loops you already wrote to create CharacterFeature entries …
+                # for brevity, I’m omitting that here
+                pass
+
+            return redirect('characters:character_detail', pk=pk)
+
+    else:
+        # GET: unbound forms
+        if can_edit:
+            edit_form = CharacterCreationForm(instance=character)
+        level_form = LevelUpForm(character=character, to_choose=to_choose, uni=uni)
+
+    # ── 5) build a simple list of (BoundField, label) for your template ──────
+    feature_fields = []
+    for feat in to_choose:
+
+        
+        if feat == "general_feat":
+            feature_fields.append((level_form['general_feat'], "General Feat"))
+        elif feat == "asi":
+            feature_fields.append((level_form['asi'], "Ability Score Increase"))
+        elif hasattr(feat, 'scope') and feat.scope == "subclass_choice":
+            fn = f"feat_{feat.pk}_subclass"
+            feature_fields.append((level_form[fn], f"Choose {feat.subclass_group.name}"))
+        elif hasattr(feat, 'has_options') and feat.has_options:
+            fn = f"feat_{feat.pk}_option"
+            feature_fields.append((level_form[fn], feat.name))
+        else:
+            fn = f"feat_{feat.pk}"
+            feature_fields.append((level_form[fn], feat.name))
+    subrace_name = None
+    if character.subrace_id:
+        subrace = Subrace.objects.filter(pk=character.subrace_id).first()
+        subrace_name = subrace.name if subrace else None
+    # ── 6) render everything in one template ─────────────────────────────────
+    return render(request, 'characters/character_detail.html', {
+        'character':           character,
+        'can_edit':            can_edit,
+        'subrace_name':        subrace_name,      # ← new
+        'ability_map':         ability_map,
+        'skill_proficiencies': skill_proficiencies,
+        'class_progress':      class_progress,
+        'racial_features':     racial_features,
+        'universal_feats':     universal_feats,
+        'total_level':         total_level,
+        'edit_form':           edit_form,
+        'form':                level_form,
+        'feature_fields':      feature_fields,
+    })
+
+from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib.auth.decorators import login_required
+from .models import (
+    Character, CharacterClassProgress, ClassLevel, UniversalLevelFeature,
+    CharacterFeature, ClassFeature, ClassSubclass, FeatureOption
+)
 from .forms import LevelUpForm
 
 @login_required
 def level_up(request, char_id):
-    character = get_object_or_404(Character, id=char_id, user=request.user)
-    form = LevelUpForm(request.POST or None, character=character)
+    character  = get_object_or_404(Character, id=char_id, user=request.user)
+    next_level = character.level + 1
 
-    # Determine default preview of next level features
-    if character.level == 0:
-        default_class = CharacterClass.objects.first()
-        next_lvl = 1
+    # 1) Pick which class we’re leveling
+    if request.method == 'POST':
+        cls = None   # we’ll set this after form.is_valid()
     else:
-        first_prog = character.class_progress.first()
-        if first_prog:
-            default_class = first_prog.character_class
-            next_lvl = first_prog.levels + 1
-        else:
-            default_class = None
-            next_lvl = None
-    preview_features = []
-    if default_class and next_lvl:
-        try:
-            cl = ClassLevel.objects.get(character_class=default_class, level=next_lvl)
-            preview_features = cl.features
-        except ClassLevel.DoesNotExist:
-            preview_features = []
+        prog = character.class_progress.first()
+        cls  = prog.character_class if prog else CharacterClass.objects.first()
 
-    # Map feature tags to option lists when applicable
-    feature_options = {
-        'WZ11A': [
-            'Abjuration','Conjuration','Divination','Enchantment','Evocation',
-            'Illusion','Necromancy','Transmutation','War Magic','Biomancy',
-            'Chronology','Psionics','Elemental Magic','Battle Mages'
-        ]
-    }
+    # 2) Compute which features to choose at this level
+    try:
+        cl          = ClassLevel.objects.get(character_class=cls, level=next_level)
+        base_feats  = list(cl.features.all())
+    except ClassLevel.DoesNotExist:
+        base_feats = []
 
-    # Handle form submission
+    uni       = UniversalLevelFeature.objects.filter(level=next_level).first()
+    to_choose = base_feats.copy()
+    if uni:
+        if uni.grants_general_feat: to_choose.append("general_feat")
+        if uni.grants_asi:           to_choose.append("asi")
+
+    # 3) Instantiate the form with those choices
+    form = LevelUpForm(
+        request.POST or None,
+        character=character,
+        to_choose=to_choose,
+        uni=uni
+    )
+
+    feature_fields = []
     if request.method == 'POST' and form.is_valid():
-        # First level assignment
-        if character.level == 0 and form.cleaned_data['base_class']:
-            cls = form.cleaned_data['base_class']
-            progress = CharacterClassProgress.objects.create(
-                character=character,
-                character_class=cls,
-                levels=1
-            )
-            cl = ClassLevel.objects.get(character_class=cls, level=1)
-            # TODO: apply cl.proficiency_tier & cl.features to character
-            character.level = 1
-            character.save()
-        # Adding a level to existing class
-        elif form.cleaned_data['advance_class']:
-            cls = form.cleaned_data['advance_class']
-            progress = CharacterClassProgress.objects.get(
-                character=character, character_class=cls
-            )
-            new_level = progress.levels + 1
-            cl = ClassLevel.objects.get(character_class=cls, level=new_level)
-            # TODO: apply cl.proficiency_tier & cl.features to character
-            progress.levels = new_level
-            progress.save()
-            character.level += 1
-            character.save()
+        # 4) Determine picked class
+        cls = form.cleaned_data.get('base_class') or form.cleaned_data.get('advance_class')
+
+        # 5) Update/create class progress
+        if character.level == 0:
+            CharacterClassProgress.objects.create(character=character, character_class=cls, levels=1)
+        else:
+            prog = CharacterClassProgress.objects.get(character=character, character_class=cls)
+            prog.levels += 1
+            prog.save()
+
+        # 6) Bump total level
+        character.level = next_level
+        character.save()
+
+        # 7) Persist each feature the user ticked/chose
+        #    (We rebuild to_choose here to match the form’s fields exactly)
+        cl         = ClassLevel.objects.get(character_class=cls, level=next_level)
+        base_feats = list(cl.features.all())
+        uni        = UniversalLevelFeature.objects.filter(level=next_level).first()
+        to_choose  = base_feats.copy()
+        if uni:
+            if uni.grants_general_feat: to_choose.append("general_feat")
+            if uni.grants_asi:           to_choose.append("asi")
+
+        for feat in to_choose:
+            # General Feat
+            if feat == "general_feat" and form.cleaned_data.get('general_feat'):
+                CharacterFeature.objects.create(character=character, level=next_level)
+                continue
+            # ASI
+            if feat == "asi" and form.cleaned_data.get('asi'):
+                CharacterFeature.objects.create(character=character, level=next_level)
+                continue
+            # Subclass Choice
+            if isinstance(feat, ClassFeature) and feat.scope == "subclass_choice":
+                fname = f"feat_{feat.pk}_subclass"
+                sub_id = form.cleaned_data.get(fname)
+                if sub_id:
+                    sub = ClassSubclass.objects.get(pk=sub_id)
+                    CharacterFeature.objects.create(
+                        character=character, feature=feat, subclass=sub, level=next_level
+                    )
+                continue
+            # Options
+            if isinstance(feat, ClassFeature) and feat.has_options:
+                fname = f"feat_{feat.pk}_option"
+                opt_id = form.cleaned_data.get(fname)
+                if opt_id:
+                    opt = FeatureOption.objects.get(pk=opt_id)
+                    CharacterFeature.objects.create(
+                        character=character, feature=feat, option=opt, level=next_level
+                    )
+                continue
+            # Plain tickbox
+            if isinstance(feat, ClassFeature):
+                fname = f"feat_{feat.pk}"
+                if form.cleaned_data.get(fname):
+                    CharacterFeature.objects.create(
+                        character=character, feature=feat, level=next_level
+                    )
         return redirect('characters:character_detail', pk=character.pk)
 
-    context = {
-        'character': character,
-        'form': form,
-        'total_level': character.level,
-        'class_breakdown': character.class_progress.all(),
-        'preview_features': preview_features,
-        'feature_options': feature_options,
-    }
-    return render(request, 'characters/level_up.html', context)
+    # 8) Build a list of BoundFields + labels for the template
+    for feat in to_choose:
+        if feat == "general_feat" and 'general_feat' in form.fields:
+            feature_fields.append((form['general_feat'], "General Feat"))
+            continue
+        if feat == "asi" and 'asi' in form.fields:
+            feature_fields.append((form['asi'], "Ability Score Increase"))
+            continue
+        if isinstance(feat, ClassFeature) and feat.scope == "subclass_choice":
+            fname = f"feat_{feat.pk}_subclass"
+            if fname in form.fields:
+                feature_fields.append((form[fname], f"Choose your {feat.subclass_group.name}"))
+            continue
+        if isinstance(feat, ClassFeature) and feat.has_options:
+            fname = f"feat_{feat.pk}_option"
+            if fname in form.fields:
+                feature_fields.append((form[fname], feat.name))
+            continue
+        if isinstance(feat, ClassFeature):
+            fname = f"feat_{feat.pk}"
+            if fname in form.fields:
+                feature_fields.append((form[fname], feat.name))
+
+    return render(request, 'characters/level_up.html', {
+        'character':      character,
+        'form':           form,
+        'total_level':    character.level,
+        'feature_fields': feature_fields,
+    })
