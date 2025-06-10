@@ -101,38 +101,52 @@ class BaseRace(models.Model):
 
 
 class Background(models.Model):
-    code        = models.SlugField(max_length=50, unique=True)
-    name        = models.CharField(max_length=100)
-    # primary bonus: ability & amount & skill
-    primary_ability   = models.ForeignKey(
-        'AbilityScore', on_delete=models.PROTECT, related_name='+'
+    code = models.SlugField(max_length=50, unique=True)
+    name = models.CharField(max_length=100)
+
+    ABILITY_CHOICES = [
+        ("strength",     "Strength"),
+        ("dexterity",    "Dexterity"),
+        ("constitution", "Constitution"),
+        ("intelligence", "Intelligence"),
+        ("wisdom",       "Wisdom"),
+        ("charisma",     "Charisma"),
+    ]
+
+    # primary bonus: which ability & amount & skill
+    primary_ability = models.CharField(
+        max_length=12,
+        choices=ABILITY_CHOICES,
+        default="strength",
+        help_text="Which ability gets the primary bonus"
     )
-    primary_bonus     = models.PositiveSmallIntegerField()
-    primary_skill     = models.ForeignKey(
-        'SubSkill', on_delete=models.PROTECT, related_name='+'
+    primary_bonus = models.PositiveSmallIntegerField()
+    primary_skill = models.ForeignKey(
+        "SubSkill", on_delete=models.PROTECT, related_name="+"
     )
+
     # secondary bonus:
-    secondary_ability = models.ForeignKey(
-        'AbilityScore', on_delete=models.PROTECT, related_name='+'
+    secondary_ability = models.CharField(
+        max_length=12,
+        choices=ABILITY_CHOICES,
+        default="dexterity",
+        help_text="Which ability gets the secondary bonus"
     )
-    secondary_bonus   = models.PositiveSmallIntegerField()
-    secondary_skill   = models.ForeignKey(
-        'SubSkill', on_delete=models.PROTECT, related_name='+'
+    secondary_bonus = models.PositiveSmallIntegerField()
+    secondary_skill = models.ForeignKey(
+        "SubSkill", on_delete=models.PROTECT, related_name="+"
     )
 
     class Meta:
-        ordering = ['name']
+        ordering = ["name"]
+
     def __str__(self):
         return self.name
 
+
 # register in admin.py
 class Race(BaseRace):
-    features = models.ManyToManyField(
-        "RacialFeature",
-        blank=True,
-        related_name="races",
-        help_text="Pick which pre-defined racial features apply to this race",
-    )
+   pass
 
 class Subrace(BaseRace):
     race = models.ForeignKey(Race, on_delete=models.CASCADE, related_name="subraces")
@@ -497,7 +511,18 @@ class ClassFeature(models.Model):
         null=True,
         help_text="(Optional) extra minimum class-level required to pick this feature, beyond tier mapping.",
     )
-
+    SPELL_LIST_CHOICES = [
+        ("arcane", "Arcane"),
+        ("primal", "Primal"),
+        ("occult", "Occult"),
+        ("divine", "Divine"),
+    ]
+    spell_list = models.CharField(
+        max_length=10,
+        choices=SPELL_LIST_CHOICES,
+        blank=True, null=True,
+        help_text="Which tradition’s slots these are (Arcane/Primal/Occult/Divine)."
+    )
     # (2) If this feature belongs to a modular_linear SubclassGroup, we store the "tier":  
     tier = models.PositiveIntegerField(
         blank=True,
@@ -641,8 +666,15 @@ class ClassFeature(models.Model):
         ("martial_mastery",    "Martial Mastery"),
         ("modify_proficiency", "Modify Proficiency"),
         ("spell_table",        "Spell Slot Table"),
+        ("inherent_spell",     "Inherent Spell"),
+        ("gain_proficiency",   "Gain Proficiency"),
     ]
-
+    gain_subskills = models.ManyToManyField(
+        "SubSkill",
+        blank=True,
+        related_name="gained_by_features",
+        help_text="Select which sub-skills this feature grants proficiency in"
+    )
     
     kind = models.CharField(
         max_length=20,
@@ -892,105 +924,57 @@ class SubclassTierLevel(models.Model):
 
 
 
-class RacialFeature(models.Model):
-    race       = models.ForeignKey(
-        Race,
-        on_delete=models.CASCADE,
-        related_name="racial_features",
-        help_text="Which Race grants this feature?",
-    )
-    subrace    = models.ForeignKey(
-        Subrace,
-        on_delete=models.CASCADE,
-        related_name="subrace_racial_features",
-        blank=True,
-        null=True,
-        help_text="(Optional) only this Subrace gets it",
-    )
-    code       = models.CharField(
-        max_length=10,
-        unique=True,
-        help_text="Short identifier, e.g. 'darkvision'",
-    )
-    name       = models.CharField(max_length=100)
-    description = models.TextField(blank=True)
 
-    # ── copy in exactly the same fields you use on ClassFeature ────────────────
-    saving_throw_required     = models.BooleanField(
-        default=False,
-        help_text="Does this allow a saving throw?"
-    )
-    saving_throw_type         = models.CharField(
-        max_length=10,
-        choices=ClassFeature.SAVING_THROW_TYPE_CHOICES,
-        blank=True, null=True,
-        help_text="Which save?"
-    )
-    saving_throw_granularity  = models.CharField(
-        max_length=10,
-        choices=ClassFeature.SAVING_THROW_GRAN_CHOICES,
-        blank=True, null=True,
-        help_text="Basic or full-table?"
-    )
-    saving_throw_basic_success   = models.CharField(max_length=255, blank=True)
-    saving_throw_basic_failure   = models.CharField(max_length=255, blank=True)
-    saving_throw_critical_success= models.CharField(max_length=255, blank=True)
-    saving_throw_success         = models.CharField(max_length=255, blank=True)
-    saving_throw_failure         = models.CharField(max_length=255, blank=True)
-    saving_throw_critical_failure= models.CharField(max_length=255, blank=True)
-
-    damage_type = models.CharField(
-        max_length=25,
-        choices=ClassFeature.DAMAGE_TYPE_CHOICES,
-        blank=True, null=True,
-        help_text="If this deals damage, pick its damage type"
-    )
-    formula     = models.CharField(max_length=100, blank=True)
-    uses        = models.CharField(max_length=100, blank=True)
-    has_options = models.BooleanField(
-        default=False,
-        help_text="If checked, you must add at least one Option below."
-    )
+class RacialFeature(ClassFeature):
+    race    = models.ForeignKey(Race,   on_delete=models.CASCADE, related_name="features")
+    subrace = models.ForeignKey(Subrace, on_delete=models.CASCADE, related_name="features", blank=True, null=True)
 
     class Meta:
-        unique_together = ("race", "code")
-        ordering        = ["race", "code"]
-
-    def __str__(self):
-        owner = self.subrace or self.race
-        return f"{owner}: {self.code} – {self.name}"
+        verbose_name = "Racial Feature"
+        verbose_name_plural = "Racial Features"
 # in models.py
 class RaceFeatureOption(models.Model):
-    feature       = models.ForeignKey(
-        RacialFeature,
+    feature        = models.ForeignKey(
+        "characters.RacialFeature",
         on_delete=models.CASCADE,
-        related_name="options"
+        related_name="race_options",
     )
-    
-    label         = models.CharField(max_length=100)
+    label          = models.CharField(max_length=100)
     grants_feature = models.ForeignKey(
-        RacialFeature,
+        "characters.RacialFeature",
         on_delete=models.SET_NULL,
         blank=True, null=True,
-        related_name="granted_by_options"
+        related_name="race_granted_by_options",
     )
+
     def __str__(self):
         return self.label
+
 class CharacterFeature(models.Model):
-    """
-    A feature (class, subclass or universal) that a character has chosen or gained.
-    """
-    character     = models.ForeignKey(Character, on_delete=models.CASCADE, related_name="features")
-    feature       = models.ForeignKey("characters.ClassFeature",   on_delete=models.CASCADE, null=True, blank=True)
-    racial_feature= models.ForeignKey("characters.RacialFeature",  on_delete=models.CASCADE, null=True, blank=True)
-    option        = models.ForeignKey("characters.FeatureOption",   on_delete=models.SET_NULL, null=True, blank=True)
-    subclass      = models.ForeignKey("characters.ClassSubclass",  on_delete=models.SET_NULL, null=True, blank=True)
-    level         = models.PositiveIntegerField(help_text="Character level when gained")
+    character      = models.ForeignKey(
+        Character,
+        on_delete=models.CASCADE,
+        related_name="features",
+    )
+    feature        = models.ForeignKey(
+        "characters.ClassFeature",
+        on_delete=models.CASCADE,
+        related_name="character_features",
+        null=True, blank=True,
+    )
+    racial_feature = models.ForeignKey(
+        "characters.RacialFeature",
+        on_delete=models.CASCADE,
+        related_name="racial_character_features",
+        null=True, blank=True,
+    )
+    option         = models.ForeignKey("characters.FeatureOption",   on_delete=models.SET_NULL, null=True, blank=True)
+    subclass       = models.ForeignKey("characters.ClassSubclass",  on_delete=models.SET_NULL, null=True, blank=True)
+    level          = models.PositiveIntegerField(help_text="Character level when gained")
 
     class Meta:
-        unique_together = [
-          ("character","feature","option","subclass","level")
-        ]
+        unique_together = [("character","feature","option","subclass","level")]
+
 
 
 class ClassResource(models.Model):
@@ -1187,7 +1171,14 @@ class Spell(models.Model):
     mastery_req = models.CharField(max_length=512, blank=True)
     tags = models.TextField(blank=True)
     last_synced = models.DateTimeField(auto_now=True)
-
+    class_feature = models.OneToOneField(
+        "characters.ClassFeature",
+        on_delete=models.CASCADE,
+        related_name="inherent_spell_data",
+        blank=True,
+        null=True,
+        help_text="If this is an inherent‐spell feature, store its full Spell here."
+    )
 class ClassFeat(models.Model):
     name = models.CharField(max_length=512)
     description = models.TextField()

@@ -20,7 +20,7 @@ from characters.models import (
 from django.urls import resolve
 from django.contrib.admin.widgets import FilteredSelectMultiple
 from characters.widgets import FormulaBuilderWidget, CharacterClassSelect
-from characters.models import Background, ResourceType,Weapon, SubSkill, UniversalLevelFeature, Skill,SkillCategory, WeaponTraitValue,WeaponTrait, ClassResource, CharacterResource, SubclassGroup, SubclassTierLevel
+from characters.models import RacialFeature, AbilityScore,Background, ResourceType,Weapon, SubSkill, UniversalLevelFeature, Skill,SkillCategory, WeaponTraitValue,WeaponTrait, ClassResource, CharacterResource, SubclassGroup, SubclassTierLevel
 from characters.forms import CharacterClassForm
 from django.utils.html import format_html
 from django.forms.models import BaseInlineFormSet
@@ -98,7 +98,16 @@ class ModularLinearFeatureFormSet(BaseInlineFormSet):
 
 
         
-
+class SpellInline(admin.StackedInline):
+    model       = Spell
+    fk_name     = "class_feature"
+    extra       = 0
+    max_num     = 1
+    can_delete  = False
+    # hide the four fields you don't want
+    exclude     = ("last_synced", "mastery_req", "sub_origin", "origin")
+    verbose_name        = "Inherent Spell Data"
+    verbose_name_plural = "Inherent Spell Data"
 @admin.register(WeaponTrait)
 class WeaponTraitAdmin(admin.ModelAdmin):
     list_display = ("name", "requires_value")
@@ -260,7 +269,9 @@ class SpellAdmin(admin.ModelAdmin):
     search_fields = ('name',  'origin')
 
 
-
+class RacialFeatureInline(admin.TabularInline):
+    model = RacialFeature
+    extra = 1
 
 class FeatureOptionInline(admin.TabularInline):
     model   = FeatureOption
@@ -640,7 +651,7 @@ class ResourceTypeAdmin(admin.ModelAdmin):
 class ClassFeatureAdmin(admin.ModelAdmin):
     search_fields = ("name", "code")
     form         = ClassFeatureForm
-    inlines      = [FeatureOptionInline, SpellSlotRowInline]
+    inlines      = [FeatureOptionInline, SpellSlotRowInline,SpellInline]
     list_display = (
         'character_class','scope','kind','subclass_group',
         'code','name','formula_target','has_options',
@@ -697,6 +708,7 @@ class ClassFeatureAdmin(admin.ModelAdmin):
                         "character_class",
                         "scope",
                         "kind",
+                        "gain_subskills",
                         "activity_type",
                         "action_type",
                         "subclass_group",
@@ -710,6 +722,12 @@ class ClassFeatureAdmin(admin.ModelAdmin):
                         "formula_target",
                         "formula",
                         "uses",
+                        "tier",
+                        "spell_list",           # ← our new dropdown
+                        "cantrips_formula",
+                        "spells_known_formula",
+                        "spells_prepared_formula",
+
                     ]
                 },
             )
@@ -730,8 +748,16 @@ class ClassFeatureAdmin(admin.ModelAdmin):
         # If the user has not checked “has_options,” remove the FeatureOptionInline entirely:
         if request.method == "POST":
             want = request.POST.get("has_options") in ("1", "true", "on")
+            kind = request.POST.get("kind")
             if not want:
                 inlines = [i for i in inlines if not isinstance(i, FeatureOptionInline)]
+            
+        else:
+            kind = getattr(obj, "kind", None)
+
+        if kind == "inherent_spell":
+            inlines.append(SpellInline(self.model, self.admin_site))
+
         return inlines
     def get_form(self, request, obj=None, **kwargs):
         """
@@ -835,11 +861,31 @@ class ClassFeatureAdmin(admin.ModelAdmin):
         css = {
             'all': ('characters/css/formula_builder.css',)
         }
+# characters/admin.py
+
+
+
 @admin.register(Background)
 class BackgroundAdmin(admin.ModelAdmin):
-    list_display = ('code','name',
-                    'primary_ability','primary_bonus','primary_skill',
-                    'secondary_ability','secondary_bonus','secondary_skill')
+    list_display = (
+        "code", "name",
+        "primary_ability", "primary_bonus", "primary_skill",
+        "secondary_ability", "secondary_bonus", "secondary_skill",
+    )
+    search_fields = ("code", "name")
+    list_filter  = ("primary_ability", "secondary_ability")
+    autocomplete_fields = ("primary_skill", "secondary_skill")
+
+    fields = [
+        "code", "name",
+        ("primary_ability", "primary_bonus", "primary_skill"),
+        ("secondary_ability", "secondary_bonus", "secondary_skill"),
+    ]
+
+@admin.register(AbilityScore)
+class AbilityScoreAdmin(admin.ModelAdmin):
+    search_fields = ("name",)
+
 @admin.register(ClassLevel)
 class ClassLevelAdmin(admin.ModelAdmin):
     list_display = ("character_class", "level")
@@ -1001,55 +1047,104 @@ class RaceFeatureOptionInline(admin.TabularInline):
     fk_name = "feature"
     extra = 1
     autocomplete_fields = ("grants_feature",)
+    verbose_name = "Feature option"
+    verbose_name_plural = "Feature options"
 
 
-class RacialFeatureForm(forms.ModelForm):
-    class Meta:
+
+
+class RacialFeatureForm(ClassFeatureForm):
+    class Meta(ClassFeatureForm.Meta):
         model = RacialFeature
-        fields = "__all__"
-
 
 @admin.register(RacialFeature)
-class RaceFeatureAdmin(admin.ModelAdmin):
-    form               = RacialFeatureForm                # reuse your existing
-    inlines            = [RaceFeatureOptionInline]      # if you want options
-    list_display       = ("race","subrace","code","name")
-    list_filter        = ("race","subrace",)
-    search_fields      = ("code","name","description")
-    autocomplete_fields= ("subrace",)
+class RaceFeatureAdmin(ClassFeatureAdmin):
+    form = RacialFeatureForm
+    inlines = [RaceFeatureOptionInline]
+
+    list_display = (
+                "race", "subrace", "scope", "kind",
+       "code", "name", "has_options", "formula", "uses",
+    )
+    list_filter = ("race", "scope", "kind")
+    autocomplete_fields = ("subrace",)
+    search_fields = ("code", "name", "description")
+    fieldsets = [
+        (None, {
+            "fields": [
+                "race", "subrace",
+                "scope", "kind", "gain_subskills",
+                "activity_type", "action_type",
+                "subclasses",
+                "code", "name", "description",
+                "has_options",                "tier", "mastery_rank", "level_required",
+               "formula_target",
+                "spell_list",
+                "cantrips_formula", "spells_known_formula", "spells_prepared_formula",
+                "modify_proficiency_target", "modify_proficiency_amount",
+            ]
+        }),
+        ("Saving Throw", {
+            "classes": ["collapse"],
+            "fields": [
+                "saving_throw_required", "saving_throw_type", "saving_throw_granularity",
+                "saving_throw_basic_success", "saving_throw_basic_failure",
+                "saving_throw_critical_success", "saving_throw_success",
+                "saving_throw_failure", "saving_throw_critical_failure",
+            ]
+        }),
+        ("Effect / Damage", {
+            "classes": ["collapse"],
+            "fields": ["damage_type", "formula", "uses"],
+        }),
+    ]
+
     class Media:
-        js  = ('characters/js/classfeature_admin.js',)
-        css = {'all': ('characters/css/formula_builder.css',)}
+        js = (
+            "characters/js/formula_builder.js",
+            "characters/js/classfeature_admin.js",
+        )
+        css = {"all": ("characters/css/formula_builder.css",)}
 
 @admin.register(Race)
 class RaceAdmin(admin.ModelAdmin):
-    list_display       = ("name", "code", "size", "speed", "secondary_thumbnail", "tertiary_thumbnail")
-    filter_horizontal  = ("tags", "features")
-    inlines            = [RaceFeatureInline]  # unchanged from yours
-
-    fields = (
-        "code", "name", "description", "size",
-        "speed", "tags", "features",
-        "primary_image", "primary_preview",
-        "secondary_image", "secondary_preview",
-        "tertiary_image", "tertiary_preview",
-        # … any other Race‐specific fields …
+    inlines = [RacialFeatureInline,]
+    list_display = (
+        "name","code","size","speed",
+        "secondary_thumbnail","tertiary_thumbnail",
     )
-    readonly_fields = ("primary_preview", "secondary_preview", "tertiary_preview")
+    search_fields    = ("name","code")
+    list_filter      = ("size",)
+    filter_horizontal = ("tags",)
+
+    readonly_fields = (
+        "primary_preview","secondary_preview","tertiary_preview",
+    )
+    fieldsets = [
+        (None, {
+            "fields": [
+                "code","name","description",
+                "size","speed",
+                ("strength_bonus","dexterity_bonus","constitution_bonus"),
+                ("intelligence_bonus","wisdom_bonus","charisma_bonus"),
+                "tags",
+                "primary_image","primary_preview",
+                "secondary_image","secondary_preview",
+                "tertiary_image","tertiary_preview",
+            ]
+        }),
+    ]
 
     def primary_preview(self, obj):
         if obj.primary_image:
-            return format_html(
-                '<img src="{}" style="max-height:120px; border:1px solid #ccc;" />',
-                obj.primary_image.url
-            )
+            return format_html('<img src="{}" style="max-height:120px;border:1px solid #ccc;" />', obj.primary_image.url)
         return "(no primary image)"
     primary_preview.short_description = "Primary Preview"
 
     def secondary_preview(self, obj):
         if obj.secondary_image:
             return format_html(
-                '<img src="{}" style="max-height:120px; border:1px solid #ccc;" />',
+                '<img src="{}" style="max-height:120px;border:1px solid #ccc;" />',
                 obj.secondary_image.url
             )
         return "(no secondary image)"
@@ -1058,13 +1153,12 @@ class RaceAdmin(admin.ModelAdmin):
     def tertiary_preview(self, obj):
         if obj.tertiary_image:
             return format_html(
-                '<img src="{}" style="max-height:120px; border:1px solid #ccc;" />',
+                '<img src="{}" style="max-height:120px;border:1px solid #ccc;" />',
                 obj.tertiary_image.url
             )
         return "(no tertiary image)"
     tertiary_preview.short_description = "Tertiary Preview"
 
-    # Optional: show tiny 40×40 thumbnails in the change list
     def secondary_thumbnail(self, obj):
         if obj.secondary_image:
             return format_html(
@@ -1083,13 +1177,14 @@ class RaceAdmin(admin.ModelAdmin):
         return "—"
     tertiary_thumbnail.short_description = "3° Img"
 
+
+
 @admin.register(Subrace)
 class SubraceAdmin(admin.ModelAdmin):
-    list_display       = ("name","race","code")
+    list_display      = ("name","race","code")
     filter_horizontal = ("tags",)
-    search_fields      = ("name","code")      # ← ADD THIS    
-    inlines            = [RaceFeatureInline]
-
+    search_fields     = ("name","code")
+    inlines           = [RacialFeatureInline ]
 
 
 
@@ -1103,3 +1198,5 @@ class UniversalLevelFeatureAdmin(admin.ModelAdmin):
     ordering      = ("level",)
 
     fields = ("level", "grants_general_feat", "grants_asi")
+
+

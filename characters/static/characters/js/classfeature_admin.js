@@ -64,8 +64,10 @@
       known:        row("spells_known_formula"),
       prepared:     row("spells_prepared_formula"),
       slots:        inlineSpellTable(),
-
+      spellList:    row("spell_list"),
+      gainSubskills: row("gain_subskills"),
       optionsInline: document.getElementById("options-group"),
+        spellInline: document.getElementById("spell_set-group"),
     };
 
     //
@@ -75,6 +77,20 @@
       const scopeVal = scopeEl ? scopeEl.value : "";
       const kindVal  = kindEl  ? kindEl.value  : "";
       const actVal   = activityEl ? activityEl.value : "";
+        //
+  // 5i) Show/hide the SpellInline when kind="inherent_spell"
+  //
+  if (rows.spellInline) {
+    if (kindVal === "inherent_spell") {
+      rows.spellInline.style.display = "";
+    } else {
+      rows.spellInline.style.display = "none";
+    }
+  }
+
+    if (kindVal === "gain_proficiency") {
+      if (rows.gainSubskills) rows.gainSubskills.style.display = "";
+    }
 
       // ─── 5a) Special short-circuit: if “Gain Subclass Feature” is selected,
       //            hide every row _except_ “tier” (and leave Code/Name/Description visible).
@@ -174,10 +190,11 @@
       // ─── 5g) If kind = “spell_table”, show the spell-table rows ───────────────────
       //
       if (kindVal === "spell_table") {
-        if (rows.cantrips) rows.cantrips.style.display = "";
-        if (rows.known)    rows.known.style.display    = "";
-        if (rows.prepared) rows.prepared.style.display = "";
-        if (rows.slots)    rows.slots.style.display    = "";
+        if (rows.spellList) rows.spellList.style.display = "";
+        if (rows.cantrips)  rows.cantrips.style.display  = "";
+        if (rows.known)     rows.known.style.display     = "";
+        if (rows.prepared)  rows.prepared.style.display  = "";
+        if (rows.slots)     rows.slots.style.display     = "";
       }
 
       //
