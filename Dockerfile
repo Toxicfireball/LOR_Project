@@ -1,51 +1,37 @@
-# syntax=docker/dockerfile:1
-
-# ─── Stage 1: Build Tailwind ──────────────────────────────────────
-FROM node:18-alpine AS node-build
-
-WORKDIR /app/theme/static_src
-
-# Copy **all** Tailwind sources+config
-COPY theme/static_src/ .
-
-# Install & build your CSS/JS
-RUN npm ci
-RUN npm run build
-
-
-# ─── Stage 2: Python & Django ────────────────────────────────────
+# ─── Python + Tailwind in one stage ───────────────────────────────
 FROM python:3.12.0-alpine3.18
 
-# Envs
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     DJANGO_SETTINGS_MODULE=LOR_Website.settings.prod \
     ALLOWED_HOSTS=lorbuilder.com,www.lorbuilder.com
 
-# 1) Install build deps, create venv & pip install, THEN
-# 2) Uninstall build deps to free up memory in the same layer
+# 1) Install system deps (incl. nodejs/npm for tailwind), 
+# 2) build-tools for any wheel compiles, then remove build-tools
 RUN apk update \
- && apk add --no-cache build-base zlib-dev jpeg-dev freetype-dev curl \
- && python -m venv /opt/venv \
- && /opt/venv/bin/pip install --upgrade pip \
- && /opt/venv/bin/pip install -r requirements.txt \
- && apk del build-base \
+ && apk add --no-cache \
+      nodejs npm \
+      build-base zlib-dev jpeg-dev freetype-dev curl \
  && rm -rf /var/cache/apk/*
-
-ENV PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /app
 
-# Copy your Django code
+# 3) Python deps
+COPY requirements.txt .
+RUN python -m venv /opt/venv \
+ && /opt/venv/bin/pip install --upgrade pip \
+ && /opt/venv/bin/pip install -r requirements.txt
+
+ENV PATH="/opt/venv/bin:$PATH"
+
+# 4) Copy your code (including theme/static_src)
 COPY . .
 
-# Pull in the already-built Tailwind assets
-COPY --from=node-build /app/theme/static_src/dist ./theme/static_src/dist
-
-# Only run migrations + collectstatic (no more tailwind build here)
+# 5) Let Django-Tailwind pull it all together
 RUN python manage.py migrate --noinput \
+ && python manage.py tailwind install \
+ && python manage.py tailwind build \
  && python manage.py collectstatic --noinput
 
 EXPOSE 8000
-
 CMD ["gunicorn","LOR_Website.wsgi:application","--bind","0.0.0.0:8000","--workers","3","--timeout","120"]
