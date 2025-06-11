@@ -1,38 +1,33 @@
-# Disable BuildKit’s parallel pulls (for hosts ignoring env vars)
 # syntax=docker/dockerfile:1
 
-# ─── Stage 1: Build Tailwind assets ───────────────────────────
+# ─── Stage 1: Build Tailwind assets ─────────────────────────────
 FROM node:18-alpine AS node-build
-WORKDIR /app
+WORKDIR /app/theme/static_src
 
-# only bring in the theme manifest, install dependencies
-COPY theme/package.json theme/package-lock.json ./theme/
-RUN cd theme && npm ci
+# Copy only the npm manifests
+COPY theme/static_src/package.json package.json
+COPY theme/static_src/package-lock.json package-lock.json
 
-# now copy **all** of your code (minus what's in .dockerignore)
-COPY . .
+# Install & build
+RUN npm ci
+RUN npm run build
 
-# build Tailwind
-RUN cd theme && npm run build
 
-# ─── Stage 2: Python & Django ─────────────────────────────────
+# ─── Stage 2: Python & Django ────────────────────────────────────
 FROM python:3.12.0-alpine3.18
-ENV \
-  PYTHONDONTWRITEBYTECODE=1 \
-  PYTHONUNBUFFERED=1 \
-  DJANGO_SETTINGS_MODULE=LOR_Website.settings.prod \
-  ALLOWED_HOSTS=lorbuilder.com,www.lorbuilder.com
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    DJANGO_SETTINGS_MODULE=LOR_Website.settings.prod \
+    ALLOWED_HOSTS=lorbuilder.com,www.lorbuilder.com
 
-# system deps for Pillow, etc.
+# System dependencies for Pillow, etc.
 RUN apk update \
  && apk add --no-cache \
-      build-base \
-      zlib-dev \
-      jpeg-dev \
-      freetype-dev \
-      curl
+      build-base zlib-dev jpeg-dev freetype-dev curl
 
 WORKDIR /app
+
+# Install Python deps in a clean venv
 COPY requirements.txt .
 RUN python -m venv /opt/venv \
  && /opt/venv/bin/pip install --upgrade pip \
@@ -40,9 +35,13 @@ RUN python -m venv /opt/venv \
 
 ENV PATH="/opt/venv/bin:$PATH"
 
+# Copy your Django project
 COPY . .
+
+# Pull in the built Tailwind assets
 COPY --from=node-build /app/theme/static_src/dist ./theme/static_src/dist
 
+# Final Django setup
 RUN python manage.py migrate --noinput \
  && python manage.py tailwind install \
  && python manage.py tailwind build \
