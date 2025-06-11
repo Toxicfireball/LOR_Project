@@ -5,9 +5,14 @@
 FROM node:18-alpine AS node-build
 WORKDIR /app
 
+# only bring in the theme manifest, install dependencies
 COPY theme/package.json theme/package-lock.json ./theme/
 RUN cd theme && npm ci
+
+# now copy **all** of your code (minus what's in .dockerignore)
 COPY . .
+
+# build Tailwind
 RUN cd theme && npm run build
 
 # ─── Stage 2: Python & Django ─────────────────────────────────

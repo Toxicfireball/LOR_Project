@@ -1,6 +1,11 @@
+# ignore virtualenv and caches
 venv/
 **/__pycache__/
 *.py[cod]
+
+# ignore node modules (we rebuild inside the image)
 node_modules/
 theme/node_modules/
+
+# ignore Git metadata
 .git/
