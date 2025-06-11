@@ -104,6 +104,7 @@ class SpellInline(admin.StackedInline):
     extra       = 0
     max_num     = 1
     can_delete  = False
+    classes     = ["spell-inline"]  
     # hide the four fields you don't want
     exclude     = ("last_synced", "mastery_req", "sub_origin", "origin")
     verbose_name        = "Inherent Spell Data"
@@ -478,6 +479,7 @@ class ClassFeatureForm(forms.ModelForm):
             "cantrips_formula":    FormulaBuilderWidget(variables=VARS, dice=DICE, attrs={"rows":2,"cols":40}),
             "spells_known_formula": FormulaBuilderWidget(variables=VARS, dice=DICE, attrs={"rows":2,"cols":40}),
             "spells_prepared_formula": FormulaBuilderWidget(variables=VARS, dice=DICE, attrs={"rows":2,"cols":40}),
+            "gain_subskills": FilteredSelectMultiple("Sub-skills", is_stacked=True),
             "subclasses": FilteredSelectMultiple("Subclasses", is_stacked=True),
         }
 
@@ -651,7 +653,7 @@ class ResourceTypeAdmin(admin.ModelAdmin):
 class ClassFeatureAdmin(admin.ModelAdmin):
     search_fields = ("name", "code")
     form         = ClassFeatureForm
-    inlines      = [FeatureOptionInline, SpellSlotRowInline,SpellInline]
+    inlines = [FeatureOptionInline, SpellSlotRowInline, SpellInline]    
     list_display = (
         'character_class','scope','kind','subclass_group',
         'code','name','formula_target','has_options',
@@ -677,6 +679,9 @@ class ClassFeatureAdmin(admin.ModelAdmin):
         "damage_type",   
         "formula",
         "uses",
+        "gain_subskills",
+        "modify_proficiency_target",
+        "modify_proficiency_amount",
         "cantrips_formula",
         "spells_known_formula",
         "spells_prepared_formula",   
@@ -724,6 +729,8 @@ class ClassFeatureAdmin(admin.ModelAdmin):
                         "uses",
                         "tier",
                         "spell_list",           # ← our new dropdown
+                        "modify_proficiency_target",
+                        "modify_proficiency_amount",             
                         "cantrips_formula",
                         "spells_known_formula",
                         "spells_prepared_formula",

@@ -33,6 +33,11 @@
     //
     // ─── 4) Cache _every_ row we might show/hide ──────────────────────────────────
     //
+
+        const spellInline = (() => {
+      const fs = document.querySelector("fieldset.spell-inline");
+      return fs && fs.closest(".inline-group");
+    })();
     const rows = {
       subgroup:       row("subclass_group"),
       subclasses:     row("subclasses"),
@@ -67,30 +72,32 @@
       spellList:    row("spell_list"),
       gainSubskills: row("gain_subskills"),
       optionsInline: document.getElementById("options-group"),
-        spellInline: document.getElementById("spell_set-group"),
-    };
+  };
 
     //
     // ─── 5) The main show/hide function ──────────────────────────────────────────────
     //
     function toggleAll(){
+
       const scopeVal = scopeEl ? scopeEl.value : "";
       const kindVal  = kindEl  ? kindEl.value  : "";
       const actVal   = activityEl ? activityEl.value : "";
         //
   // 5i) Show/hide the SpellInline when kind="inherent_spell"
+   Object.values(rows).forEach(el => el && (el.style.display = "none"));
   //
-  if (rows.spellInline) {
-    if (kindVal === "inherent_spell") {
-      rows.spellInline.style.display = "";
-    } else {
-      rows.spellInline.style.display = "none";
-    }
+// 5i) Show/hide the SpellInline when kind="inherent_spell"
+// first, always hide it…
+if (rows.spellInline) rows.spellInline.style.display = "none";
+
+
+  
+  if (spellInline) {
+    spellInline.style.display = kindVal === "inherent_spell" ? "" : "none";
   }
 
-    if (kindVal === "gain_proficiency") {
-      if (rows.gainSubskills) rows.gainSubskills.style.display = "";
-    }
+
+
 
       // ─── 5a) Special short-circuit: if “Gain Subclass Feature” is selected,
       //            hide every row _except_ “tier” (and leave Code/Name/Description visible).
@@ -108,14 +115,11 @@
        return;
      }
 
-      // ─── 5b) Otherwise, hide _every_ row up-front (clean slate) ───────────────
-      Object.values(rows).forEach(el => {
-        if (el) { el.style.display = "none"; }
-      });
-
-      //
-      // ─── 5c) If scope is ANY “subclass_feat” or “subclass_choice”, show Umbrella + Subclasses ─
-      //
+  if (kindVal === "gain_proficiency") {
+    if (rows.gainSubskills) rows.gainSubskills.style.display = "";
+    if (rows.profTarget)   rows.profTarget.style.display   = "";
+    if (rows.profAmount)   rows.profAmount.style.display   = "";
+  }
       if (
         scopeVal === "subclass_feat" ||
         scopeVal === "subclass_choice"
