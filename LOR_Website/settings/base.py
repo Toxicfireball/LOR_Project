@@ -23,6 +23,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 
     # Tailwind + theme
+    'django_tailwind',
     'tailwind',
     'theme',
 
@@ -32,6 +33,7 @@ INSTALLED_APPS = [
     'campaigns',
     'characters',
 ]
+
 
 # ─── MIDDLEWARE ─────────────────────────────────────────────────────────────────
 MIDDLEWARE = [
@@ -85,7 +87,7 @@ USE_TZ = True
 # ─── STATIC & MEDIA ──────────────────────────────────────────────────────────────
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
-STATICFILES_DIRS = [BASE_DIR / 'static']
+STATICFILES_DIRS = [BASE_DIR.parent / 'static']
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 MEDIA_URL  = '/media/'

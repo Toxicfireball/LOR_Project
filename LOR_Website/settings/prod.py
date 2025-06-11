@@ -18,6 +18,8 @@ CSRF_TRUSTED_ORIGINS = [
     "https://lorbuilder.com",
     "https://www.lorbuilder.com",
 ]
+# Tell django-tailwind which app holds your tailwind config
+TAILWIND_APP_NAME = "theme"
 
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE  = True
