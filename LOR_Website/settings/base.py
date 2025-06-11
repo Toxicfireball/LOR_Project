@@ -23,7 +23,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 
     # Tailwind + theme
-    'django_tailwind',
+
     'tailwind',
     'theme',
 
