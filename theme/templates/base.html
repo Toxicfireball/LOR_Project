@@ -1,6 +1,12 @@
 {% load static tailwind_tags %}
 <!DOCTYPE html>
 <html lang="en">
+
+<style>
+  .dropdown-menu.show {
+  display: block !important;
+}
+</style>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -13,14 +19,11 @@
     integrity="sha384-9ndCyUaIbzAi2FUVXJi0CjmCapSmO7SnpJef0486qhLnuZ2cdeRhO02iuK6FUUVM"
     crossorigin="anonymous"
   >
-  {# ─── Your custom CSS ───────────────────────────────────────────────────── #}
-  <link href="{% static 'css/main.css' %}" rel="stylesheet">
-  <link href="{% static 'css/character.css' %}" rel="stylesheet">
-
-  {% block extra_css %}{% endblock %}
-
-  {# ─── Tailwind CSS (last so it can override) ─────────────────────────────── #}
   {% tailwind_css %}
+  <!-- 3) Your overrides _after_ Tailwind -->
+  <link href="/static/css/main.css" rel="stylesheet">
+  <link href="/static/css/character.css" rel="stylesheet">
+  {% block extra_css %}{% endblock %}
 
 </head>
 
