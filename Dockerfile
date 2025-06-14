@@ -1,28 +1,26 @@
-# ─── Python + Tailwind in one stage ───────────────────────────────
-FROM python:3.12.0-alpine3.18
-
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    DJANGO_SETTINGS_MODULE=LOR_Website.settings.prod \
-    ALLOWED_HOSTS=lorbuilder.com,www.lorbuilder.com
-
-
-# ── Stage 1: Build your Tailwind CSS with Node ───────────────────────
+# ── Stage 1: Build Tailwind CSS ─────────────────────────────────────────────
 FROM node:20-alpine AS tailwind-builder
 
-# 1) Copy only the theme (tailwind) files and install Node deps
-WORKDIR /app/theme
-COPY theme/package.json theme/package-lock.json ./
+WORKDIR /app/theme/static_src
+
+# 1) Copy only the package files so Docker can cache npm ci
+COPY theme/static_src/package.json theme/static_src/package-lock.json ./
+
+# 2) Install your Tailwind/NPM deps
 RUN npm ci
 
-# 2) Copy the rest of your theme source and build the CSS
-COPY theme/ ./
+# 3) Copy the rest of your Tailwind source
+COPY theme/static_src ./
+
+# 4) Build your CSS into the project’s static folder
+#    - input:  src/styles.css
+#    - output: ../../static/css/tailwind.css   (→ /app/static/css/tailwind.css)
 RUN npx tailwindcss \
-      -i ./src/styles.css \
-      -o ../static/css/tailwind.css \
+      -i src/styles.css \
+      -o ../../static/css/tailwind.css \
       --minify
 
-# ── Stage 2: Build your Django app ──────────────────────────────────
+# ── Stage 2: Build Django app ───────────────────────────────────────────────
 FROM python:3.12.0-alpine3.18
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -30,7 +28,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     DJANGO_SETTINGS_MODULE=LOR_Website.settings.prod \
     ALLOWED_HOSTS=lorbuilder.com,www.lorbuilder.com
 
-# 1) System tools (no Node needed here)
+# 1) System deps (no Node here)
 RUN apk update \
  && apk add --no-cache \
       build-base zlib-dev jpeg-dev freetype-dev curl \
@@ -38,7 +36,7 @@ RUN apk update \
 
 WORKDIR /app
 
-# 2) Python deps
+# 2) Python venv & pip install
 COPY requirements.txt .
 RUN python -m venv /opt/venv \
  && /opt/venv/bin/pip install --upgrade pip \
@@ -46,14 +44,15 @@ RUN python -m venv /opt/venv \
 
 ENV PATH="/opt/venv/bin:$PATH"
 
-# 3) Copy your Django code + the pre-built CSS from the builder stage
+# 3) Copy in your code AND the prebuilt CSS
 COPY . .
-COPY --from=tailwind-builder /app/static/css/tailwind.css static/css/tailwind.css
+# The previous stage wrote /app/static/css/tailwind.css
+# So static/css/tailwind.css now exists in this image too.
 
-# 4) Migrate & collectstatic (no Tailwind step here!)
+# 4) Migrate & collectstatic (no tailwind build step here!)
 RUN python manage.py migrate --noinput \
  && python manage.py collectstatic --noinput
 
 EXPOSE 8000
-CMD ["gunicorn","LOR_Website.wsgi:application","--bind","0.0.0.0:8000","--workers","3","--timeout","120"]
 
+CMD ["gunicorn","LOR_Website.wsgi:application","--bind","0.0.0.0:8000","--workers","3","--timeout","120"]
