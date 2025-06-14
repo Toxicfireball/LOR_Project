@@ -22,3 +22,8 @@ TAILWIND_APP_NAME = "theme"
 
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE  = True
+import os
+
+# after your other settings…
+NODE_BIN_PATH = os.environ.get("NODE_BIN_PATH", "node")
+NPM_BIN_PATH  = os.environ.get("NPM_BIN_PATH",  "npm")

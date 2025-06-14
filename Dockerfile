@@ -6,8 +6,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     DJANGO_SETTINGS_MODULE=LOR_Website.settings.prod \
     ALLOWED_HOSTS=lorbuilder.com,www.lorbuilder.com
 
-# 1) Install system deps (incl. nodejs/npm for tailwind), 
-# 2) build-tools for any wheel compiles, then remove build-tools
+# …
+
+# 1) Install Node & build tools
 RUN apk update \
  && apk add --no-cache \
       nodejs npm \
@@ -15,9 +16,13 @@ RUN apk update \
  && ln -sf /usr/bin/nodejs /usr/bin/node \
  && rm -rf /var/cache/apk/*
 
+# 2) Tell django-tailwind where to find them:
+ENV NODE_BIN_PATH=/usr/bin/node \
+    NPM_BIN_PATH=/usr/bin/npm
+
 WORKDIR /app
 
-# 3) Python deps
+# 3) Python & dependencies
 COPY requirements.txt .
 RUN python -m venv /opt/venv \
  && /opt/venv/bin/pip install --upgrade pip \
@@ -25,14 +30,13 @@ RUN python -m venv /opt/venv \
 
 ENV PATH="/opt/venv/bin:$PATH"
 
-# 4) Copy your code (including theme/static_src)
+# 4) Copy code & build assets
 COPY . .
-
-# 5) Let Django-Tailwind pull it all together
 RUN python manage.py migrate --noinput \
  && python manage.py tailwind install \
  && python manage.py tailwind build \
  && python manage.py collectstatic --noinput
 
 EXPOSE 8000
-CMD ["gunicorn","LOR_Website.wsgi:application","--bind","0.0.0.0:8000","--workers","3","--timeout","120"]
+CMD ["gunicorn", "LOR_Website.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "120"]
+

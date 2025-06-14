@@ -71,8 +71,6 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-NPM_BIN_PATH = os.environ.get("NPM_BIN_PATH", "npm")
-NODE_BIN_PATH = os.environ.get("NODE_BIN_PATH", "node")
 ROOT_URLCONF = 'LOR_Website.urls'
 WSGI_APPLICATION = 'LOR_Website.wsgi.application'
 
