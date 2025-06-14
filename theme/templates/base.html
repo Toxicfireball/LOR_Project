@@ -22,22 +22,22 @@
   <link href="/static/css/main.css" rel="stylesheet">
   <link href="/static/css/character.css" rel="stylesheet">
 
-  <style>
-  .dropdown-menu.show {
-    display: block !important;
-  }
-
-  /* 2) Kill the collapse animation and force-open the hamburger menu */
-  .collapse,
-  .collapsing,
-  .navbar-collapse,
-  .navbar-collapse.show {
+<style>
+  /* 1) Kill the flicker: when Bootstrap is animating ( .collapsing ), force it visible */
+  .collapsing {
     display: block    !important;
     height:  auto     !important;
     overflow: visible !important;
     transition: none  !important;
   }
+
+  /* 2) Ensure the “shown” states stay shown */
+  .navbar-collapse.show,
+  .dropdown-menu.show {
+    display: block !important;
+  }
 </style>
+
   {% block extra_css %}{% endblock %}
 
 </head>
