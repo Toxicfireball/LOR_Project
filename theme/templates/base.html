@@ -2,14 +2,12 @@
 <!DOCTYPE html>
 <html lang="en">
 
-<style>
-  .dropdown-menu.show {
-  display: block !important;
-}
-</style>
+
 <head>
+
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+
   <title>{% block title %}LOR Website{% endblock %}</title>
 
     {# ─── Bootstrap 5 CSS ──────────────────────────────────────────────────── #}
@@ -23,6 +21,12 @@
   <!-- 3) Your overrides _after_ Tailwind -->
   <link href="/static/css/main.css" rel="stylesheet">
   <link href="/static/css/character.css" rel="stylesheet">
+
+  <style>
+  .dropdown-menu.show {
+  display: block !important;
+}
+</style>
   {% block extra_css %}{% endblock %}
 
 </head>
