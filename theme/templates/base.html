@@ -24,15 +24,18 @@
 
   <style>
   .dropdown-menu.show {
-  display: block !important;
-}
-
-
-
-  /* Mobile hamburger menu (the “collapse”) stays open */
-  .navbar-collapse.show,
-  .collapse.show {
     display: block !important;
+  }
+
+  /* 2) Kill the collapse animation and force-open the hamburger menu */
+  .collapse,
+  .collapsing,
+  .navbar-collapse,
+  .navbar-collapse.show {
+    display: block    !important;
+    height:  auto     !important;
+    overflow: visible !important;
+    transition: none  !important;
   }
 </style>
   {% block extra_css %}{% endblock %}
