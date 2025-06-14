@@ -1,105 +1,168 @@
-{% load static tailwind_tags %}
+{% load static %}
 <!DOCTYPE html>
 <html lang="en">
-
-
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}…{% endblock %}</title>
 
-  {% tailwind_css %}
+  <!-- Tailwind via CDN for quick debug; remove once your build pipeline is fixed -->
+  <script src="https://cdn.tailwindcss.com"></script>
 
-  <link
-    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
-    rel="stylesheet"
-    integrity="sha384-…"
-    crossorigin="anonymous"
-  >
-
-  <link href="{% static 'css/main.css' %}" rel="stylesheet">
-  <link href="{% static 'css/character.css' %}" rel="stylesheet">
+  <style>
+    /* Simple reset for dropdowns & mobile menu */
+    .dropdown-menu     { display: none; }
+    .dropdown-menu.show { display: block; }
+    .mobile-menu       { display: none; }
+    .mobile-menu.show  { display: block; }
+  </style>
 
   {% block extra_css %}{% endblock %}
 </head>
 
+<body class="bg-gray-100 text-gray-900">
 
-<body>
+  <nav class="bg-gray-800 text-white">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-16">
 
-  <nav class="navbar navbar-dark bg-dark">
-    <div class="container-fluid">
-      <a class="navbar-brand" href="{% url 'home' %}">Home</a>
-      <button class="navbar-toggler" type="button"
-              data-bs-toggle="collapse"
-              data-bs-target="#mainNav"
-              aria-controls="mainNav"
-              aria-expanded="false"
-              aria-label="Toggle navigation">
-        <span class="navbar-toggler-icon"></span>
-      </button>
+        <!-- Brand -->
+        <a href="{% url 'home' %}" class="text-xl font-bold">LOR</a>
 
-      <div class="collapse navbar-collapse" id="mainNav">
-        <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-          <li class="nav-item">
-            <a class="nav-link" href="{% url 'character_creator' %}">Sample Character &amp; Calculator</a>
-          </li>
-          <li class="nav-item dropdown">
-            <a class="nav-link dropdown-toggle" href="#" id="codexDropdown" role="button"
-               data-bs-toggle="dropdown" aria-expanded="false">
+        <!-- Desktop menu -->
+        <div class="hidden md:flex md:items-center md:space-x-6">
+
+          <a href="{% url 'character_creator' %}" class="hover:underline">
+            Sample Character
+          </a>
+
+          <!-- Codex dropdown -->
+          <div class="relative">
+            <button id="codex-toggle" class="flex items-center hover:underline focus:outline-none">
               Codex
-            </a>
-            <ul class="dropdown-menu dropdown-menu-dark" aria-labelledby="codexDropdown">
-              <li><a class="dropdown-item" href="{% url 'characters:codex_spells' %}">Spells</a></li>
-              <li><a class="dropdown-item" href="{% url 'characters:codex_feats'  %}">Feats</a></li>
-              <li><a class="dropdown-item" href="{% url 'characters:codex_classes'%}">Classes</a></li>
-              <li><a class="dropdown-item" href="{% url 'characters:codex_races'   %}">Races</a></li>
-            </ul>
-          </li>
-          <li class="nav-item"><a class="nav-link" href="#">Forge</a></li>
-          <li class="nav-item"><a class="nav-link" href="#">Loremaster</a></li>
-          <li class="nav-item">
-            <a class="nav-link" href="{% url 'characters:rulebook_list' %}">
-              Rulebooks
-            </a>
-          </li>
-          {% if user.is_authenticated %}
-            <li class="nav-item"><a class="nav-link" href="{% url 'campaigns:campaign_list' %}">Campaigns</a></li>
-            <li class="nav-item"><a class="nav-link" href="{% url 'characters:create_character' %}">Create Character</a></li>
-            <li class="nav-item"><a class="nav-link" href="{% url 'characters:character_list' %}">View Characters</a></li>
-          {% endif %}
-        </ul>
+              <svg class="ml-1 h-4 w-4 fill-current" viewBox="0 0 20 20">
+                <path d="M5.5 7l4.5 4.5L14.5 7z"/>
+              </svg>
+            </button>
+            <div id="codex-menu"
+                 class="dropdown-menu absolute mt-2 bg-white text-gray-900 rounded shadow-lg py-2 w-40">
+              <a href="{% url 'characters:codex_spells' %}"
+                 class="block px-4 py-2 hover:bg-gray-200">Spells</a>
+              <a href="{% url 'characters:codex_feats' %}"
+                 class="block px-4 py-2 hover:bg-gray-200">Feats</a>
+              <a href="{% url 'characters:codex_classes' %}"
+                 class="block px-4 py-2 hover:bg-gray-200">Classes</a>
+              <a href="{% url 'characters:codex_races' %}"
+                 class="block px-4 py-2 hover:bg-gray-200">Races</a>
+            </div>
+          </div>
 
-        <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
+          <a href="{% url 'characters:rulebook_list' %}" class="hover:underline">
+            Rulebooks
+          </a>
+
           {% if user.is_authenticated %}
-            <li class="nav-item">
-              <span class="navbar-text me-3">Hello, {{ user.username }}</span>
-            </li>
-            <li class="nav-item">
-              <form class="d-inline" action="{% url 'accounts:logout' %}" method="post">
-                {% csrf_token %}
-                <button class="btn btn-outline-light btn-sm" type="submit">Logout</button>
-              </form>
-            </li>
+            <a href="{% url 'campaigns:campaign_list' %}" class="hover:underline">
+              Campaigns
+            </a>
+            <a href="{% url 'characters:create_character' %}" class="hover:underline">
+              Create
+            </a>
+            <a href="{% url 'characters:character_list' %}" class="hover:underline">
+              View
+            </a>
+            <span class="ml-4">Hello, {{ user.username }}</span>
+            <form action="{% url 'accounts:logout' %}" method="post" class="inline ml-4">
+              {% csrf_token %}
+              <button type="submit" class="hover:underline">Logout</button>
+            </form>
           {% else %}
-            <li class="nav-item"><a class="nav-link" href="{% url 'accounts:login' %}">Login</a></li>
-            <li class="nav-item"><a class="nav-link" href="{% url 'accounts:register' %}">Register</a></li>
+            <a href="{% url 'accounts:login' %}" class="hover:underline">Login</a>
+            <a href="{% url 'accounts:register' %}" class="hover:underline">Register</a>
           {% endif %}
-        </ul>
+
+        </div>
+
+        <!-- Mobile menu button -->
+        <div class="md:hidden">
+          <button id="mobile-toggle"
+                  class="p-2 rounded hover:bg-gray-700 focus:outline-none">
+            <svg class="h-6 w-6 fill-current" viewBox="0 0 24 24">
+              <path d="M4 6h16M4 12h16M4 18h16"/>
+            </svg>
+          </button>
+        </div>
+
       </div>
+    </div>
+
+    <!-- Mobile menu -->
+    <div id="mobile-menu" class="mobile-menu bg-gray-700 text-white px-4 py-2 md:hidden">
+
+      <a href="{% url 'character_creator' %}"
+         class="block py-1 hover:underline">Sample Character</a>
+
+      <div class="border-t border-gray-600 my-1"></div>
+
+      <button id="mobile-codex-toggle"
+              class="w-full text-left py-1 hover:underline focus:outline-none flex items-center justify-between">
+        Codex
+        <svg class="h-4 w-4 fill-current" viewBox="0 0 20 20">
+          <path d="M5.5 7l4.5 4.5L14.5 7z"/>
+        </svg>
+      </button>
+      <div id="mobile-codex-menu" class="dropdown-menu pl-4">
+        <a href="{% url 'characters:codex_spells' %}"
+           class="block py-1 hover:underline">Spells</a>
+        <a href="{% url 'characters:codex_feats' %}"
+           class="block py-1 hover:underline">Feats</a>
+        <a href="{% url 'characters:codex_classes' %}"
+           class="block py-1 hover:underline">Classes</a>
+        <a href="{% url 'characters:codex_races' %}"
+           class="block py-1 hover:underline">Races</a>
+      </div>
+
+      <div class="border-t border-gray-600 my-1"></div>
+
+      <a href="{% url 'characters:rulebook_list' %}"
+         class="block py-1 hover:underline">Rulebooks</a>
+
+      {% if user.is_authenticated %}
+        <div class="border-t border-gray-600 my-1"></div>
+        <span class="block py-1">Hello, {{ user.username }}</span>
+        <form action="{% url 'accounts:logout' %}" method="post" class="block py-1">
+          {% csrf_token %}
+          <button type="submit" class="w-full text-left hover:underline">Logout</button>
+        </form>
+      {% else %}
+        <div class="border-t border-gray-600 my-1"></div>
+        <a href="{% url 'accounts:login' %}"
+           class="block py-1 hover:underline">Login</a>
+        <a href="{% url 'accounts:register' %}"
+           class="block py-1 hover:underline">Register</a>
+      {% endif %}
+
     </div>
   </nav>
 
-  {# ─── Main content container ─────────────────────────────────────────────── #}
-  <div class="container py-4">
+  <div class="container mx-auto py-4">
     {% block content %}{% endblock %}
   </div>
 
-  {# ─── Bootstrap JS bundle (with Popper) ──────────────────────────────────── #}
-  <script
-    src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"
-    integrity="sha384-geWF76RCwLtnZ8qwWowPQNguL3RmwHVBC9FhGdlKrxdiJJigb/j/68SIy3Te4Bkz"
-    crossorigin="anonymous"
-  ></script>
+  <script>
+    // Desktop Codex dropdown
+    document.getElementById('codex-toggle').addEventListener('click', () => {
+      document.getElementById('codex-menu').classList.toggle('show');
+    });
+    // Mobile main menu
+    document.getElementById('mobile-toggle').addEventListener('click', () => {
+      document.getElementById('mobile-menu').classList.toggle('show');
+    });
+    // Mobile Codex submenu
+    document.getElementById('mobile-codex-toggle').addEventListener('click', () => {
+      document.getElementById('mobile-codex-menu').classList.toggle('show');
+    });
+  </script>
 
   {% block extra_js %}{% endblock %}
 </body>

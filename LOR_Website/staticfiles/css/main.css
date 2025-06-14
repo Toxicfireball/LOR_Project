@@ -34,9 +34,5 @@ body {
 }
 
 
-/* force any Bootstrap collapse / dropdown to stay open when .show is present */
-.collapse.show,
-.navbar-collapse.show,
-.dropdown-menu.show {
-  display: block !important;
-}
+/* Keep the bootstrap mobile menu exactly where it belongs */
+
