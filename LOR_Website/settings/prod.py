@@ -1,7 +1,6 @@
 from .base import *
 import os
 
-DEBUG = False
 
 _raw = os.environ.get("ALLOWED_HOSTS", None)
 if _raw:

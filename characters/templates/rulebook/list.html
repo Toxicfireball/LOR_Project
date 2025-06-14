@@ -1,0 +1,16 @@
+{# templates/rulebooks/list.html #}
+{% extends "base.html" %}
+{% block content %}
+  <h1>Rulebooks</h1>
+  <ul>
+    {% for rb in rulebooks %}
+      <li>
+        <a href="{% url 'characters:rulebook_detail' rb.pk %}">
+          {{ rb.name }}
+        </a>
+      </li>
+    {% empty %}
+      <li>No rulebooks yet.</li>
+    {% endfor %}
+  </ul>
+{% endblock %}

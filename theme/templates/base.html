@@ -25,7 +25,7 @@
 </head>
 <body>
 
-  <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+  <nav class="navbar navbar-dark bg-dark">
     <div class="container-fluid">
       <a class="navbar-brand" href="{% url 'home' %}">Home</a>
       <button class="navbar-toggler" type="button"
@@ -56,7 +56,11 @@
           </li>
           <li class="nav-item"><a class="nav-link" href="#">Forge</a></li>
           <li class="nav-item"><a class="nav-link" href="#">Loremaster</a></li>
-
+          <li class="nav-item">
+            <a class="nav-link" href="{% url 'characters:rulebook_list' %}">
+              Rulebooks
+            </a>
+          </li>
           {% if user.is_authenticated %}
             <li class="nav-item"><a class="nav-link" href="{% url 'campaigns:campaign_list' %}">Campaigns</a></li>
             <li class="nav-item"><a class="nav-link" href="{% url 'characters:create_character' %}">Create Character</a></li>

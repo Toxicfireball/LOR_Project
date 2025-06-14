@@ -21,14 +21,16 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
-
+import nested_admin
 urlpatterns = [
-    path('admin/', admin.site.urls),
+      path("_nested_admin/", include("nested_admin.urls")),
+    path("admin/", admin.site.urls),
     path('', include('home.urls')),  
     path('accounts/', include('accounts.urls')),   # User auth URLs
     path('campaigns/', include('campaigns.urls')),   # Campaign system URLs (we’ll create these next)
     path('characters/', include('characters.urls')),
     path("__reload__/", include("django_browser_reload.urls")),
+    path('summernote/', include('django_summernote.urls')),
 ]
 
 

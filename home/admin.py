@@ -17,14 +17,52 @@ from characters.models import (
     SpellSlotRow , 
     ResourceType, ClassResource, CharacterResource, Spell
 )
+
 from django.urls import resolve
 from django.contrib.admin.widgets import FilteredSelectMultiple
 from characters.widgets import FormulaBuilderWidget, CharacterClassSelect
-from characters.models import RacialFeature, AbilityScore,Background, ResourceType,Weapon, SubSkill, UniversalLevelFeature, Skill,SkillCategory, WeaponTraitValue,WeaponTrait, ClassResource, CharacterResource, SubclassGroup, SubclassTierLevel
+from characters.models import RulebookPage, Rulebook, RacialFeature, Rulebook, RulebookPage,AbilityScore,Background, ResourceType,Weapon, SubSkill, UniversalLevelFeature, Skill,SkillCategory, WeaponTraitValue,WeaponTrait, ClassResource, CharacterResource, SubclassGroup, SubclassTierLevel
 from characters.forms import CharacterClassForm
 from django.utils.html import format_html
 from django.forms.models import BaseInlineFormSet
 from django.core.exceptions import ValidationError
+
+# characters/admin.py
+
+
+
+# characters/admin.py
+
+from django.contrib import admin
+
+# admin.py
+
+
+
+# ─── Inline for Pages ─────────────────────────────────────────────────────────
+
+
+@admin.register(Rulebook)
+class RulebookAdmin(admin.ModelAdmin):
+    list_display  = ("name",)
+    search_fields = ("name",)
+
+
+@admin.register(RulebookPage)
+class RulebookPageAdmin(admin.ModelAdmin):
+    list_display        = ("rulebook", "order", "title")
+    list_filter         = ("rulebook",)
+    ordering            = ("rulebook__name", "order")
+    search_fields       = ("title", "rulebook__name")
+    autocomplete_fields = ("rulebook",)
+    fields = (
+        "rulebook",
+        "order",
+        "title",
+        "content",  # this is already a SummernoteTextField in your model
+        "image",
+    )
+
 class ModularLinearFeatureFormSet(BaseInlineFormSet):
     """
     For any SubclassGroup with system_type="modular_linear", enforce that:

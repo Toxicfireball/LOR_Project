@@ -2,7 +2,7 @@
 
 from django.urls import path
 from . import views
-from .views import character_detail, create_character, character_list, spell_list, feat_list
+from .views import character_detail, create_character, character_list, spell_list, feat_list,    RulebookListView, RulebookDetailView, RulebookPageDetailView
 
 app_name = 'characters'
 
@@ -20,6 +20,13 @@ path('codex/classes/', views.class_list, name='codex_classes'),
 path('codex/classes/<int:pk>/', views.class_detail, name='class_detail'),
     path("codex/races",  views.race_list,  name="codex_races"),
     path("codex/races/<int:pk>/", views.race_detail, name="race_detail"),
+        path("rules/", RulebookListView.as_view(), name="rulebook_list"),
+    path("rules/<int:pk>/", RulebookDetailView.as_view(), name="rulebook_detail"),
+    path(
+        "rules/<int:rulebook_pk>/page/<int:pk>/",
+        RulebookPageDetailView.as_view(),
+        name="rulebook_page_detail",
+    ),
 
 
 ]

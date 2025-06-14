@@ -312,7 +312,7 @@ import json
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.core.serializers.json import DjangoJSONEncoder
-
+from django.views.generic import ListView, DetailView
 from .models import (
     Race,
     Subrace,
@@ -320,9 +320,29 @@ from .models import (
     SubSkill,
     ProficiencyLevel,
     CharacterSkillProficiency,
+    Rulebook, RulebookPage
 )
 from .forms import CharacterCreationForm
 
+# characters/views.py
+
+from django.views.generic import ListView, DetailView
+from .models import Rulebook, RulebookPage
+
+class RulebookListView(ListView):
+    model = Rulebook
+    template_name = "rulebook/list.html"
+    context_object_name = "rulebooks"
+
+class RulebookDetailView(DetailView):
+    model = Rulebook
+    template_name = "rulebook/detail.html"
+    context_object_name = "rulebook"
+
+class RulebookPageDetailView(DetailView):
+    model = RulebookPage
+    template_name = "rulebook/page_detail.html"
+    context_object_name = "page"
 
 @login_required
 def create_character(request):

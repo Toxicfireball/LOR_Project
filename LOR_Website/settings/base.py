@@ -11,10 +11,13 @@ load_dotenv(BASE_DIR / ".env", override=True)
 SECRET_KEY = 'django-insecure-wm5ej4&6+ve6-#=t396=l68%@fb+r2fev*(a0_&$00@evg_5a&'
 if not SECRET_KEY:
     raise ImproperlyConfigured("SECRET_KEY is required")
+ENVIRONMENT = os.getenv("ENVIRONMENT", "local").lower()
 
+DEBUG = ENVIRONMENT == "local"
 # ─── INSTALLED APPS ─────────────────────────────────────────────────────────────
 INSTALLED_APPS = [
     # Django
+    "nested_admin", 
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -32,9 +35,30 @@ INSTALLED_APPS = [
     'accounts',
     'campaigns',
     'characters',
+    "django_summernote",
 ]
+X_FRAME_OPTIONS = "SAMEORIGIN"
 
-
+SUMMERNOTE_CONFIG = {
+    # Use an <iframe> so your site’s CSS won’t bleed into the editor
+    "iframe": True,
+    "summernote": {
+        "width": "100%",
+        "height": "400px",
+        # You can customize the toolbar here if you like:
+        "toolbar": [
+            ["style", ["style"]],
+            ["font", ["bold", "italic", "underline", "clear"]],
+            ["fontname", ["fontname"]],
+            ["fontsize", ["fontsize"]],
+            ["color", ["color"]],
+            ["para", ["ul", "ol", "paragraph"]],
+            ["table", ["table"]],
+            ["insert", ["link", "picture", "video"]],
+            ["view", ["fullscreen", "codeview", "help"]],
+        ],
+    },
+}
 # ─── MIDDLEWARE ─────────────────────────────────────────────────────────────────
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',

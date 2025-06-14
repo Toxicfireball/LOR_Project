@@ -99,6 +99,52 @@ class BaseRace(models.Model):
     class Meta:
          abstract = True
 
+# characters/models.py
+
+from django.db import models
+from django_summernote.fields import SummernoteTextField
+
+
+# models.py
+
+class Rulebook(models.Model):
+    name        = models.CharField(max_length=200, unique=True)
+    description = models.TextField(blank=True)
+    image       = models.ImageField(
+                     upload_to="rulebook_images/",
+                     blank=True, null=True
+                  )
+    class Meta:
+        ordering = ["name"]
+    def __str__(self):
+        return self.name
+
+
+
+# in characters/models.py
+
+class RulebookPage(models.Model):
+    rulebook = models.ForeignKey(
+        Rulebook,
+        on_delete=models.CASCADE,
+        related_name="pages",
+    )
+    
+    title   = models.CharField(max_length=255)
+    content = SummernoteTextField()
+    order   = models.PositiveIntegerField(default=0)
+    image   = models.ImageField(
+        upload_to="rulebook_page_images/",
+        blank=True, null=True
+    )
+
+    class Meta:
+        ordering        = ["rulebook__name", "order"]
+        unique_together = ("rulebook", "order")
+
+    def __str__(self):
+        return f"{self.rulebook.name} → {self.title}"
+
 
 class Background(models.Model):
     code = models.SlugField(max_length=50, unique=True)
