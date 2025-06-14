@@ -38,7 +38,7 @@ INSTALLED_APPS = [
     "django_summernote",
 ]
 X_FRAME_OPTIONS = "SAMEORIGIN"
-
+TAILWIND_APP_NAME = "theme"
 SUMMERNOTE_CONFIG = {
     # Use an <iframe> so your site’s CSS won’t bleed into the editor
     "iframe": True,

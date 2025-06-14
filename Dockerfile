@@ -5,7 +5,20 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     DJANGO_SETTINGS_MODULE=LOR_Website.settings.prod \
     ALLOWED_HOSTS=lorbuilder.com,www.lorbuilder.com
+FROM python:3.12-slim
 
+# install Node.js + npm
+RUN apt-get update && \
+    apt-get install -y curl && \
+    curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
+    apt-get install -y nodejs && \
+    rm -rf /var/lib/apt/lists/*
+
+# … then copy your code, pip install, etc.
+
+# finally build Tailwind assets:
+RUN python manage.py tailwind install && \
+    python manage.py tailwind build
 # 1) Install system deps (incl. nodejs/npm for tailwind), 
 # 2) build-tools for any wheel compiles, then remove build-tools
 RUN apk update \
