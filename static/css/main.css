@@ -34,9 +34,18 @@ body {
 }
 
 
-/* force any Bootstrap collapse / dropdown to stay open when .show is present */
-.collapse.show,
-.navbar-collapse.show,
-.dropdown-menu.show {
-  display: block !important;
+/* Keep the bootstrap mobile menu exactly where it belongs */
+.navbar-collapse,
+.navbar-collapse.show {
+  /* Always participate in the navbar’s flex layout */
+  display: flex        !important; 
+  flex-basis: auto     !important;
+  flex-grow: 1         !important;
+  position: static     !important;  /* undo any temporary positioning */
+  transform: none      !important;  /* kill any stray transforms */
+  width: 100%          !important;  /* full width under the toggler */
+  height: auto         !important;  /* don’t let height animations jump */
+  overflow: visible    !important;  /* show contents right away */
+  transition: none     !important;  /* no sliding animation */
 }
+
