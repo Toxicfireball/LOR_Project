@@ -14,3 +14,6 @@ MIDDLEWARE += [
 
 # Templates in dev: show errors inline
 TEMPLATES[0]['OPTIONS']['debug'] = True
+# after load_dotenv…
+NODE_BIN_PATH = os.environ.get("NODE_BIN_PATH", "node")
+NPM_BIN_PATH  = os.environ.get("NPM_BIN_PATH",  "npm")

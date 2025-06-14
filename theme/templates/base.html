@@ -4,44 +4,24 @@
 
 
 <head>
-
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}…{% endblock %}</title>
 
-  <title>{% block title %}LOR Website{% endblock %}</title>
+  {% tailwind_css %}
 
-    {# ─── Bootstrap 5 CSS ──────────────────────────────────────────────────── #}
   <link
     href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
     rel="stylesheet"
-    integrity="sha384-9ndCyUaIbzAi2FUVXJi0CjmCapSmO7SnpJef0486qhLnuZ2cdeRhO02iuK6FUUVM"
+    integrity="sha384-…"
     crossorigin="anonymous"
   >
-  {% tailwind_css %}
-  <!-- 3) Your overrides _after_ Tailwind -->
-  <link href="/static/css/main.css" rel="stylesheet">
-  <link href="/static/css/character.css" rel="stylesheet">
 
-<style>
-  /* 1) Kill the flicker: when Bootstrap is animating ( .collapsing ), force it visible */
-  .collapsing {
-    display: block    !important;
-    height:  auto     !important;
-    overflow: visible !important;
-    transition: none  !important;
-  }
-
-  /* 2) Ensure the “shown” states stay shown */
-  .navbar-collapse.show,
-  .dropdown-menu.show {
-    display: block !important;
-  }
-</style>
+  <link href="{% static 'css/main.css' %}" rel="stylesheet">
+  <link href="{% static 'css/character.css' %}" rel="stylesheet">
 
   {% block extra_css %}{% endblock %}
-
 </head>
-
 
 
 <body>
