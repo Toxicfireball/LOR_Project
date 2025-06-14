@@ -1,4 +1,7 @@
 module.exports = {
+  corePlugins: {
+    preflight: false,
+  },
   content: [
     './templates/**/*.html',
     // …

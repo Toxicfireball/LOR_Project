@@ -70,6 +70,11 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+import os
+
+# after load_dotenv…
+NODE_BIN_PATH = os.environ.get("NODE_BIN_PATH", "node")
+NPM_BIN_PATH  = os.environ.get("NPM_BIN_PATH",  "npm")
 
 ROOT_URLCONF = 'LOR_Website.urls'
 WSGI_APPLICATION = 'LOR_Website.wsgi.application'
