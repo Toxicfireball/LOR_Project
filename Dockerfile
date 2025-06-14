@@ -12,6 +12,7 @@ RUN apk update \
  && apk add --no-cache \
       nodejs npm \
       build-base zlib-dev jpeg-dev freetype-dev curl \
+ && ln -sf /usr/bin/nodejs /usr/bin/node \
  && rm -rf /var/cache/apk/*
 
 WORKDIR /app
