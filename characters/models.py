@@ -120,6 +120,44 @@ class Rulebook(models.Model):
         return self.name
 
 
+from django.urls import reverse
+
+
+class LoremasterArticle(models.Model):
+    title       = models.CharField(max_length=255)
+    slug        = models.SlugField(unique=True)
+    excerpt     = models.TextField(blank=True, help_text="Short summary for list page")
+    content     = SummernoteTextField()  # rich-text body
+    cover_image = models.ImageField(upload_to="loremaster/covers/", blank=True, null=True)
+    main_image  = models.ImageField(upload_to="loremaster/main/",   blank=True, null=True)
+    # A simple gallery: single FK per‐image; could also use a separate GalleryImage model
+    gallery     = models.ManyToManyField(
+        "LoremasterImage",
+        blank=True,
+        related_name="articles",
+    )
+    published   = models.BooleanField(default=False)
+    created_at  = models.DateTimeField(auto_now_add=True)
+    updated_at  = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Loremaster Article"
+        verbose_name_plural = "Loremaster Articles"
+
+    def __str__(self):
+        return self.title
+
+    def get_absolute_url(self):
+        return reverse("characters:loremaster_detail", kwargs={"slug": self.slug})
+
+
+class LoremasterImage(models.Model):
+    image      = models.ImageField(upload_to="loremaster/gallery/")
+    caption    = models.CharField(max_length=255, blank=True)
+
+    def __str__(self):
+        return self.caption or f"Image #{self.pk}"
 
 # in characters/models.py
 

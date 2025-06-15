@@ -21,7 +21,7 @@ from characters.models import (
 from django.urls import resolve
 from django.contrib.admin.widgets import FilteredSelectMultiple
 from characters.widgets import FormulaBuilderWidget, CharacterClassSelect
-from characters.models import RulebookPage, Rulebook, RacialFeature, Rulebook, RulebookPage,AbilityScore,Background, ResourceType,Weapon, SubSkill, UniversalLevelFeature, Skill,SkillCategory, WeaponTraitValue,WeaponTrait, ClassResource, CharacterResource, SubclassGroup, SubclassTierLevel
+from characters.models import LoremasterArticle, LoremasterImage, RulebookPage, Rulebook, RacialFeature, Rulebook, RulebookPage,AbilityScore,Background, ResourceType,Weapon, SubSkill, UniversalLevelFeature, Skill,SkillCategory, WeaponTraitValue,WeaponTrait, ClassResource, CharacterResource, SubclassGroup, SubclassTierLevel
 from characters.forms import CharacterClassForm
 from django.utils.html import format_html
 from django.forms.models import BaseInlineFormSet
@@ -41,6 +41,22 @@ from django.contrib import admin
 
 # ─── Inline for Pages ─────────────────────────────────────────────────────────
 
+from django.contrib import admin
+from django_summernote.admin import SummernoteModelAdmin
+
+@admin.register(LoremasterImage)
+class LoremasterImageAdmin(admin.ModelAdmin):
+    list_display = ("__str__",)
+    search_fields = ("caption",)
+
+@admin.register(LoremasterArticle)
+class LoremasterArticleAdmin(SummernoteModelAdmin):
+    list_display    = ("title", "published", "created_at")
+    list_filter     = ("published", "created_at")
+    search_fields   = ("title", "excerpt", "content")
+    prepopulated_fields = {"slug": ("title",)}
+    summernote_fields = ("content",)
+    filter_horizontal  = ("gallery",)
 
 @admin.register(Rulebook)
 class RulebookAdmin(admin.ModelAdmin):

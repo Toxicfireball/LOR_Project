@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}My Submissions{% endblock %}
+{% block content %}
+  <h1 class="text-2xl font-bold mb-4">My Submissions</h1>
+  <ul>
+    {% for s in subs %}
+      <li>
+        {{ s.created_at|date:"SHORT_DATETIME_FORMAT" }} —
+        {{ s.content_type.app_label }}.{{ s.content_type.model }}
+        {% if s.object_id %} [edit {{ s.object_id }}]{% else %}[new]{% endif %} →
+        <strong>{{ s.status }}</strong>
+      </li>
+    {% empty %}
+      <li>You have not submitted anything yet.</li>
+    {% endfor %}
+  </ul>
+{% endblock %}

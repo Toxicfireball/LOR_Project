@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Loremaster Articles{% endblock %}
+
+{% block content %}
+  <div class="max-w-4xl mx-auto">
+    <h1 class="text-3xl font-bold mb-6">Loremaster Archive</h1>
+
+    <form method="get" class="mb-6 flex space-x-2">
+      <input type="text" name="q"
+             placeholder="Search articles…"
+             value="{{ request.GET.q|default_if_none:'' }}"
+             class="flex-grow border rounded px-3 py-2 focus:outline-none focus:ring" />
+      <button type="submit"
+              class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+        Search
+      </button>
+    </form>
+
+    {% for article in articles %}
+      <div class="mb-8 bg-white shadow rounded overflow-hidden">
+        {% if article.cover_image %}
+          <img src="{{ article.cover_image.url }}"
+               alt="{{ article.title }} cover"
+               class="w-full h-64 object-cover" />
+        {% endif %}
+        <div class="p-6">
+          <h2 class="text-2xl font-semibold mb-2">
+            <a href="{{ article.get_absolute_url }}"
+               class="hover:underline">{{ article.title }}</a>
+          </h2>
+          {% if article.excerpt %}
+            <p class="text-gray-700 mb-4">{{ article.excerpt }}</p>
+          {% endif %}
+          <a href="{{ article.get_absolute_url }}"
+             class="text-blue-600 hover:underline">Read more &rarr;</a>
+        </div>
+      </div>
+    {% empty %}
+      <p class="text-gray-600">No articles found.</p>
+    {% endfor %}
+
+    {% include "pagination.html" with page_obj=page_obj %}
+  </div>
+{% endblock %}

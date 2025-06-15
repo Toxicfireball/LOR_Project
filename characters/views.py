@@ -12,7 +12,7 @@ from campaigns.models import Campaign
 @login_required
 def character_list(request):
     characters = request.user.characters.all()
-    return render(request, 'characters/character_list.html', {'characters': characters})
+    return render(request, 'forge/character_list.html', {'characters': characters})
 
 
 @login_required
@@ -31,7 +31,7 @@ from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from .forms import CharacterCreationForm
 import re
-
+from django.views.generic import ListView, DetailView
 # views.py
 import json
 from django.shortcuts import render, redirect
@@ -45,18 +45,12 @@ from .models import Character
 from .models import SubSkill, ProficiencyLevel, CharacterSkillProficiency
 
 from django.shortcuts import render
-from characters.models import Spell,Subrace, CharacterFeature, ClassFeat,UniversalLevelFeature, CharacterClass, ClassFeature, ClassSubclass, SubclassGroup
+from characters.models import LoremasterArticle,Spell,Subrace, CharacterFeature, ClassFeat,UniversalLevelFeature, CharacterClass, ClassFeature, ClassSubclass, SubclassGroup
 
 
 
-from django.shortcuts import render
-from .models import Spell
 
-from django.shortcuts import render
-from .models import Spell
 
-from django.shortcuts import render
-from .models import Spell
 
 def spell_list(request):
     spells = Spell.objects.all()
@@ -172,6 +166,26 @@ def class_list(request):
     classes = CharacterClass.objects.all().order_by('name')
     return render(request, 'codex/class_list.html', {'classes': classes})
 
+class LoremasterListView(ListView):
+    model               = LoremasterArticle
+    template_name       = "loremaster/loremaster_list.html"
+    context_object_name = "articles"
+    paginate_by         = 10
+
+    def get_queryset(self):
+        qs = super().get_queryset().filter(published=True)
+        q  = self.request.GET.get("q", "")
+        if q:
+            qs = qs.filter(title__icontains=q) | qs.filter(excerpt__icontains=q)
+        return qs
+
+
+class LoremasterDetailView(DetailView):
+    model         = LoremasterArticle
+    template_name = "loremaster/loremaster_detail.html"
+    context_object_name = "article"
+
+    # will look up by slug because of the URLconf above
 
 
 def class_subclass_list(request):
@@ -421,7 +435,7 @@ def create_character(request):
         'races_json':       json.dumps(races,       cls=DjangoJSONEncoder),
         'backgrounds_json': json.dumps(backgrounds, cls=DjangoJSONEncoder),
     }
-    return render(request, 'characters/create_character.html', context)
+    return render(request, 'forge/create_character.html', context)
 
 
 @login_required
@@ -442,7 +456,7 @@ def character_detail(request, pk):
         'character': character,
         'skills':     skills,
     }
-    return render(request, 'characters/character_detail.html', context)
+    return render(request, 'forge/character_detail.html', context)
 
 
 
@@ -724,9 +738,11 @@ def level_up(request, char_id):
             if fname in form.fields:
                 feature_fields.append((form[fname], feat.name))
 
-    return render(request, 'characters/level_up.html', {
+    return render(request, 'characters/forge/level_up.html', {
         'character':      character,
         'form':           form,
         'total_level':    character.level,
         'feature_fields': feature_fields,
     })
+
+

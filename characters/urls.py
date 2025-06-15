@@ -27,6 +27,8 @@ path('codex/classes/<int:pk>/', views.class_detail, name='class_detail'),
         RulebookPageDetailView.as_view(),
         name="rulebook_page_detail",
     ),
+    path('loremaster/',                             views.LoremasterListView.as_view(),   name='loremaster_list'),
+    path('loremaster/<slug:slug>/',                 views.LoremasterDetailView.as_view(), name='loremaster_detail'),
 
 
 ]

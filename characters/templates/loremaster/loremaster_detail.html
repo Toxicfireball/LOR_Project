@@ -1,0 +1,41 @@
+<!-- templates/loremaster/loremaster_detail.html -->
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}{{ article.title }}{% endblock %}
+
+{% block content %}
+  <div class="max-w-3xl mx-auto prose lg:prose-xl">
+    <h1>{{ article.title }}</h1>
+    <p class="text-sm text-gray-500">Published on {{ article.created_at|date:"F j, Y" }}</p>
+
+    {% if article.main_image %}
+      <img src="{{ article.main_image.url }}"
+           alt="{{ article.title }} main"
+           class="w-full h-80 object-cover rounded my-6" />
+    {% endif %}
+
+    <div>
+      {{ article.content|safe }}
+    </div>
+
+    {% if article.gallery.all %}
+      <section class="mt-12">
+        <h2 class="text-2xl font-bold mb-4">Gallery</h2>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {% for img in article.gallery.all %}
+            <figure class="overflow-hidden rounded">
+              <img src="{{ img.image.url }}"
+                   alt="{{ img.caption }}"
+                   class="w-full h-48 object-cover" />
+              {% if img.caption %}
+                <figcaption class="text-sm text-gray-600 p-2">{{ img.caption }}</figcaption>
+              {% endif %}
+            </figure>
+          {% endfor %}
+        </div>
+      </section>
+    {% endif %}
+
+  </div>
+{% endblock %}
