@@ -27,3 +27,4 @@ import os
 # after your other settings…
 NODE_BIN_PATH = os.environ.get("NODE_BIN_PATH", "node")
 NPM_BIN_PATH  = os.environ.get("NPM_BIN_PATH",  "npm")
+DEBUG = False
