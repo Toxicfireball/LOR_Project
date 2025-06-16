@@ -187,32 +187,50 @@
     {% block content %}{% endblock %}
   </div>
 
-  <script>
-    // desktop toggles close each other
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
     const desktopIds = ['forge','codex','campaigns'];
     desktopIds.forEach(id => {
-      document.getElementById(id+'-toggle').addEventListener('click', () => {
+      const toggle = document.getElementById(id + '-toggle');
+      const menu   = document.getElementById(id + '-menu');
+      if (!toggle || !menu) return;   // ← bail out if not on this page
+      toggle.addEventListener('click', () => {
         desktopIds.forEach(other => {
-          if (other !== id) document.getElementById(other+'-menu').classList.remove('show');
+          const m = document.getElementById(other + '-menu');
+          if (m) m.classList.remove('show');
         });
-        document.getElementById(id+'-menu').classList.toggle('show');
+        menu.classList.toggle('show');
       });
     });
-    // mobile toggles
-    const mobileIds = ['forge','codex','campaigns'];
-    document.getElementById('mobile-toggle').addEventListener('click', ()=>{
-      mobileIds.forEach(id => document.getElementById('mobile-'+id+'-menu').classList.remove('show'));
-      document.getElementById('mobile-menu').classList.toggle('show');
-    });
-    mobileIds.forEach(id => {
-      document.getElementById('mobile-'+id+'-toggle').addEventListener('click', ()=>{
-        mobileIds.forEach(other=>{
-          if (other!==id) document.getElementById('mobile-'+other+'-menu').classList.remove('show');
+
+    const mobileToggle = document.getElementById('mobile-toggle');
+    const mobileIds    = ['forge','codex','campaigns'];
+    if (mobileToggle) {
+      mobileToggle.addEventListener('click', () => {
+        mobileIds.forEach(id => {
+          const m = document.getElementById('mobile-' + id + '-menu');
+          if (m) m.classList.remove('show');
         });
-        document.getElementById('mobile-'+id+'-menu').classList.toggle('show');
+        const mm = document.getElementById('mobile-menu');
+        if (mm) mm.classList.toggle('show');
       });
-    });
-  </script>
+
+      mobileIds.forEach(id => {
+        const toggle = document.getElementById('mobile-' + id + '-toggle');
+        const menu   = document.getElementById('mobile-' + id + '-menu');
+        if (!toggle || !menu) return;
+        toggle.addEventListener('click', () => {
+          mobileIds.forEach(other => {
+            const m = document.getElementById('mobile-' + other + '-menu');
+            if (m) m.classList.remove('show');
+          });
+          menu.classList.toggle('show');
+        });
+      });
+    }
+  });
+</script>
+
 
   {% block extra_js %}{% endblock %}
 </body>
