@@ -781,7 +781,6 @@ class ClassFeatureAdmin(admin.ModelAdmin):
                         "formula_target",
                         "formula",
                         "uses",
-                        "tier",
                         "spell_list",           # ← our new dropdown
                         "modify_proficiency_target",
                         "modify_proficiency_amount",             
