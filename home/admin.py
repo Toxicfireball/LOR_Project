@@ -40,7 +40,7 @@ from django.contrib import admin
 
 
 # ─── Inline for Pages ─────────────────────────────────────────────────────────
-
+from django_summernote.widgets import SummernoteWidget
 from django.contrib import admin
 from django_summernote.admin import SummernoteModelAdmin
 
@@ -483,6 +483,8 @@ class ClassResourceForm(forms.ModelForm):
 
 
 class ClassFeatureForm(forms.ModelForm):
+
+
     class Meta:
         model  = ClassFeature
         fields = "__all__"
@@ -535,8 +537,11 @@ class ClassFeatureForm(forms.ModelForm):
             "spells_prepared_formula": FormulaBuilderWidget(variables=VARS, dice=DICE, attrs={"rows":2,"cols":40}),
             "gain_subskills": FilteredSelectMultiple("Sub-skills", is_stacked=True),
             "subclasses": FilteredSelectMultiple("Subclasses", is_stacked=True),
+            "description": SummernoteWidget(),
         }
 
+
+        # ... 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -913,6 +918,9 @@ class ClassFeatureAdmin(admin.ModelAdmin):
             field.widget.attrs["data-system-type"] = system_t
 
         return field    
+    
+
+
     class Media:
         js = (
             'characters/js/formula_builder.js',
