@@ -18,6 +18,17 @@ PROFICIENCY_TYPES = [
     ("weapon",      "Weapon"),
 ]
 
+
+ABILITY_CHOICES = [
+    ("strength",     "Strength"),
+    ("dexterity",    "Dexterity"),
+    ("constitution", "Constitution"),
+    ("intelligence", "Intelligence"),
+    ("wisdom",       "Wisdom"),
+    ("charisma",     "Charisma"),
+]
+
+
 HIT_DIE_CHOICES = [
     (4,  "d4"),
     (6,  "d6"),
@@ -27,13 +38,38 @@ HIT_DIE_CHOICES = [
 ]
 
 
+ABILITY_CHOICES = [
+    ("strength",     "Strength"),
+    ("dexterity",    "Dexterity"),
+    ("constitution", "Constitution"),
+    ("intelligence", "Intelligence"),
+    ("wisdom",       "Wisdom"),
+    ("charisma",     "Charisma"),
+]
+
 class Skill(models.Model):
-    name = models.CharField(max_length=100, unique=True)
-    ability = models.CharField(max_length=3, help_text="e.g., DEX, INT")
-    is_advanced = models.BooleanField(default=False, help_text="Advanced skills can't be increased normally.")
+    name               = models.CharField(max_length=100, unique=True)
+    ability            = models.CharField(
+        max_length=12,
+        choices=ABILITY_CHOICES,
+        default="strength",
+        help_text="Primary governing ability"
+    )
+    secondary_ability  = models.CharField(
+        max_length=12,
+        choices=ABILITY_CHOICES,
+        blank=True,
+        null=True,
+        help_text="Optional secondary governing ability"
+    )
+    description        = models.TextField(blank=True)
+    is_advanced        = models.BooleanField(default=False)
 
     def __str__(self):
+        if self.secondary_ability:
+            return f"{self.name} ({self.ability.title()} / {self.secondary_ability.title()})"
         return self.name
+
 #RACE
 class BaseRace(models.Model):
     code        = models.SlugField(max_length=20, unique=True)
@@ -288,19 +324,19 @@ class RaceTag(models.Model):
 # ------------------------------------------------------------------------------
 # Skills & Proficiencies
 # ------------------------------------------------------------------------------
-class SkillCategory(models.Model):
-    name    = models.CharField(max_length=100, unique=True)
-    ability = models.CharField(max_length=3)  # e.g. DEX, INT
-
-    def __str__(self):
-        return self.name
 
 class SubSkill(models.Model):
-    category = models.ForeignKey(SkillCategory, on_delete=models.CASCADE, related_name='subskills')
-    name     = models.CharField(max_length=100)
-
+    skill = models.ForeignKey(
+        'Skill',
+        on_delete=models.CASCADE,
+        related_name='subskills',
+        help_text="Which Skill this SubSkill falls under",
+    )
+    name        = models.CharField(max_length=100)
+    description = models.TextField(blank=True)
     def __str__(self):
-        return f"{self.category.name} – {self.name}"
+        # show “<Skill name> – <SubSkill name>”
+        return f"{self.skill.name} – {self.name}"
 
 
 class ProficiencyLevel(models.Model):

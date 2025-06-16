@@ -21,7 +21,7 @@ from characters.models import (
 from django.urls import resolve
 from django.contrib.admin.widgets import FilteredSelectMultiple
 from characters.widgets import FormulaBuilderWidget, CharacterClassSelect
-from characters.models import LoremasterArticle, LoremasterImage, RulebookPage, Rulebook, RacialFeature, Rulebook, RulebookPage,AbilityScore,Background, ResourceType,Weapon, SubSkill, UniversalLevelFeature, Skill,SkillCategory, WeaponTraitValue,WeaponTrait, ClassResource, CharacterResource, SubclassGroup, SubclassTierLevel
+from characters.models import LoremasterArticle, LoremasterImage, RulebookPage, Rulebook, RacialFeature, Rulebook, RulebookPage,AbilityScore,Background, ResourceType,Weapon, SubSkill, UniversalLevelFeature, Skill, WeaponTraitValue,WeaponTrait, ClassResource, CharacterResource, SubclassGroup, SubclassTierLevel
 from characters.forms import CharacterClassForm
 from django.utils.html import format_html
 from django.forms.models import BaseInlineFormSet
@@ -187,24 +187,23 @@ class SubSkillInline(admin.TabularInline):
     fields = ("name",)
 
 
-@admin.register(SkillCategory)
-class SkillCategoryAdmin(admin.ModelAdmin):
-    list_display   = ("name", "ability")
-    search_fields  = ("name",)
-    inlines        = [SubSkillInline]
+
 
 @admin.register(Skill)
 class SkillAdmin(admin.ModelAdmin):
-    list_display = ("name", "ability", "is_advanced")
-    search_fields = ("name",)
-    list_filter = ("ability", "is_advanced")
+    list_display    = ("name", "ability", "secondary_ability", "is_advanced")
+    list_filter     = ("ability", "secondary_ability", "is_advanced")
+    search_fields   = ("name",)
+    fields          = ("name", "ability", "secondary_ability", "description", "is_advanced")
+
 
 @admin.register(SubSkill)
 class SubSkillAdmin(admin.ModelAdmin):
-    list_display       = ("name", "category")
-    search_fields      = ("name",)
-    list_filter        = ("category",)
-    autocomplete_fields= ("category",)
+    list_display       = ("name", "skill", "description")
+    search_fields      = ("name", "skill__name")
+    autocomplete_fields= ("skill",)
+    fields             = ("skill", "name", "description")
+
 
 
 class SubclassGroupForm(forms.ModelForm):
