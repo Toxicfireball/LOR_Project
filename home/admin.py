@@ -17,12 +17,12 @@ from characters.models import (
     SpellSlotRow , 
     ResourceType, ClassResource, CharacterResource, Spell
 )
-
+from django.contrib.contenttypes.models import ContentType
 from django.urls import resolve
 from django.contrib.admin.widgets import FilteredSelectMultiple
 from characters.widgets import FormulaBuilderWidget, CharacterClassSelect
-from characters.models import LoremasterArticle, LoremasterImage, RulebookPage, Rulebook, RacialFeature, Rulebook, RulebookPage,AbilityScore,Background, ResourceType,Weapon, SubSkill, UniversalLevelFeature, Skill, WeaponTraitValue,WeaponTrait, ClassResource, CharacterResource, SubclassGroup, SubclassTierLevel
-from characters.forms import CharacterClassForm
+from characters.models import CharacterSkillProficiency, LoremasterArticle, LoremasterImage, RulebookPage, Rulebook, RacialFeature, Rulebook, RulebookPage,AbilityScore,Background, ResourceType,Weapon, SubSkill, UniversalLevelFeature, Skill, WeaponTraitValue,WeaponTrait, ClassResource, CharacterResource, SubclassGroup, SubclassTierLevel
+from characters.forms import CharacterClassForm, CombinedSkillField
 from django.utils.html import format_html
 from django.forms.models import BaseInlineFormSet
 from django.core.exceptions import ValidationError
@@ -151,7 +151,20 @@ class ModularLinearFeatureFormSet(BaseInlineFormSet):
             
 
 
-        
+      
+
+class CombinedSkillAdminMixin:
+    def get_form(self, request, obj=None, **kwargs):
+        Form = super().get_form(request,obj,**kwargs)
+        class F(Form):
+            def __init__(self,*args,**kws):
+                super().__init__(*args,**kws)
+                for fld in ("primary_skill","secondary_skill","selected_skill"):
+                    if fld in self.fields:
+                        self.fields[fld] = CombinedSkillField(label=self.fields[fld].label,
+                                                               required=self.fields[fld].required)
+        return F
+  
 class SpellInline(admin.StackedInline):
     model       = Spell
     fk_name     = "class_feature"
@@ -933,21 +946,16 @@ class ClassFeatureAdmin(admin.ModelAdmin):
 
 
 @admin.register(Background)
-class BackgroundAdmin(admin.ModelAdmin):
-    list_display = (
-        "code", "name",
-        "primary_ability", "primary_bonus", "primary_skill",
-        "secondary_ability", "secondary_bonus", "secondary_skill",
-    )
-    search_fields = ("code", "name")
-    list_filter  = ("primary_ability", "secondary_ability")
-    autocomplete_fields = ("primary_skill", "secondary_skill")
-
+class BackgroundAdmin(CombinedSkillAdminMixin, admin.ModelAdmin):
+    # remove the two autocomplete_fields lines entirely
+    search_fields = ("code","name")
+    list_filter  = ("primary_ability","secondary_ability")
     fields = [
-        "code", "name",
-        ("primary_ability", "primary_bonus", "primary_skill"),
-        ("secondary_ability", "secondary_bonus", "secondary_skill"),
+        "code","name",
+        ("primary_ability","primary_bonus","primary_skill"),
+        ("secondary_ability","secondary_bonus","secondary_skill"),
     ]
+
 
 @admin.register(AbilityScore)
 class AbilityScoreAdmin(admin.ModelAdmin):
@@ -982,12 +990,6 @@ class ClassLevelAdmin(admin.ModelAdmin):
 
     class Media:
         js = ("characters/js/classlevel_admin.js","characters/js/classlevelfeature_admin.js",)
-
-
-
-   
-
-
 
 
 class ClassResourceInline(admin.TabularInline):
@@ -1124,58 +1126,12 @@ class RacialFeatureForm(ClassFeatureForm):
     class Meta(ClassFeatureForm.Meta):
         model = RacialFeature
 
-@admin.register(RacialFeature)
-class RaceFeatureAdmin(ClassFeatureAdmin):
-    form = RacialFeatureForm
-    inlines = [RaceFeatureOptionInline]
 
-    list_display = (
-                "race", "subrace", "scope", "kind",
-       "code", "name", "has_options", "formula", "uses",
-    )
-    list_filter = ("race", "scope", "kind")
-    autocomplete_fields = ("subrace",)
-    search_fields = ("code", "name", "description")
-    fieldsets = [
-        (None, {
-            "fields": [
-                "race", "subrace",
-                "scope", "kind", "gain_subskills",
-                "activity_type", "action_type",
-                "subclasses",
-                "code", "name", "description",
-                "has_options",                "tier", "mastery_rank", "level_required",
-               "formula_target",
-                "spell_list",
-                "cantrips_formula", "spells_known_formula", "spells_prepared_formula",
-                "modify_proficiency_target", "modify_proficiency_amount",
-            ]
-        }),
-        ("Saving Throw", {
-            "classes": ["collapse"],
-            "fields": [
-                "saving_throw_required", "saving_throw_type", "saving_throw_granularity",
-                "saving_throw_basic_success", "saving_throw_basic_failure",
-                "saving_throw_critical_success", "saving_throw_success",
-                "saving_throw_failure", "saving_throw_critical_failure",
-            ]
-        }),
-        ("Effect / Damage", {
-            "classes": ["collapse"],
-            "fields": ["damage_type", "formula", "uses"],
-        }),
-    ]
 
-    class Media:
-        js = (
-            "characters/js/formula_builder.js",
-            "characters/js/classfeature_admin.js",
-        )
-        css = {"all": ("characters/css/formula_builder.css",)}
+
 
 @admin.register(Race)
 class RaceAdmin(admin.ModelAdmin):
-    inlines = [RacialFeatureInline,]
     list_display = (
         "name","code","size","speed",
         "secondary_thumbnail","tertiary_thumbnail",
@@ -1251,7 +1207,63 @@ class SubraceAdmin(admin.ModelAdmin):
     list_display      = ("name","race","code")
     filter_horizontal = ("tags",)
     search_fields     = ("name","code")
-    inlines           = [RacialFeatureInline ]
+
+
+# in characters/admin.py
+
+from django.contrib import admin
+from characters.models import RacialFeature, RaceFeatureOption
+
+class RaceFeatureOptionInline(admin.TabularInline):
+    model = RaceFeatureOption
+    fk_name = "feature"
+    extra = 1
+    autocomplete_fields = ("grants_feature",)
+
+@admin.register(RacialFeature)
+class RacialFeatureAdmin(admin.ModelAdmin):
+    inlines = [RaceFeatureOptionInline]
+    list_display = ("race", "subrace", "scope", "kind", "code", "name")
+    list_filter  = ("race", "subrace", "scope", "kind")
+    search_fields = ("code", "name", "description")
+    autocomplete_fields = ("subrace",)
+
+    # completely drop the character_class & subclasses fields
+    exclude = ("character_class", "subclasses")
+
+    fieldsets = [
+        (None, {
+            "fields": [
+                "race",
+                "subrace",
+                "scope",
+                "kind",
+                "gain_subskills",
+                "code",
+                "name",
+                "description",
+                # any other ClassFeature fields you actually want…
+            ]
+        }),
+        ("Saving Throw (optional)", {
+            "classes": ["collapse"],
+            "fields": [
+                "saving_throw_required",
+                "saving_throw_type",
+                "saving_throw_granularity",
+                "saving_throw_basic_success",
+                "saving_throw_basic_failure",
+                "saving_throw_critical_success",
+                "saving_throw_success",
+                "saving_throw_failure",
+                "saving_throw_critical_failure",
+            ]
+        }),
+        ("Damage / Formula (optional)", {
+            "classes": ["collapse"],
+            "fields": ["damage_type", "formula", "uses"],
+        }),
+    ]
 
 
 
@@ -1267,3 +1279,26 @@ class UniversalLevelFeatureAdmin(admin.ModelAdmin):
     fields = ("level", "grants_general_feat", "grants_asi")
 
 
+class CSPForm(forms.ModelForm):
+    selected_skill = CombinedSkillField(label="Skill or SubSkill")
+
+    class Meta:
+        model  = CharacterSkillProficiency
+        # don't list selected_skill_type/id here:
+        fields = ("character","proficiency")
+
+    def save(self, commit=True):
+        inst = super().save(commit=False)
+        obj  = self.cleaned_data["selected_skill"]
+        inst.selected_skill_type = ContentType.objects.get_for_model(obj)
+        inst.selected_skill_id   = obj.pk
+        if commit:
+            inst.save()
+        return inst
+
+
+        
+@admin.register(CharacterSkillProficiency)
+class CharacterSkillProficiencyAdmin(CombinedSkillAdminMixin, admin.ModelAdmin):
+    form = CSPForm
+    list_display = ("character","selected_skill","proficiency")

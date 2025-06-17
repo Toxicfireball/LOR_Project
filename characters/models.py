@@ -2,7 +2,8 @@ from django.db import models
 from django.contrib.auth.models import User
 from campaigns.models import Campaign  # Make sure the campaigns app is created and in INSTALLED_APPS
 from django.core.exceptions import ValidationError
-
+from django.contrib.contenttypes.models import ContentType
+from django.contrib.contenttypes.fields import GenericForeignKey
 # ------------------------------------------------------------------------------
 # Constants
 # ------------------------------------------------------------------------------
@@ -348,13 +349,55 @@ class ProficiencyLevel(models.Model):
         return self.name
 
 
+from django.db import models
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
+
 class CharacterSkillProficiency(models.Model):
-    character   = models.ForeignKey(Character, on_delete=models.CASCADE, related_name='skill_proficiencies')
-    subskill    = models.ForeignKey(SubSkill, on_delete=models.CASCADE)
-    proficiency = models.ForeignKey(ProficiencyLevel, on_delete=models.CASCADE)
+    character = models.ForeignKey(
+        Character,
+        on_delete=models.CASCADE,
+        related_name='skill_proficiencies'
+    )
+
+    # Now required—points at either Skill or SubSkill
+    selected_skill_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.PROTECT,
+        limit_choices_to=models.Q(
+            app_label="characters",
+            model__in=["skill", "subskill"],
+        ),
+        verbose_name="Skill or SubSkill type",
+                null=True,
+        blank=True,
+
+    )
+    selected_skill_id = models.PositiveIntegerField(
+        verbose_name="Skill or SubSkill ID",
+        null=True,
+        blank=True,
+    )
+    selected_skill = GenericForeignKey(
+        "selected_skill_type",
+        "selected_skill_id",
+    )
+
+    proficiency = models.ForeignKey(
+        ProficiencyLevel,
+        on_delete=models.CASCADE,
+    )
 
     class Meta:
-        unique_together = ('character', 'subskill')
+        unique_together = (
+            ("character", "selected_skill_type", "selected_skill_id"),
+        )
+        verbose_name = "Character Skill Proficiency"
+        verbose_name_plural = "Character Skill Proficiencies"
+
+    def __str__(self):
+        return f"{self.character.name} – {self.selected_skill} ({self.proficiency})"
+
 
 
 # ------------------------------------------------------------------------------
@@ -600,12 +643,32 @@ class CharacterSkillRating(models.Model):
 
 class CharacterSubSkillProficiency(models.Model):
     character = models.ForeignKey(Character, on_delete=models.CASCADE, related_name='subskill_proficiencies')
-    subskill = models.ForeignKey(SubSkill, on_delete=models.CASCADE)
+    selected_skill_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.CASCADE,
+        limit_choices_to=models.Q(
+            app_label="characters",
+            model__in=["skill","subskill"],
+        ),
+        verbose_name="Skill or SubSkill type",
+        blank = True,
+        null = True
+    )
+    selected_skill_id = models.PositiveIntegerField(
+        verbose_name="Skill or SubSkill ID",
+        null=True,
+        blank=True,
+        help_text="(temporarily nullable so migrations can run; you can remove null=True once it’s back-filled)"
+    )    
+    selected_skill = GenericForeignKey("selected_skill_type", "selected_skill_id")    
     proficiency = models.ForeignKey(ProficiencyLevel, on_delete=models.CASCADE)
 
     class Meta:
-        unique_together = ('character', 'subskill')
-
+        unique_together = (
+            'character',
+            'selected_skill_type',
+            'selected_skill_id',
+        )
 
 class ClassFeature(models.Model):
    # ← new!

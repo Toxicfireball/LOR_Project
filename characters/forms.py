@@ -105,6 +105,31 @@ class CharacterCreationForm(forms.ModelForm):
             })
 
         return cleaned
+    
+from django import forms
+from django.contrib.contenttypes.models import ContentType
+from .models import Skill, SubSkill
+class CombinedSkillWidget(forms.Select):
+    def __init__(self, attrs=None):
+        skill_choices = [ (f"skill-{s.pk}",   s.name) for s in Skill.objects.order_by("name") ]
+        sub_choices   = [ (f"subskill-{ss.pk}", f"{ss.skill.name} → {ss.name}")
+                          for ss in SubSkill.objects.select_related("skill")
+                                         .order_by("skill__name","name") ]
+        super().__init__(attrs, choices=[("", "---------")] + skill_choices + sub_choices)
+
+class CombinedSkillField(forms.Field):
+    widget = CombinedSkillWidget
+    def to_python(self, value):
+        if not value:
+            return None
+        prefix, pk = value.split("-",1)
+        pk = int(pk)
+        if prefix=="skill":    return Skill.objects.get(pk=pk)
+        if prefix=="subskill": return SubSkill.objects.get(pk=pk)
+        raise forms.ValidationError("Unknown selection")
+
+
+
 class LevelUpForm(forms.Form):
     base_class    = forms.ModelChoiceField(
         queryset=CharacterClass.objects.none(),
