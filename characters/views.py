@@ -345,8 +345,17 @@ from .models import Rulebook, RulebookPage
 
 class RulebookListView(ListView):
     model = Rulebook
-    template_name = "rulebook/list.html"
+    template_name = "rulebook/list.html"       # ← match your folder name
     context_object_name = "rulebooks"
+    paginate_by = 10                             # ← show 10 per page
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        q  = self.request.GET.get("q", "").strip()
+        if q:
+            qs = qs.filter(name__icontains=q)
+        return qs.order_by("name")
+
 
 class RulebookDetailView(DetailView):
     model = Rulebook

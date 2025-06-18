@@ -2,6 +2,20 @@
 {% extends "base.html" %}
 {% block content %}
   <h1>Rulebooks</h1>
+
+  <form method="get" class="mb-6 flex space-x-2">
+    <input
+      type="text" name="q"
+      placeholder="Search rulebooks…"
+      value="{{ request.GET.q|default_if_none:'' }}"
+      class="flex-grow border rounded px-3 py-2 focus:outline-none focus:ring"
+    />
+    <button
+      type="submit"
+      class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+    >Search</button>
+  </form>
+
   <ul>
     {% for rb in rulebooks %}
       <li>
@@ -10,7 +24,34 @@
         </a>
       </li>
     {% empty %}
-      <li>No rulebooks yet.</li>
+      <li>No rulebooks found.</li>
     {% endfor %}
   </ul>
+
+  {% if is_paginated %}
+    <nav class="mt-4 flex justify-center space-x-1">
+      {% if page_obj.has_previous %}
+        <a
+          href="?q={{ request.GET.q }}&page={{ page_obj.previous_page_number }}"
+          class="px-3 py-1 border rounded hover:bg-gray-200"
+        >&laquo; Prev</a>
+      {% endif %}
+      {% for num in page_obj.paginator.page_range %}
+        {% if num == page_obj.number %}
+          <span class="px-3 py-1 bg-gray-300 rounded">{{ num }}</span>
+        {% else %}
+          <a
+            href="?q={{ request.GET.q }}&page={{ num }}"
+            class="px-3 py-1 border rounded hover:bg-gray-100"
+          >{{ num }}</a>
+        {% endif %}
+      {% endfor %}
+      {% if page_obj.has_next %}
+        <a
+          href="?q={{ request.GET.q }}&page={{ page_obj.next_page_number }}"
+          class="px-3 py-1 border rounded hover:bg-gray-200"
+        >Next &raquo;</a>
+      {% endif %}
+    </nav>
+  {% endif %}
 {% endblock %}

@@ -105,7 +105,11 @@ class CharacterCreationForm(forms.ModelForm):
             })
 
         return cleaned
-    
+
+
+
+
+
 from django import forms
 from django.contrib.contenttypes.models import ContentType
 from .models import Skill, SubSkill
@@ -368,3 +372,33 @@ class Meta:
     class Media:
         js  = ("characters/js/formula_builder.js",)
         css = {"all": ("characters/css/formula_builder.css",)}
+
+
+class BackgroundForm(forms.ModelForm):
+    primary_selection   = CombinedSkillField(label="Primary Skill or SubSkill")
+    secondary_selection = CombinedSkillField(label="Secondary Skill or SubSkill")
+
+    class Meta:
+        model  = Background
+        fields = [
+            "code","name","description",
+            "primary_ability","primary_bonus","primary_selection",
+            "secondary_ability","secondary_bonus","secondary_selection",
+        ]
+
+    def save(self, commit=True):
+        inst = super().save(commit=False)
+
+        # Primary
+        obj1 = self.cleaned_data["primary_selection"]
+        inst.primary_skill_type = ContentType.objects.get_for_model(obj1)
+        inst.primary_skill_id   = obj1.pk
+
+        # Secondary
+        obj2 = self.cleaned_data["secondary_selection"]
+        inst.secondary_skill_type = ContentType.objects.get_for_model(obj2)
+        inst.secondary_skill_id   = obj2.pk
+
+        if commit:
+            inst.save()
+        return inst

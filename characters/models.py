@@ -2,6 +2,7 @@ from django.db import models
 from django.contrib.auth.models import User
 from campaigns.models import Campaign  # Make sure the campaigns app is created and in INSTALLED_APPS
 from django.core.exceptions import ValidationError
+from django.db.models import Q
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericForeignKey
 # ------------------------------------------------------------------------------
@@ -222,8 +223,9 @@ class RulebookPage(models.Model):
 
 
 class Background(models.Model):
-    code = models.SlugField(max_length=50, unique=True)
-    name = models.CharField(max_length=100)
+    code        = models.SlugField(max_length=50, unique=True)
+    name        = models.CharField(max_length=100)
+    description = models.TextField(blank=True, null=True, help_text="Background Summary:")
 
     ABILITY_CHOICES = [
         ("strength",     "Strength"),
@@ -234,29 +236,49 @@ class Background(models.Model):
         ("charisma",     "Charisma"),
     ]
 
-    # primary bonus: which ability & amount & skill
+    # Primary bonus
     primary_ability = models.CharField(
-        max_length=12,
-        choices=ABILITY_CHOICES,
-        default="strength",
+        max_length=12, choices=ABILITY_CHOICES, default="strength",
         help_text="Which ability gets the primary bonus"
     )
     primary_bonus = models.PositiveSmallIntegerField()
-    primary_skill = models.ForeignKey(
-        "SubSkill", on_delete=models.PROTECT, related_name="+"
-    )
 
-    # secondary bonus:
+    # Primary skill (either Skill or SubSkill)
+    primary_skill_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.PROTECT,
+        limit_choices_to=Q(app_label="characters", model__in=["skill","subskill"]),
+        related_name="+",
+                null=True,
+        blank=True,
+    )
+    primary_skill_id = models.PositiveIntegerField(
+        verbose_name="Primary Skill/SubSkill ID",
+        null=True, blank=True,
+    )
+    primary_skill    = GenericForeignKey("primary_skill_type", "primary_skill_id")
+    # Secondary bonus
     secondary_ability = models.CharField(
-        max_length=12,
-        choices=ABILITY_CHOICES,
-        default="dexterity",
+        max_length=12, choices=ABILITY_CHOICES, default="dexterity",
         help_text="Which ability gets the secondary bonus"
     )
     secondary_bonus = models.PositiveSmallIntegerField()
-    secondary_skill = models.ForeignKey(
-        "SubSkill", on_delete=models.PROTECT, related_name="+"
+
+    # Secondary skill (either Skill or SubSkill)
+
+    secondary_skill_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.PROTECT,
+        limit_choices_to=Q(app_label="characters", model__in=["skill","subskill"]),
+        related_name="+",
+        null=True,
+        blank=True,
     )
+    secondary_skill_id = models.PositiveIntegerField(
+        verbose_name="Secondary Skill/SubSkill ID",
+        null=True, blank=True,
+    )
+    secondary_skill    = GenericForeignKey("secondary_skill_type", "secondary_skill_id")
 
     class Meta:
         ordering = ["name"]

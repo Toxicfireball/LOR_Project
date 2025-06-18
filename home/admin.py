@@ -22,7 +22,7 @@ from django.urls import resolve
 from django.contrib.admin.widgets import FilteredSelectMultiple
 from characters.widgets import FormulaBuilderWidget, CharacterClassSelect
 from characters.models import CharacterSkillProficiency, LoremasterArticle, LoremasterImage, RulebookPage, Rulebook, RacialFeature, Rulebook, RulebookPage,AbilityScore,Background, ResourceType,Weapon, SubSkill, UniversalLevelFeature, Skill, WeaponTraitValue,WeaponTrait, ClassResource, CharacterResource, SubclassGroup, SubclassTierLevel
-from characters.forms import CharacterClassForm, CombinedSkillField
+from characters.forms import BackgroundForm,CharacterClassForm, CombinedSkillField
 from django.utils.html import format_html
 from django.forms.models import BaseInlineFormSet
 from django.core.exceptions import ValidationError
@@ -946,14 +946,15 @@ class ClassFeatureAdmin(admin.ModelAdmin):
 
 
 @admin.register(Background)
-class BackgroundAdmin(CombinedSkillAdminMixin, admin.ModelAdmin):
-    # remove the two autocomplete_fields lines entirely
-    search_fields = ("code","name")
-    list_filter  = ("primary_ability","secondary_ability")
+class BackgroundAdmin(admin.ModelAdmin):
+    form = BackgroundForm
+
+    search_fields = ("code", "name")
+    list_filter   = ("primary_ability", "secondary_ability")
     fields = [
-        "code","name",
-        ("primary_ability","primary_bonus","primary_skill"),
-        ("secondary_ability","secondary_bonus","secondary_skill"),
+        "code", "name", "description",
+        ("primary_ability", "primary_bonus",   "primary_selection"),
+        ("secondary_ability", "secondary_bonus", "secondary_selection"),
     ]
 
 
