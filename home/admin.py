@@ -204,10 +204,11 @@ class SubSkillInline(admin.TabularInline):
 
 @admin.register(Skill)
 class SkillAdmin(admin.ModelAdmin):
-    list_display    = ("name", "ability", "secondary_ability", "is_advanced")
-    list_filter     = ("ability", "secondary_ability", "is_advanced")
-    search_fields   = ("name",)
-    fields          = ("name", "ability", "secondary_ability", "description", "is_advanced")
+    list_display  = ("name", "ability", "secondary_ability", "is_advanced")
+    list_filter   = ("ability", "secondary_ability", "is_advanced")
+    search_fields = ("name",)
+    fields        = ("name", "ability", "secondary_ability", "description", "is_advanced")
+
 
 
 @admin.register(SubSkill)
@@ -947,15 +948,13 @@ class ClassFeatureAdmin(admin.ModelAdmin):
 
 @admin.register(Background)
 class BackgroundAdmin(admin.ModelAdmin):
-    form = BackgroundForm
-
-    search_fields = ("code", "name")
-    list_filter   = ("primary_ability", "secondary_ability")
+    form   = BackgroundForm
     fields = [
-        "code", "name", "description",
-        ("primary_ability", "primary_bonus",   "primary_selection"),
-        ("secondary_ability", "secondary_bonus", "secondary_selection"),
+      "code","name","description",
+      ("primary_ability","primary_bonus","primary_selection_mode","primary_selection"),
+      ("secondary_ability","secondary_bonus","secondary_selection_mode","secondary_selection"),
     ]
+    list_filter = ("primary_ability","secondary_ability")
 
 
 @admin.register(AbilityScore)

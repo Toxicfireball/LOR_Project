@@ -2,13 +2,13 @@
 import json
 from django import forms
 from .models import Character
-
+from django.db import OperationalError, ProgrammingError
 # Define a dictionary for the default skill proficiencies.
 # In LOR, during character creation every skill is by default Trained.
 
 # forms.py (app `characters`)
 from django import forms
-from .models import CharacterClass, CharacterClassProgress
+from .models import CharacterSubSkillProficiency, CharacterClass, CharacterClassProgress
 from django.core.exceptions import ValidationError
 from django import forms
 from .models import CharacterClass,    Race,Subrace, ClassFeature, ClassSubclass,Background, FeatureOption, UniversalLevelFeature
@@ -113,24 +113,68 @@ class CharacterCreationForm(forms.ModelForm):
 from django import forms
 from django.contrib.contenttypes.models import ContentType
 from .models import Skill, SubSkill
+# at top of file
+from django.db import OperationalError, ProgrammingError
+from django import forms
+from .models import Skill, SubSkill
+
 class CombinedSkillWidget(forms.Select):
     def __init__(self, attrs=None):
-        skill_choices = [ (f"skill-{s.pk}",   s.name) for s in Skill.objects.order_by("name") ]
-        sub_choices   = [ (f"subskill-{ss.pk}", f"{ss.skill.name} → {ss.name}")
-                          for ss in SubSkill.objects.select_related("skill")
-                                         .order_by("skill__name","name") ]
-        super().__init__(attrs, choices=[("", "---------")] + skill_choices + sub_choices)
+        try:
+            # list every Skill
+            skill_qs = Skill.objects.order_by("name") \
+                                     .values_list("pk", "name")
+            skill_choices = [
+                (f"skill-{pk}", name)
+                for pk, name in skill_qs
+            ]
+
+            # list every SubSkill
+            sub_qs = (
+                SubSkill.objects
+                        .select_related("skill")
+                        .order_by("skill__name", "name")
+                        .values_list("pk", "skill__name", "name")
+            )
+            sub_choices = [
+                (f"subskill-{pk}", f"{skill_name} → {subskill_name}")
+                for pk, skill_name, subskill_name in sub_qs
+            ]
+
+            choices = [("", "---------")] + skill_choices + sub_choices
+        except (OperationalError, ProgrammingError):
+            # pre-migrate state
+            choices = [("", "---------")]
+
+        super().__init__(attrs, choices=choices)
+
+
+
+
 
 class CombinedSkillField(forms.Field):
     widget = CombinedSkillWidget
+
+    def prepare_value(self, value):
+        # if we're rendering a Skill/SubSkill instance as the initial value,
+        # convert it into the "<prefix>-<pk>" that our widget expects.
+        if isinstance(value, Skill):
+            return f"skill-{value.pk}"
+        if isinstance(value, SubSkill):
+            return f"subskill-{value.pk}"
+        return super().prepare_value(value)
+
     def to_python(self, value):
         if not value:
             return None
-        prefix, pk = value.split("-",1)
+        prefix, pk = value.split("-", 1)
         pk = int(pk)
-        if prefix=="skill":    return Skill.objects.get(pk=pk)
-        if prefix=="subskill": return SubSkill.objects.get(pk=pk)
+        if prefix == "skill":
+            return Skill.objects.get(pk=pk)
+        if prefix == "subskill":
+            return SubSkill.objects.get(pk=pk)
         raise forms.ValidationError("Unknown selection")
+
 
 
 
@@ -375,29 +419,39 @@ class Meta:
 
 
 class BackgroundForm(forms.ModelForm):
+    primary_selection_mode = forms.ChoiceField(
+        choices=Background.SELECTION_MODES,
+        label="Primary Skill → grant mode"
+    )
+    secondary_selection_mode = forms.ChoiceField(
+        choices=Background.SELECTION_MODES,
+        label="Secondary Skill → grant mode",
+        required=False
+    )
     primary_selection   = CombinedSkillField(label="Primary Skill or SubSkill")
     secondary_selection = CombinedSkillField(label="Secondary Skill or SubSkill")
 
     class Meta:
         model  = Background
         fields = [
-            "code","name","description",
-            "primary_ability","primary_bonus","primary_selection",
-            "secondary_ability","secondary_bonus","secondary_selection",
+          "code","name","description",
+          "primary_ability","primary_bonus","primary_selection_mode","primary_selection",
+          "secondary_ability","secondary_bonus","secondary_selection_mode","secondary_selection",
         ]
+
 
     def save(self, commit=True):
         inst = super().save(commit=False)
+        inst.primary_selection_mode   = self.cleaned_data["primary_selection_mode"]
+        inst.secondary_selection_mode = self.cleaned_data["secondary_selection_mode"]
 
-        # Primary
-        obj1 = self.cleaned_data["primary_selection"]
-        inst.primary_skill_type = ContentType.objects.get_for_model(obj1)
-        inst.primary_skill_id   = obj1.pk
+        sel = self.cleaned_data["primary_selection"]
+        inst.primary_skill_type = ContentType.objects.get_for_model(sel)
+        inst.primary_skill_id   = sel.pk
 
-        # Secondary
-        obj2 = self.cleaned_data["secondary_selection"]
-        inst.secondary_skill_type = ContentType.objects.get_for_model(obj2)
-        inst.secondary_skill_id   = obj2.pk
+        sel2 = self.cleaned_data["secondary_selection"]
+        inst.secondary_skill_type = ContentType.objects.get_for_model(sel2)
+        inst.secondary_skill_id   = sel2.pk
 
         if commit:
             inst.save()

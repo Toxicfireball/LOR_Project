@@ -235,13 +235,28 @@ class Background(models.Model):
         ("wisdom",       "Wisdom"),
         ("charisma",     "Charisma"),
     ]
-
+    SELECTION_MODES = [
+        ("all",     "Grant all SubSkills"),
+        ("pick_one","Let user pick exactly one SubSkill"),
+    ]
     # Primary bonus
     primary_ability = models.CharField(
         max_length=12, choices=ABILITY_CHOICES, default="strength",
         help_text="Which ability gets the primary bonus"
     )
     primary_bonus = models.PositiveSmallIntegerField()
+    primary_selection_mode = models.CharField(
+        max_length=10,
+        choices=SELECTION_MODES,
+        default="all",
+        help_text="If primary_selection is a Skill with sub-skills, do you grant all of them or let the player choose one?"
+    )
+    secondary_selection_mode = models.CharField(
+        max_length=10,
+        choices=SELECTION_MODES,
+        default="all",
+        help_text="Same, but for the secondary selection."
+    )
 
     # Primary skill (either Skill or SubSkill)
     primary_skill_type = models.ForeignKey(
