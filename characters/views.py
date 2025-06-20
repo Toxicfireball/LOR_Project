@@ -428,12 +428,12 @@ def create_character(request):
             'code': b.code,
             'name': b.name,
             'primary': {
-                'ability': b.primary_ability.name,
+                'ability': b.get_primary_ability_display(),
                 'bonus':   b.primary_bonus,
                 'skill':   b.primary_skill.name,
             },
             'secondary': {
-                'ability': b.secondary_ability.name,
+                'ability': b.get_secondary_ability_display(),
                 'bonus':   b.secondary_bonus,
                 'skill':   b.secondary_skill.name,
             }

@@ -238,6 +238,8 @@ class Background(models.Model):
     SELECTION_MODES = [
         ("all",     "Grant all SubSkills"),
         ("pick_one","Let user pick exactly one SubSkill"),
+        ("pick_two",  "Let user pick exactly two SubSkill"),
+        ("pick_three","Let user pick exactly three SubSkill"),
     ]
     # Primary bonus
     primary_ability = models.CharField(

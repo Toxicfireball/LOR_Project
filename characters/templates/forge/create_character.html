@@ -237,7 +237,14 @@
     <select id="side_background_2" style="width:100%; padding:8px;"><option value="">-- Select Side Background --</option></select>
     <div id="side_bg2_fields" style="margin-top:10px;"></div>
   </div>
+  
 
+  <div style="margin-top:1rem;">
+    <h4>Background Skill Proficiencies</h4>
+    <div id="background-skill-display">
+      No skill proficiencies allocated yet.
+    </div>
+  </div>
   <!-- Hidden fields for JS to write into -->
   <input type="hidden" name="final_race" id="finalRace" value="">
   <input type="hidden" name="strength" id="strengthInput" value="8">
@@ -269,7 +276,25 @@ document.addEventListener("DOMContentLoaded", function() {
   let bgAbilityBonuses = {}, bgSkillProficiencies = {};
   let racialASIBonus = { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 };
   let racialASIPoints = 0;
+    const mainBg    = document.getElementById("main_background");
+  const sideBg1   = document.getElementById("side_background_1");
+  const sideBg2   = document.getElementById("side_background_2");
   
+  backgroundsData.forEach(b => {
+    // main
+    const optMain = document.createElement("option");
+    optMain.value = b.code;
+    optMain.text  = b.name;
+    mainBg.appendChild(optMain);
+
+    // side 1
+    const opt1 = optMain.cloneNode(true);
+    sideBg1.appendChild(opt1);
+
+    // side 2
+    const opt2 = optMain.cloneNode(true);
+    sideBg2.appendChild(opt2);
+  });
   // Fixed racial modifiers dictionary.
   const racialModifiersDict = {
     "human": { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 },
