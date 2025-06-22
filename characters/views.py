@@ -370,32 +370,33 @@ class RulebookPageDetailView(DetailView):
 @login_required
 def create_character(request):
     """
-    Stage 1: Name, race, subrace, backgrounds, ability scores, backstory, and computed skill proficiencies.
+    Stage 1: Name, race, subrace, backgrounds, ability scores, backstory,
+    and computed skill proficiencies.
     """
     if request.method == 'POST':
         form = CharacterCreationForm(request.POST)
         if form.is_valid():
-            # save Character
+            # 1) persist the Character
             character = form.save(commit=False)
             character.user = request.user
             character.save()
 
-            # parse and save computed skill proficiencies
+            # 2) parse & save the computed skill proficiencies JSON
             raw = form.cleaned_data.get('computed_skill_proficiencies') or '{}'
             try:
                 prof_map = json.loads(raw)
                 for full_name, tier_name in prof_map.items():
-                    # full_name like "Athletics – Climbing"
-                    cat, sub = full_name.split(' – ', 1)
-                    subskill = SubSkill.objects.get(name=sub, category__name=cat)
+                    # "Athletics – Climbing"
+                    category, subname = full_name.split(' – ', 1)
+                    subskill = SubSkill.objects.get(name=subname, category__name=category)
                     prof     = ProficiencyLevel.objects.get(name__iexact=tier_name)
                     CharacterSkillProficiency.objects.create(
                         character=character,
                         subskill=subskill,
                         proficiency=prof
                     )
-            except Exception:
-                # silently ignore parse errors
+            except (ValueError, SubSkill.DoesNotExist, ProficiencyLevel.DoesNotExist):
+                # ignore any parse/look-up errors
                 pass
 
             return redirect('character_detail', pk=character.pk)
@@ -404,38 +405,40 @@ def create_character(request):
 
     # prepare JSON for frontend
     races = []
-    for r in Race.objects.prefetch_related('subraces').all():
+    for race in Race.objects.prefetch_related('subraces').all():
         races.append({
-            'code':     r.code,
-            'name':     r.name,
-            'mods': {
-                'Strength':     r.strength_bonus,
-                'Dexterity':    r.dexterity_bonus,
-                'Constitution': r.constitution_bonus,
-                'Intelligence': r.intelligence_bonus,
-                'Wisdom':       r.wisdom_bonus,
-                'Charisma':     r.charisma_bonus,
+            'code': race.code,
+            'name': race.name,
+            'modifiers': {
+                'Strength':     race.strength_bonus,
+                'Dexterity':    race.dexterity_bonus,
+                'Constitution': race.constitution_bonus,
+                'Intelligence': race.intelligence_bonus,
+                'Wisdom':       race.wisdom_bonus,
+                'Charisma':     race.charisma_bonus,
             },
+            'free_points':           race.free_points,
+            'max_bonus_per_ability': race.max_bonus_per_ability,
             'subraces': [
-                {'code': s.code, 'name': s.name}
-                for s in r.subraces.all()
-            ]
+                {'code': sub.code, 'name': sub.name}
+                for sub in race.subraces.all()
+            ],
         })
 
     backgrounds = []
-    for b in Background.objects.all():
+    for bg in Background.objects.all():
         backgrounds.append({
-            'code': b.code,
-            'name': b.name,
+            'code': bg.code,
+            'name': bg.name,
             'primary': {
-                'ability': b.get_primary_ability_display(),
-                'bonus':   b.primary_bonus,
-                'skill':   b.primary_skill.name,
+                'ability': bg.get_primary_ability_display(),
+                'bonus':   bg.primary_bonus,
+                'skill':   bg.primary_skill.name,
             },
             'secondary': {
-                'ability': b.get_secondary_ability_display(),
-                'bonus':   b.secondary_bonus,
-                'skill':   b.secondary_skill.name,
+                'ability': bg.get_secondary_ability_display(),
+                'bonus':   bg.secondary_bonus,
+                'skill':   bg.secondary_skill.name,
             }
         })
 

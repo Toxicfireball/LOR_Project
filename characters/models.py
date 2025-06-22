@@ -133,7 +133,43 @@ class BaseRace(models.Model):
     intelligence_bonus = models.IntegerField(default=0, help_text="Intelligence increase")
     wisdom_bonus       = models.IntegerField(default=0, help_text="Wisdom increase")
     charisma_bonus     = models.IntegerField(default=0, help_text="Charisma increase")
+    bonus_budget = models.PositiveSmallIntegerField(
+        default=4,
+        help_text="Total points (fixed + free) this race may grant to ability scores."
+    )
+    free_points = models.PositiveSmallIntegerField(
+        default=0,
+        help_text="Of the bonus_budget, how many are unassigned and left for the player to allocate."
+    )
+    max_bonus_per_ability = models.PositiveSmallIntegerField(
+        default=3,
+        help_text="Maximum total bonus (fixed + free) any one ability may receive."
+    )
 
+    def clean(self):
+        super().clean()
+        fixed = (
+            self.strength_bonus     +
+            self.dexterity_bonus    +
+            self.constitution_bonus +
+            self.intelligence_bonus +
+            self.wisdom_bonus       +
+            self.charisma_bonus
+        )
+        if fixed + self.free_points != self.bonus_budget:
+            raise ValidationError(
+                f"Fixed bonuses ({fixed}) + free_points ({self.free_points}) "
+                f"must equal bonus_budget ({self.bonus_budget})."
+            )
+        for field in (
+            "strength_bonus","dexterity_bonus","constitution_bonus",
+            "intelligence_bonus","wisdom_bonus","charisma_bonus"
+        ):
+            val = getattr(self, field)
+            if val > self.max_bonus_per_ability:
+                raise ValidationError(
+                    {field: f"{field} ({val}) cannot exceed max_bonus_per_ability ({self.max_bonus_per_ability})."}
+                )
     class Meta:
          abstract = True
 

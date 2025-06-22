@@ -2,27 +2,9 @@
 {% block title %}Create Character – Stage 1{% endblock %}
 {% block content %}
 
-<script>
-  const races            = {{ races_json|safe }};
-  const backgroundsData  = {{ backgrounds_json|safe }};
 
-  // Build lookup dictionaries
-  const racialModifiersDict = {};
-  const subracesDict        = {};
-  const backgrounds         = {};
 
-  races.forEach(r => {
-    racialModifiersDict[r.code] = r.mods;
-    subracesDict[r.code] = r.subraces.map(s => ({ value: s.code, label: s.name }));
-  });
 
-  backgroundsData.forEach(b => {
-    backgrounds[b.code] = {
-      primary:   { ability: b.primary.ability, bonus: b.primary.bonus, skill: b.primary.skill },
-      secondary: { ability: b.secondary.ability, bonus: b.secondary.bonus, skill: b.secondary.skill }
-    };
-  });
-</script>
 
 <style>
   /* Global styles */
@@ -260,10 +242,34 @@
 
   <div style="text-align:center;"><button type="submit">Finish Stage 1 &amp; Create Character</button></div>
 </form>
-<!-- Full JS logic block -->
+
 <script>
+  const races              = {{ races_json|safe }};
+  const backgrounds        = {{ backgrounds_json|safe }};
 
+  // first declare our three lookups
+  const racialModifiersDict = {};
+  const customizableRaces   = {};
+  const subracesDict        = {};
 
+  // now populate them from the JSON
+  races.forEach(r => {
+    // flat ability bonuses
+    racialModifiersDict[r.code] = r.modifiers;
+
+    // how many free points that race gets
+    if (r.free_points > 0) {
+      customizableRaces[r.code] = r.free_points;
+    }
+
+    // build a subrace array, if any
+    if (Array.isArray(r.subraces) && r.subraces.length) {
+      subracesDict[r.code] = r.subraces.map(sr => ({
+        value: sr.code,
+        label: sr.name
+      }));
+    }
+  });
 
 document.addEventListener("DOMContentLoaded", function() {
   // Global state
@@ -280,128 +286,53 @@ document.addEventListener("DOMContentLoaded", function() {
   const sideBg1   = document.getElementById("side_background_1");
   const sideBg2   = document.getElementById("side_background_2");
   
-  backgroundsData.forEach(b => {
-    // main
-    const optMain = document.createElement("option");
-    optMain.value = b.code;
-    optMain.text  = b.name;
-    mainBg.appendChild(optMain);
+    const raceEl           = document.getElementById('race');
+    const subraceEl        = document.getElementById('subrace');
+    const subraceContainer = document.getElementById('subrace-container');
+    const mainBgEl         = document.getElementById('main_background');
+    const sideBg1El        = document.getElementById('side_background_1');
+    const sideBg2El        = document.getElementById('side_background_2');
+    // …declare all your state variables here…
 
-    // side 1
-    const opt1 = optMain.cloneNode(true);
-    sideBg1.appendChild(opt1);
+    // 2) populate Race dropdown
+    races.forEach(r => {
+      const opt = document.createElement('option');
+      opt.value = r.code;
+      opt.text  = r.name;
+      raceEl.appendChild(opt);
+    });
 
-    // side 2
-    const opt2 = optMain.cloneNode(true);
-    sideBg2.appendChild(opt2);
-  });
+    // 3) on Race change → build subraces
+    raceEl.addEventListener('change', () => {
+      subraceEl.innerHTML = '<option value="">-- Select a Subrace --</option>';
+      const sel = races.find(r => r.code === raceEl.value);
+      if (sel && sel.subraces.length) {
+        sel.subraces.forEach(sr => {
+          const o = document.createElement('option');
+          o.value = sr.code;
+          o.text  = sr.name;
+          subraceEl.appendChild(o);
+        });
+        subraceContainer.style.display = '';
+      } else {
+        subraceContainer.style.display = 'none';
+      }
+      // reset downstream steps…
+    });
+    
+
+    // 4) populate Background dropdowns
+    backgrounds.forEach(b => {
+      [ mainBgEl, sideBg1El, sideBg2El ].forEach(el => {
+        const opt = document.createElement('option');
+        opt.value = b.code;
+        opt.text  = b.name;
+        el.appendChild(opt);
+      });
+    });
+
   // Fixed racial modifiers dictionary.
-  const racialModifiersDict = {
-    "human": { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 },
-    "rodanin": { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 },
-    "naskrimni": { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 },
-    "turami": { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 },
-    "ithiskar": { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 },
-    "cadmir": { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 },
-    "illuskan": { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 },
-    "shurinese": { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 },
-    "ferro": { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 },
-    "unaligned": { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 },
-    "hill_dwarf": { "Strength": 1, "Dexterity": -1, "Constitution": 3, "Intelligence": 0, "Wisdom": 1, "Charisma": 0 },
-    "mountain_dwarf": { "Strength": 2, "Dexterity": -1, "Constitution": 3, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 },
-    "dwarf": { "Strength": 0, "Dexterity": 0, "Constitution": 3, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 },
-    "high_elf": { "Strength": 0, "Dexterity": 3, "Constitution": -1, "Intelligence": 2, "Wisdom": 0, "Charisma": 0 },
-    "wood_elf": { "Strength": 0, "Dexterity": 3, "Constitution": -1, "Intelligence": 0, "Wisdom": 2, "Charisma": 0 },
-    "drow": { "Strength": 0, "Dexterity": 3, "Constitution": -1, "Intelligence": 0, "Wisdom": 0, "Charisma": 2 },
-    "elf": { "Strength": 0, "Dexterity": 3, "Constitution": -1, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 },
-    "rock_gnome": { "Strength": 0, "Dexterity": 0, "Constitution": 1, "Intelligence": 2, "Wisdom": 0, "Charisma": 0 },
-    "stone_gnome": { "Strength": 0, "Dexterity": 0, "Constitution": 1, "Intelligence": 2, "Wisdom": 0, "Charisma": 1 },
-    "gnome": { "Strength": 0, "Dexterity": 0, "Constitution": 1, "Intelligence": 2, "Wisdom": 0, "Charisma": 0 },
-    "tiefling": { "Strength": 0, "Dexterity": 1, "Constitution": 0, "Intelligence": 1, "Wisdom": 0, "Charisma": 2 },
-    "lizardfolk": { "Strength": 1, "Dexterity": 1, "Constitution": 2, "Intelligence": 0, "Wisdom": 1, "Charisma": -1 },
-    "halfling": { "Strength": 0, "Dexterity": 2, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 2 },
-    "half_orc": { "Strength": 1, "Dexterity": 0, "Constitution": 2, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 },
-    "tabaxi": { "Strength": 0, "Dexterity": 2, "Constitution": 0, "Intelligence": 1, "Wisdom": 0, "Charisma": 1 },
-    "goliath": { "Strength": 3, "Dexterity": 0, "Constitution": 2, "Intelligence": -1, "Wisdom": 0, "Charisma": 0 },
-    "goblin": { "Strength": 1, "Dexterity": 3, "Constitution": 2, "Intelligence": 0, "Wisdom": 0, "Charisma": -2 },
-    "githyanki": { "Strength": 1, "Dexterity": 1, "Constitution": 0, "Intelligence": 2, "Wisdom": 0, "Charisma": 0 },
-    "warforged": { "Strength": 2, "Dexterity": 0, "Constitution": 2, "Intelligence": 1, "Wisdom": 0, "Charisma": -1 },
-    "elf_nymph": { "Strength": -2, "Dexterity": 2, "Constitution": -2, "Intelligence": 0, "Wisdom": 2, "Charisma": 2 },
-    "yuan_ti": { "Strength": 0, "Dexterity": 0, "Constitution": 2, "Intelligence": 1, "Wisdom": 0, "Charisma": 1 },
-    "kitsune": { "Strength": 0, "Dexterity": 1, "Constitution": 0, "Intelligence": 1, "Wisdom": 0, "Charisma": 2 },
-    "half_elf": { "Strength": 0, "Dexterity": 1, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 1 },
-    "half_elf_elf_dominated": { "Strength": 0, "Dexterity": 1, "Constitution": 0, "Intelligence": 1, "Wisdom": 0, "Charisma": 0 },
-    "half_elf_wood_elf": { "Strength": 0, "Dexterity": 1, "Constitution": 0, "Intelligence": 0, "Wisdom": 1, "Charisma": 0 },
-    "half_elf_dark_elf": { "Strength": 0, "Dexterity": 1, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 1 },
-    "half_elf_human_dominated": { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 },
-    "half_elf_fully": { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 }
-  };
 
-  const customizableRaces = {
-    "human": 4,
-    "rodanin": 4,
-    "naskrimni": 4,
-    "turami": 4,
-    "ithiskar": 4,
-    "cadmir": 4,
-    "illuskan": 4,
-    "shurinese": 4,
-    "ferro": 4,
-    "unaligned": 4,
-    "half_elf_human_dominated": 2,
-    "half_orc": 1,
-    "half_elf_fully": 1
-  };
-
-  const backgrounds = {
-    noble: {
-      primary: { ability: "Charisma", bonus: 2, skill: "Persuasion" },
-      secondary: { ability: "Intelligence", bonus: 1, skill: "History" }
-    },
-    commoner: {
-      primary: { ability: "Constitution", bonus: 2, skill: "Survival" },
-      secondary: { ability: "Strength", bonus: 1, skill: "Athletics" }
-    },
-    artisan: {
-      primary: { ability: "Dexterity", bonus: 2, skill: "Sleight of Hand" },
-      secondary: { ability: "Wisdom", bonus: 1, skill: "Perception" }
-    }
-  };
-
-  // Subrace options dictionary.
-  const subracesDict = {
-    "human": [
-      { value: "rodanin", label: "Rodanin" },
-      { value: "naskrimni", label: "Naskrimni" },
-      { value: "turami", label: "Turami" },
-      { value: "ithiskar", label: "Ithiskar" },
-      { value: "cadmir", label: "Cadmir" },
-      { value: "illuskan", label: "Illuskan" },
-      { value: "shurinese", label: "Shurinese" },
-      { value: "ferro", label: "Ferro" },
-      { value: "unaligned", label: "Unaligned" }
-    ],
-    dwarf: [
-      { value: "hill_dwarf", label: "Hill Dwarf" },
-      { value: "mountain_dwarf", label: "Mountain Dwarf" }
-    ],
-    elf: [
-      { value: "high_elf", label: "High Elf" },
-      { value: "wood_elf", label: "Wood Elf" },
-      { value: "drow", label: "Drow (Dark Elf)" }
-    ],
-    gnome: [
-      { value: "rock_gnome", label: "Rock Gnome" },
-      { value: "stone_gnome", label: "Stone Gnome" }
-    ],
-    half_elf: [
-      { value: "half_elf_elf_dominated", label: "Elf-Dominated (High Elf: +1 Int, +1 Dex)" },
-      { value: "half_elf_wood_elf", label: "Elf-Dominated (Wood Elf: +1 Wis, +1 Dex)" },
-      { value: "half_elf_dark_elf", label: "Elf-Dominated (Dark Elf: +1 Cha, +1 Dex)" },
-      { value: "half_elf_human_dominated", label: "Human-Dominated (+1 to any 2 abilities)" },
-      { value: "half_elf_fully", label: "Fully Half-Blooded (Choose origin below)" }
-    ]
-  };
 
   function updateSideBG2Fields() {
   const side2Type = document.querySelector('input[name="side2_bonus_type"]:checked').value;
@@ -813,18 +744,55 @@ if (side2Key && backgrounds[side2Key]) {
   });
 
   // Racial customizable bonus check.
-  function checkForCustomizable() {
-    let raceValue = (document.getElementById("subrace-container").style.display !== "none") ?
-                     document.getElementById("subrace").value : document.getElementById("race").value;
-    if (raceValue === "half_elf_fully" || customizableRaces.hasOwnProperty(raceValue)) {
-      racialASIPoints = customizableRaces[raceValue];
-      document.getElementById("racial-allocation-section").style.display = "block";
-      document.getElementById("racial-points").innerText = racialASIPoints;
-    } else {
-      document.getElementById("racial-allocation-section").style.display = "none";
-      currentRacialModifiers = racialModifiersDict[raceValue] || { "Strength": 0, "Dexterity": 0, "Constitution": 0, "Intelligence": 0, "Wisdom": 0, "Charisma": 0 };
+function checkForCustomizable() {
+  const mainCode = raceEl.value;
+  const subCode  = (subraceContainer.style.display !== 'none' && subraceEl.value)
+                   ? subraceEl.value
+                   : null;
+
+  // 1) find the parent race entry
+  const parent = races.find(r => r.code === mainCode);
+  if (!parent) {
+    console.warn("No race found for code", mainCode);
+    document.getElementById("racial-allocation-section").style.display = "none";
+    return;
+  }
+
+  // 2) get freePts either from the parent or from the selected subrace
+  let freePts = parent.free_points || 0;
+  if (subCode) {
+    const sub = parent.subraces.find(sr => sr.code === subCode);
+    if (sub && typeof sub.free_points === 'number') {
+      freePts = sub.free_points;
     }
   }
+
+  // 3) show/hide the section
+  const section = document.getElementById("racial-allocation-section");
+  if (freePts > 0) {
+    racialASIPoints = freePts;
+    document.getElementById("racial-points").innerText = racialASIPoints;
+    section.style.display = "";
+
+    // 4) set each input's max to (max_bonus_per_ability − fixed racial bonus)
+    //    adjust `maxPer` if you want per-subrace caps
+    const maxPer = parent.max_bonus_per_ability;
+    ["Strength","Dexterity","Constitution","Intelligence","Wisdom","Charisma"]
+      .forEach(stat => {
+        // find how much the race (or subrace) already gives you
+        const fixed = (racialModifiersDict[subCode||mainCode][stat]||0);
+        const fld   = document.getElementById("racial-" + stat.toLowerCase());
+        fld.max     = Math.max(maxPer - fixed, 0);
+      });
+  } else {
+    section.style.display = "none";
+  }
+}
+
+
+  raceEl.addEventListener("change",  checkForCustomizable);
+  subraceEl.addEventListener("change", checkForCustomizable);
+
 
   // Apply customizable racial allocation.
   function applyRacialAllocation() {
@@ -1095,6 +1063,7 @@ window.resetCharacter = resetCharacter;
 window.applyRacialAllocation = applyRacialAllocation;
 
   updateBackgroundSummary();
+  checkForCustomizable();
 });
 </script>
 

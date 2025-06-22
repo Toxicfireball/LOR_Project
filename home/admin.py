@@ -1146,10 +1146,14 @@ class RaceAdmin(admin.ModelAdmin):
     fieldsets = [
         (None, {
             "fields": [
-                "code","name","description",
-                "size","speed",
+                "code","name","description","size","speed",
+                # fixed bonuses
                 ("strength_bonus","dexterity_bonus","constitution_bonus"),
                 ("intelligence_bonus","wisdom_bonus","charisma_bonus"),
+                # ← our new budget settings
+                "bonus_budget",
+                "free_points",
+                "max_bonus_per_ability",
                 "tags",
                 "primary_image","primary_preview",
                 "secondary_image","secondary_preview",
@@ -1203,10 +1207,34 @@ class RaceAdmin(admin.ModelAdmin):
 
 
 @admin.register(Subrace)
-class SubraceAdmin(admin.ModelAdmin):
-    list_display      = ("name","race","code")
+class SubraceAdmin(RaceAdmin):
+    search_fields     = ("name", "code")       # for autocomplete on RacialFeatureAdmin
+    list_display      = ("name", "race", "code")
+    list_filter       = ("race", "size")
     filter_horizontal = ("tags",)
-    search_fields     = ("name","code")
+
+    fieldsets = [
+        (None, {
+            "fields": [
+                "race",     # parent selector first
+                "code", "name", "description",
+                "size", "speed",
+                ("strength_bonus", "dexterity_bonus", "constitution_bonus"),
+                ("intelligence_bonus", "wisdom_bonus", "charisma_bonus"),
+                "bonus_budget", "free_points", "max_bonus_per_ability",
+                "tags",
+                "primary_image", "primary_preview",
+                "secondary_image", "secondary_preview",
+                "tertiary_image",  "tertiary_preview",
+            ]
+        }),
+    ]
+
+    readonly_fields = (
+        "primary_preview",
+        "secondary_preview",
+        "tertiary_preview",
+    )
 
 
 # in characters/admin.py
