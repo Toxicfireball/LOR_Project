@@ -72,7 +72,21 @@ class Skill(models.Model):
             return f"{self.name} ({self.ability.title()} / {self.secondary_ability.title()})"
         return self.name
 
-#RACE
+
+class Language(models.Model):
+    code = models.SlugField(max_length=20, unique=True,
+                            help_text="Identifier, e.g. ‘common’, ‘elvish’")
+    name = models.CharField(max_length=100,
+                            help_text="Human-readable name, e.g. ‘Common’")
+    description = models.TextField(
+        blank=True,
+        help_text="A brief description of this language (dialects, notes, etc.)"
+    )
+
+    def __str__(self):
+        return self.name
+
+
 class BaseRace(models.Model):
     code        = models.SlugField(max_length=20, unique=True)
     name        = models.CharField(max_length=100)
@@ -108,6 +122,11 @@ class BaseRace(models.Model):
         null=True,
         help_text="Upload a thumbnail or list‐page image for this race."
     )
+    languages = models.ManyToManyField(
+        Language,
+        blank=True,
+        help_text="Select which languages this race knows inherently"
+    )    
     def __str__(self):
         return self.name
 
@@ -178,6 +197,8 @@ class BaseRace(models.Model):
 from django.db import models
 from django_summernote.fields import SummernoteTextField
 
+# in characters/models.py
+
 
 # models.py
 
@@ -233,7 +254,7 @@ class LoremasterImage(models.Model):
     def __str__(self):
         return self.caption or f"Image #{self.pk}"
 
-# in characters/models.py
+
 
 class RulebookPage(models.Model):
     rulebook = models.ForeignKey(

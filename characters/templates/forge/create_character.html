@@ -757,15 +757,23 @@ function checkForCustomizable() {
     document.getElementById("racial-allocation-section").style.display = "none";
     return;
   }
+// start with parent race free_points
+const racePts    = parent.free_points || 0;
+
+// add subrace free_points if any
+let subracePts = 0;
+if (subCode) {
+  const sub = parent.subraces.find(sr => sr.code === subCode);
+  if (sub && typeof sub.free_points === 'number') {
+    subracePts = sub.free_points;
+  }
+}
+
+// combined pool
+const freePts = racePts + subracePts;
 
   // 2) get freePts either from the parent or from the selected subrace
-  let freePts = parent.free_points || 0;
-  if (subCode) {
-    const sub = parent.subraces.find(sr => sr.code === subCode);
-    if (sub && typeof sub.free_points === 'number') {
-      freePts = sub.free_points;
-    }
-  }
+
 
   // 3) show/hide the section
   const section = document.getElementById("racial-allocation-section");
@@ -806,9 +814,19 @@ function checkForCustomizable() {
       }
       total += val;
     }
-    let raceValue = (document.getElementById("subrace-container").style.display !== "none") ?
-                    document.getElementById("subrace").value : document.getElementById("race").value;
-    const allowed = customizableRaces[raceValue];
+    const mainCode  = raceEl.value;
+    const subCode   = (subraceContainer.style.display !== 'none' && subraceEl.value)
+                    ? subraceEl.value
+                    : null;
+
+    // look up their free_points (or 0 if none)
+    const racePts    = customizableRaces[mainCode]  || 0;
+    const subracePts = subCode
+                    ? (customizableRaces[subCode] || 0)
+                    : 0;
+
+    // combined budget
+    const allowed = racePts + subracePts;
     if (total !== allowed) {
       alert("Please allocate exactly " + allowed + " bonus point(s).");
       return;

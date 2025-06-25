@@ -21,7 +21,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.urls import resolve
 from django.contrib.admin.widgets import FilteredSelectMultiple
 from characters.widgets import FormulaBuilderWidget, CharacterClassSelect
-from characters.models import CharacterSkillProficiency, LoremasterArticle, LoremasterImage, RulebookPage, Rulebook, RacialFeature, Rulebook, RulebookPage,AbilityScore,Background, ResourceType,Weapon, SubSkill, UniversalLevelFeature, Skill, WeaponTraitValue,WeaponTrait, ClassResource, CharacterResource, SubclassGroup, SubclassTierLevel
+from characters.models import Language, CharacterSkillProficiency, LoremasterArticle, LoremasterImage, RulebookPage, Rulebook, RacialFeature, Rulebook, RulebookPage,AbilityScore,Background, ResourceType,Weapon, SubSkill, UniversalLevelFeature, Skill, WeaponTraitValue,WeaponTrait, ClassResource, CharacterResource, SubclassGroup, SubclassTierLevel
 from characters.forms import BackgroundForm,CharacterClassForm, CombinedSkillField
 from django.utils.html import format_html
 from django.forms.models import BaseInlineFormSet
@@ -771,44 +771,37 @@ class ClassFeatureAdmin(admin.ModelAdmin):
 
         
     ]
-
     def get_fieldsets(self, request, obj=None):
-        """
-        We put all fields in one big fieldset, but because our custom form hides/shows
-        tier/mastery_rank/min_level dynamically, this is enough.
-        """
         return [
-            (
-                None,
-                {
-                    "fields": [
-                        "character_class",
-                        "scope",
-                        "kind",
-                        "gain_subskills",
-                        "activity_type",
-                        "action_type",
-                        "subclass_group",
-                        "subclasses",
-                        "code",
-                        "name",
-                        "description",
-                        "has_options",
-                        "tier",           # ← add this
-                        "mastery_rank",   # ← and this
-                        "formula_target",
-                        "formula",
-                        "uses",
-                        "spell_list",           # ← our new dropdown
-                        "modify_proficiency_target",
-                        "modify_proficiency_amount",             
-                        "cantrips_formula",
-                        "spells_known_formula",
-                        "spells_prepared_formula",
-
-                    ]
-                },
-            )
+            (None, {
+                "fields": [
+                    "character_class","scope","kind","gain_subskills","activity_type",
+                    "action_type","subclass_group","subclasses",
+                    "code","name","description","has_options",
+                    "tier","mastery_rank","formula_target","formula","uses",
+                    "spell_list","modify_proficiency_target",
+                    "modify_proficiency_amount","cantrips_formula",
+                    "spells_known_formula","spells_prepared_formula",
+                ],
+            }),
+            ("Saving Throw (optional)", {
+                "classes": ["collapse"],
+                "fields": [
+                    "saving_throw_required",
+                    "saving_throw_type",
+                    "saving_throw_granularity",
+                    "saving_throw_basic_success",
+                    "saving_throw_basic_failure",
+                    "saving_throw_critical_success",
+                    "saving_throw_success",
+                    "saving_throw_failure",
+                    "saving_throw_critical_failure",
+                ],
+            }),
+            ("Damage / Formula (optional)", {
+                "classes": ["collapse"],
+                "fields": ["damage_type","formula","uses"],
+            }),
         ]
 
     def get_changeform_initial_data(self, request):
@@ -944,6 +937,12 @@ class ClassFeatureAdmin(admin.ModelAdmin):
         }
 # characters/admin.py
 
+
+@admin.register(Language)
+class LanguageAdmin(admin.ModelAdmin):
+    list_display    = ("code", "name", "description")
+    search_fields   = ("code", "name")
+    fields        = ("code", "name", "description")
 
 
 @admin.register(Background)
@@ -1138,7 +1137,7 @@ class RaceAdmin(admin.ModelAdmin):
     )
     search_fields    = ("name","code")
     list_filter      = ("size",)
-    filter_horizontal = ("tags",)
+    filter_horizontal = ("tags","languages")
 
     readonly_fields = (
         "primary_preview","secondary_preview","tertiary_preview",
@@ -1155,6 +1154,7 @@ class RaceAdmin(admin.ModelAdmin):
                 "free_points",
                 "max_bonus_per_ability",
                 "tags",
+                "languages",
                 "primary_image","primary_preview",
                 "secondary_image","secondary_preview",
                 "tertiary_image","tertiary_preview",
