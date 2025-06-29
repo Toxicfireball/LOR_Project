@@ -246,7 +246,10 @@
 <script>
   const races              = {{ races_json|safe }};
   const backgrounds        = {{ backgrounds_json|safe }};
-
+const bgMap = {};
+backgrounds.forEach(b => {
+  bgMap[b.code] = b;
+});
   // first declare our three lookups
   const racialModifiersDict = {};
   const customizableRaces   = {};
@@ -430,8 +433,9 @@ document.addEventListener("DOMContentLoaded", function() {
     resetBackgroundState();
     const combo = document.querySelector('input[name="bg_combo"]:checked').value;
     const mainKey = document.getElementById("main_background").value;
-    if (!mainKey || !backgrounds[mainKey]) return;
-    const mainBG = backgrounds[mainKey];
+    const mainBG = bgMap[mainKey];
+    if (!mainKey || !mainBG) return;
+
     if (combo === "0") {
   // only primary +2, never the +1
 // combo 0: grant both primary (+2) AND secondary (+1) AND both skills
@@ -450,8 +454,9 @@ addSkill(mainBG.secondary.skill);
   addSkill(mainBG.primary.skill);
 
   // 2) Side Background: exactly one ability (+1) and one skill
-  const sideKey = document.getElementById("side_background_1").value;
-  if (sideKey && backgrounds[sideKey]) {
+    const sideKey = document.getElementById("side_background_1").value;
+    const sideBG = bgMap[sideKey];
+    if (sideBG) {
     // Ability: from primary or secondary, but max +1
     const abilityChoice = document.getElementById("side_bg1_ability_choice").value;
     addAbilityBonus(backgrounds[sideKey][abilityChoice].ability, 1);
@@ -512,15 +517,16 @@ if (combo === "2") {
     }
     const mainBGKey = document.getElementById("main_background").value;
     const combo = document.querySelector('input[name="bg_combo"]:checked').value;
-    if (mainBGKey && backgrounds[mainBGKey]) {
-      let mainBG = backgrounds[mainBGKey];
+    const mainBG = bgMap[mainBGKey];
+    if (!mainBG) return;
+
       if (combo === "0") {
         addSkillLocal(mainBG.primary.skill);
         addSkillLocal(mainBG.secondary.skill);
       } else {
         addSkillLocal(mainBG.primary.skill);
       }
-    }
+    
     if (combo === "1") {
   const side1Key = document.getElementById("side_background_1").value;
   if (side1Key && backgrounds[side1Key]) {
@@ -1004,6 +1010,8 @@ step = (pbOK && raceChosen && bgChosen && bgOK) ? 4 : 1;
     }
 
       updateBackgroundModifiers();
+      updateBackgroundSkillProficiencies();
+      updateDisplay();
     });
   });
 
@@ -1084,9 +1092,11 @@ window.resetBackground = resetBackground;
 window.resetBoosts = resetBoosts;
 window.resetCharacter = resetCharacter;
 window.applyRacialAllocation = applyRacialAllocation;
-
   updateBackgroundSummary();
+  updateBackgroundSkillProficiencies();
+  updateDisplay();
   checkForCustomizable();
+
 });
 </script>
 
