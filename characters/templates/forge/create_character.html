@@ -434,9 +434,12 @@ document.addEventListener("DOMContentLoaded", function() {
     const mainBG = backgrounds[mainKey];
     if (combo === "0") {
   // only primary +2, never the +1
-  addAbilityBonus(mainBG.primary.ability, mainBG.primary.bonus);
-  // (no secondary)
-  addSkill(mainBG.primary.skill);
+// combo 0: grant both primary (+2) AND secondary (+1) AND both skills
+addAbilityBonus(mainBG.primary.ability,   mainBG.primary.bonus);
+addAbilityBonus(mainBG.secondary.ability, mainBG.secondary.bonus);
+addSkill(mainBG.primary.skill);
+addSkill(mainBG.secondary.skill);
+
 }
  else {
       addAbilityBonus(mainBG.primary.ability, mainBG.primary.bonus);
@@ -622,6 +625,7 @@ if (side2Key && backgrounds[side2Key]) {
           document.getElementById("side_bg1_skill_fields").style.display = "block";
         }
         updateBackgroundModifiers();
+        updateBackgroundSkillProficiencies();
       });
     });
   }
@@ -995,9 +999,10 @@ step = (pbOK && raceChosen && bgChosen && bgOK) ? 4 : 1;
       const combo = parseInt(this.value, 10);
       document.getElementById("side_bg1_container").style.display = (combo >= 1) ? "block" : "none";
       document.getElementById("side_bg2_container").style.display = (combo === 2) ? "block" : "none";
-      if (combo === 2) {
-        setupSideBG1ForCombo2();
-      }
+    if (combo === 1 || combo === 2) {
+      setupSideBG1ForCombo2();
+    }
+
       updateBackgroundModifiers();
     });
   });
