@@ -27,17 +27,16 @@ from django.utils.html import format_html
 from django.forms.models import BaseInlineFormSet
 from django.core.exceptions import ValidationError
 
-# characters/admin.py
-
-
-
-# characters/admin.py
-
 from django.contrib import admin
 
 # admin.py
 
-
+class FeatureOptionInline(admin.TabularInline):
+    model   = FeatureOption
+    fk_name = "feature"
+    extra   = 1
+    verbose_name = "Feature option"
+    verbose_name_plural = "Feature options"
 
 # ─── Inline for Pages ─────────────────────────────────────────────────────────
 from django_summernote.widgets import SummernoteWidget
@@ -337,16 +336,6 @@ class SpellAdmin(admin.ModelAdmin):
     search_fields = ('name',  'origin')
 
 
-class RacialFeatureInline(admin.TabularInline):
-    model = RacialFeature
-    extra = 1
-
-class FeatureOptionInline(admin.TabularInline):
-    model   = FeatureOption
-    fk_name = "feature"
-    extra   = 1
-    verbose_name = "Feature option"
-    verbose_name_plural = "Feature options"
 
 
 # ─── Tag & Subclass admins ──────────────────────────────────────────────────────
@@ -785,7 +774,7 @@ class ClassFeatureAdmin(admin.ModelAdmin):
                 ],
             }),
             ("Saving Throw (optional)", {
-                "classes": ["collapse"],
+                
                 "fields": [
                     "saving_throw_required",
                     "saving_throw_type",
@@ -799,7 +788,7 @@ class ClassFeatureAdmin(admin.ModelAdmin):
                 ],
             }),
             ("Damage / Formula (optional)", {
-                "classes": ["collapse"],
+                
                 "fields": ["damage_type","formula","uses"],
             }),
         ]
@@ -831,18 +820,13 @@ class ClassFeatureAdmin(admin.ModelAdmin):
 
         return inlines
     def get_form(self, request, obj=None, **kwargs):
-        """
-        Wrap the normal form (ClassFeatureForm) so that
-        <select id="id_subclass_group"> always has 
-        data-system-type="…" set correctly.
-        """
         BaseForm = super().get_form(request, obj, **kwargs)
 
         class WrappedForm(BaseForm):
             def __init__(self, *args, **inner_kwargs):
                 super().__init__(*args, **inner_kwargs)
 
-                # 1) Figure out the “pre-selected” umbrella ID:
+                # figure out which umbrella was pre-selected
                 raw_data = self.data or {}
                 initial  = self.initial or {}
                 grp_id = (
@@ -851,16 +835,17 @@ class ClassFeatureAdmin(admin.ModelAdmin):
                     or getattr(self.instance, "subclass_group_id", None)
                 )
 
-                # 2) Look up that SubclassGroup’s system_type (linear/modular_linear/modular_mastery)
+                # look up its system_type
                 system_t = ""
                 if grp_id:
                     try:
-                        system_t = SubclassGroup.objects.get(pk=grp_id).system_type
+                        system_t = SubclassGroup.objects.get(pk=grp_id).system_type or ""
                     except SubclassGroup.DoesNotExist:
-                        system_t = ""
+                        pass
 
-                # 3) ***Crucial:*** set the exact ASCII hyphen key "data-system-type"
-                self.fields["subclass_group"].widget.attrs["data-system-type"] = system_t
+                # only inject the attribute if the field is actually on this form
+                if "subclass_group" in self.fields:
+                    self.fields["subclass_group"].widget.attrs["data-system-type"] = system_t
 
         return WrappedForm
     
@@ -1091,39 +1076,15 @@ from characters.models import Race, Subrace, RacialFeature, RaceFeatureOption, R
 from django.contrib import admin
 
 
-@admin.register(RaceTag)
-class RaceTagAdmin(admin.ModelAdmin):
-    list_display         = ("name", "slug")
-    prepopulated_fields = {"slug": ("name",)}
-    search_fields        = ("name",)
-
-class RaceFeatureInline(admin.TabularInline):
-    model  = RacialFeature
-    extra  = 1
-    fields = (
-        "code","name","description",
-        "saving_throw_required","saving_throw_type","saving_throw_granularity",
-        "saving_throw_basic_success","saving_throw_basic_failure",
-        "saving_throw_critical_success","saving_throw_success",
-        "saving_throw_failure","saving_throw_critical_failure",
-        "damage_type","formula","uses",
-    )
-
-
-class RaceFeatureOptionInline(admin.TabularInline):
-    model = RaceFeatureOption
-    fk_name = "feature"
-    extra = 1
-    autocomplete_fields = ("grants_feature",)
-    verbose_name = "Feature option"
-    verbose_name_plural = "Feature options"
 
 
 
 
-class RacialFeatureForm(ClassFeatureForm):
-    class Meta(ClassFeatureForm.Meta):
-        model = RacialFeature
+
+
+
+
+
 
 
 
@@ -1236,65 +1197,108 @@ class SubraceAdmin(RaceAdmin):
         "tertiary_preview",
     )
 
-
-# in characters/admin.py
-
-from django.contrib import admin
-from characters.models import RacialFeature, RaceFeatureOption
-
 class RaceFeatureOptionInline(admin.TabularInline):
     model = RaceFeatureOption
     fk_name = "feature"
     extra = 1
     autocomplete_fields = ("grants_feature",)
 
-@admin.register(RacialFeature)
-class RacialFeatureAdmin(admin.ModelAdmin):
-    inlines = [RaceFeatureOptionInline]
-    list_display = ("race", "subrace", "scope", "kind", "code", "name")
-    list_filter  = ("race", "subrace", "scope", "kind")
-    search_fields = ("code", "name", "description")
-    autocomplete_fields = ("subrace",)
 
-    # completely drop the character_class & subclasses fields
+class RaceFeatureForm(ClassFeatureForm):
+    class Meta(ClassFeatureForm.Meta):
+        model = RacialFeature
+        # leave `fields = "__all__"` so you get every field on RacialFeature
+
+    def __init__(self, *args, **kwargs):
+        # ← **Bypass** ClassFeatureForm.__init__, call ModelForm.__init__ directly
+        forms.ModelForm.__init__(self, *args, **kwargs)
+
+        # ─── 1) Drop any class-only fields ────────────────────────────────
+        for f in ("character_class", "subclass_group", "subclasses", "tier", "mastery_rank"):
+            self.fields.pop(f, None)
+
+        # ─── 2) Swap out the scope choices ────────────────────────────────
+        self.fields["scope"].choices = [
+            ("class_feat",   "Race Feature"),
+            ("subclass_feat","Subrace Feature"),
+        ]
+
+        # ─── 3) Limit subrace dropdown to only children of the chosen race ─
+        race_val = (
+            self.data.get("race")
+            or self.initial.get("race")
+            or getattr(self.instance, "race_id", None)
+        )
+        if "subrace" in self.fields:
+            self.fields["subrace"].queryset = (
+                Subrace.objects.filter(race_id=race_val)
+                if race_val else Subrace.objects.none()
+            )
+
+    def clean(self):
+        # ← Skip ClassFeatureForm.clean() — jump straight to ModelForm.clean()
+        cleaned = super(ClassFeatureForm, self).clean()
+
+        # If they picked “Subrace Feature,” ensure a subrace was selected:
+        if cleaned.get("scope") == "subclass_feat" and not cleaned.get("subrace"):
+            self.add_error("subrace", "Please select a Subrace for a Subrace Feature.")
+
+        return cleaned
+
+@admin.register(RacialFeature)
+class RacialFeatureAdmin(ClassFeatureAdmin):
+    form = RaceFeatureForm
+    inlines = [RaceFeatureOptionInline]
     exclude = ("character_class", "subclasses")
 
     fieldsets = [
         (None, {
             "fields": [
-                "race",
-                "subrace",
-                "scope",
-                "kind",
-                "gain_subskills",
-                "code",
-                "name",
-                "description",
-                # any other ClassFeature fields you actually want…
-            ]
+                "race","subrace","scope","kind","gain_subskills",
+                "code","name","description","has_options",
+                "modify_proficiency_target","modify_proficiency_amount",
+                "cantrips_formula","spells_known_formula","spells_prepared_formula",
+            ],
         }),
         ("Saving Throw (optional)", {
-            "classes": ["collapse"],
+            
             "fields": [
-                "saving_throw_required",
-                "saving_throw_type",
-                "saving_throw_granularity",
-                "saving_throw_basic_success",
-                "saving_throw_basic_failure",
-                "saving_throw_critical_success",
-                "saving_throw_success",
-                "saving_throw_failure",
+                "saving_throw_required","saving_throw_type",
+                "saving_throw_granularity","saving_throw_basic_success",
+                "saving_throw_basic_failure","saving_throw_critical_success",
+                "saving_throw_success","saving_throw_failure",
                 "saving_throw_critical_failure",
-            ]
+            ],
         }),
         ("Damage / Formula (optional)", {
-            "classes": ["collapse"],
-            "fields": ["damage_type", "formula", "uses"],
+            "fields": ["damage_type","formula","uses"],
         }),
     ]
 
+    def get_fieldsets(self, request, obj=None):
+        # Force the admin to use *this* class’s fieldsets
+        return self.fieldsets
 
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        field = super().formfield_for_foreignkey(db_field, request, **kwargs)
+        if db_field.name == 'subrace':
+            race_id = request.POST.get('race') or request.GET.get('race')
+            field.queryset = (
+                Subrace.objects.filter(race_id=race_id)
+                if race_id else Subrace.objects.none()
+            )
+        return field
 
+    @property
+    def media(self):
+        return forms.Media(
+            js = ["characters/js/formula_builder.js"],
+            css= {"all": ["characters/css/formula_builder.css"]}
+        )
+
+# in characters/admin.py
+
+from django.contrib import admin
 @admin.register(UniversalLevelFeature)
 class UniversalLevelFeatureAdmin(admin.ModelAdmin):
     list_display  = ("level", "grants_general_feat", "grants_asi")

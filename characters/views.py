@@ -399,7 +399,8 @@ def create_character(request):
                 # ignore any parse/look-up errors
                 pass
 
-            return redirect('character_detail', pk=character.pk)
+            return redirect('characters:character_list', pk=character.pk)
+
     else:
         form = CharacterCreationForm()
 
@@ -450,25 +451,21 @@ def create_character(request):
     return render(request, 'forge/create_character.html', context)
 
 
+# characters/views.py
+
 @login_required
 def character_detail(request, pk):
-    """
-    Display a character’s full data after creation.
-    """
     character = get_object_or_404(request.user.characters.select_related(
         'race', 'subrace', 'campaign'
     ), pk=pk)
-
-    # collect skill proficiencies
     skills = character.skill_proficiencies.select_related(
         'subskill__category', 'proficiency'
     ).order_by('subskill__category__name', 'subskill__name')
 
-    context = {
+    return render(request, 'forge/character_detail.html', {
         'character': character,
         'skills':     skills,
-    }
-    return render(request, 'forge/character_detail.html', context)
+    })
 
 
 
@@ -606,7 +603,7 @@ def character_detail(request, pk):
         subrace = Subrace.objects.filter(pk=character.subrace_id).first()
         subrace_name = subrace.name if subrace else None
     # ── 6) render everything in one template ─────────────────────────────────
-    return render(request, 'characters/character_detail.html', {
+    return render(request, 'forge/character_detail.html', {
         'character':           character,
         'can_edit':            can_edit,
         'subrace_name':        subrace_name,      # ← new

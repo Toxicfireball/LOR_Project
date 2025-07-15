@@ -384,11 +384,11 @@ class Character(models.Model):
     subrace = models.ForeignKey(Subrace, on_delete=models.SET_NULL,
                                 null=True, blank=True, related_name="characters")
 
-    half_elf_origin    = models.CharField(max_length=20, blank=True)
+    half_elf_origin    = models.CharField(max_length=20, blank=True, null = True,)
     bg_combo           = models.CharField(max_length=10, blank=True)
     main_background    = models.CharField(max_length=50, blank=True)
-    side_background_1  = models.CharField(max_length=50, blank=True)
-    side_background_2  = models.CharField(max_length=50, blank=True)
+    side_background_1  = models.CharField(max_length=50, blank=True, null = True,)
+    side_background_2  = models.CharField(max_length=50, blank=True, null = True,)
     HP = models.IntegerField(blank=True, null = True)
     temp_HP = models.IntegerField( blank=True,  null = True)
     # ability scores
