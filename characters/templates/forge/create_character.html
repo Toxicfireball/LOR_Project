@@ -304,6 +304,10 @@
     if (r.free_points > 0) customizableRaces[r.code] = r.free_points;
     if (Array.isArray(r.subraces)) {
       subracesDict[r.code] = r.subraces.map(sr => ({ value: sr.code, label: sr.name, free_points: sr.free_points||0 }));
+        r.subraces.forEach(sr => {
+        racialModifiersDict[sr.code] = sr.modifiers;
+        if (sr.free_points > 0) customizableRaces[sr.code] = sr.free_points;
+      });
     }
   });
   document.addEventListener("DOMContentLoaded", () => {
@@ -435,6 +439,27 @@
         });
       }
     }
+function getCurrentRacialModifiers() {
+  // always pick up whichever subrace (if any) is selected
+  const mainCode = raceSelect.value;
+  const subCode  = subraceSelect.value;
+
+  const mainMods = racialModifiersDict[mainCode] || {};
+  const subMods  = subCode
+                  ? (racialModifiersDict[subCode] || {})
+                  : {};
+
+  // combine fixed race + fixed subrace + any ASI allocations
+  const combined = {};
+  stats.forEach(stat => {
+    combined[stat] = 
+      (mainMods[stat]      || 0) +
+      (subMods[stat]       || 0) +
+      (racialASIBonus[stat]|| 0);
+  });
+
+  return combined;
+}
 
     //
     // Half-elf origin
@@ -561,36 +586,16 @@
     //
     // Race modifiers + ASIs
     //
-    function getCurrentRacialModifiers(){
-      const mainCode = raceSelect.value;
-      const hasSub   = subraceDiv.style.display==="block" && subraceSelect.value;
-      let baseMods   = racialModifiersDict[mainCode]||{};
-      if(hasSub && mainCode==="half_elf"){
-        const subMods = racialModifiersDict[subraceSelect.value]||{};
-        // half_elf default + subrace
-        baseMods = {
-          Strength: baseMods.Strength + subMods.Strength,
-          Dexterity: baseMods.Dexterity + subMods.Dexterity,
-          Constitution: baseMods.Constitution + subMods.Constitution,
-          Intelligence: baseMods.Intelligence + subMods.Intelligence,
-          Wisdom: baseMods.Wisdom + subMods.Wisdom,
-          Charisma: baseMods.Charisma + subMods.Charisma
-        };
-      } else if(hasSub){
-        baseMods = racialModifiersDict[subraceSelect.value]||baseMods;
-      }
-      // apply customizable ASIs if any
-      if(racialASIPoints>0){
-        stats.forEach(s=>{
-          baseMods[s] = (baseMods[s]||0) + (racialASIBonus[s]||0);
-        });
-      }
-      return baseMods;
-    }
+
+
+
+
 
     //
     // Calculate which step we’re on
     //
+
+
     function step(){
       if(pointsRemaining>0) return 1;
       if(!raceSelect.value) return 2;

@@ -419,9 +419,22 @@ def create_character(request):
                 'Charisma':     race.charisma_bonus,
             },
             'free_points':           race.free_points,
-            'max_bonus_per_ability': race.max_bonus_per_ability,
+           'max_bonus_per_ability': race.max_bonus_per_ability,
             'subraces': [
-                {'code': sub.code, 'name': sub.name}
+                {
+                    'code': sub.code,
+                    'name': sub.name,
+                    'modifiers': {
+                        'Strength':     sub.strength_bonus,
+                        'Dexterity':    sub.dexterity_bonus,
+                        'Constitution': sub.constitution_bonus,
+                        'Intelligence': sub.intelligence_bonus,
+                        'Wisdom':       sub.wisdom_bonus,
+                        'Charisma':     sub.charisma_bonus,
+                    },
+                    'free_points':           sub.free_points,
+                    'max_bonus_per_ability': sub.max_bonus_per_ability,
+                }
                 for sub in race.subraces.all()
             ],
         })
