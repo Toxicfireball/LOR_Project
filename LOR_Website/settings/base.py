@@ -3,6 +3,21 @@ from pathlib import Path
 import dj_database_url
 from dotenv import load_dotenv
 from django.core.exceptions import ImproperlyConfigured
+
+# settings.py (at the very top, above everything else)
+import bleach
+
+# keep a reference to the real clean()
+_orig_bleach_clean = bleach.clean
+
+def clean_with_styles(text, *args, styles=None, **kwargs):
+    # drop the unsupported `styles=` argument
+    return _orig_bleach_clean(text, *args, **kwargs)
+
+# replace bleach.clean globally
+bleach.clean = clean_with_styles
+
+
 # ─── Base directory ─────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env", override=True)
@@ -34,7 +49,8 @@ INSTALLED_APPS = [
     'home',
     'accounts',
     'campaigns',
-    'characters',
+    'characters.apps.CharactersConfig',
+    
     "django_summernote",
 ]
 X_FRAME_OPTIONS = "SAMEORIGIN"

@@ -1,12 +1,11 @@
-{# templates/rulebooks/page_detail.html #}
+{# templates/rulebook/page_detail.html #}
 {% extends "base.html" %}
 {% block content %}
   <h1>{{ page.title }}</h1>
-  <p><a href="{% url 'characters:rulebook_detail' page.rulebook.pk %}">
-    &larr; Back to {{ page.rulebook.name }}</a>
-  </p>
-  <div class="rule-content">
+  <div class="prose">
     {{ page.content|safe }}
   </div>
+  <p><a href="{% url 'characters:rulebook_detail' page.rulebook.pk %}">
+    ← Back to {{ page.rulebook.name }}
+  </a></p>
 {% endblock %}
- 

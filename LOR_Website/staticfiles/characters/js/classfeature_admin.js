@@ -241,3 +241,5 @@ if (rows.spellInline) rows.spellInline.style.display = "none";
     toggleAll();
   });
 })();
+
+

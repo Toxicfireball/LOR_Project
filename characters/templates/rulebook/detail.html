@@ -3,45 +3,17 @@
   <h1>{{ rulebook.name }}</h1>
   <p><a href="{% url 'characters:rulebook_list' %}">&larr; All Rulebooks</a></p>
 
-  {# ─── Loop over all defined sections ─────────────────────────────────────── #}
-  {% if sections %}
-    {% for section in sections %}
-      <section class="mb-5">
-        <h2>{{ section.name }}</h2>
-        {% if section.description %}
-          <p class="text-muted">{{ section.description }}</p>
-        {% endif %}
-
-        {% if section.pages.all %}
-          <ol class="ms-4">
-            {% for page in section.pages.all %}
-              <li>
-                <a href="{% url 'characters:rulebook_page_detail' rulebook.pk page.pk %}">
-                  {{ page.title }}
-                </a>
-              </li>
-            {% endfor %}
-          </ol>
-        {% else %}
-          <p><em>No pages in this section yet.</em></p>
-        {% endif %}
-      </section>
-    {% endfor %}
-  {% endif %}
-
-  {# ─── Show any pages not assigned to a section ───────────────────────────── #}
-  {% if uncat_pages %}
-    <section class="mt-5">
-      <h2>Uncategorized</h2>
-      <ol class="ms-4">
-        {% for page in uncat_pages %}
-          <li>
-            <a href="{% url 'characters:rulebook_page_detail' rulebook.pk page.pk %}">
-              {{ page.title }}
-            </a>
-          </li>
-        {% endfor %}
-      </ol>
-    </section>
+  {% if pages %}
+    <ol class="ms-4">
+      {% for page in pages %}
+        <li>
+          <a href="{% url 'characters:rulebook_page_detail' rulebook.pk page.pk %}">
+            {{ page.title }}
+          </a>
+        </li>
+      {% endfor %}
+    </ol>
+  {% else %}
+    <p><em>No pages yet.</em></p>
   {% endif %}
 {% endblock %}

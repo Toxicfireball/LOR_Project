@@ -64,7 +64,7 @@ class RulebookAdmin(admin.ModelAdmin):
 
 
 @admin.register(RulebookPage)
-class RulebookPageAdmin(admin.ModelAdmin):
+class RulebookPageAdmin(SummernoteModelAdmin):
     list_display        = ("rulebook", "order", "title")
     list_filter         = ("rulebook",)
     ordering            = ("rulebook__name", "order")
@@ -77,6 +77,7 @@ class RulebookPageAdmin(admin.ModelAdmin):
         "content",  # this is already a SummernoteTextField in your model
         "image",
     )
+    summernote_fields = ("content",)
 
 class ModularLinearFeatureFormSet(BaseInlineFormSet):
     """

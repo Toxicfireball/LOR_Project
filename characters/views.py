@@ -362,6 +362,14 @@ class RulebookDetailView(DetailView):
     template_name = "rulebook/detail.html"
     context_object_name = "rulebook"
 
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        # all pages for this rulebook, ordered by your RulebookPage.order
+        ctx['pages'] = self.object.pages.all()
+        return ctx
+
+
+
 class RulebookPageDetailView(DetailView):
     model = RulebookPage
     template_name = "rulebook/page_detail.html"
