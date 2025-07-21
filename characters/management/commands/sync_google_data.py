@@ -92,7 +92,6 @@ class Command(BaseCommand):
                             'components':     safe_str(row.get('Components')),
                             'range':          safe_str(row.get('Range')),
                             'target':         safe_str(row.get('Target')),
-                            'school':         safe_str(row.get('School')),
                             'origin':         safe_str(row.get('Origin')),
                             'sub_origin':     safe_str(row.get('Sub Origin')),
                             'mastery_req':    safe_str(row.get('Mastery Req')),
