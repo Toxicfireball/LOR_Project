@@ -1,2 +1,12 @@
 /* everything—base, components, utilities, plus Typography—comes from this single import */
 @import "tailwindcss";
+@layer base {
+  /* first level already gets pl-[5px] via the class above */
+  ol ol {
+    @apply pl-[10px];
+  }
+  ol ol ol {
+    @apply pl-[15px];
+  }
+  /* add more if you expect deeper nesting… */
+}

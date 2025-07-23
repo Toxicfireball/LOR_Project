@@ -1,11 +1,20 @@
-{# templates/rulebook/page_detail.html #}
+{# templates/rulebooks/page_detail.html #}
 {% extends "base.html" %}
 {% block content %}
-  <h1>{{ page.title }}</h1>
-  <div class="prose">
+<div class="container mx-auto px-4 py-8">
+  <h1 class="text-3xl font-bold mb-4">{{ page.title }}</h1>
+
+  <div class="prose max-w-none mb-6">
     {{ page.content|safe }}
   </div>
-  <p><a href="{% url 'characters:rulebook_detail' page.rulebook.pk %}">
-    ← Back to {{ page.rulebook.name }}
-  </a></p>
+
+  <p>
+    <a
+      href="{% url 'characters:rulebook_detail' page.rulebook.pk %}"
+      class="text-blue-500 hover:underline"
+    >
+      &larr; Back to {{ page.rulebook.name }}
+    </a>
+  </p>
+</div>
 {% endblock %}

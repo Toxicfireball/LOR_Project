@@ -1,19 +1,27 @@
+{# templates/rulebooks/detail.html #}
 {% extends "base.html" %}
 {% block content %}
-  <h1>{{ rulebook.name }}</h1>
-  <p><a href="{% url 'characters:rulebook_list' %}">&larr; All Rulebooks</a></p>
+<div class="container mx-auto px-4 py-8">
+  <h1 class="text-3xl font-bold mb-4">{{ rulebook.name }}</h1>
+  <p class="mb-6">
+    <a href="{% url 'characters:rulebook_list' %}"
+       class="text-blue-500 hover:underline">&larr; All Rulebooks</a>
+  </p>
 
   {% if pages %}
-    <ol class="ms-4">
+    <ol class="list-decimal list-inside space-y-2 pl-[5px]">
       {% for page in pages %}
         <li>
-          <a href="{% url 'characters:rulebook_page_detail' rulebook.pk page.pk %}">
+          <a
+            href="{% url 'characters:rulebook_page_detail' rulebook.pk page.pk %}"
+            class="text-lg text-gray-700 hover:text-blue-600">
             {{ page.title }}
           </a>
         </li>
       {% endfor %}
     </ol>
   {% else %}
-    <p><em>No pages yet.</em></p>
+    <p class="text-gray-500 italic">No pages yet.</p>
   {% endif %}
+</div>
 {% endblock %}

@@ -1,57 +1,66 @@
 {# templates/rulebooks/list.html #}
 {% extends "base.html" %}
 {% block content %}
-  <h1>Rulebooks</h1>
+<div class="container mx-auto px-4 py-8">
+  <h1 class="text-3xl font-bold mb-6">Rulebooks</h1>
 
-  <form method="get" class="mb-6 flex space-x-2">
+  <form method="get" class="mb-8 flex space-x-2">
     <input
       type="text" name="q"
       placeholder="Search rulebooks…"
       value="{{ request.GET.q|default_if_none:'' }}"
-      class="flex-grow border rounded px-3 py-2 focus:outline-none focus:ring"
+      class="flex-grow border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring focus:ring-blue-200"
     />
     <button
       type="submit"
       class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-    >Search</button>
+    >
+      Search
+    </button>
   </form>
 
-  <ul>
+  <ul class="list-disc list-inside space-y-2 ml-5 mb-8">
     {% for rb in rulebooks %}
       <li>
-        <a href="{% url 'characters:rulebook_detail' rb.pk %}">
+        <a
+          href="{% url 'characters:rulebook_detail' rb.pk %}"
+          class="text-lg text-gray-800 hover:text-blue-600"
+        >
           {{ rb.name }}
         </a>
       </li>
     {% empty %}
-      <li>No rulebooks found.</li>
+      <li class="text-gray-500 italic">No rulebooks found.</li>
     {% endfor %}
   </ul>
 
   {% if is_paginated %}
-    <nav class="mt-4 flex justify-center space-x-1">
+    <nav class="flex justify-center space-x-2">
       {% if page_obj.has_previous %}
         <a
           href="?q={{ request.GET.q }}&page={{ page_obj.previous_page_number }}"
-          class="px-3 py-1 border rounded hover:bg-gray-200"
+          class="px-3 py-1 border border-gray-300 rounded hover:bg-gray-100"
         >&laquo; Prev</a>
       {% endif %}
+
       {% for num in page_obj.paginator.page_range %}
         {% if num == page_obj.number %}
           <span class="px-3 py-1 bg-gray-300 rounded">{{ num }}</span>
         {% else %}
           <a
             href="?q={{ request.GET.q }}&page={{ num }}"
-            class="px-3 py-1 border rounded hover:bg-gray-100"
+            class="px-3 py-1 border border-gray-300 rounded hover:bg-gray-100"
           >{{ num }}</a>
         {% endif %}
       {% endfor %}
+
       {% if page_obj.has_next %}
         <a
           href="?q={{ request.GET.q }}&page={{ page_obj.next_page_number }}"
-          class="px-3 py-1 border rounded hover:bg-gray-200"
+          class="px-3 py-1 border border-gray-300 rounded hover:bg-gray-100"
         >Next &raquo;</a>
       {% endif %}
     </nav>
   {% endif %}
+</div>
 {% endblock %}

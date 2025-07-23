@@ -255,20 +255,44 @@ def class_detail(request, pk):
     )
 
     # For each individual subclass, build its own level→features map
+    # For each individual subclass, build its own level→features map
     for group in subclass_groups:
+        # pre‐build a map tier→unlock_level, if needed
+        tier_map = {}
+        if group.system_type == SubclassGroup.SYSTEM_MODULAR_LINEAR:
+            tier_map = {
+                tl.tier: tl.unlock_level
+                for tl in group.tier_levels.all()
+            }
         for sub in group.subclasses.all():
             fbylevel = {}
-            for cl in levels:
-                # pick only the features you inlined AND that list this sub
-                feats = [
-                    f for f in cl.features.all()
-                    if f.scope == 'subclass_feat' and sub in f.subclasses.all()
-                ]
-                if feats:
-                    fbylevel[cl.level] = feats
+
+            if group.system_type == SubclassGroup.SYSTEM_MODULAR_LINEAR:
+                # pull all the subclass_feats for this sub, then map by tier→unlock_level
+                modular_feats = (
+                    ClassFeature.objects
+                    .filter(scope='subclass_feat',
+                            subclasses=sub,
+                            subclass_group=group)
+                )
+                for f in modular_feats:
+                    lvl = tier_map.get(f.tier)
+                    if lvl:
+                        fbylevel.setdefault(lvl, []).append(f)
+
+            else:
+                # existing “linear” logic
+                for cl in levels:
+                    feats = [
+                        f for f in cl.features.all()
+                        if f.scope == 'subclass_feat' and sub in f.subclasses.all()
+                    ]
+                    if feats:
+                        fbylevel.setdefault(cl.level, []).extend(feats)
+
             # Sort by level so L2 comes before L5, etc.
             sub.features_by_level = OrderedDict(sorted(fbylevel.items()))
-    
+ 
 
     # ── 5) Summary 1…20 ────────────────────────────────────────────────────────
     max_lvl = max(levels.aggregate(Max('level'))['level__max'] or 1, 20)
