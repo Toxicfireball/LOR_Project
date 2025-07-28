@@ -223,17 +223,6 @@ if (rows.spellInline) rows.spellInline.style.display = "none";
     //
     // ─── 7) Whenever “scope” or “subclass_group” changes, reload with new GET params ─
     //
-    function reloadWithParams() {
-      const baseURL  = window.location.href.split("?")[0];
-      const scopeVal = encodeURIComponent(scopeEl.value || "");
-      const grpVal   = encodeURIComponent(grpSelect.value || "");
-      window.location.href = baseURL
-                          + "?scope=" + scopeVal
-                          + "&subclass_group=" + grpVal;
-    }
-
-    if (scopeEl)   scopeEl.addEventListener("change", reloadWithParams);
-    if (grpSelect) grpSelect.addEventListener("change", reloadWithParams);
 
     //
     // ─── 8) Run toggleAll() once on initial page load ────────────────────────────────

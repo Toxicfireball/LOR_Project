@@ -962,11 +962,10 @@ class ClassFeature(models.Model):
         help_text="What *type* of feature this is."
     )
     modify_proficiency_target = models.CharField(
-        max_length=20,
-        choices=PROFICIENCY_TYPES,
-        blank=True,
-        help_text="Which proficiency to modify"
-    )
+       max_length=50,        # leave room for "skill_123"
+       blank=True,
+       help_text="Which proficiency to modify"
+   )
     modify_proficiency_amount = models.ForeignKey(
         ProficiencyTier,
         on_delete=models.SET_NULL,

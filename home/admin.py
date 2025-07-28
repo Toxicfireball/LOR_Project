@@ -794,6 +794,28 @@ class ClassFeatureAdmin(admin.ModelAdmin):
             }),
         ]
 
+    def formfield_for_dbfield(self, db_field, request, **kwargs):
+        # Force a <select> for modify_proficiency_target even though the model is CharField
+        if db_field.name == "modify_proficiency_target":
+            from django import forms
+            from characters.models import PROFICIENCY_TYPES, Skill
+
+            # 1) build the combined list: base prof types + all Skill names
+            base = list(PROFICIENCY_TYPES)
+            skill_choices = [(f"skill_{s.pk}", s.name) for s in Skill.objects.all()]
+            all_choices = [("", "---------")] + base + skill_choices
+
+            # 2) return a ChoiceField (renders as <select>) instead of default TextInput
+            return forms.ChoiceField(
+                choices=all_choices,
+                required=not db_field.blank,
+                widget=forms.Select,
+                label=db_field.verbose_name,
+                help_text=db_field.help_text,
+            )
+        return super().formfield_for_dbfield(db_field, request, **kwargs)
+
+
     def get_changeform_initial_data(self, request):
         initial = super().get_changeform_initial_data(request)
         # If ?scope=​… is in the URL, copy it into initial
@@ -851,12 +873,12 @@ class ClassFeatureAdmin(admin.ModelAdmin):
         return WrappedForm
     def formfield_for_choice_field(self, db_field, request, **kwargs):
         if db_field.name == "modify_proficiency_target":
-            # grab the existing armor/dodge/etc choices
-            base = list(db_field.choices)
-            # append one tuple per Skill: value="skill_<id>", label=skill.name
-            skills = [(f"skill_{s.pk}", s.name) for s in Skill.objects.all()]
-            kwargs["choices"] = base + skills
-        return super().formfield_for_choice_field(db_field, request, **kwargs)    
+            # 1) grab your old armor/dodge/etc list
+            base_choices = list(db_field.choices)
+            # 2) append one tuple per Skill
+            skill_choices = [(f"skill_{s.pk}", s.name) for s in Skill.objects.all()]
+            kwargs["choices"] = base_choices + skill_choices
+        return super().formfield_for_choice_field(db_field, request, **kwargs)  
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         """
         Whenever Django is about to render the ForeignKey “subclass_group” field,
@@ -1296,11 +1318,36 @@ class RacialFeatureAdmin(ClassFeatureAdmin):
                 if race_id else Subrace.objects.none()
             )
         return field
+    
+    def formfield_for_dbfield(self, db_field, request, **kwargs):
+        # Force a <select> for modify_proficiency_target even though the model is CharField
+        if db_field.name == "modify_proficiency_target":
+            from django import forms
+            from characters.models import PROFICIENCY_TYPES, Skill
+
+            # 1) build the combined list: base prof types + all Skill names
+            base = list(PROFICIENCY_TYPES)
+            skill_choices = [(f"skill_{s.pk}", s.name) for s in Skill.objects.all()]
+            all_choices = [("", "---------")] + base + skill_choices
+
+            # 2) return a ChoiceField (renders as <select>) instead of default TextInput
+            return forms.ChoiceField(
+                choices=all_choices,
+                required=not db_field.blank,
+                widget=forms.Select,
+                label=db_field.verbose_name,
+                help_text=db_field.help_text,
+            )
+        return super().formfield_for_dbfield(db_field, request, **kwargs)
+
+
     def formfield_for_choice_field(self, db_field, request, **kwargs):
         if db_field.name == "modify_proficiency_target":
-            base = list(db_field.choices)
-            skills = [(f"skill_{s.pk}", s.name) for s in Skill.objects.all()]
-            kwargs["choices"] = base + skills
+            # 1) grab your old armor/dodge/etc list
+            base_choices = list(db_field.choices)
+            # 2) append one tuple per Skill
+            skill_choices = [(f"skill_{s.pk}", s.name) for s in Skill.objects.all()]
+            kwargs["choices"] = base_choices + skill_choices
         return super().formfield_for_choice_field(db_field, request, **kwargs)
     @property
     def media(self):
