@@ -849,7 +849,14 @@ class ClassFeatureAdmin(admin.ModelAdmin):
                     self.fields["subclass_group"].widget.attrs["data-system-type"] = system_t
 
         return WrappedForm
-    
+    def formfield_for_choice_field(self, db_field, request, **kwargs):
+        if db_field.name == "modify_proficiency_target":
+            # grab the existing armor/dodge/etc choices
+            base = list(db_field.choices)
+            # append one tuple per Skill: value="skill_<id>", label=skill.name
+            skills = [(f"skill_{s.pk}", s.name) for s in Skill.objects.all()]
+            kwargs["choices"] = base + skills
+        return super().formfield_for_choice_field(db_field, request, **kwargs)    
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         """
         Whenever Django is about to render the ForeignKey “subclass_group” field,
@@ -1289,7 +1296,12 @@ class RacialFeatureAdmin(ClassFeatureAdmin):
                 if race_id else Subrace.objects.none()
             )
         return field
-
+    def formfield_for_choice_field(self, db_field, request, **kwargs):
+        if db_field.name == "modify_proficiency_target":
+            base = list(db_field.choices)
+            skills = [(f"skill_{s.pk}", s.name) for s in Skill.objects.all()]
+            kwargs["choices"] = base + skills
+        return super().formfield_for_choice_field(db_field, request, **kwargs)
     @property
     def media(self):
         return forms.Media(
