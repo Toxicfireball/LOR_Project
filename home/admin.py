@@ -1,4 +1,4 @@
-# characters/admin.py
+# home/admin.py
 
 from django.contrib import admin
 from django import forms
@@ -21,12 +21,12 @@ from django.contrib.contenttypes.models import ContentType
 from django.urls import resolve
 from django.contrib.admin.widgets import FilteredSelectMultiple
 from characters.widgets import FormulaBuilderWidget, CharacterClassSelect
-from characters.models import Language, CharacterSkillProficiency, LoremasterArticle, LoremasterImage, RulebookPage, Rulebook, RacialFeature, Rulebook, RulebookPage,AbilityScore,Background, ResourceType,Weapon, SubSkill, UniversalLevelFeature, Skill, WeaponTraitValue,WeaponTrait, ClassResource, CharacterResource, SubclassGroup, SubclassTierLevel
+from characters.models import EquipmentSlot, WearableSlot ,SpecialItem, SpecialItemTraitValue,Language,Armor, ArmorTrait, CharacterSkillProficiency, LoremasterArticle, LoremasterImage, RulebookPage, Rulebook, RacialFeature, Rulebook, RulebookPage,AbilityScore,Background, ResourceType,Weapon, SubSkill, UniversalLevelFeature, Skill, WeaponTraitValue,WeaponTrait, ClassResource, CharacterResource, SubclassGroup, SubclassTierLevel
 from characters.forms import BackgroundForm,CharacterClassForm, CombinedSkillField
 from django.utils.html import format_html
 from django.forms.models import BaseInlineFormSet
 from django.core.exceptions import ValidationError
-
+from characters.models import PROFICIENCY_TYPES, Skill
 from django.contrib import admin
 
 # admin.py
@@ -42,6 +42,13 @@ class FeatureOptionInline(admin.TabularInline):
 from django_summernote.widgets import SummernoteWidget
 from django.contrib import admin
 from django_summernote.admin import SummernoteModelAdmin
+class SpecialItemForm(forms.ModelForm):
+    class Meta:
+        model  = SpecialItem
+        fields = "__all__"   # or list exactly the fields you show in your fieldsets
+
+
+
 
 @admin.register(LoremasterImage)
 class LoremasterImageAdmin(admin.ModelAdmin):
@@ -176,23 +183,7 @@ class SpellInline(admin.StackedInline):
     exclude     = ("last_synced", "mastery_req", "sub_origin", "origin")
     verbose_name        = "Inherent Spell Data"
     verbose_name_plural = "Inherent Spell Data"
-@admin.register(WeaponTrait)
-class WeaponTraitAdmin(admin.ModelAdmin):
-    list_display = ("name", "requires_value")
-    search_fields = ("name",)
 
-class WeaponTraitValueInline(admin.TabularInline):
-    model = WeaponTraitValue
-    extra = 1
-    autocomplete_fields = ("trait",)
-    fields = ("trait", "value")
-                
-@admin.register(Weapon)
-class WeaponAdmin(admin.ModelAdmin):
-    list_display = ("name", "category", "damage", "is_melee")
-    list_filter = ("category", "is_melee")
-    search_fields = ("name", "damage")
-    inlines = [WeaponTraitValueInline]
 
 class SubSkillInline(admin.TabularInline):
     model = SubSkill
@@ -645,6 +636,22 @@ class ClassLevelFeatureInline(admin.TabularInline):
             kwargs["queryset"] = ClassFeature.objects.all()
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
+@admin.register(ArmorTrait)
+class ArmorTraitAdmin(admin.ModelAdmin):
+    list_display = ("name",)
+    search_fields = ("name",)
+
+class ArmorTraitInline(admin.TabularInline):
+    model = Armor.traits.through
+    autocomplete_fields = ("armortrait",)
+    extra = 1
+
+@admin.register(Armor)
+class ArmorAdmin(admin.ModelAdmin):
+    list_display = ("name","armor_value","type","speed_penalty","hinderance")
+    list_filter  = ("type","traits")
+    search_fields= ("name",)
+    inlines      = [ArmorTraitInline]
 
 @admin.register(SubclassGroup)
 class SubclassGroupAdmin(admin.ModelAdmin):
@@ -965,6 +972,10 @@ class ClassFeatureAdmin(admin.ModelAdmin):
 # characters/admin.py
 
 
+@admin.register(ContentType)
+class ContentTypeAdmin(admin.ModelAdmin):
+    list_display  = ("app_label", "model")
+    search_fields = ("app_label", "model")
 @admin.register(Language)
 class LanguageAdmin(admin.ModelAdmin):
     list_display    = ("code", "name", "description")
@@ -1413,3 +1424,245 @@ class CSPForm(forms.ModelForm):
 class CharacterSkillProficiencyAdmin(CombinedSkillAdminMixin, admin.ModelAdmin):
     form = CSPForm
     list_display = ("character","selected_skill","proficiency")
+
+
+
+@admin.register(WeaponTrait)
+class WeaponTraitAdmin(admin.ModelAdmin):
+    list_display = ("name", "requires_value")
+    search_fields = ("name",)
+
+class WeaponTraitValueInline(admin.TabularInline):
+    model = WeaponTraitValue
+    extra = 1
+    fields = ("trait", "value")
+
+
+@admin.register(EquipmentSlot)
+class EquipmentSlotAdmin(admin.ModelAdmin):
+    list_display   = ("name",)
+    search_fields  = ("name",)
+
+# characters/admin.py
+@admin.register(WearableSlot)
+class WearableSlotAdmin(admin.ModelAdmin):
+    list_display         = ("code","name")
+    search_fields        = ("code","name")
+    prepopulated_fields  = {"code": ("name",)}
+
+class SpecialItemTraitValueForm(forms.ModelForm):
+    # — exactly the “Active” fields from ClassFeatureForm —
+    formula_target = forms.ChoiceField(
+        choices=ClassFeature._meta.get_field("formula_target").choices,
+        required=False, label="Roll Type",
+        help_text=ClassFeatureForm.Meta.help_texts["formula_target"],
+    )
+    formula = forms.CharField(
+        widget=FormulaBuilderWidget(variables=VARS, dice=DICE, attrs={"rows":2,"cols":40}),
+        required=False, help_text=ClassFeatureForm.Meta.help_texts["formula"],
+    )
+    uses = forms.CharField(
+        widget=FormulaBuilderWidget(variables=VARS, dice=DICE, attrs={"rows":2,"cols":40}),
+        required=False, help_text=ClassFeatureForm.Meta.help_texts["uses"],
+    )
+    action_type = forms.ChoiceField(
+        choices=ClassFeature._meta.get_field("action_type").choices,
+        required=False, label="Action Required",
+        help_text=ClassFeatureForm.Meta.help_texts["action_type"],
+    )
+    damage_type = forms.MultipleChoiceField(
+        choices=ClassFeature.DAMAGE_TYPE_CHOICES,
+        widget=forms.CheckboxSelectMultiple,
+        required=False, label="Damage Type",
+        help_text=ClassFeatureForm.Meta.help_texts.get("damage_type", ""),
+    )
+    saving_throw_required = forms.BooleanField(
+        required=False, label="Saving Throw?",
+    )
+    saving_throw_type = forms.ChoiceField(
+        choices=SpecialItemTraitValue._meta.get_field("saving_throw_type").choices,
+        required=False, label="Saving Throw Type",
+    )
+    saving_throw_granularity = forms.ChoiceField(
+        choices=SpecialItemTraitValue._meta.get_field("saving_throw_granularity").choices,
+        required=False, label="Saving Throw Granularity",
+    )
+    saving_throw_basic_success    = forms.CharField(required=False)
+    saving_throw_basic_failure    = forms.CharField(required=False)
+    saving_throw_critical_success = forms.CharField(required=False)
+    saving_throw_success          = forms.CharField(required=False)
+    saving_throw_failure          = forms.CharField(required=False)
+    saving_throw_critical_failure = forms.CharField(required=False)
+
+    # — exactly the “Passive” fields from ClassFeatureForm —
+    modify_proficiency_target = forms.ChoiceField(
+        choices=[("", "---------")] + list(PROFICIENCY_TYPES)
+                + [(f"skill_{s.pk}", s.name) for s in Skill.objects.all()],
+        required=False,
+        label=ClassFeature._meta.get_field("modify_proficiency_target").verbose_name,
+        help_text=ClassFeature._meta.get_field("modify_proficiency_target").help_text,
+    )
+    modify_proficiency_amount = forms.ModelChoiceField(
+        queryset=ProficiencyTier.objects.all(),
+        required=False, label="Modify Proficiency Amount",
+    )
+    gain_resistance_mode = forms.ChoiceField(
+        choices=SpecialItemTraitValue._meta.get_field("gain_resistance_mode").choices,
+        widget=forms.RadioSelect,
+        required=False, label="Resistance Mode",
+    )
+    gain_resistance_types = forms.MultipleChoiceField(
+        choices=ClassFeature.DAMAGE_TYPE_CHOICES,
+        widget=forms.CheckboxSelectMultiple,
+        required=False, label="Resistance Types",
+    )
+    gain_resistance_amount = forms.IntegerField(
+        required=False, label="Resistance Amount",
+    )
+
+    class Meta:
+        model = SpecialItemTraitValue
+        fields = [
+            "name", "active",
+            # Active
+            "formula_target", "formula", "uses", "action_type", "damage_type",
+            "saving_throw_required", "saving_throw_type", "saving_throw_granularity",
+            "saving_throw_basic_success", "saving_throw_basic_failure",
+            "saving_throw_critical_success","saving_throw_success",
+            "saving_throw_failure","saving_throw_critical_failure",
+            # Passive
+            "modify_proficiency_target", "modify_proficiency_amount",
+            "gain_resistance_mode", "gain_resistance_types", "gain_resistance_amount",
+            # always visible
+            "description",
+        ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # ensure attrs/original_attrs exist so classfeature_admin.js can hook them
+        for f in self.fields.values():
+            w = f.widget
+            if getattr(w, "attrs", None) is None:
+                w.attrs = {}
+            if getattr(w, "original_attrs", None) is None:
+                w.original_attrs = {}
+            if hasattr(w, "choices") and w.choices is None:
+                w.choices = []
+
+class SpecialItemTraitValueFormSet(BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+        seen = set()
+        for form in self.forms:
+            if self.can_delete and form.cleaned_data.get("DELETE"):
+                continue
+            trait = form.cleaned_data.get("trait")
+            if trait:
+                if trait in seen:
+                    raise ValidationError("You can only assign each Trait once per item.")
+                seen.add(trait)
+
+
+
+
+
+class SpecialItemTraitValueInline(admin.StackedInline):
+    model   = SpecialItemTraitValue
+    form    = SpecialItemTraitValueForm
+    extra   = 1
+    classes = ["specialitemtraitvalue-inline"]
+
+    fieldsets = [
+        (None, {
+            "fields": [
+              # always visible:
+              "name", "active",
+
+              # active-only:
+              "formula_target","formula","uses","action_type","damage_type",
+              "saving_throw_required","saving_throw_type","saving_throw_granularity",
+              "saving_throw_basic_success","saving_throw_basic_failure",
+              "saving_throw_critical_success","saving_throw_success",
+              "saving_throw_failure","saving_throw_critical_failure",
+
+              # passive-only:
+              "modify_proficiency_target","modify_proficiency_amount",
+              "gain_resistance_mode","gain_resistance_types","gain_resistance_amount",
+
+              # always visible
+              "description",
+            ],
+        }),
+    ]
+
+@admin.register(SpecialItem)
+class SpecialItemAdmin(admin.ModelAdmin):
+    form = SpecialItemForm   # ← add this line
+    list_display    = ("name","item_type","base_object","rarity")
+    list_filter     = ("item_type","rarity")
+    fieldsets = [
+      (None, {
+        "fields": ["attunement","name","item_type"],
+      }),
+      ("Weapon Settings", {
+        "classes": ("weapon-group",),
+        "fields": ("weapon",),
+      }),
+      ("Armor Settings", {
+        "classes": ("armor-group",),
+        "fields": ("armor",),
+      }),
+      ("Wearable Settings", {
+        "classes": ("wearable-group",),
+        "fields": ("wearable_slot",),
+      }),
+      ("General", {
+        "fields": ("enhancement_bonus","rarity","description"),
+     }),
+    ]
+    inlines = [SpecialItemTraitValueInline]
+    autocomplete_fields = ("weapon","armor","wearable_slot",)
+
+    def base_object(self, obj):
+        if obj.item_type=="weapon":   return obj.weapon
+        if obj.item_type=="armor":    return obj.armor
+        if obj.item_type=="wearable": return obj.wearable_slot
+        return "–"
+    base_object.short_description = "Base"
+    def get_form(self, request, obj=None, **kwargs):
+        BaseForm = super().get_form(request, obj, **kwargs)
+        class WrappedForm(BaseForm):
+            def __init__(self, *args, **inner_kwargs):
+                super().__init__(*args, **inner_kwargs)
+                for field in self.fields.values():
+                    w = field.widget
+
+                    # 1) ensure attrs is a dict
+                    if getattr(w, "attrs", None) is None:
+                        w.attrs = {}
+
+                    # 2) ensure original_attrs is a dict
+                    if getattr(w, "original_attrs", None) is None:
+                        w.original_attrs = {}
+                    # 3) if this widget has .choices, make it an iterable
+                    if hasattr(w, "choices") and w.choices is None:
+                        w.choices = []
+        return WrappedForm
+    class Media:
+        js = ("characters/js/specialitem_admin.js",)
+
+
+@admin.register(Weapon)
+class WeaponAdmin(admin.ModelAdmin):
+    list_display   = ("name","category","damage","range_type","range_normal","range_max")
+    list_filter    = ("category","range_type")
+    search_fields  = ("name","damage")
+    inlines        = [WeaponTraitValueInline]
+
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request,obj,**kwargs)
+        # hide range fields when melee selected in JS
+        return form
+
+    class Media:
+        js = ("characters/js/weapon_admin.js",)

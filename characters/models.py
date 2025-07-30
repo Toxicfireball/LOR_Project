@@ -776,11 +776,17 @@ class Weapon(models.Model):
         ('special', 'Special'),
     ]
 
-    name = models.CharField(max_length=100, unique=True)
-    damage = models.CharField(max_length=50, help_text="e.g., 1d8 Piercing")
-    category = models.CharField(max_length=10, choices=CATEGORY_CHOICES)
-    is_melee = models.BooleanField(default=True)
-    traits = models.ManyToManyField('WeaponTrait', through='WeaponTraitValue', blank=True)
+    MELEE = "melee"
+    RANGED = "ranged"
+    RANGE_CHOICES = [(MELEE, "Melee"), (RANGED, "Ranged")]
+
+    name           = models.CharField(max_length=100, unique=True)
+    damage         = models.CharField(max_length=50)
+    category       = models.CharField(max_length=10, choices=CATEGORY_CHOICES)
+    is_melee       = models.BooleanField(default=True)  # keep for backwards-compat
+    range_type     = models.CharField(max_length=6, choices=RANGE_CHOICES, default=MELEE)
+    range_normal   = models.PositiveIntegerField(null=True, blank=True, help_text="Normal range for ranged weapons")
+    range_max      = models.PositiveIntegerField(null=True, blank=True, help_text="Maximum range")
 
     def __str__(self):
         return f"{self.name} ({self.get_category_display()})"
@@ -797,7 +803,161 @@ class WeaponTraitValue(models.Model):
         return f"{self.weapon.name} – {self.trait.name} {self.value or ''}".strip()
 
 
+class EquipmentSlot(models.Model):
+    name = models.CharField(max_length=50)
+    def __str__(self): return self.name
 
+
+
+class ArmorTrait(models.Model):
+    name        = models.CharField(max_length=100, unique=True)
+    description = models.TextField()
+
+    def __str__(self):
+        return self.name    
+class Armor(models.Model):
+    TYPE_CLOTHING = "clothing"
+    TYPE_LIGHT    = "light"
+    TYPE_MEDIUM   = "medium"
+    TYPE_HEAVY    = "heavy"
+    TYPE_SHIELD   = "shield"
+    TYPE_CHOICES  = [
+        (TYPE_CLOTHING, "Clothing"),
+        (TYPE_LIGHT,    "Light"),
+        (TYPE_MEDIUM,   "Medium"),
+        (TYPE_HEAVY,    "Heavy"),
+        (TYPE_SHIELD,   "Shield"),
+    ]
+
+    name          = models.CharField(max_length=100, unique=True)
+    armor_value   = models.PositiveSmallIntegerField()
+    type          = models.CharField(max_length=10, choices=TYPE_CHOICES)
+    traits        = models.ManyToManyField(ArmorTrait, blank=True, help_text="Select any special traits")
+    speed_penalty = models.IntegerField(help_text="Flat penalty to speed (ft)")
+    hinderance    = models.IntegerField(help_text="Penalty to Str/Dex checks")
+
+    def __str__(self):
+        return f"{self.name} ({self.get_type_display()})"
+
+
+class WearableSlot(models.Model):
+
+    code = models.SlugField(max_length=20, unique=True)
+    name = models.CharField(max_length=50)
+
+    def __str__(self):
+        return self.name
+
+class SpecialItem(models.Model):
+    ITEM_TYPE_CHOICES = [
+        ("weapon",     "Weapon"),
+        ("armor",      "Armor"),
+        ("wearable",   "Wearable"),
+        ("artifact",   "Artifact"),
+        ("consumable", "Consumable"),
+    ]
+    RARITY_CHOICES = [
+        ("common",   "Common"),
+        ("uncommon", "Uncommon"),
+        ("rare",     "Rare"),
+        ("very_rare","Very Rare"),
+        ("legendary","Legendary"),
+    ]
+
+
+    attunement        = models.BooleanField("Attunement required", default=False)
+    name              = models.CharField(max_length=100)
+    slot              = models.ForeignKey(EquipmentSlot, on_delete=models.CASCADE)
+    item_type         = models.CharField(max_length=12, null=True, choices=ITEM_TYPE_CHOICES)
+
+    weapon            = models.ForeignKey(Weapon,       null=True, blank=True, on_delete=models.SET_NULL)
+    armor             = models.ForeignKey(Armor,        null=True, blank=True, on_delete=models.SET_NULL)
+    wearable_slot     = models.ForeignKey(WearableSlot, null=True, blank=True, on_delete=models.SET_NULL)
+
+    enhancement_bonus = models.IntegerField(null=True, blank=True)
+    rarity            = models.CharField(max_length=12, choices=RARITY_CHOICES)
+    description       = models.TextField(blank=True)
+
+    def clean(self):
+        super().clean()
+        # require exactly the right FK per type
+        if self.item_type == "weapon"   and not self.weapon:
+            raise ValidationError("Pick a Weapon when item_type=Weapon.")
+        if self.item_type == "armor"    and not self.armor:
+            raise ValidationError("Pick an Armor when item_type=Armor.")
+        if self.item_type == "wearable" and not self.wearable_slot:
+            raise ValidationError("Pick a Wearable Slot when item_type=Wearable.")
+        # clear the others
+        if self.item_type != "weapon":        self.weapon = None
+        if self.item_type != "armor":         self.armor = None
+        if self.item_type != "wearable":      self.wearable_slot = None
+
+
+
+
+class SpecialItemTraitValue(models.Model):
+    special_item = models.ForeignKey(SpecialItem, null= True, on_delete=models.CASCADE)
+    name         = models.CharField("Trait name", null=True, max_length=100)
+    active       = models.BooleanField("Active", default=False)
+
+    # Active‐only config
+    formula_target           = models.CharField(max_length=50, blank=True)
+    formula                  = models.CharField(max_length=100, blank=True)
+    uses                     = models.CharField(max_length=100, blank=True)
+    action_type              = models.CharField(max_length=50, blank=True)
+    damage_type              = models.CharField(max_length=50, blank=True)
+    saving_throw_required    = models.BooleanField(default=False)
+    saving_throw_type        = models.CharField(max_length=50, blank=True)
+    saving_throw_granularity = models.CharField(max_length=20, blank=True)
+    saving_throw_basic_success    = models.CharField(max_length=100, blank=True)
+    saving_throw_basic_failure    = models.CharField(max_length=100, blank=True)
+    saving_throw_critical_success = models.CharField(max_length=100, blank=True)
+    saving_throw_success         = models.CharField(max_length=100, blank=True)
+    saving_throw_failure         = models.CharField(max_length=100, blank=True)
+    saving_throw_critical_failure= models.CharField(max_length=100, blank=True)
+
+    # Passive‐only config
+    modify_proficiency_target = models.CharField(max_length=50, blank=True)
+    modify_proficiency_amount = models.CharField(max_length=50, blank=True)
+
+    SAVING_THROW_TYPE_CHOICES = [
+        ("reflex",    "Reflex"),
+        ("fortitude", "Fortitude"),
+        ("will",      "Will"),
+    ]
+    saving_throw_type = models.CharField(
+        max_length=50,
+        choices=SAVING_THROW_TYPE_CHOICES,
+        blank=True,
+        help_text="Which saving throw?",
+    )
+
+    SAVING_THROW_GRAN_CHOICES = [
+        ("basic",  "Basic (Success / Failure)"),
+        ("normal", "Normal (Crit / Success / Failure / Crit Failure)"),
+    ]
+    saving_throw_granularity = models.CharField(
+        max_length=20,
+        choices=SAVING_THROW_GRAN_CHOICES,
+        blank=True,
+        help_text="Simple or full save table?",
+    )
+
+    GAIN_RES_MODE_CHOICES = [
+        ("resistance", "Resistance (half damage)"),
+        ("reduction",  "Damage Reduction (flat)"),
+    ]
+    gain_resistance_mode = models.CharField(
+        max_length=20,
+        choices=GAIN_RES_MODE_CHOICES,
+        blank=True,
+        help_text="Resistance vs. Damage Reduction?",
+    )
+    description = models.TextField("Trait description", blank=True)
+
+    class Meta:
+        verbose_name = "Item Trait"
+        verbose_name_plural = "Item Traits"
 class CharacterSkillRating(models.Model):
     character = models.ForeignKey(Character, on_delete=models.CASCADE, related_name='skill_ratings')
     skill = models.ForeignKey(Skill, on_delete=models.CASCADE)
@@ -1257,6 +1417,9 @@ class ResourceType(models.Model):
     def __str__(self):
         return self.name
     
+
+
+
 
 
 
