@@ -51,7 +51,7 @@
       uses:           row("uses"),
       action:         row("action_type"),
       damage:         row("damage_type"),
-
+      optionsInline: document.getElementById("options-group"),
       savingReq:          row("saving_throw_required"),
       savingType:         row("saving_throw_type"),
       savingGran:         row("saving_throw_granularity"),
@@ -72,6 +72,9 @@
       spellList:    row("spell_list"),
       gainSubskills: row("gain_subskills"),
       optionsInline: document.getElementById("options-group"),
+      gainResMode:  row("gain_resistance_mode"),
+      gainResTypes: row("gain_resistance_types"),
+      gainResAmt:   row("gain_resistance_amount"),
   };
 
     //
@@ -86,8 +89,19 @@
   // 5i) Show/hide the SpellInline when kind="inherent_spell"
    Object.values(rows).forEach(el => el && (el.style.display = "none"));
   //
-// 5i) Show/hide the SpellInline when kind="inherent_spell"
-// first, always hide it…
+
+
+if (kindVal === "gain_resistance") {
+  // always show mode selector + type checkboxes
+  if (rows.gainResMode)  rows.gainResMode.style.display  = "";
+  if (rows.gainResTypes) rows.gainResTypes.style.display = "";
+
+  // only show “amount” when in flat‐reduction mode
+  const mode = document.getElementById("id_gain_resistance_mode").value;
+  if (rows.gainResAmt) {
+    rows.gainResAmt.style.display = (mode === "reduction" ? "" : "none");
+  }
+}
 if (rows.spellInline) rows.spellInline.style.display = "none";
 
 
@@ -219,6 +233,9 @@ if (rows.spellInline) rows.spellInline.style.display = "none";
     const saveGranEl = document.getElementById("id_saving_throw_granularity");
     if (saveReqEl)  saveReqEl.addEventListener("change", toggleAll);
     if (saveGranEl) saveGranEl.addEventListener("change", toggleAll);
+// ─── Also re-run when user flips Resistance vs Reduction ────────────────
+const resModeEl = document.getElementById("id_gain_resistance_mode");
+if (resModeEl) resModeEl.addEventListener("change", toggleAll);
 
     //
     // ─── 7) Whenever “scope” or “subclass_group” changes, reload with new GET params ─

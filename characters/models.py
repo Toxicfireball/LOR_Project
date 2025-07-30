@@ -87,10 +87,79 @@ class Language(models.Model):
         return self.name
 
 
+class DamageResistance(models.Model):
+    """
+    A resistance entry that can apply to any feature (class or racial).
+    """
+    # link to the granting feature (ClassFeature or RacialFeature)
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    object_id    = models.PositiveIntegerField()
+    owner        = GenericForeignKey('content_type', 'object_id')
+
+    # mirror your existing damage‐type choices, plus grouping options:
+    DAMAGE_TYPE_CHOICES = [
+        ('all',                       "All Damage Types"),
+        ('physical_all',              "All Physical Damage"),
+        ('physical_non_magical',      "Non-magical Physical Damage"),
+        # your four core physical types:
+        ('physical_bludgeoning',      "Physical Bludgeoning"),
+        ('physical_slashing',         "Physical Slashing"),
+        ('physical_piercing',         "Physical Piercing"),
+        # and all the rest from ClassFeature.DAMAGE_TYPE_CHOICES :contentReference[oaicite:1]{index=1}
+        ('explosive',                 "Explosive"),
+        ('magical_bludgeoning',       "Magical Bludgeoning"),
+        ('magical_slashing',          "Magical Slashing"),
+        ('magical_piercing',          "Magical Piercing"),
+        ('acid',                      "Acid"),
+        ('cold',                      "Cold"),
+        ('fire',                      "Fire"),
+        ('force',                     "Force"),
+        ('lightning',                 "Lightning"),
+        ('necrotic',                  "Necrotic"),
+        ('poison',                    "Poison"),
+        ('psychic',                   "Psychic"),
+        ('radiant',                   "Radiant"),
+        ('thunder',                   "Thunder"),
+        ('true',                      "True"),
+    ]
+
+    damage_type = models.CharField(
+        max_length=25,
+        choices=DAMAGE_TYPE_CHOICES,
+        help_text="Which damage type (or grouping) this resistance applies to."
+    )
+    amount = models.PositiveSmallIntegerField(
+        default=0,
+        help_text="How much to subtract from incoming damage of that type."
+    )
+
+    class Meta:
+        unique_together = ('content_type','object_id','damage_type')
+
+    def __str__(self):
+        return f"{self.owner} DR {self.damage_type} –{self.amount}"
+
+    def applies_to(self, incoming_type: str) -> bool:
+        """
+        Decide whether this resistance applies to a given raw damage_type.
+        """
+        if self.damage_type == 'all':
+            return True
+        if self.damage_type == 'physical_all':
+            return incoming_type.startswith('physical_') or incoming_type.startswith('magical_')
+        if self.damage_type == 'physical_non_magical':
+            return incoming_type.startswith('physical_')
+        return self.damage_type == incoming_type
+
 class BaseRace(models.Model):
     code        = models.SlugField(max_length=20, unique=True)
     name        = models.CharField(max_length=100)
     description = models.TextField(blank=True)
+    starting_hp = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Starting HP for this race (to be filled in)"
+    )
 
     SIZE_CHOICES = [
     ("small", "Small"),
@@ -947,6 +1016,7 @@ class ClassFeature(models.Model):
         ("spell_table",        "Spell Slot Table"),
         ("inherent_spell",     "Inherent Spell"),
         ("gain_proficiency",   "Gain Proficiency"),
+        ("gain_resistance",    "Gain Resistance"),
     ]
     gain_subskills = models.ManyToManyField(
         "SubSkill",
@@ -1004,6 +1074,27 @@ class ClassFeature(models.Model):
         null=True,
         help_text="What kind of action this ability consumes."
     )
+    GAIN_RES_MODE_CHOICES = [
+        ("resistance", "Resistance (half damage)"),
+        ("reduction",  "Damage Reduction (flat)"),
+    ]
+    gain_resistance_mode = models.CharField(
+        max_length=12,
+        choices=GAIN_RES_MODE_CHOICES,
+        blank=True, null=True,
+        help_text="Resistance vs. Damage Reduction?"
+    )
+
+    gain_resistance_types = models.JSONField(
+     default=list,    # ← ensures [] instead of NULL
+     blank=True,      # still allow empty
+     help_text="List of damage types to which this feature applies."
+)
+
+    gain_resistance_amount = models.PositiveSmallIntegerField(
+        blank=True, null=True,
+        help_text="Flat reduction amount (only for ‘reduction’ mode)."
+    )    
     activity_type = models.CharField(
         max_length=7,
         choices=ACTIVITY_CHOICES,

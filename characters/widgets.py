@@ -22,13 +22,18 @@ class FormulaBuilderWidget(Textarea):
         attrs["data-vars"] = json.dumps(self.variables)
         attrs["data-dice"] = json.dumps(self.dice)
         textarea = super().render(name, value, attrs, renderer)
+        # inject a datalist for variables:
+        vars_list = "\n".join(f'<option value="{v}">' for v in self.variables)
         return mark_safe(f"""
           <div class="formula-builder">
-            <div class="fb-pills"></div>
+            
+            <!-- dropdown for vars -->
+            <input list="fb-vars" class="fb-var-dropdown" placeholder="Insert variable…"/>
+            <datalist id="fb-vars">
+              {vars_list}
+            </datalist>
             {textarea}
-            <div class="fb-error" style="display:none;color:#e44;">
-              Invalid formula
-            </div>
+            <div class="fb-error" style="display:none;color:#e44;">Invalid formula</div>
           </div>
         """)
 

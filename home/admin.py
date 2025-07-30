@@ -487,7 +487,12 @@ class ClassResourceForm(forms.ModelForm):
 
 class ClassFeatureForm(forms.ModelForm):
 
-
+    gain_resistance_types = forms.MultipleChoiceField(
+        choices=ClassFeature.DAMAGE_TYPE_CHOICES,     # same tuple of (value, label)
+        widget=forms.CheckboxSelectMultiple,
+        required=False,
+        help_text="Select which damage types you resist/reduce."
+    )
     class Meta:
         model  = ClassFeature
         fields = "__all__"
@@ -792,6 +797,13 @@ class ClassFeatureAdmin(admin.ModelAdmin):
                 
                 "fields": ["damage_type","formula","uses"],
             }),
+            ("Resistance (optional)", {
+               "fields": [
+                   "gain_resistance_mode",
+                   "gain_resistance_types",
+                   "gain_resistance_amount",
+               ],
+           }),
         ]
 
     def formfield_for_dbfield(self, db_field, request, **kwargs):
@@ -1137,7 +1149,7 @@ class RaceAdmin(admin.ModelAdmin):
         (None, {
             "fields": [
                 "code","name","description","size","speed",
-                # fixed bonuses
+                "starting_hp",# fixed bonuses
                 ("strength_bonus","dexterity_bonus","constitution_bonus"),
                 ("intelligence_bonus","wisdom_bonus","charisma_bonus"),
                 # ← our new budget settings
@@ -1303,6 +1315,13 @@ class RacialFeatureAdmin(ClassFeatureAdmin):
         ("Damage / Formula (optional)", {
             "fields": ["damage_type","formula","uses"],
         }),
+        ("Resistance (optional)", {
+               "fields": [
+                   "gain_resistance_mode",
+                   "gain_resistance_types",
+                   "gain_resistance_amount",
+               ],
+           }),
     ]
 
     def get_fieldsets(self, request, obj=None):
