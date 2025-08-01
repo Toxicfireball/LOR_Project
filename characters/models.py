@@ -1263,7 +1263,7 @@ class ClassFeature(models.Model):
     )
     code        = models.CharField(max_length=10, unique=True)
     name        = models.CharField(max_length=100)
-    description = models.TextField(blank=True)
+    description = SummernoteTextField(blank=True)
 
     has_options = models.BooleanField(
         default=False,
