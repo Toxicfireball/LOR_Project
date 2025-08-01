@@ -19,20 +19,46 @@
     </button>
   </form>
 
-  <ul class="list-disc list-inside space-y-2 ml-5 mb-8">
-    {% for rb in rulebooks %}
-      <li>
-        <a
-          href="{% url 'characters:rulebook_detail' rb.pk %}"
-          class="text-lg text-gray-800 hover:text-blue-600"
-        >
-          {{ rb.name }}
-        </a>
-      </li>
-    {% empty %}
-      <li class="text-gray-500 italic">No rulebooks found.</li>
-    {% endfor %}
-  </ul>
+  {% if request.GET.q %}
+    {# -- user performed a search: show matches or “no matches” -- #}
+    {% if results %}
+      {% for result in results %}
+        <div class="mb-6">
+          <h2 class="text-2xl font-semibold">
+            <a href="{% url 'characters:rulebook_detail' result.rulebook.pk %}">
+              {{ result.rulebook.name }}
+            </a>
+          </h2>
+          <ul class="ml-4 list-disc">
+            {% for m in result.matches %}
+              <li>
+                <strong>{{ m.field }}:</strong>
+                {{ m.snippet|safe }}
+              </li>
+            {% endfor %}
+          </ul>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p class="text-gray-500 italic">No matches for “{{ request.GET.q }}.”</p>
+    {% endif %}
+  {% else %}
+    {# -- no search term: show all rulebooks -- #}
+    <ul class="list-disc list-inside space-y-2 ml-5 mb-8">
+      {% for rb in rulebooks %}
+        <li>
+          <a
+            href="{% url 'characters:rulebook_detail' rb.pk %}"
+            class="text-lg text-gray-800 hover:text-blue-600"
+          >
+            {{ rb.name }}
+          </a>
+        </li>
+      {% empty %}
+        <li class="text-gray-500 italic">No rulebooks found.</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
 
   {% if is_paginated %}
     <nav class="flex justify-center space-x-2">

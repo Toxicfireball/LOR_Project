@@ -366,20 +366,94 @@ from .forms import CharacterCreationForm
 
 from django.views.generic import ListView, DetailView
 from .models import Rulebook, RulebookPage
+from django.db.models import Q
+from django.utils.html import mark_safe
+
+def make_snippet(text: str, query: str, radius: int = 50) -> str:
+    """
+    Find the first occurrence of query in text, grab up to `radius`
+    chars on either side, and wrap the match in <mark>…</mark>.
+    """
+    idx = text.lower().find(query.lower())
+    if idx < 0:
+        return ""
+    start = max(idx - radius, 0)
+    end   = min(idx + len(query) + radius, len(text))
+    snippet = text[start:end]
+    # escape the query for regex, then wrap each match in <mark>
+    pattern = re.escape(query)
+    snippet = re.sub(
+        rf"({pattern})",
+        r"<mark>\1</mark>",
+        snippet,
+        flags=re.IGNORECASE
+    )
+    if start > 0:
+        snippet = "…" + snippet
+    if end < len(text):
+        snippet = snippet + "…"
+    return mark_safe(snippet)
 
 class RulebookListView(ListView):
-    model = Rulebook
-    template_name = "rulebook/list.html"       # ← match your folder name
+    model               = Rulebook
+    template_name       = "rulebook/list.html"
     context_object_name = "rulebooks"
-    paginate_by = 10                             # ← show 10 per page
+    paginate_by         = 10
 
     def get_queryset(self):
         qs = super().get_queryset()
         q  = self.request.GET.get("q", "").strip()
         if q:
-            qs = qs.filter(name__icontains=q)
+            qs = (
+                qs.filter(
+                    Q(name__icontains=q)         |
+                    Q(description__icontains=q)  |
+                    Q(pages__title__icontains=q) |
+                    Q(pages__content__icontains=q)
+                )
+                .distinct()
+            )
         return qs.order_by("name")
 
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        q = self.request.GET.get("q", "").strip()
+        results = []
+        if q:
+            for rb in ctx["rulebooks"]:
+                matches = []
+                # 1) rulebook.name
+                if q.lower() in rb.name.lower():
+                    matches.append({
+                        "field": "Rulebook Title",
+                        "snippet": make_snippet(rb.name, q)
+                    })
+                # 2) rulebook.description
+                if q.lower() in rb.description.lower():
+                    matches.append({
+                        "field": "Rulebook Description",
+                        "snippet": make_snippet(rb.description, q)
+                    })
+                # 3) each page
+                for page in rb.pages.all():
+                    if q.lower() in page.title.lower():
+                        matches.append({
+                            "field": f"Page Title ({page.title})",
+                            "snippet": make_snippet(page.title, q)
+                        })
+                    if q.lower() in page.content.lower():
+                        matches.append({
+                            "field": f"Page Content ({page.title})",
+                            "snippet": make_snippet(page.content, q)
+                        })
+                if matches:
+                    results.append({
+                        "rulebook": rb,
+                        "matches": matches
+                    })
+        ctx["results"] = results
+        ctx["query"] = q
+        return ctx
 
 class RulebookDetailView(DetailView):
     model = Rulebook
