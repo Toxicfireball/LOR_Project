@@ -28,7 +28,7 @@ from django.forms.models import BaseInlineFormSet
 from django.core.exceptions import ValidationError
 from characters.models import PROFICIENCY_TYPES, Skill
 from django.contrib import admin
-
+import json
 # admin.py
 
 class FeatureOptionInline(admin.TabularInline):
@@ -484,6 +484,23 @@ class ClassFeatureForm(forms.ModelForm):
         required=False,
         help_text="Select which damage types you resist/reduce."
     )
+
+    gain_proficiency_target = forms.ChoiceField(
+        choices=[("", "---------")]
+                + list(PROFICIENCY_TYPES)
+                + [(f"skill_{s.pk}", s.name) for s in Skill.objects.all()],
+        required=False,
+        label="Gain Proficiency Target",
+        help_text="Which proficiency (or skill) does this feature grant?"
+    )
+    gain_proficiency_amount = forms.ModelChoiceField(
+        queryset=ProficiencyTier.objects.all(),
+        required=False,
+        label="Gain Proficiency Amount",
+        help_text="What tier of proficiency does the character gain?"
+    )
+
+    
     class Meta:
         model  = ClassFeature
         fields = "__all__"
@@ -560,6 +577,10 @@ class ClassFeatureForm(forms.ModelForm):
         # 2) Figure out which umbrella was “pre‐selected”:
         #    - raw_data (POST) or initial (GET) or from instance
         #
+
+          # ───────────────────────────────────────────────────────────────
+        if getattr(self.instance, "pk", None):
+            self.fields["code"].initial = self.instance.code      
         raw_data = self.data or {}
         initial  = self.initial or {}
 
@@ -725,6 +746,7 @@ class ResourceTypeAdmin(admin.ModelAdmin):
 
 @admin.register(ClassFeature)
 class ClassFeatureAdmin(admin.ModelAdmin):
+    prepopulated_fields = {"code": ("name",)}
     search_fields = ("name", "code")
     form         = ClassFeatureForm
     inlines = [FeatureOptionInline, SpellSlotRowInline, SpellInline]    
@@ -832,7 +854,24 @@ class ClassFeatureAdmin(admin.ModelAdmin):
                 label=db_field.verbose_name,
                 help_text=db_field.help_text,
             )
+        if db_field.name == "gain_proficiency_target":
+                from django import forms
+                from characters.models import PROFICIENCY_TYPES, Skill
+                base = list(PROFICIENCY_TYPES)
+                skill_choices = [(f"skill_{s.pk}", s.name) for s in Skill.objects.all()]
+                all_choices = [("", "---------")] + base + skill_choices
+                return forms.ChoiceField(
+                    choices=all_choices,
+                    required=not db_field.blank,
+                    widget=forms.Select,
+                    label=db_field.verbose_name,
+                    help_text=db_field.help_text,
+                )
+        
+
         return super().formfield_for_dbfield(db_field, request, **kwargs)
+
+
 
 
     def get_changeform_initial_data(self, request):
@@ -868,7 +907,11 @@ class ClassFeatureAdmin(admin.ModelAdmin):
             def __init__(self, *args, **inner_kwargs):
                 super().__init__(*args, **inner_kwargs)
 
-                # figure out which umbrella was pre-selected
+                # ── preserve existing code on edit ──
+                if getattr(self.instance, "pk", None):
+                    self.fields["code"].initial = self.instance.code
+
+                # figure out which umbrella was pre‐selected
                 raw_data = self.data or {}
                 initial  = self.initial or {}
                 grp_id = (
@@ -885,11 +928,20 @@ class ClassFeatureAdmin(admin.ModelAdmin):
                     except SubclassGroup.DoesNotExist:
                         pass
 
-                # only inject the attribute if the field is actually on this form
+                # inject data-system-type *and* full group→type map
                 if "subclass_group" in self.fields:
-                    self.fields["subclass_group"].widget.attrs["data-system-type"] = system_t
+                    widget = self.fields["subclass_group"].widget
+                    widget.attrs["data-system-type"] = system_t
+                    # full map for in-place updates
+                    mapping = {
+                        str(g.pk): g.system_type
+                        for g in SubclassGroup.objects.all()
+                    }
+                    widget.attrs["data-group-types"] = json.dumps(mapping)
 
         return WrappedForm
+    
+
     def formfield_for_choice_field(self, db_field, request, **kwargs):
         if db_field.name == "modify_proficiency_target":
             # 1) grab your old armor/dodge/etc list
@@ -1287,7 +1339,19 @@ class RaceFeatureForm(ClassFeatureForm):
                 Subrace.objects.filter(race_id=race_val)
                 if race_val else Subrace.objects.none()
             )
-
+    gain_proficiency_target = forms.ChoiceField(
+        choices=[("", "---------")]
+                + list(PROFICIENCY_TYPES)
+                + [(f"skill_{s.pk}", s.name) for s in Skill.objects.all()],
+        required=False,
+        label="Gain Proficiency Target",
+        help_text="Which proficiency (or skill) does this feature grant?"
+    )
+    gain_proficiency_amount = forms.ModelChoiceField(
+        queryset=ProficiencyTier.objects.all(),
+        required=False,
+        label="Gain Proficiency Amount",
+        help_text="What tier of proficiency does the character gain?")
     def clean(self):
         # ← Skip ClassFeatureForm.clean() — jump straight to ModelForm.clean()
         cleaned = super(ClassFeatureForm, self).clean()
@@ -1297,7 +1361,15 @@ class RaceFeatureForm(ClassFeatureForm):
             self.add_error("subrace", "Please select a Subrace for a Subrace Feature.")
 
         return cleaned
+    def __init__(self, *args, **kwargs):
+        # ← bypass ClassFeatureForm.__init__
+        forms.ModelForm.__init__(self, *args, **kwargs)
 
+        # ───────────────────────────────────────────────────────────
+        #  ⮞ If editing, preserve the existing code.
+        # ───────────────────────────────────────────────────────────
+        if getattr(self.instance, "pk", None):
+            self.fields["code"].initial = self.instance.code
 @admin.register(RacialFeature)
 class RacialFeatureAdmin(ClassFeatureAdmin):
     form = RaceFeatureForm
@@ -1349,6 +1421,8 @@ class RacialFeatureAdmin(ClassFeatureAdmin):
             )
         return field
     
+
+    
     def formfield_for_dbfield(self, db_field, request, **kwargs):
         # Force a <select> for modify_proficiency_target even though the model is CharField
         if db_field.name == "modify_proficiency_target":
@@ -1368,6 +1442,22 @@ class RacialFeatureAdmin(ClassFeatureAdmin):
                 label=db_field.verbose_name,
                 help_text=db_field.help_text,
             )
+        if db_field.name == "gain_proficiency_target":
+            from django import forms
+            from characters.models import PROFICIENCY_TYPES, Skill
+            base = list(PROFICIENCY_TYPES)
+            skill_choices = [(f"skill_{s.pk}", s.name) for s in Skill.objects.all()]
+            all_choices = [("", "---------")] + base + skill_choices
+            return forms.ChoiceField(
+                choices=all_choices,
+                required=not db_field.blank,
+                widget=forms.Select,
+                label=db_field.verbose_name,
+                help_text=db_field.help_text,
+            )        
+
+
+
         return super().formfield_for_dbfield(db_field, request, **kwargs)
 
 

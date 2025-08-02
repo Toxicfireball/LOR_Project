@@ -71,7 +71,6 @@
       slots:        inlineSpellTable(),
       spellList:    row("spell_list"),
       gainSubskills: row("gain_subskills"),
-      optionsInline: document.getElementById("options-group"),
       gainResMode:  row("gain_resistance_mode"),
       gainResTypes: row("gain_resistance_types"),
       gainResAmt:   row("gain_resistance_amount"),
@@ -237,15 +236,22 @@ if (rows.spellInline) rows.spellInline.style.display = "none";
 const resModeEl = document.getElementById("id_gain_resistance_mode");
 if (resModeEl) resModeEl.addEventListener("change", toggleAll);
 
-    //
-    // ─── 7) Whenever “scope” or “subclass_group” changes, reload with new GET params ─
-    //
+  if (grpSelect) {
+    grpSelect.addEventListener("change", function(){    
+      const jsonMap = this.getAttribute("data-group-types") || "{}";
+      let map;
+      try { map = JSON.parse(jsonMap); } catch(e){ map = {}; }
 
-    //
-    // ─── 8) Run toggleAll() once on initial page load ────────────────────────────────
-    //
-    toggleAll();
-  });
-})();
+      this.setAttribute("data-system-type", map[this.value] || "");
+      toggleAll();
+    });
+  }
+
+  // ─── 8) Run toggleAll() once on initial page load ────────────────────────────────
+  toggleAll();
+
+  });  // ← closes window.addEventListener("DOMContentLoaded", …
+})(); // ← closes the outer (function(){ … })()
+
 
 
