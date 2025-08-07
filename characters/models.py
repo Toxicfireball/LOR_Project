@@ -1417,8 +1417,33 @@ class ResourceType(models.Model):
     def __str__(self):
         return self.name
     
+# characters/models.py
+
+class MartialMastery(models.Model):
+    name               = models.CharField(max_length=100, unique=True)
+    level_required     = models.PositiveSmallIntegerField()
+    description        = models.TextField(blank=True)
+    points_cost        = models.PositiveIntegerField()
+    classes            = models.ManyToManyField(CharacterClass, blank=True)
+    all_classes        = models.BooleanField(default=False,
+        help_text="If true, any class may take this mastery.")
+
+    def __str__(self):
+        return f"{self.name} (L{self.level_required}, cost {self.points_cost})"
 
 
+class CharacterFeat(models.Model):
+    character = models.ForeignKey(
+        Character, on_delete=models.CASCADE, related_name="feats"
+    )
+    feat      = models.ForeignKey(
+        "characters.ClassFeat", on_delete=models.CASCADE
+    )
+    level     = models.PositiveIntegerField()
+
+    class Meta:
+        unique_together = ("character","feat")
+        verbose_name_plural = "Character Feats"
 
 
 
@@ -1722,3 +1747,6 @@ class ClassFeat(models.Model):
     prerequisites = models.TextField(blank=True)
     last_synced = models.DateTimeField(auto_now=True)
 
+    def __str__(self):
+        # show just the name (you can append level_prerequisite if you like)
+        return self.name

@@ -1,0 +1,77 @@
+{# only the inner `<div class="modal-content">` from your old modal #}
+<div class="modal-header">
+  <h5 class="modal-title">Level Up to {{ next_level }}</h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+</div>
+<div class="modal-body">
+
+  {# ——— CLASS PREVIEW FORM (GET) ——— #}
+  <form id="preview-form" method="get"
+        action="{% url 'characters:level_up' character.pk %}"
+        class="mb-4 d-flex">
+    {{ preview_form.base_class|add_class:"form-select me-2" }}
+    <button type="submit" class="btn btn-outline-secondary">Preview</button>
+  </form>
+
+  {# ——— PROFICIENCY TABLE ——— #}
+  <h6>Proficiencies for {{ preview_class.name }}</h6>
+  <table class="table table-sm">
+    <thead>
+      <tr>
+        <th>Type</th>
+        {% for tn in tier_names %}<th>{{ tn }}</th>{% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in proficiency_rows %}
+        <tr>
+          <td>{{ row.type }}</td>
+          {% for lvl in row.levels %}<td>{{ lvl }}</td>{% endfor %}
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {# ——— AUTO‐GRANTED FEATURES ——— #}
+  <h6>Class Features at L{{ next_level }}</h6>
+  <ul>
+    {% for f in auto_feats %}
+      <li><strong>{{ f.code }} – {{ f.name }}</strong></li>
+    {% empty %}
+      <li><em>None</em></li>
+    {% endfor %}
+  </ul>
+
+  {# ——— ACTUAL LEVEL‐UP FORM (POST) ——— #}
+  <form method="post"
+        action="{% url 'characters:level_up' character.pk %}">
+    {% csrf_token %}
+    {{ level_form.base_class|as_hidden }}  {# preserve the preview choice #}
+
+    {# general feat #}
+    {% if level_form.general_feat %}
+      <div class="mb-3">
+        {{ level_form.general_feat.label_tag }}
+        {{ level_form.general_feat|add_class:"form-select" }}
+      </div>
+    {% endif %}
+
+    {# ASI #}
+    {% if level_form.asi %}
+      <div class="form-check mb-3">
+        {{ level_form.asi }} {{ level_form.asi.label_tag }}
+      </div>
+    {% endif %}
+
+    {# subclass & option choices #}
+    {% for fld, lbl in feature_fields %}
+      <div class="mb-2">
+        {{ fld }} <label>{{ lbl }}</label>
+      </div>
+    {% endfor %}
+
+    <button type="submit" name="level_up_submit" class="btn btn-primary">
+      Confirm Level Up
+    </button>
+  </form>
+</div>

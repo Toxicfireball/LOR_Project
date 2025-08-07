@@ -14,6 +14,7 @@ from characters.models import (
     ClassFeature,
     FeatureOption,
     SubclassGroup,
+    MartialMastery,
     SpellSlotRow , 
     ResourceType, ClassResource, CharacterResource, Spell
 )
@@ -297,7 +298,10 @@ class ClassProficiencyProgressInline(admin.TabularInline):
 
 
 
-
+@admin.register(MartialMastery)
+class MartialMasteryAdmin(admin.ModelAdmin):
+    filter_horizontal = ('classes',)
+    list_display = ('name','level_required','points_cost','all_classes')
 
 class ClassSubclassForm(forms.ModelForm):
     class Meta:
@@ -1179,17 +1183,6 @@ class CharacterClassAdmin(admin.ModelAdmin):
 from django.contrib import admin
 from characters.models import Race, Subrace, RacialFeature, RaceFeatureOption, RaceTag
 from django.contrib import admin
-
-
-
-
-
-
-
-
-
-
-
 
 
 

@@ -5,13 +5,14 @@ from .models import Character
 from django.db import OperationalError, ProgrammingError
 # Define a dictionary for the default skill proficiencies.
 # In LOR, during character creation every skill is by default Trained.
-
+from django.db.models import Q
 # forms.py (app `characters`)
 from django import forms
+from django_select2.forms import HeavySelect2Widget
 from .models import CharacterSubSkillProficiency, CharacterClass, CharacterClassProgress
 from django.core.exceptions import ValidationError
 from django import forms
-from .models import CharacterClass,    Race,Subrace, ClassFeature, ClassSubclass,Background, FeatureOption, UniversalLevelFeature
+from .models import CharacterClass, MartialMastery,ClassFeat,   Race,Subrace, ClassFeature, ClassSubclass,Background, FeatureOption, UniversalLevelFeature
 class CharacterCreationForm(forms.ModelForm):
     # — pick race by its slug/code, not by PK
     race = forms.ModelChoiceField(
@@ -175,90 +176,200 @@ class CombinedSkillField(forms.Field):
             return SubSkill.objects.get(pk=pk)
         raise forms.ValidationError("Unknown selection")
 
+class PreviewForm(forms.Form):
+    base_class = forms.ModelChoiceField(
+        queryset=CharacterClass.objects.order_by("name"),
+        label="Preview a different class",
+        widget=forms.Select(),  # we'll style in __init__
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["base_class"].widget.attrs.update({
+            "class":    "form-select",
+            "id":       "preview_class_select",
+            "onchange": "this.form.submit()",   # ← auto-submit when user picks
+        })
 
 
 
 class LevelUpForm(forms.Form):
-    base_class    = forms.ModelChoiceField(
+    base_class = forms.ModelChoiceField(
         queryset=CharacterClass.objects.none(),
-        required=False,
-        label="New Base Class"
-    )
-    advance_class = forms.ModelChoiceField(
-        queryset=CharacterClass.objects.none(),
-        required=False,
-        label="Advance / Multiclass Into"
+        label="Choose class to gain this level",
+        widget=forms.Select(
+            attrs={
+                "class":    "form-select",        # styling 
+                "onchange": "this.form.submit()"  # auto-submit on change
+            }
+        )
     )
 
-    def __init__(self, *args, character=None, to_choose=None, uni=None, **kwargs):
+
+    def __init__(self, *args, character, to_choose, uni, **kwargs):
+        """
+        character: Character instance
+        to_choose: list of ClassFeature + 'general_feat', 'asi'
+        uni: UniversalLevelFeature or None
+        """
         super().__init__(*args, **kwargs)
-        self.character = character
 
-        # --- 1) Filter class‐selection fields ---
-        all_classes = CharacterClass.objects.all()
-        taken_pks   = [cp.character_class.pk for cp in character.class_progress.all()]
-
+        # ── multiclass rules ───────────────────────────────────────
+        # below level 5: only existing classes; at 5+: any class
         if character.level == 0:
-            # very first level
-            self.fields['base_class'].queryset    = all_classes
-            self.fields['advance_class'].widget   = forms.HiddenInput()
+            self.fields['base_class'].queryset = CharacterClass.objects.order_by('name')
+        elif character.level < 5:
+            existing = character.class_progress.values_list('character_class_id', flat=True)
+            self.fields['base_class'].queryset = (
+                CharacterClass.objects.filter(pk__in=existing).order_by('name')
+            )
         else:
-            # leveling existing class
-            self.fields['base_class'].widget      = forms.HiddenInput()
-            if character.level < 5:
-                # levels 1–4: can only pick an existing class
-                self.fields['advance_class'].queryset = all_classes.filter(pk__in=taken_pks)
-            else:
-                # level ≥5: allow any class (= multiclass)
-                self.fields['advance_class'].queryset = all_classes
+            self.fields['base_class'].queryset = CharacterClass.objects.order_by('name')
+        # ── auto-grant pure features ───────────────────────────────
+        
+        self.fields['base_class'].widget.attrs.update({
+            "onchange": "this.form.submit()",
+            "class":    self.fields['base_class'].widget.attrs.get("class", "") + " form-select"
+        })        
+        
+        self.auto_feats = [
+            f for f in to_choose
+            if isinstance(f, ClassFeature) and f.scope in ('class_feat','subclass_feat')
+        ]
 
-        # --- 2) Prepare feature list safely ---
-        to_choose = to_choose or []
-        uni       = uni or UniversalLevelFeature(level=character.level)
+        if uni and uni.grants_general_feat:
+            
+            lvl = uni.level
+            general_qs = ClassFeat.objects.filter(
+                feat_type__icontains='General'
+            ).filter(
+                Q(level_prerequisite__iregex=rf'(^|,){lvl}(,|$)') |
+                Q(level_prerequisite__exact='')
+            ).filter(
+                Q(level_prerequisite__icontains=str(lvl)) | Q(level_prerequisite__exact='')
+            ).filter(
+                Q(race__iexact=character.race.code) | Q(race__exact='')
+            ).exclude(
+                pk__in=character.feats.values_list('feat__pk', flat=True)
+            )
+            # build rich labels
+            choices = [('', '— Select a General Feat —')]
+            for f in general_qs:
+                label = (
+                    f"{f.name} – {f.description or 'No description'} "
+                    f"(Prereqs: {f.level_prerequisite or 'None'}) "
+                    f"[Tags: {f.tags or 'None'}]"
+                )
+                choices.append((f.pk, label))
+                self.fields['general_feat'] = forms.ModelChoiceField(
+                    queryset=general_qs,                   # ← use the real queryset
+                    label="General Feat",
+                    required=True,
+                    widget=HeavySelect2Widget(
+                        data_view='characters:classfeat-autocomplete',
+                    attrs={
+                        'data-minimum-input-length': 1,
+                        'data-placeholder': 'Search General Feats…',
+                        'data-allow-clear': 'true',
+                        'data-ajax--data': (
+                            f'function(params){{ '
+                            f'return {{ q: params.term, level: "{lvl}", race: "{character.race.code}" }}; '
+                            f'}}'
+                        ),
+                    }
+                )
+            )
 
-        # --- 3) Dynamically add feature fields ---
+
+
+
+        if uni and uni.grants_asi:
+            self.fields['asi'] = forms.BooleanField(
+                label="Ability Score Increase",
+                required=False,
+                widget=forms.CheckboxInput()
+            )
+        # ── subclass‐choice pickers ────────────────────────────────
         for feat in to_choose:
-            # universal flags
-            if feat == "general_feat":
-                self.fields['general_feat'] = forms.BooleanField(
-                    label="Select a General Feat", required=False
+            if isinstance(feat, ClassFeature) and feat.scope == 'subclass_choice':
+                name = f"feat_{feat.pk}_subclass"
+                choices = [(s.pk, s.name) for s in feat.subclass_group.subclasses.all()]
+                self.fields[name] = forms.ChoiceField(
+                    label=f"Choose {feat.subclass_group.name}",
+                    widget=forms.RadioSelect, choices=choices, required=True
                 )
-                continue
 
-            if feat == "asi":
-                self.fields['asi'] = forms.BooleanField(
-                    label="Ability Score Increase", required=False
-                )
-                continue
-
-            # subclass_choice: pick a specialization
-            if isinstance(feat, ClassFeature) and feat.scope == "subclass_choice":
-                group   = feat.subclass_group
-                choices = [(sc.pk, sc.name) for sc in group.subclasses.all()]
-                self.fields[f"feat_{feat.pk}_subclass"] = forms.ChoiceField(
-                    label=f"Choose your {group.name}",
-                    choices=choices,
-                    required=True
-                )
-                continue
-
-            # features with options
+        # ── option‐based features ──────────────────────────────────
+        for feat in to_choose:
             if isinstance(feat, ClassFeature) and feat.has_options:
+                name = f"feat_{feat.pk}_option"
                 opts = [(o.pk, o.label) for o in feat.options.all()]
-                self.fields[f"feat_{feat.pk}_option"] = forms.ChoiceField(
-                    label=feat.name,
-                    choices=opts,
-                    required=True
-                )
-                continue
-
-            # plain feature: a simple tick
-            if isinstance(feat, ClassFeature):
-                self.fields[f"feat_{feat.pk}"] = forms.BooleanField(
-                    label=feat.name,
-                    required=False
+                self.fields[name] = forms.ChoiceField(
+                    label=feat.name, choices=opts, required=False
                 )
 
+        # ── pick a class feat? ────────────────────────────────────
+        curr_cls = character.class_progress.first()
+        curr_cls = curr_cls.character_class if curr_cls else None
+        avail = ClassFeat.objects.filter(
+            feat_type__icontains='Class',
+            level_prerequisite__icontains=str(character.level+1),
+            class_name__iexact=curr_cls.name if curr_cls else ''
+        )
+        if avail.exists():
+            choices = [('', '— None —')]
+            for f in avail.filter(
+                Q(race__iexact=character.race.code) | Q(race__exact='')
+            ):
+                label = (
+                    f"{f.name} – {f.description or 'No description'} "
+                    f"(Prereqs: {f.level_prerequisite or 'None'}) "
+                    f"[Tags: {f.tags or 'None'}]"
+                )
+                choices.append((f.pk, label))
+
+            self.fields['class_feat_pick'] = forms.ChoiceField(
+                choices=choices,
+                label="Pick a Class Feat",
+                required=False,
+                widget=HeavySelect2Widget(
+                    data_view='characters:classfeat-autocomplete',
+                    attrs={
+                        'data-minimum-input-length': 1,
+                        'data-placeholder': 'Search Class Feats…',
+                        'data-allow-clear': 'true',
+                        'data-ajax--data': (
+                            f'function(params){{ return {{ q: params.term, '
+                            f'level: "{character.level+1}", race: "{character.race.code}" }}; }}'
+                        ),
+                    }
+                )
+            )
+
+
+        # ── martial mastery? ──────────────────────────────────────
+        mm = MartialMastery.objects.filter(level_required__lte=character.level+1)
+        if curr_cls:
+            mm = mm.filter(Q(all_classes=True) | Q(classes=curr_cls))
+        else:
+            mm = mm.filter(all_classes=True)
+        if mm.exists():
+            self.fields['martial_mastery'] = forms.ModelChoiceField(
+                queryset=mm, label="Martial Mastery", required=False
+            )
+        for name, field in self.fields.items():
+            widget = field.widget
+            # selects get the .form-select class
+            if isinstance(widget, forms.Select):
+                css = widget.attrs.get("class", "")
+                widget.attrs["class"] = f"{css} form-select".strip()
+            # radio buttons (subclass choices) get .form-check-input + label-side styling
+            elif isinstance(widget, forms.RadioSelect):
+                # the inputs themselves will be rendered by Django; if you need custom wrappers you'll adjust template
+                widget.attrs["class"] = "form-check-input"
+            # checkboxes (ASI) get .form-check-input
+            elif isinstance(widget, forms.CheckboxInput):
+                widget.attrs["class"] = widget.attrs.get("class", "") + " form-check-input"
 
 
 class CharacterClassForm(forms.ModelForm):

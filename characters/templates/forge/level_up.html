@@ -1,19 +1,122 @@
-<form method="post">
-  {% csrf_token %}
-  <div class="class-picks">
-    {{ form.base_class }} {{ form.advance_class }}
+{% extends "base.html" %}
+{% load widget_tweaks %}
+
+{% block content %}
+<div class="container py-4">
+
+  <h2>Level Up to {{ next_level }}</h2>
+
+  {# ——— PREVIEW FORM ——— #}
+  <form method="get" class="mb-4 d-flex align-items-end">
+    <div class="me-2">
+      {{ preview_form.base_class.label_tag }}
+      {{ preview_form.base_class|add_class:"form-select" }}
+    </div>
+    <button type="submit" class="btn btn-outline-secondary">Refresh Preview</button>
+  </form>
+
+  {# ——— CLASS DETAILS ——— #}
+  <div class="card mb-4">
+    <div class="card-body">
+      <h3 class="card-title">{{ preview_class.name }}</h3>
+      {% if preview_class.description %}
+        <p class="card-text">{{ preview_class.description }}</p>
+      {% endif %}
+      <p class="mb-1"><strong>Hit Die:</strong> d{{ preview_class.hit_die }}</p>
+      {% if preview_class.key_abilities.all %}
+        <p class="mb-1">
+          <strong>Key Abilities:</strong>
+          {{ preview_class.key_abilities.all|join:", " }}
+        </p>
+      {% endif %}
+    </div>
   </div>
 
-  <h4>Level {{ total_level|add:1 }} Features</h4>
-  <div class="feature-grid">
-    {% for bound_field, label in feature_fields %}
-      <div class="feature-item">
-        {{ bound_field }} <span>{{ label }}</span>
-      </div>
+  {# ——— PROFICIENCY PROGRESSION TABLE ——— #}
+  <h5>Proficiency Progression</h5>
+  <table class="table table-bordered table-sm mb-4">
+    <thead class="table-light">
+      <tr>
+        <th>Type</th>
+        {% for tier in tier_names %}
+          <th>{{ tier }}</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in proficiency_rows %}
+        <tr>
+          <td><strong>{{ row.type }}</strong></td>
+          {% for lvl in row.levels %}
+            <td class="text-center">{% if lvl %}L{{ lvl }}{% else %}&mdash;{% endif %}</td>
+          {% endfor %}
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {# ——— FEATURES GAINED AT THIS LEVEL ——— #}
+  <h5>Features Gained at Level {{ next_level }}</h5>
+  <ul class="mb-4">
+    {% for feat in auto_feats %}
+      <li>
+        <strong>{{ feat.code }} – {{ feat.name }}</strong>
+        {% if feat.description %}: {{ feat.description }}{% endif %}
+      </li>
     {% empty %}
-      <p>No features to choose at this level.</p>
+      <li><em>None</em></li>
     {% endfor %}
-  </div>
+  </ul>
 
-  <button type="submit" class="btn">Confirm Level Up</button>
-</form>
+  {# ——— LEVEL UP FORM (POST) ——— #}
+  <form method="post">
+    {% csrf_token %}
+
+    {# general feat (exactly one) #}
+    {% if level_form.general_feat %}
+      <div class="mb-3">
+        {{ level_form.general_feat.label_tag }}
+        {{ level_form.general_feat|add_class:"form-select" }}
+        {% for err in level_form.general_feat.errors %}
+          <div class="text-danger small">{{ err }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {# ASI checkbox #}
+    {% if level_form.asi %}
+      <div class="form-check mb-3">
+        {{ level_form.asi }} {{ level_form.asi.label_tag }}
+        {% for err in level_form.asi.errors %}
+          <div class="text-danger small">{{ err }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {# subclass‐choice and option fields #}
+    {% for field in level_form %}
+      {% if field.name.startswith("feat_") %}
+        <div class="mb-3">
+          {{ field.label_tag }}
+          {{ field|add_class:"form-select" }}
+          {% for err in field.errors %}
+            <div class="text-danger small">{{ err }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endfor %}
+
+    {# any extra picks: class_feat_pick, skill_feat_pick, martial_mastery #}
+    {% for extra in "class_feat_pick skill_feat_pick martial_mastery".split %}
+      {% if level_form[extra] %}
+        <div class="mb-3">
+          {{ level_form[extra].label_tag }}
+          {{ level_form[extra]|add_class:"form-select" }}
+        </div>
+      {% endif %}
+    {% endfor %}
+
+    <button type="submit" class="btn btn-primary">Confirm Level Up</button>
+  </form>
+</div>
+{% endblock %}

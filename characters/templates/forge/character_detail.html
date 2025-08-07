@@ -1,3 +1,4 @@
+{# templates/forge/character_detail.html #}
 {% extends "base.html" %}
 {% load static %}
 
@@ -11,7 +12,7 @@
 
 {% block content %}
 <div class="container my-4">
-  <!-- HEADER WITH EDIT & LEVEL UP BUTTONS -->
+  <!-- HEADER -->
   <div class="d-flex justify-content-between align-items-center mb-4">
     <h1>{{ character.name }}</h1>
     <div>
@@ -20,46 +21,38 @@
         {% if not can_edit %}disabled{% endif %}
         data-bs-toggle="modal"
         data-bs-target="#editCharacterModal"
-      >
-        Edit Details
-      </button>
+      >Edit Details</button>
       <button
-        class="btn btn-primary"
+        class="btn btn-primary me-2"
         data-bs-toggle="modal"
         data-bs-target="#levelUpModal"
-      >
-        Level Up
-      </button>
+      >Level Up</button>
+      <a
+        href="{% url 'characters:level_down' character.pk %}"
+        class="btn btn-danger {% if character.level == 0 %}disabled{% endif %}"
+      >Level Down</a>
     </div>
   </div>
 
   <div class="row g-4">
-    <!-- LEFT COLUMN: BASIC INFO, ABILITIES, SKILLS, RACIAL FEATURES -->
+    <!-- LEFT COLUMN -->
     <div class="col-lg-4">
       <div class="card p-3 mb-3">
         <h5>Basic Info</h5>
         <ul class="list-unstyled mb-0">
-          <li><strong>Name:</strong> {{ character.name }}</li>
           <li><strong>Race:</strong> {{ character.race }}</li>
-          {% if subrace_name %}
-            <li><strong>Subrace:</strong> {{ subrace_name }}</li>
-          {% endif %}
-
+          {% if subrace_name %}<li><strong>Subrace:</strong> {{ subrace_name }}</li>{% endif %}
           {% if character.half_elf_origin %}
             <li><strong>Half-Elf Origin:</strong> {{ character.half_elf_origin }}</li>
           {% endif %}
-          <li><strong>Background Combo:</strong> {{ character.bg_combo }}</li>
-          <li><strong>Main Background:</strong> {{ character.main_background }}</li>
-          {% if character.side_background_1 %}
-            <li><strong>Side BG 1:</strong> {{ character.side_background_1 }}</li>
-          {% endif %}
-          {% if character.side_background_2 %}
-            <li><strong>Side BG 2:</strong> {{ character.side_background_2 }}</li>
-          {% endif %}
-          <li><strong>HP:</strong> {{ character.HP }}</li>
-          {% if character.temp_HP %}
-            <li><strong>Temp HP:</strong> {{ character.temp_HP }}</li>
-          {% endif %}
+          <li><strong>Backgrounds:</strong>
+            {{ character.main_background }}
+            {% if character.side_background_1 %}, {{ character.side_background_1 }}{% endif %}
+            {% if character.side_background_2 %}, {{ character.side_background_2 }}{% endif %}
+          </li>
+          <li><strong>HP:</strong> {{ character.HP }}
+            {% if character.temp_HP %}(+{{ character.temp_HP }} temp){% endif %}
+          </li>
           <li><strong>Level:</strong> {{ character.level }}</li>
         </ul>
       </div>
@@ -67,8 +60,9 @@
       <div class="card p-3 mb-3">
         <h5>Ability Scores</h5>
         <dl class="row mb-0">
-          {% for name, val in ability_map.items %}
-            <dt class="col-6">{{ name }}</dt><dd class="col-6">{{ val }}</dd>
+          {% for name,val in ability_map.items %}
+            <dt class="col-6">{{ name }}</dt>
+            <dd class="col-6">{{ val }}</dd>
           {% endfor %}
         </dl>
       </div>
@@ -76,35 +70,35 @@
       <div class="card p-3 mb-3">
         <h5>Skill Proficiencies</h5>
         {% if skill_proficiencies %}
-          <ul class="list-unstyled mb-0">
+          <ul class="mb-0">
             {% for prof in skill_proficiencies %}
-              <li><strong>{{ prof.subskill.name }}:</strong> {{ prof.proficiency.name }}</li>
+              <li><strong>{{ prof.selected_skill.name }}:</strong> {{ prof.proficiency.name }}</li>
             {% endfor %}
           </ul>
         {% else %}
-          <p class="mb-0">None</p>
+          <p class="mb-0"><em>None</em></p>
         {% endif %}
       </div>
 
       <div class="card p-3">
         <h5>Racial Features</h5>
         {% if racial_features %}
-          <ul class="list-unstyled mb-0">
+          <ul class="mb-0">
             {% for rf in racial_features %}
               <li>{{ rf.code }} – {{ rf.name }}</li>
             {% endfor %}
           </ul>
         {% else %}
-          <p class="mb-0">None</p>
+          <p class="mb-0"><em>None</em></p>
         {% endif %}
       </div>
     </div>
 
-    <!-- RIGHT COLUMN: CLASS PROGRESSION, UNIVERSAL FEATS, CHOSEN FEATURES -->
+    <!-- RIGHT COLUMN -->
     <div class="col-lg-8">
       <div class="card p-3 mb-3">
         <h5>Class Breakdown</h5>
-        <ul class="list-unstyled mb-0">
+        <ul class="mb-0">
           {% for prog in class_progress %}
             <li>{{ prog.character_class.name }} (Level {{ prog.levels }})</li>
           {% endfor %}
@@ -114,7 +108,7 @@
       <div class="card p-3 mb-3">
         <h5>Universal Feats / ASI</h5>
         {% if universal_feats %}
-          <ul class="list-unstyled mb-0">
+          <ul class="mb-0">
             {% for uf in universal_feats %}
               {% if uf.grants_asi %}<li>Ability Score Increase</li>{% endif %}
               {% if uf.grants_general_feat %}<li>General Feat</li>{% endif %}
@@ -127,7 +121,7 @@
 
       <div class="card p-3">
         <h5>Gained Features</h5>
-        <ul class="list-unstyled mb-0">
+        <ul class="mb-0">
           {% for cf in character.features.all %}
             <li>
               {% if cf.option %}
@@ -140,7 +134,7 @@
               <small class="text-muted">(L{{ cf.level }})</small>
             </li>
           {% empty %}
-            <li>No features chosen yet.</li>
+            <li><em>No features chosen yet.</em></li>
           {% endfor %}
         </ul>
       </div>
@@ -148,90 +142,182 @@
   </div>
 </div>
 
-<!-- EDIT CHARACTER MODAL -->
-<div class="modal fade" id="editCharacterModal" tabindex="-1">
-  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+{# EDIT CHARACTER MODAL (unchanged) #}
+… your existing editCharacterModal here …
+
+<!-- LEVEL UP MODAL -->
+<div class="modal fade" id="levelUpModal" tabindex="-1" aria-labelledby="levelUpModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">Edit Character</h5>
-        <button type="button" class="btn-close"
-                data-bs-dismiss="modal"></button>
+        <h5 id="levelUpModalLabel" class="modal-title">Level Up to {{ total_level|add:"1" }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <form method="post">
+
+  
+        <form method="get"
+              action="{% url 'characters:character_detail' character.pk %}#levelUpModal"
+              class="mb-4">
+          {{ form.base_class }}
+        </form>
+        {# 2) Class Description #}
+        <div class="mb-3">
+          <h6>Description</h6>
+          <p>{{ preview_class.description }}</p>
+        </div>
+           <p><strong>Hit Die:</strong> d{{ preview_class.hit_die }}</p>          <p>
+            <strong>Key Abilities:</strong>
+            {% for a in preview_class.key_abilities.all %}
+              {{ a.name }}{% if not forloop.last %}, {% endif %}
+            {% endfor %}
+          </p>
+
+        {# 3) Proficiency Table #}
+        <div class="mb-3">
+          <h6>Proficiencies</h6>
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th>Type</th>
+                {% for tn in tier_names %}<th>{{ tn }}</th>{% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in proficiency_rows %}
+                <tr>
+                  <td>{{ row.type }}</td>
+                  {% for lvl in row.levels %}
+                    <td>{{ lvl }}</td>
+                  {% endfor %}
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        {# 4) Auto-Granted Features at Next Level #}
+        <div class="mb-3">
+          <h6>Features at L{{ total_level|add:"1" }}</h6>
+          <ul class="mb-0">
+            {% for f in auto_feats %}
+              <li>
+                <strong>{{ f.code }} – {{ f.name }}</strong>
+                {% if f.description %}: {{ f.description }}{% endif %}
+              </li>
+            {% empty %}
+              <li><em>None</em></li>
+            {% endfor %}
+          </ul>
+        </div>
+
+        {# 5) Confirm Level Up (POST) – single form #}
+        <form method="post" action="{% url 'characters:character_detail' character.pk %}">
           {% csrf_token %}
-          {% for field in edit_form.visible_fields %}
+
+          {# carry over the chosen class #}
+          <input type="hidden" name="base_class" value="{{ form.base_class.value }}">
+
+          {# General Feat #}
+          {% if form.general_feat %}
+          <div class="mb-3">
+            <label class="form-label">{{ form.general_feat.label }}</label>
+            <input
+      type="text"
+      id="general-feat-filter"
+      class="form-control mb-2"
+      placeholder="Filter feats…"
+    >
+           
+            <table id="general-feats-table" class="table table-bordered">
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Feat</th>
+                  <th>Description</th>
+                  <th>Prereqs</th>
+                  <th>Tags</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for feat in form.general_feat.field.queryset %}
+                  <tr>
+                    <td>
+                      <input
+                        type="radio"
+                        name="{{ form.general_feat.name }}"
+                        value="{{ feat.pk }}"
+                        {% if form.general_feat.value|stringformat:"s" == feat.pk|stringformat:"s" %}checked{% endif %}
+                      >
+                    </td>
+                    <td>{{ feat.name }}</td>
+                    <td>{{ feat.description|default:"(no description)" }}</td>
+                    <td>{{ feat.level_prerequisite|default:"None" }}</td>
+                    <td>{{ feat.tags|default:"None" }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% for err in form.general_feat.errors %}
+              <div class="text-danger">{{ err }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+
+
+
+
+
+          {# ASI #}
+          {% if form.asi %}
+            <div class="form-check mb-3">
+              {{ form.asi }} {{ form.asi.label_tag }}
+              {% for err in form.asi.errors %}
+                <div class="text-danger">{{ err }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+
+
+          {# Subclass‐choice & option pickers #}
+          {% for field,label in feature_fields %}
             <div class="mb-3">
-              {{ field.label_tag }}
+              <label for="{{ field.id_for_label }}" class="form-label">{{ label }}</label>
               {{ field }}
-              {% if field.help_text %}
-                <div class="form-text">{{ field.help_text }}</div>
-              {% endif %}
               {% for err in field.errors %}
                 <div class="text-danger">{{ err }}</div>
               {% endfor %}
             </div>
           {% endfor %}
-          <button type="submit"
-                  name="edit_submit"
-                  class="btn btn-primary">
-            Save Changes
-          </button>
-        </form>
-      </div>
-    </div>
-  </div>
-</div>
 
+          {# Optional Class Feat picker #}
+          {% if form.class_feat_pick %}
+            <div class="mb-3">
+              {{ form.class_feat_pick.label_tag }}
+              {{ form.class_feat_pick }}
+              {% for err in form.class_feat_pick.errors %}
+                <div class="text-danger">{{ err }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
 
-<!-- LEVEL UP MODAL -->
-<div
-  class="modal fade"
-  id="levelUpModal"
-  tabindex="-1"
-  aria-labelledby="levelUpModalLabel"
-  aria-hidden="true"
->
-  <div class="modal-dialog modal-lg modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title" id="levelUpModalLabel">
-          Level Up to {{ total_level|add:1 }}
-        </h5>
-        <button
-          type="button"
-          class="btn-close"
-          data-bs-dismiss="modal"
-          aria-label="Close"
-        ></button>
-      </div>
-      <div class="modal-body">
-        <form method="post" action="">
-          {% csrf_token %}
-          <div class="row mb-3">
-            <div class="col">
-              {{ form.base_class.label_tag }}
-              {{ form.base_class }}
+          {# Optional Martial Mastery #}
+          {% if form.martial_mastery %}
+            <div class="mb-3">
+              {{ form.martial_mastery.label_tag }}
+              {{ form.martial_mastery }}
+              {% for err in form.martial_mastery.errors %}
+                <div class="text-danger">{{ err }}</div>
+              {% endfor %}
             </div>
-            <div class="col">
-              {{ form.advance_class.label_tag }}
-              {{ form.advance_class }}
-            </div>
-          </div>
-          <div class="row gx-3">
-            {% for fld, lbl in feature_fields %}
-              <div class="col-md-6 mb-2">
-                <div class="form-check">
-                  {{ fld }}
-                  <label class="form-check-label">{{ lbl }}</label>
-                </div>
-              </div>
-            {% endfor %}
-          </div>
+          {% endif %}
+
           <button type="submit" name="level_up_submit" class="btn btn-primary">
             Confirm Level Up
           </button>
         </form>
+
       </div>
     </div>
   </div>
@@ -240,4 +326,31 @@
 
 {% block extra_js %}
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+  {# 2) Then your custom code, wrapped in DOMContentLoaded #}
+  <script>
+    document.addEventListener("DOMContentLoaded", function(){
+      // — show modal if hash is present
+      if (window.location.hash === "#levelUpModal") {
+        new bootstrap.Modal(
+          document.getElementById("levelUpModal")
+        ).show();
+      }
+
+      // — wire up the filter input only if it exists
+      var filterInput = document.getElementById("general-feat-filter");
+      if (filterInput) {
+        filterInput.addEventListener("keyup", function(){
+          var q = this.value.toLowerCase();
+          document.querySelectorAll("#general-feats-table tbody tr")
+            .forEach(function(row){
+              row.style.display = 
+                row.textContent.toLowerCase().includes(q)
+                ? "" : "none";
+            });
+        });
+      }
+    });
+  </script>
+
 {% endblock %}
