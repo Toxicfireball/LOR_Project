@@ -163,7 +163,7 @@
 </div>
 
 {# EDIT CHARACTER MODAL (unchanged) #}
-… your existing editCharacterModal here …
+
 
 <!-- LEVEL UP MODAL -->
 <div class="modal fade" id="levelUpModal" tabindex="-1" aria-labelledby="levelUpModalLabel" aria-hidden="true">
@@ -293,12 +293,14 @@
             {% for feat in form.general_feat.field.queryset %}
               <tr>
                 <td>
-                  <input
-                    type="radio"
-                    name="{{ form.general_feat.name }}"
-                    value="{{ feat.pk }}"
-                    {% if form.general_feat.value|stringformat:"s" == feat.pk|stringformat:"s" %}checked{% endif %}
-                  >
+                <input
+                  type="radio"
+                  name="{{ form.general_feat.html_name }}"
+                  value="{{ feat.pk }}"
+                  {% if form.general_feat.value|stringformat:"s" == feat.pk|stringformat:"s" %}checked{% endif %}
+                  {% if form.general_feat.field.required %}required{% endif %}
+                >
+
                 </td>
 
                 <td class="feat-name">{{ feat.name }}</td>
@@ -371,19 +373,25 @@
                   {% for feat in form.class_feat_pick.field.queryset %}
                     <tr>
                       <td>
-                        <input
-                          type="radio"
-                          name="{{ form.class_feat_pick.name }}"
-                          value="{{ feat.pk }}"
-                          {% if form.class_feat_pick.value|stringformat:"s" == feat.pk|stringformat:"s" %}checked{% endif %}
-                        >
+                    <input
+                      type="radio"
+                      name="{{ form.class_feat_pick.html_name }}"
+                      value="{{ feat.pk }}"
+                      {% if form.class_feat_pick.value|stringformat:"s" == feat.pk|stringformat:"s" %}checked{% endif %}
+                      {% if form.class_feat_pick.field.required %}required{% endif %}
+                    >
                       </td>
                       <td class="feat-name">{{ feat.name }}</td>
                       <td class="feat-desc">{{ feat.description|default:"(no description)" }}</td>
                       <td class="feat-level">{{ feat.level_prerequisite|default:"None" }}</td>
                       <td class="feat-reqs">{{ feat.prerequisites|default:"—" }}</td>
                       <td class="feat-tags">{{ feat.tags|default:"None" }}</td>
-                    </tr>
+                                          </tr>
+
+                        {% empty %}
+    <tr>
+      <td colspan="6" class="text-muted"><em>No class feats meet your current class/level filters.</em></td>
+    </tr>
                   {% endfor %}
                 </tbody>
               </table>
@@ -393,136 +401,175 @@
               {% endfor %}
             </div>
           {% endif %}
+
+{# === BEGIN: FEATURE FIELDS LOOP === #}
 {% for item in feature_fields %}
+
+  {# 1) SUBCLASS CHOICE — pick *which* subclass in a group #}
   {% if item.kind == "subclass_choice" %}
-    {# ... your existing subclass UI unchanged ... #}
+    <div class="mb-4">
+      <label class="form-label d-block">{{ item.label }}</label>
+      {# Render the bound field exactly as configured in the form (radio/select) #}
+      <div class="p-3 border rounded">
+        {{ item.field }}
+      </div>
+      {% for err in item.field.errors %}
+        <div class="text-danger mt-1">{{ err }}</div>
+      {% endfor %}
+    </div>
 
+  {# 2) FEATURE WITH OPTIONS — choose one option for a parent feature #}
   {% elif item.kind == "option" %}
-    <div class="mb-6">
-      <div class="mb-2 text-sm font-medium">{{ item.label }}</div>
+    <div class="mb-4">
+      <div class="mb-2 fw-semibold">{{ item.label }}</div>
 
-      {# 1) PARENT CHOICE details (non-blank only) #}
+      {# Parent feature details #}
       {% with f=item.feature %}
-      <div class="rounded-xl border p-3 mb-3">
-        <div class="font-semibold">{{ f.code }} – {{ f.name }}</div>
+      <div class="border rounded p-3 mb-3">
+        <div class="fw-semibold">{{ f.code }} – {{ f.name }}</div>
         {% if f.description %}
-          <div class="prose prose-sm mt-1 max-w-none">{{ f.description|safe }}</div>
+          <div class="mt-2 small">{{ f.description|safe }}</div>
         {% endif %}
-        <dl class="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-600">
-          {% if f.kind %}<div><span class="font-medium">Type:</span> {{ f.get_kind_display|default:f.kind }}</div>{% endif %}
-          {% if f.action_type %}<div><span class="font-medium">Action:</span> {{ f.get_action_type_display|default:f.action_type }}</div>{% endif %}
-          {% if f.uses %}<div class="col-span-2"><span class="font-medium">Uses:</span> {{ f.uses }}</div>{% endif %}
+
+        <dl class="row mt-2 small text-muted">
+          {% if f.kind %}<dt class="col-4">Type</dt><dd class="col-8">{{ f.get_kind_display|default:f.kind }}</dd>{% endif %}
+          {% if f.action_type %}<dt class="col-4">Action</dt><dd class="col-8">{{ f.get_action_type_display|default:f.action_type }}</dd>{% endif %}
+          {% if f.uses %}<dt class="col-4">Uses</dt><dd class="col-8">{{ f.uses }}</dd>{% endif %}
           {% if f.formula %}
-            <div class="col-span-2"><span class="font-medium">Formula:</span> {{ f.formula }}{% if f.formula_target %} ({{ f.get_formula_target_display|default:f.formula_target }}){% endif %}</div>
+            <dt class="col-4">Formula</dt>
+            <dd class="col-8">
+              {{ f.formula }}
+              {% if f.formula_target %} ({{ f.get_formula_target_display|default:f.formula_target }}){% endif %}
+            </dd>
           {% endif %}
 
           {% if f.saving_throw_required %}
-            <div class="col-span-2"><span class="font-medium">Save:</span> {{ f.get_saving_throw_type_display|default:f.saving_throw_type }}{% if f.saving_throw_granularity %} – {{ f.get_saving_throw_granularity_display|default:f.saving_throw_granularity }}{% endif %}</div>
+            <dt class="col-4">Save</dt>
+            <dd class="col-8">
+              {{ f.get_saving_throw_type_display|default:f.saving_throw_type }}
+              {% if f.saving_throw_granularity %} – {{ f.get_saving_throw_granularity_display|default:f.saving_throw_granularity }}{% endif %}
+            </dd>
+
             {% if f.saving_throw_granularity == "basic" %}
-              {% if f.saving_throw_basic_success %}<div class="col-span-2"><span class="font-medium">On Success:</span> {{ f.saving_throw_basic_success }}</div>{% endif %}
-              {% if f.saving_throw_basic_failure %}<div class="col-span-2"><span class="font-medium">On Failure:</span> {{ f.saving_throw_basic_failure }}</div>{% endif %}
+              {% if f.saving_throw_basic_success %}<dt class="col-4">On Success</dt><dd class="col-8">{{ f.saving_throw_basic_success }}</dd>{% endif %}
+              {% if f.saving_throw_basic_failure %}<dt class="col-4">On Failure</dt><dd class="col-8">{{ f.saving_throw_basic_failure }}</dd>{% endif %}
             {% else %}
-              {% if f.saving_throw_critical_success %}<div class="col-span-2"><span class="font-medium">Crit Success:</span> {{ f.saving_throw_critical_success }}</div>{% endif %}
-              {% if f.saving_throw_success %}<div class="col-span-2"><span class="font-medium">Success:</span> {{ f.saving_throw_success }}</div>{% endif %}
-              {% if f.saving_throw_failure %}<div class="col-span-2"><span class="font-medium">Failure:</span> {{ f.saving_throw_failure }}</div>{% endif %}
-              {% if f.saving_throw_critical_failure %}<div class="col-span-2"><span class="font-medium">Crit Failure:</span> {{ f.saving_throw_critical_failure }}</div>{% endif %}
+              {% if f.saving_throw_critical_success %}<dt class="col-4">Crit Success</dt><dd class="col-8">{{ f.saving_throw_critical_success }}</dd>{% endif %}
+              {% if f.saving_throw_success %}<dt class="col-4">Success</dt><dd class="col-8">{{ f.saving_throw_success }}</dd>{% endif %}
+              {% if f.saving_throw_failure %}<dt class="col-4">Failure</dt><dd class="col-8">{{ f.saving_throw_failure }}</dd>{% endif %}
+              {% if f.saving_throw_critical_failure %}<dt class="col-4">Crit Failure</dt><dd class="col-8">{{ f.saving_throw_critical_failure }}</dd>{% endif %}
             {% endif %}
           {% endif %}
 
-          {% if f.damage_type %}<div class="col-span-2"><span class="font-medium">Damage Type:</span> {{ f.get_damage_type_display|default:f.damage_type }}</div>{% endif %}
+          {% if f.damage_type %}<dt class="col-4">Damage Type</dt><dd class="col-8">{{ f.get_damage_type_display|default:f.damage_type }}</dd>{% endif %}
 
           {% if f.gain_resistance_mode %}
-            <div class="col-span-2">
-              <span class="font-medium">Grants:</span>
+            <dt class="col-4">Grants</dt>
+            <dd class="col-8">
               {% if f.gain_resistance_mode == "reduction" %}
                 DR {{ f.gain_resistance_amount|default:"?" }}{% if f.gain_resistance_types %} vs {{ f.gain_resistance_types|join:", " }}{% endif %}
               {% else %}
                 Resistance{% if f.gain_resistance_types %} vs {{ f.gain_resistance_types|join:", " }}{% endif %}
               {% endif %}
-            </div>
+            </dd>
           {% endif %}
 
           {% if f.kind == "gain_proficiency" and f.modify_proficiency_target %}
-            <div class="col-span-2"><span class="font-medium">Proficiency:</span> {{ f.modify_proficiency_target }} → {{ f.modify_proficiency_amount }}</div>
+            <dt class="col-4">Proficiency</dt>
+            <dd class="col-8">{{ f.modify_proficiency_target }} → {{ f.modify_proficiency_amount }}</dd>
           {% endif %}
 
-          {% if f.gain_subskills.all %}
-            <div class="col-span-2">
-              <span class="font-medium">Sub-skills:</span>
-              {% for s in f.gain_subskills.all %}{{ s.name }}{% if not forloop.last %}, {% endif %}{% endfor %}
-            </div>
-          {% endif %}
+            {% with subs=f.gain_subskills.all %}
+              {% if subs %}
+                <dt class="col-4">Sub-skills</dt>
+                <dd class="col-8">
+                  {% for s in subs %}{{ s.name }}{% if not forloop.last %}, {% endif %}{% endfor %}
+                </dd>
+              {% endif %}
+            {% endwith %}
+
         </dl>
       </div>
       {% endwith %}
 
-      {# 2) OPTIONS list (radio) with each option’s details #}
-      <div class="grid gap-3">
+      {# Options (radio list) #}
+      <div class="d-grid gap-2">
         {% for opt in item.feature.options.all %}
           {% with radio_id="id_"|add:item.field.name|add:"_"|add:opt.pk|stringformat:"s" %}
-          <label for="{{ radio_id }}" class="flex items-start gap-3 rounded-xl border p-3 hover:bg-slate-50 cursor-pointer">
+          <label for="{{ radio_id }}" class="border rounded p-3 d-flex gap-3 align-items-start">
             <input
               type="radio"
               id="{{ radio_id }}"
               name="{{ item.field.name }}"
               value="{{ opt.pk }}"
-              class="mt-1 h-4 w-4 rounded border-slate-300 focus:ring-2 focus:ring-blue-500"
+              class="form-check-input mt-1"
               {% if item.field.value|stringformat:"s" == opt.pk|stringformat:"s" %}checked{% endif %}
               {% if item.field.field.required %}required{% endif %}
             />
-            <div class="min-w-0">
-              <div class="font-semibold">{{ opt.label }}</div>
+            <div class="flex-grow-1">
+              <div class="fw-semibold">{{ opt.label }}</div>
 
               {% if opt.grants_feature %}
                 {% with f=opt.grants_feature %}
-                {% if f.description %}
-                  <div class="prose prose-sm mt-1 max-w-none">{{ f.description|safe }}</div>
-                {% endif %}
-                <dl class="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-600">
-                  {% if f.kind %}<div><span class="font-medium">Type:</span> {{ f.get_kind_display|default:f.kind }}</div>{% endif %}
-                  {% if f.action_type %}<div><span class="font-medium">Action:</span> {{ f.get_action_type_display|default:f.action_type }}</div>{% endif %}
-                  {% if f.uses %}<div class="col-span-2"><span class="font-medium">Uses:</span> {{ f.uses }}</div>{% endif %}
-                  {% if f.formula %}
-                    <div class="col-span-2"><span class="font-medium">Formula:</span> {{ f.formula }}{% if f.formula_target %} ({{ f.get_formula_target_display|default:f.formula_target }}){% endif %}</div>
-                  {% endif %}
-
-                  {% if f.saving_throw_required %}
-                    <div class="col-span-2"><span class="font-medium">Save:</span> {{ f.get_saving_throw_type_display|default:f.saving_throw_type }}{% if f.saving_throw_granularity %} – {{ f.get_saving_throw_granularity_display|default:f.saving_throw_granularity }}{% endif %}</div>
-                    {% if f.saving_throw_granularity == "basic" %}
-                      {% if f.saving_throw_basic_success %}<div class="col-span-2"><span class="font-medium">On Success:</span> {{ f.saving_throw_basic_success }}</div>{% endif %}
-                      {% if f.saving_throw_basic_failure %}<div class="col-span-2"><span class="font-medium">On Failure:</span> {{ f.saving_throw_basic_failure }}</div>{% endif %}
-                    {% else %}
-                      {% if f.saving_throw_critical_success %}<div class="col-span-2"><span class="font-medium">Crit Success:</span> {{ f.saving_throw_critical_success }}</div>{% endif %}
-                      {% if f.saving_throw_success %}<div class="col-span-2"><span class="font-medium">Success:</span> {{ f.saving_throw_success }}</div>{% endif %}
-                      {% if f.saving_throw_failure %}<div class="col-span-2"><span class="font-medium">Failure:</span> {{ f.saving_throw_failure }}</div>{% endif %}
-                      {% if f.saving_throw_critical_failure %}<div class="col-span-2"><span class="font-medium">Crit Failure:</span> {{ f.saving_throw_critical_failure }}</div>{% endif %}
+                  {% if f.description %}<div class="small mt-1">{{ f.description|safe }}</div>{% endif %}
+                  <dl class="row mt-2 small text-muted">
+                    {% if f.kind %}<dt class="col-4">Type</dt><dd class="col-8">{{ f.get_kind_display|default:f.kind }}</dd>{% endif %}
+                    {% if f.action_type %}<dt class="col-4">Action</dt><dd class="col-8">{{ f.get_action_type_display|default:f.action_type }}</dd>{% endif %}
+                    {% if f.uses %}<dt class="col-4">Uses</dt><dd class="col-8">{{ f.uses }}</dd>{% endif %}
+                    {% if f.formula %}
+                      <dt class="col-4">Formula</dt>
+                      <dd class="col-8">
+                        {{ f.formula }}
+                        {% if f.formula_target %} ({{ f.get_formula_target_display|default:f.formula_target }}){% endif %}
+                      </dd>
                     {% endif %}
-                  {% endif %}
 
-                  {% if f.damage_type %}<div class="col-span-2"><span class="font-medium">Damage Type:</span> {{ f.get_damage_type_display|default:f.damage_type }}</div>{% endif %}
+                    {% if f.saving_throw_required %}
+                      <dt class="col-4">Save</dt>
+                      <dd class="col-8">
+                        {{ f.get_saving_throw_type_display|default:f.saving_throw_type }}
+                        {% if f.saving_throw_granularity %} – {{ f.get_saving_throw_granularity_display|default:f.saving_throw_granularity }}{% endif %}
+                      </dd>
 
-                  {% if f.gain_resistance_mode %}
-                    <div class="col-span-2">
-                      <span class="font-medium">Grants:</span>
-                      {% if f.gain_resistance_mode == "reduction" %}
-                        DR {{ f.gain_resistance_amount|default:"?" }}{% if f.gain_resistance_types %} vs {{ f.gain_resistance_types|join:", " }}{% endif %}
+                      {% if f.saving_throw_granularity == "basic" %}
+                        {% if f.saving_throw_basic_success %}<dt class="col-4">On Success</dt><dd class="col-8">{{ f.saving_throw_basic_success }}</dd>{% endif %}
+                        {% if f.saving_throw_basic_failure %}<dt class="col-4">On Failure</dt><dd class="col-8">{{ f.saving_throw_basic_failure }}</dd>{% endif %}
                       {% else %}
-                        Resistance{% if f.gain_resistance_types %} vs {{ f.gain_resistance_types|join:", " }}{% endif %}
+                        {% if f.saving_throw_critical_success %}<dt class="col-4">Crit Success</dt><dd class="col-8">{{ f.saving_throw_critical_success }}</dd>{% endif %}
+                        {% if f.saving_throw_success %}<dt class="col-4">Success</dt><dd class="col-8">{{ f.saving_throw_success }}</dd>{% endif %}
+                        {% if f.saving_throw_failure %}<dt class="col-4">Failure</dt><dd class="col-8">{{ f.saving_throw_failure }}</dd>{% endif %}
+                        {% if f.saving_throw_critical_failure %}<dt class="col-4">Crit Failure</dt><dd class="col-8">{{ f.saving_throw_critical_failure }}</dd>{% endif %}
                       {% endif %}
-                    </div>
-                  {% endif %}
+                    {% endif %}
 
-                  {% if f.kind == "gain_proficiency" and f.modify_proficiency_target %}
-                    <div class="col-span-2"><span class="font-medium">Proficiency:</span> {{ f.modify_proficiency_target }} → {{ f.modify_proficiency_amount }}</div>
-                  {% endif %}
+                    {% if f.damage_type %}<dt class="col-4">Damage Type</dt><dd class="col-8">{{ f.get_damage_type_display|default:f.damage_type }}</dd>{% endif %}
 
-                  {% if f.gain_subskills.all %}
-                    <div class="col-span-2">
-                      <span class="font-medium">Sub-skills:</span>
-                      {% for s in f.gain_subskills.all %}{{ s.name }}{% if not forloop.last %}, {% endif %}{% endfor %}
-                    </div>
-                  {% endif %}
-                </dl>
+                    {% if f.gain_resistance_mode %}
+                      <dt class="col-4">Grants</dt>
+                      <dd class="col-8">
+                        {% if f.gain_resistance_mode == "reduction" %}
+                          DR {{ f.gain_resistance_amount|default:"?" }}{% if f.gain_resistance_types %} vs {{ f.gain_resistance_types|join:", " }}{% endif %}
+                        {% else %}
+                          Resistance{% if f.gain_resistance_types %} vs {{ f.gain_resistance_types|join:", " }}{% endif %}
+                        {% endif %}
+                      </dd>
+                    {% endif %}
+
+                    {% if f.kind == "gain_proficiency" and f.modify_proficiency_target %}
+                      <dt class="col-4">Proficiency</dt>
+                      <dd class="col-8">{{ f.modify_proficiency_target }} → {{ f.modify_proficiency_amount }}</dd>
+                    {% endif %}
+
+                      {% with subs=f.gain_subskills.all %}
+                        {% if subs %}
+                          <dt class="col-4">Sub-skills</dt>
+                          <dd class="col-8">
+                            {% for s in subs %}{{ s.name }}{% if not forloop.last %}, {% endif %}{% endfor %}
+                          </dd>
+                        {% endif %}
+                      {% endwith %}
+
+                  </dl>
                 {% endwith %}
               {% endif %}
             </div>
@@ -532,21 +579,91 @@
       </div>
 
       {% for err in item.field.errors %}
-        <div class="mt-1 text-sm text-red-600">{{ err }}</div>
+        <div class="text-danger mt-1">{{ err }}</div>
       {% endfor %}
     </div>
 
+  {# 3) GAIN SUBCLASS FEATURE — pick actual features from the active subclass #}
+  {% elif item.kind == "gain_subclass_feat" %}
+    <div class="mb-4">
+      <div class="mb-2 fw-semibold">{{ item.label }}</div>
+
+        {% if item.system == "linear" and not item.subclass %}
+          <div class="alert alert-warning p-2">Pick a subclass above …</div>
+        {% endif %}
+        {% if item.system == "linear" %}
+          <div class="alert alert-info p-2">
+            Linear progression: the following {{ item.group.name }} feature(s) are granted automatically.
+          </div>
+        {% endif %}
+
+        <div class="d-grid gap-2">
+          {% with selected_vals=item.field.value %}
+            {% for f in item.eligible %}
+              {% with cid="id_"|add:item.field.name|add:"_"|add:f.pk|stringformat:"s" %}
+              <label for="{{ cid }}" class="border rounded p-3 d-flex gap-3 align-items-start">
+                {% if item.system == "linear" %}
+                  <input type="checkbox" id="{{ cid }}" disabled checked class="form-check-input mt-1">
+                {% else %}
+                  <input
+                    type="checkbox"
+                    id="{{ cid }}"
+                    name="{{ item.field.name }}"
+                    value="{{ f.pk }}"
+                    class="form-check-input mt-1"
+                    {% if selected_vals and f.pk|stringformat:"s" in selected_vals %}checked{% endif %}
+                  >
+                {% endif %}
+
+                <div class="flex-grow-1">
+                  <div class="fw-semibold">{{ f.name }}</div>
+                  {% if f.description %}<div class="small mt-1">{{ f.description|safe }}</div>{% endif %}
+
+                  <dl class="row mt-2 small text-muted">
+                    {% if f.tier %}<dt class="col-4">Tier</dt><dd class="col-8">{{ f.tier }}</dd>{% endif %}
+                    {% if f.mastery_rank or f.mastery_rank == 0 %}
+                      <dt class="col-4">Mastery</dt><dd class="col-8">Rank {{ f.mastery_rank }}</dd>
+                    {% endif %}
+                    {% if f.level_required %}<dt class="col-4">Level Required</dt><dd class="col-8">{{ f.level_required }}</dd>{% endif %}
+                    {% if f.kind %}<dt class="col-4">Type</dt><dd class="col-8">{{ f.get_kind_display|default:f.kind }}</dd>{% endif %}
+                    {% if f.action_type %}<dt class="col-4">Action</dt><dd class="col-8">{{ f.get_action_type_display|default:f.action_type }}</dd>{% endif %}
+                    {% if f.uses %}<dt class="col-4">Uses</dt><dd class="col-8">{{ f.uses }}</dd>{% endif %}
+                    {% if f.formula %}
+                      <dt class="col-4">Formula</dt>
+                      <dd class="col-8">
+                        {{ f.formula }}
+                        {% if f.formula_target %} ({{ f.get_formula_target_display|default:f.formula_target }}){% endif %}
+                      </dd>
+                    {% endif %}
+                    {% if f.damage_type %}<dt class="col-4">Damage Type</dt><dd class="col-8">{{ f.get_damage_type_display|default:f.damage_type }}</dd>{% endif %}
+                  </dl>
+                </div>
+              </label>
+              {% endwith %}
+            {% empty %}
+              <div class="text-muted"><em>No eligible features at this level.</em></div>
+            {% endfor %}
+          {% endwith %}
+        </div>
+     
+      {% for err in item.field.errors %}
+        <div class="text-danger mt-1">{{ err }}</div>
+      {% endfor %}
+    </div>
+
+  {# 4) FALLBACK — any other simple field #}
   {% else %}
-    {# Fallback (unchanged old simple label+field) #}
     <div class="mb-3">
-      <label class="block text-sm font-medium mb-1">{{ item.label }}</label>
+      <label class="form-label">{{ item.label }}</label>
       {{ item.field }}
       {% for err in item.field.errors %}
-        <div class="text-red-600 text-sm">{{ err }}</div>
+        <div class="text-danger mt-1">{{ err }}</div>
       {% endfor %}
     </div>
   {% endif %}
+
 {% endfor %}
+{# === END: FEATURE FIELDS LOOP === #}
 
 
 
