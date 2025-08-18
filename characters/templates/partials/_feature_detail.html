@@ -1,0 +1,81 @@
+{# templates/partials/_feature_detail.html #}
+{% comment %}
+  Expects: f = ClassFeature (or grants_feature from an option)
+  Renders all non-empty fields in a compact, consistent block.
+{% endcomment %}
+
+<div class="feature-detail">
+  <div class="fw-semibold">
+    {% if f.code %}{{ f.code }} – {% endif %}{{ f.name }}
+  </div>
+
+  {% if f.description %}
+    <div class="mt-1 small">{{ f.description|safe }}</div>
+  {% endif %}
+
+  <dl class="row mt-2 small text-muted">
+    {% if f.tier %}<dt class="col-4">Tier</dt><dd class="col-8">{{ f.tier }}</dd>{% endif %}
+    {% if f.mastery_rank or f.mastery_rank == 0 %}
+      <dt class="col-4">Mastery</dt><dd class="col-8">Rank {{ f.mastery_rank }}</dd>
+    {% endif %}
+    {% if f.level_required %}<dt class="col-4">Level Required</dt><dd class="col-8">{{ f.level_required }}</dd>{% endif %}
+    {% if f.min_level %}<dt class="col-4">Min Class Level</dt><dd class="col-8">{{ f.min_level }}</dd>{% endif %}
+
+    {% if f.kind %}<dt class="col-4">Type</dt><dd class="col-8">{{ f.get_kind_display|default:f.kind }}</dd>{% endif %}
+    {% if f.action_type %}<dt class="col-4">Action</dt><dd class="col-8">{{ f.get_action_type_display|default:f.action_type }}</dd>{% endif %}
+    {% if f.uses %}<dt class="col-4">Uses</dt><dd class="col-8">{{ f.uses }}</dd>{% endif %}
+
+    {% if f.formula %}
+      <dt class="col-4">Formula</dt>
+      <dd class="col-8">
+        {{ f.formula }}
+        {% if f.formula_target %} ({{ f.get_formula_target_display|default:f.formula_target }}){% endif %}
+      </dd>
+    {% endif %}
+
+    {% if f.saving_throw_required %}
+      <dt class="col-4">Save</dt>
+      <dd class="col-8">
+        {{ f.get_saving_throw_type_display|default:f.saving_throw_type }}
+        {% if f.saving_throw_granularity %} – {{ f.get_saving_throw_granularity_display|default:f.saving_throw_granularity }}{% endif %}
+      </dd>
+
+      {% if f.saving_throw_granularity == "basic" %}
+        {% if f.saving_throw_basic_success %}<dt class="col-4">On Success</dt><dd class="col-8">{{ f.saving_throw_basic_success }}</dd>{% endif %}
+        {% if f.saving_throw_basic_failure %}<dt class="col-4">On Failure</dt><dd class="col-8">{{ f.saving_throw_basic_failure }}</dd>{% endif %}
+      {% else %}
+        {% if f.saving_throw_critical_success %}<dt class="col-4">Crit Success</dt><dd class="col-8">{{ f.saving_throw_critical_success }}</dd>{% endif %}
+        {% if f.saving_throw_success %}<dt class="col-4">Success</dt><dd class="col-8">{{ f.saving_throw_success }}</dd>{% endif %}
+        {% if f.saving_throw_failure %}<dt class="col-4">Failure</dt><dd class="col-8">{{ f.saving_throw_failure }}</dd>{% endif %}
+        {% if f.saving_throw_critical_failure %}<dt class="col-4">Crit Failure</dt><dd class="col-8">{{ f.saving_throw_critical_failure }}</dd>{% endif %}
+      {% endif %}
+    {% endif %}
+
+    {% if f.damage_type %}<dt class="col-4">Damage Type</dt><dd class="col-8">{{ f.get_damage_type_display|default:f.damage_type }}</dd>{% endif %}
+
+    {% if f.gain_resistance_mode %}
+      <dt class="col-4">Grants</dt>
+      <dd class="col-8">
+        {% if f.gain_resistance_mode == "reduction" %}
+          DR {{ f.gain_resistance_amount|default:"?" }}{% if f.gain_resistance_types %} vs {{ f.gain_resistance_types|join:", " }}{% endif %}
+        {% else %}
+          Resistance{% if f.gain_resistance_types %} vs {{ f.gain_resistance_types|join:", " }}{% endif %}
+        {% endif %}
+      </dd>
+    {% endif %}
+
+    {% if f.kind == "gain_proficiency" and f.modify_proficiency_target %}
+      <dt class="col-4">Proficiency</dt>
+      <dd class="col-8">{{ f.modify_proficiency_target }} → {{ f.modify_proficiency_amount }}</dd>
+    {% endif %}
+
+    {% with subs=f.gain_subskills.all %}
+      {% if subs %}
+        <dt class="col-4">Sub-skills</dt>
+        <dd class="col-8">
+          {% for s in subs %}{{ s.name }}{% if not forloop.last %}, {% endif %}{% endfor %}
+        </dd>
+      {% endif %}
+    {% endwith %}
+  </dl>
+</div>

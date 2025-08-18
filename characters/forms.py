@@ -191,6 +191,14 @@ class PreviewForm(forms.Form):
             "onchange": "this.form.submit()",   # ← auto-submit when user picks
         })
 
+ABILITY_FIELD_CHOICES = [
+    ("strength", "Strength"),
+    ("dexterity", "Dexterity"),
+    ("constitution", "Constitution"),
+    ("intelligence", "Intelligence"),
+    ("wisdom", "Wisdom"),
+    ("charisma", "Charisma"),
+]
 
 
 # forms.py
@@ -216,12 +224,12 @@ class LevelUpForm(forms.Form):
                                             required=False, label="Class Feat")
     martial_mastery = forms.ModelChoiceField(queryset=MartialMastery.objects.none(),
                                             required=False, label="Martial Mastery")
-    asi             = forms.BooleanField(required=False, label="Ability Score Increase")
 
     def __init__(self, *args, character, to_choose, uni, preview_cls, grants_class_feat=False, **kwargs):
 
         super().__init__(*args, **kwargs)
-
+        self.character = character
+        self.uni = uni
         # base_class queryset (unchanged)
         if character.level == 0:
             qs = CharacterClass.objects.order_by("name")
@@ -236,6 +244,17 @@ class LevelUpForm(forms.Form):
         self.auto_feats = [f for f in to_choose if isinstance(f, ClassFeature) and f.scope in ("class_feat","subclass_feat")]
 
         next_level = character.level + 1
+        # ----- Ability Score Increase controls -----
+        # --- Ability Score Increase controls (hidden; UI handled in template/JS) ---
+        # ----- Ability Score Increase controls (hidden; UI handled in template/JS) -----
+        if uni and getattr(uni, "grants_asi", False):
+            self.fields["asi_mode"] = forms.CharField(required=False, widget=forms.HiddenInput())
+            self.fields["asi_a"]    = forms.ChoiceField(choices=ABILITY_FIELD_CHOICES, required=False, widget=forms.HiddenInput())
+            self.fields["asi_b"]    = forms.ChoiceField(choices=ABILITY_FIELD_CHOICES, required=False, widget=forms.HiddenInput())
+        else:
+            for f in ("asi_mode", "asi_a", "asi_b"):
+                self.fields.pop(f, None)
+
 
         # race/subrace token match used for both General & Class feats
         race_names = []
@@ -329,6 +348,63 @@ class LevelUpForm(forms.Form):
                 w.attrs["class"] = (w.attrs.get("class", "") + " form-check-input").strip()
             elif isinstance(w, forms.CheckboxInput):
                 w.attrs["class"] = (w.attrs.get("class", "") + " form-check-input").strip()
+    def clean(self):
+        cleaned = super().clean()
+
+        # If this level has no ASI, nothing to validate.
+        if "asi_mode" not in self.fields:
+            return cleaned
+
+        a    = (cleaned.get("asi_a") or "").strip()
+        b    = (cleaned.get("asi_b") or "").strip()
+        mode = (cleaned.get("asi_mode") or "").strip()
+
+        # Infer mode if JS didn't fill it
+        if not mode:
+            if a and b:
+                mode = "2" if a == b else "1+1"
+            elif a or b:
+                mode = "1"
+            else:
+                raise forms.ValidationError("Assign your ability increase(s) in the table.")
+
+        # Normalize/validate combinations
+        if mode == "1+1":
+            if not a or not b or a == b:
+                raise forms.ValidationError("Pick two different abilities for +1/+1.")
+        elif mode == "2":
+            # allow a==b (both provided) OR just 'a' set; normalize to both set equal
+            if a and b and a != b:
+                raise forms.ValidationError("For +2, choose the same ability twice.")
+            if not a and not b:
+                raise forms.ValidationError("Pick an ability to receive +2.")
+            if not b:
+                cleaned["asi_b"] = a
+                b = a
+        elif mode == "1":
+            if not (a or b):
+                raise forms.ValidationError("Pick one ability to receive +1.")
+            if not a and b:
+                cleaned["asi_a"], cleaned["asi_b"] = b, ""
+                a, b = b, ""
+        else:
+            raise forms.ValidationError("Choose a valid ability increase configuration.")
+
+        # 20+ restriction: if any affected ability is 20+, only single +1 allowed
+        chosen = {x for x in (a, b) if x}
+        if any(getattr(self.character, fld) >= 20 for fld in chosen):
+            if mode != "1":
+                raise forms.ValidationError(
+                    "Because one of the selected abilities is 20 or higher, you may only apply +1 to a single ability."
+                )
+
+        cleaned["asi_mode"] = mode
+        return cleaned
+
+
+
+
+
 class CharacterClassForm(forms.ModelForm):
     class Meta:
         model  = CharacterClass

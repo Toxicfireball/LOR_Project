@@ -10,6 +10,7 @@ from django.db.models import Count
 from .models import Character
 from campaigns.models import Campaign
 from django.db import models
+import math 
 
 @login_required
 def character_list(request):
@@ -45,7 +46,7 @@ from django.contrib.auth.decorators import login_required
 from .forms import CharacterCreationForm
 from .models import Character, CharacterFeat
 from .models import SubSkill, ProficiencyLevel, CharacterSkillProficiency
-
+from django.core.exceptions import ValidationError
 from django.shortcuts import render
 from characters.models import LoremasterArticle,Spell,Subrace, CharacterFeature, ClassFeat,UniversalLevelFeature, CharacterClass, ClassFeature, ClassSubclass, SubclassGroup
 def _class_level_after_pick(character, base_class):
@@ -535,16 +536,42 @@ class RulebookDetailView(DetailView):
         ctx['pages'] = self.object.pages.all()
         return ctx
 
+
+
+
+from django.db import transaction
+
 @login_required
 def level_down(request, pk):
     character = get_object_or_404(Character, pk=pk, user=request.user)
-    if character.level > 0:
-        lvl = character.level
-        # 1) remove all features gained at that level
-        character.features.filter(level=lvl).delete()
+    if character.level <= 0:
+        return redirect('characters:character_detail', pk=pk)
 
-        # 2) find the class-progress entry that just gained this level
-        cp = character.class_progress.filter(levels__gte=lvl).order_by('-levels').first()
+    lvl = character.level
+
+    with transaction.atomic():
+        # 1) Delete everything granted at this character level
+        CharacterFeature.objects.filter(character=character, level=lvl).delete()
+        CharacterFeat.objects.filter(character=character, level=lvl).delete()
+        
+        # 2) Find the class actually leveled at this character level (if possible)
+        last_cls_id = (
+            CharacterFeature.objects
+            .filter(character=character, level=lvl, feature__character_class__isnull=False)
+            .order_by('-id')
+            .values_list('feature__character_class_id', flat=True)
+            .first()
+        )
+
+        if last_cls_id:
+            cp = CharacterClassProgress.objects.filter(
+                character=character,
+                character_class_id=last_cls_id
+            ).first()
+        else:
+            # Fallback: trim the class with most levels
+            cp = character.class_progress.order_by('-levels', '-id').first()
+
         if cp:
             cp.levels -= 1
             if cp.levels <= 0:
@@ -552,11 +579,12 @@ def level_down(request, pk):
             else:
                 cp.save()
 
-        # 3) decrement overall level
+        # 3) Decrement overall level
         character.level = lvl - 1
         character.save()
 
     return redirect('characters:character_detail', pk=pk)
+
 
 class RulebookPageDetailView(DetailView):
     model = RulebookPage
@@ -708,12 +736,11 @@ def character_detail(request, pk):
     else:
         preview_cls = default_cls
 
-    subclass_groups = (
-        preview_cls.subclass_groups
-                .order_by('name')
-                .prefetch_related('subclasses', 'tier_levels')  # ← add 'tier_levels'
-    )
-
+    subclass_groups = list(
+    preview_cls.subclass_groups
+        .order_by('name')
+        .prefetch_related('subclasses', 'tier_levels')
+)
     cls_level_after = _class_level_after_pick(character, preview_cls)
     cls_level_after_post = cls_level_after
     try:
@@ -745,6 +772,51 @@ def character_detail(request, pk):
         for f in base_feats
     )
 
+    def _mod(score: int) -> int:
+        return (score - 10) // 2
+
+    spellcasting_blocks = []
+    for cp in class_progress:
+        # spell-table features this character actually owns for this class
+        owned_tables = (ClassFeature.objects
+            .filter(kind="spell_table",
+                    character_class=cp.character_class,
+                    character_features__character=character)
+            .distinct())
+        for ft in owned_tables:
+            row = ft.spell_slot_rows.filter(level=cp.levels).first()
+
+            # safe eval helpers for formulas stored on the feature
+            ctx = {
+                "level": cp.levels,
+                "strength": character.strength,      "str_mod": _mod(character.strength),
+                "dexterity": character.dexterity,    "dex_mod": _mod(character.dexterity),
+                "constitution": character.constitution,"con_mod": _mod(character.constitution),
+                "intelligence": character.intelligence,"int_mod": _mod(character.intelligence),
+                "wisdom": character.wisdom,          "wis_mod": _mod(character.wisdom),
+                "charisma": character.charisma,      "cha_mod": _mod(character.charisma),
+                "floor": math.floor, "ceil": math.ceil, "min": min, "max": max,
+            }
+            def _eval(expr):
+                if not expr: return None
+                try:
+                    return eval(expr, {"__builtins__": {}}, ctx)
+                except Exception:
+                    return None
+
+            slots = []
+            if row:
+                slots = [row.slot1,row.slot2,row.slot3,row.slot4,row.slot5,
+                        row.slot6,row.slot7,row.slot8,row.slot9,row.slot10]
+
+            spellcasting_blocks.append({
+                "klass": cp.character_class,                 # class name in template
+                "list": ft.get_spell_list_display() or ft.spell_list,  # Arcane/Divine/…
+                "slots": slots,                              # 10 ints
+                "cantrips": _eval(ft.cantrips_formula) or 0,
+                "known": _eval(ft.spells_known_formula),     # may be None for prepared casters
+                "prepared": _eval(ft.spells_prepared_formula),
+            })
 
 
     # which feature‐objects are auto‐granted
@@ -752,7 +824,11 @@ def character_detail(request, pk):
         f for f in base_feats
         if isinstance(f, ClassFeature) and f.scope == 'class_feat'
     ]
-
+    for f in auto_feats:
+        if getattr(f, "kind", "") == "spell_table":
+            row = f.spell_slot_rows.filter(level=cls_level_after).first()
+            # attach so the template can render it
+            f.spell_row_next = row
     # universal‐level trigger (only informs the form)
     uni = UniversalLevelFeature.objects.filter(level=next_level).first()
 
@@ -889,20 +965,17 @@ def character_detail(request, pk):
             for sub in grp.subclasses.all():
                 base = (
                     ClassFeature.objects
-                    .filter(
-                        scope='subclass_feat',
-                        subclass_group=grp,
-                        subclasses=sub,
-                    )
-                    .filter(Q(tier__in=unlock_tiers) | Q(tier__isnull=True))
+                    .filter(scope='subclass_feat', subclass_group=grp, subclasses=sub)
+                    .filter(tier__in=unlock_tiers)
                     .filter(Q(level_required__isnull=True) | Q(level_required__lte=cls_level_after))
-                    .filter(Q(min_level__isnull=True)    | Q(min_level__lte=cls_level_after))
+                    .filter(Q(min_level__isnull=True)      | Q(min_level__lte=cls_level_after))
                     .exclude(pk__in=taken_feature_ids)
                 )
+
                 for f in base:
-                    # T1 always OK; T>1 requires T-1 from the same subclass
-                    if not f.tier or f.tier == 1 or ((f.tier - 1) in prev_tiers_by_sub.get(sub.pk, set())):
+                    if f.tier == 1 or ((f.tier - 1) in prev_tiers_by_sub.get(sub.pk, set())):
                         eligible_ids.append(f.pk)
+
 
             eligible_qs = ClassFeature.objects.filter(pk__in=eligible_ids).order_by('name')
 
@@ -1133,11 +1206,28 @@ def character_detail(request, pk):
                 feat=level_form.cleaned_data['general_feat'],
                 level=next_level
             )
-        if level_form.cleaned_data.get('asi'):
+        # NEW: persist the actual ability increases
+        asi_mode = level_form.cleaned_data.get("asi_mode")
+        if asi_mode:
+            a = level_form.cleaned_data.get("asi_a")
+            b = level_form.cleaned_data.get("asi_b")
+
+            if asi_mode == "1+1":
+                setattr(character, a, getattr(character, a) + 1)
+                setattr(character, b, getattr(character, b) + 1)
+            elif asi_mode == "1":
+                setattr(character, a, getattr(character, a) + 1)
+            else:
+                raise ValidationError("Invalid ASI mode.")
+            character.save()
+
+            # keep your audit row that “an ASI happened this level”
             CharacterFeature.objects.create(
                 character=character,
+                feature=None,
                 level=next_level
             )
+
         chosen_subclass_by_group = {}
         # E) subclass choices & feature options
         for name, val in level_form.cleaned_data.items():
@@ -1165,15 +1255,13 @@ def character_detail(request, pk):
                         # tiers that unlock now
                         unlock_tiers = _unlocked_tiers(grp, cls_level_after_post)
 
-                        if unlock_tiers:
-                            grant_feats = list(
-                                ClassFeature.objects.filter(
-                                    scope='subclass_feat',
-                                    subclass_group=grp,
-                                    subclasses=sub,
-                                    tier__in=unlock_tiers
-                                )
-                            )
+                        grant_feats = list(
+                            ClassFeature.objects
+                                .filter(scope='subclass_feat', subclass_group=grp, subclasses=sub, tier__in=unlock_tiers)
+                                .filter(Q(level_required__isnull=True) | Q(level_required__lte=cls_level_after_post))
+                                .filter(Q(min_level__isnull=True)      | Q(min_level__lte=cls_level_after_post))
+                        )
+
                     else:
                         # LINEAR: prefer features attached to this ClassLevel
                         try:
@@ -1271,11 +1359,9 @@ def character_detail(request, pk):
     # ── 5) BUILD feature_fields FOR TEMPLATE ───────────────────────────────
     subclass_feats_at_next = {}
     for grp in subclass_groups:
-        # If modular-linear, figure out which tiers unlock at this level
         unlock_tiers = None
         if grp.system_type == SubclassGroup.SYSTEM_MODULAR_LINEAR:
             unlock_tiers = _unlocked_tiers(grp, cls_level_after)
-
 
         for sc in grp.subclasses.all():
             qs = ClassFeature.objects.filter(
@@ -1285,33 +1371,63 @@ def character_detail(request, pk):
             )
 
             if grp.system_type == SubclassGroup.SYSTEM_MODULAR_LINEAR:
-                # DB filter by tiers that unlock now
-                qs = qs.filter(tier__in=unlock_tiers) if unlock_tiers else qs.none()
-                feats = list(qs.order_by('name'))
-            else:
-                # LINEAR: pull directly from features already on this class level
+                feats = list(
+                    qs.filter(tier__in=unlock_tiers)
+                    .filter(Q(level_required__isnull=True) | Q(level_required__lte=cls_level_after))
+                    .filter(Q(min_level__isnull=True)      | Q(min_level__lte=cls_level_after))
+                    .order_by('name')
+                )
+
+            elif grp.system_type == SubclassGroup.SYSTEM_LINEAR:
+                # Prefer features linked to this ClassLevel
                 feats = [
                     f for f in base_feats
                     if f.scope == 'subclass_feat'
                     and f.subclass_group_id == grp.id
                     and sc in f.subclasses.all()
                 ]
-                feats.sort(key=lambda f: f.name)
+                # Fallback: explicit level gating
+                if not feats:
+                    feats = list(
+                        qs.filter(level_required=cls_level_after).order_by('name')
+                    )
+                # Extra safety for L1 data that forgot level_required
+                if not feats and cls_level_after == 1:
+                    feats = list(
+                        qs.filter(Q(level_required=1) | Q(level_required__isnull=True))
+                        .order_by('name')
+                    )
 
-            if feats:
-                subclass_feats_at_next[sc.pk] = feats
+            else:  # SubclassGroup.SYSTEM_MODULAR_MASTERY
+                rules = sc.modular_rules or {}
+                modules_per_mastery = int(rules.get('modules_per_mastery', 2))
+                taken = CharacterFeature.objects.filter(
+                    character=character, subclass=sc, feature__scope='subclass_feat'
+                ).count()
+                current_mastery = taken // max(1, modules_per_mastery)
+
+                feats = list(
+                    qs.filter(Q(mastery_rank__isnull=True) | Q(mastery_rank__lte=current_mastery))
+                    .filter(Q(min_level__isnull=True) | Q(min_level__lte=cls_level_after))
+                    .order_by('name')
+                )
+            sc.feats_next = feats
+            subclass_feats_at_next[(grp.pk, sc.pk)] = [f.pk for f in feats]  # optional, if you want an index
 
 
     for feat in to_choose:
         if isinstance(feat, ClassFeature) and feat.scope == 'subclass_choice':
-            fn  = f"feat_{feat.pk}_subclass"
-            grp = feat.subclass_group
+            fn = f"feat_{feat.pk}_subclass"
+            # Use the *same* group instance we enriched earlier (so its subclasses have .feats_next)
+            grp_pk = feat.subclass_group_id
+            grp_enriched = next((g for g in subclass_groups if g.pk == grp_pk), feat.subclass_group)
             feature_fields.append({
                 "kind":  "subclass_choice",
-                "label": f"Choose {grp.name}",
+                "label": f"Choose {grp_enriched.name}",
                 "field": level_form[fn],
-                "group": grp,
+                "group": grp_enriched,
             })
+
         elif isinstance(feat, ClassFeature) and feat.has_options:
             fn = f"feat_{feat.pk}_option"
             feature_fields.append({
@@ -1342,6 +1458,7 @@ def character_detail(request, pk):
         'form':               level_form,
         'edit_form':          edit_form,
     'feature_fields':         feature_fields,
+    'spellcasting_blocks': spellcasting_blocks,
     'subclass_feats_at_next': subclass_feats_at_next,
     
 

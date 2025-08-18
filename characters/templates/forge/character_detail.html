@@ -15,6 +15,10 @@
     table tbody tr.is-active { outline: 2px solid #0d6efd; }
   #general-feats-table tbody tr.is-selected { background: #fff9db; }
   #general-feats-table tbody tr.is-active { outline: 2px solid #0d6efd; }
+
+#asi-table tbody tr.table-warning { background: #fff9db; }
+#asi-table tbody tr.table-success { background: #e6ffed; }
+
 </style>
 
 <div class="container my-4">
@@ -98,6 +102,48 @@
           <p class="mb-0"><em>None</em></p>
         {% endif %}
       </div>
+
+
+      <div class="card p-3 mb-3">
+  <h5>Spellcasting</h5>
+  {% if spellcasting_blocks %}
+    {% for b in spellcasting_blocks %}
+      <div class="mb-3">
+        <div class="fw-semibold">
+          {{ b.klass.name }} — {{ b.list|default:"(Unknown list)" }}
+        </div>
+
+        {% if b.slots %}
+          <div class="table-responsive mt-2">
+            <table class="table table-sm table-bordered w-auto">
+              <thead>
+                <tr>
+                  <th class="text-nowrap">Rank</th>
+                  {% for _ in b.slots %}<th>{{ forloop.counter }}</th>{% endfor %}
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="text-nowrap">Slots</td>
+                  {% for s in b.slots %}<td>{{ s }}</td>{% endfor %}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        {% endif %}
+
+        <div class="small text-muted mt-1">
+          Cantrips: {{ b.cantrips|default:0 }}.
+          {% if b.known is not None %} Spells known: {{ b.known }}.{% endif %}
+          {% if b.prepared is not None %} Prepared: {{ b.prepared }}.{% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  {% else %}
+    <p class="mb-0"><em>—</em></p>
+  {% endif %}
+</div>
+
     </div>
 
     <!-- RIGHT COLUMN -->
@@ -125,25 +171,34 @@
         {% endif %}
       </div>
 
-      <div class="card p-3">
-        <h5>Gained Features</h5>
-        <ul class="mb-0">
-          {% for cf in character.features.all %}
-            <li>
-              {% if cf.option %}
-                {{ cf.option.label }}
-              {% elif cf.subclass %}
-                {{ cf.subclass.name }}
-              {% else %}
-                {{ cf.feature.name }}
-              {% endif %}
-              <small class="text-muted">(L{{ cf.level }})</small>
-            </li>
-          {% empty %}
-            <li><em>No features chosen yet.</em></li>
-          {% endfor %}
-        </ul>
-      </div>
+<div class="card p-3">
+  <h5>Gained Features</h5>
+  <ul class="mb-0">
+    {% for cf in character.features.all %}
+      <li class="mb-3">
+        <div>
+          {% if cf.option %}{{ cf.option.label }}
+          {% elif cf.subclass %}{{ cf.subclass.name }}
+          {% else %}{{ cf.feature.name }}{% endif %}
+          <small class="text-muted">(L{{ cf.level }})</small>
+        </div>
+
+        {% if cf.feature %}
+          <div class="border rounded p-2 mt-1">
+            {% include "partials/_feature_detail.html" with f=cf.feature %}
+          </div>
+        {% elif cf.option and cf.option.grants_feature %}
+          <div class="border rounded p-2 mt-1">
+            {% include "partials/_feature_detail.html" with f=cf.option.grants_feature %}
+          </div>
+        {% endif %}
+      </li>
+    {% empty %}
+      <li><em>No features chosen yet.</em></li>
+    {% endfor %}
+  </ul>
+</div>
+
 <div class="card p-3 mt-3">
   <h5>Gained Feats</h5>
   {% if character.feats.all %}
@@ -227,23 +282,51 @@
 
       <div class="mb-3">
         <h6 class="mb-2">Features at L{{ total_level|add:"1" }}</h6>
-        <ul class="mb-0 ps-3">
-          {% for f in auto_feats %}
-            <li class="mb-2">
-              <strong>{{ f.code }} – {{ f.name }}</strong>
-              {% if f.description %}
-                <div class="mt-1 small feature-desc">{{ f.description|safe }}</div>
-              {% endif %}
-            </li>
-          {% empty %}
-            <li><em>None</em></li>
-          {% endfor %}
-        </ul>
-      </div>
-    </div>
+<ul class="mb-0 ps-3">
+  {% for f in auto_feats %}
+    <li class="mb-2">
+      {% if f.kind == "spell_table" and f.spell_row_next %}
+        <div class="table-responsive mt-2">
+          <table class="table table-sm table-bordered w-auto">
+            <thead>
+              <tr>
+                <th class="text-nowrap">Rank</th>
+                {% for i in "12345678910"|make_list %}<th>{{ forloop.counter }}</th>{% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="text-nowrap">Slots</td>
+                <td>{{ f.spell_row_next.slot1 }}</td>
+                <td>{{ f.spell_row_next.slot2 }}</td>
+                <td>{{ f.spell_row_next.slot3 }}</td>
+                <td>{{ f.spell_row_next.slot4 }}</td>
+                <td>{{ f.spell_row_next.slot5 }}</td>
+                <td>{{ f.spell_row_next.slot6 }}</td>
+                <td>{{ f.spell_row_next.slot7 }}</td>
+                <td>{{ f.spell_row_next.slot8 }}</td>
+                <td>{{ f.spell_row_next.slot9 }}</td>
+                <td>{{ f.spell_row_next.slot10 }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
 
-    <!-- RIGHT column: your existing POST form and pickers -->
-    <div class="col-12 col-xl-7 p-4">
+      <div class="mt-2">
+        {% include "partials/_feature_detail.html" with f=f %}
+      </div>
+    </li>
+  {% empty %}
+    <li><em>None</em></li>
+  {% endfor %}
+</ul>
+
+
+      </div>
+    </div> {# closes LEFT column #}
+    <div class="col-12 col-xl-7 p-4"> {# RIGHT column starts here, still inside the .row #}
+
       {# MOVE your whole <form method="post" …> … </form> block HERE #}
 
 
@@ -321,18 +404,60 @@
 
 
 
+    {# --- ASI: table UI --- #}
+    {% if form.asi_mode %}
+      <div class="mb-4">
+        <label class="form-label d-block">Ability Score Increase</label>
+
+        {# hidden real form fields that the JS will fill #}
+        <input type="hidden" name="{{ form.asi_mode.html_name }}" id="id_asi_mode"
+              value="{{ form.asi_mode.value|default:'' }}">
+        <input type="hidden" name="{{ form.asi_a.html_name }}" id="id_asi_a"
+              value="{{ form.asi_a.value|default:'' }}">
+        <input type="hidden" name="{{ form.asi_b.html_name }}" id="id_asi_b"
+              value="{{ form.asi_b.value|default:'' }}">
+
+        <div class="table-responsive">
+          <table class="table table-bordered align-middle" id="asi-table">
+            <thead>
+              <tr>
+                <th>Ability</th>
+                <th>Current</th>
+                <th>+1 </th>
+                <th>+1 </th>
+                <th>Result</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for label,val in ability_map.items %}
+              {% with key=label|lower %}
+              <tr data-key="{{ key }}" data-base="{{ val }}">
+                <td class="fw-semibold">{{ label }}</td>
+                <td class="asi-current">{{ val }}</td>
+                <td class="text-center">
+                  <input type="checkbox" class="form-check-input asi-slot" data-slot="A" aria-label="+1 Slot A to {{ label }}">
+                </td>
+                <td class="text-center">
+                  <input type="checkbox" class="form-check-input asi-slot" data-slot="B" aria-label="+1 Slot B to {{ label }}">
+                </td>
+                <td class="asi-result">{{ val }}</td>
+              </tr>
+              {% endwith %}
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="small" id="asi-help"></div>
+        <div class="small mt-2"><strong>Preview:</strong> <span id="asi-preview">—</span></div>
+
+        {% for err in form.non_field_errors %}
+          <div class="text-danger mt-2">{{ err }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
 
 
-
-          {# ASI #}
-          {% if form.asi %}
-            <div class="form-check mb-3">
-              {{ form.asi }} {{ form.asi.label_tag }}
-              {% for err in form.asi.errors %}
-                <div class="text-danger">{{ err }}</div>
-              {% endfor %}
-            </div>
-          {% endif %}
 
 
 
@@ -405,97 +530,64 @@
 {# === BEGIN: FEATURE FIELDS LOOP === #}
 {% for item in feature_fields %}
 
-  {# 1) SUBCLASS CHOICE — pick *which* subclass in a group #}
   {% if item.kind == "subclass_choice" %}
     <div class="mb-4">
       <label class="form-label d-block">{{ item.label }}</label>
-      {# Render the bound field exactly as configured in the form (radio/select) #}
-      <div class="p-3 border rounded">
-        {{ item.field }}
+
+      <div class="d-grid gap-2">
+        {% for sc in item.group.subclasses.all %}
+          {% with rid=item.field.id_for_label|add:"_"|add:sc.pk|stringformat:"s" %}
+          <label for="{{ rid }}" class="border rounded p-3 d-flex gap-3 align-items-start">
+            <input
+              type="radio"
+              id="{{ rid }}"
+              name="{{ item.field.name }}"
+              value="{{ sc.pk }}"
+              class="form-check-input mt-1"
+              {% if item.field.value|stringformat:"s" == sc.pk|stringformat:"s" %}checked{% endif %}
+              {% if item.field.field.required %}required{% endif %}
+            />
+            <div class="flex-grow-1">
+              <div class="fw-semibold">{{ sc.name }}</div>
+              {% if sc.description %}
+                <div class="small text-muted mt-1">{{ sc.description }}</div>
+              {% endif %}
+              {% if sc.feats_next %}
+                <div class="small mt-2">
+                  <div class="fw-semibold mb-1">Features at L{{ total_level|add:"1" }}:</div>
+                  <div class="d-grid gap-2">
+                    {% for f in sc.feats_next %}
+                      <div class="border rounded p-2">
+                        {% include "partials/_feature_detail.html" with f=f %}
+                      </div>
+                    {% endfor %}
+                  </div>
+                </div>
+              {% endif %}
+            </div>
+          </label>
+          {% endwith %}
+        {% empty %}
+          <div class="text-muted"><em>No subclasses available.</em></div>
+        {% endfor %}
       </div>
+
       {% for err in item.field.errors %}
         <div class="text-danger mt-1">{{ err }}</div>
       {% endfor %}
     </div>
 
-  {# 2) FEATURE WITH OPTIONS — choose one option for a parent feature #}
   {% elif item.kind == "option" %}
     <div class="mb-4">
       <div class="mb-2 fw-semibold">{{ item.label }}</div>
 
-      {# Parent feature details #}
-      {% with f=item.feature %}
       <div class="border rounded p-3 mb-3">
-        <div class="fw-semibold">{{ f.code }} – {{ f.name }}</div>
-        {% if f.description %}
-          <div class="mt-2 small">{{ f.description|safe }}</div>
-        {% endif %}
-
-        <dl class="row mt-2 small text-muted">
-          {% if f.kind %}<dt class="col-4">Type</dt><dd class="col-8">{{ f.get_kind_display|default:f.kind }}</dd>{% endif %}
-          {% if f.action_type %}<dt class="col-4">Action</dt><dd class="col-8">{{ f.get_action_type_display|default:f.action_type }}</dd>{% endif %}
-          {% if f.uses %}<dt class="col-4">Uses</dt><dd class="col-8">{{ f.uses }}</dd>{% endif %}
-          {% if f.formula %}
-            <dt class="col-4">Formula</dt>
-            <dd class="col-8">
-              {{ f.formula }}
-              {% if f.formula_target %} ({{ f.get_formula_target_display|default:f.formula_target }}){% endif %}
-            </dd>
-          {% endif %}
-
-          {% if f.saving_throw_required %}
-            <dt class="col-4">Save</dt>
-            <dd class="col-8">
-              {{ f.get_saving_throw_type_display|default:f.saving_throw_type }}
-              {% if f.saving_throw_granularity %} – {{ f.get_saving_throw_granularity_display|default:f.saving_throw_granularity }}{% endif %}
-            </dd>
-
-            {% if f.saving_throw_granularity == "basic" %}
-              {% if f.saving_throw_basic_success %}<dt class="col-4">On Success</dt><dd class="col-8">{{ f.saving_throw_basic_success }}</dd>{% endif %}
-              {% if f.saving_throw_basic_failure %}<dt class="col-4">On Failure</dt><dd class="col-8">{{ f.saving_throw_basic_failure }}</dd>{% endif %}
-            {% else %}
-              {% if f.saving_throw_critical_success %}<dt class="col-4">Crit Success</dt><dd class="col-8">{{ f.saving_throw_critical_success }}</dd>{% endif %}
-              {% if f.saving_throw_success %}<dt class="col-4">Success</dt><dd class="col-8">{{ f.saving_throw_success }}</dd>{% endif %}
-              {% if f.saving_throw_failure %}<dt class="col-4">Failure</dt><dd class="col-8">{{ f.saving_throw_failure }}</dd>{% endif %}
-              {% if f.saving_throw_critical_failure %}<dt class="col-4">Crit Failure</dt><dd class="col-8">{{ f.saving_throw_critical_failure }}</dd>{% endif %}
-            {% endif %}
-          {% endif %}
-
-          {% if f.damage_type %}<dt class="col-4">Damage Type</dt><dd class="col-8">{{ f.get_damage_type_display|default:f.damage_type }}</dd>{% endif %}
-
-          {% if f.gain_resistance_mode %}
-            <dt class="col-4">Grants</dt>
-            <dd class="col-8">
-              {% if f.gain_resistance_mode == "reduction" %}
-                DR {{ f.gain_resistance_amount|default:"?" }}{% if f.gain_resistance_types %} vs {{ f.gain_resistance_types|join:", " }}{% endif %}
-              {% else %}
-                Resistance{% if f.gain_resistance_types %} vs {{ f.gain_resistance_types|join:", " }}{% endif %}
-              {% endif %}
-            </dd>
-          {% endif %}
-
-          {% if f.kind == "gain_proficiency" and f.modify_proficiency_target %}
-            <dt class="col-4">Proficiency</dt>
-            <dd class="col-8">{{ f.modify_proficiency_target }} → {{ f.modify_proficiency_amount }}</dd>
-          {% endif %}
-
-            {% with subs=f.gain_subskills.all %}
-              {% if subs %}
-                <dt class="col-4">Sub-skills</dt>
-                <dd class="col-8">
-                  {% for s in subs %}{{ s.name }}{% if not forloop.last %}, {% endif %}{% endfor %}
-                </dd>
-              {% endif %}
-            {% endwith %}
-
-        </dl>
+        {% include "partials/_feature_detail.html" with f=item.feature %}
       </div>
-      {% endwith %}
 
-      {# Options (radio list) #}
       <div class="d-grid gap-2">
         {% for opt in item.feature.options.all %}
-          {% with radio_id="id_"|add:item.field.name|add:"_"|add:opt.pk|stringformat:"s" %}
+          {% with radio_id=item.field.id_for_label|add:"_"|add:opt.pk|stringformat:"s" %}
           <label for="{{ radio_id }}" class="border rounded p-3 d-flex gap-3 align-items-start">
             <input
               type="radio"
@@ -508,69 +600,10 @@
             />
             <div class="flex-grow-1">
               <div class="fw-semibold">{{ opt.label }}</div>
-
               {% if opt.grants_feature %}
-                {% with f=opt.grants_feature %}
-                  {% if f.description %}<div class="small mt-1">{{ f.description|safe }}</div>{% endif %}
-                  <dl class="row mt-2 small text-muted">
-                    {% if f.kind %}<dt class="col-4">Type</dt><dd class="col-8">{{ f.get_kind_display|default:f.kind }}</dd>{% endif %}
-                    {% if f.action_type %}<dt class="col-4">Action</dt><dd class="col-8">{{ f.get_action_type_display|default:f.action_type }}</dd>{% endif %}
-                    {% if f.uses %}<dt class="col-4">Uses</dt><dd class="col-8">{{ f.uses }}</dd>{% endif %}
-                    {% if f.formula %}
-                      <dt class="col-4">Formula</dt>
-                      <dd class="col-8">
-                        {{ f.formula }}
-                        {% if f.formula_target %} ({{ f.get_formula_target_display|default:f.formula_target }}){% endif %}
-                      </dd>
-                    {% endif %}
-
-                    {% if f.saving_throw_required %}
-                      <dt class="col-4">Save</dt>
-                      <dd class="col-8">
-                        {{ f.get_saving_throw_type_display|default:f.saving_throw_type }}
-                        {% if f.saving_throw_granularity %} – {{ f.get_saving_throw_granularity_display|default:f.saving_throw_granularity }}{% endif %}
-                      </dd>
-
-                      {% if f.saving_throw_granularity == "basic" %}
-                        {% if f.saving_throw_basic_success %}<dt class="col-4">On Success</dt><dd class="col-8">{{ f.saving_throw_basic_success }}</dd>{% endif %}
-                        {% if f.saving_throw_basic_failure %}<dt class="col-4">On Failure</dt><dd class="col-8">{{ f.saving_throw_basic_failure }}</dd>{% endif %}
-                      {% else %}
-                        {% if f.saving_throw_critical_success %}<dt class="col-4">Crit Success</dt><dd class="col-8">{{ f.saving_throw_critical_success }}</dd>{% endif %}
-                        {% if f.saving_throw_success %}<dt class="col-4">Success</dt><dd class="col-8">{{ f.saving_throw_success }}</dd>{% endif %}
-                        {% if f.saving_throw_failure %}<dt class="col-4">Failure</dt><dd class="col-8">{{ f.saving_throw_failure }}</dd>{% endif %}
-                        {% if f.saving_throw_critical_failure %}<dt class="col-4">Crit Failure</dt><dd class="col-8">{{ f.saving_throw_critical_failure }}</dd>{% endif %}
-                      {% endif %}
-                    {% endif %}
-
-                    {% if f.damage_type %}<dt class="col-4">Damage Type</dt><dd class="col-8">{{ f.get_damage_type_display|default:f.damage_type }}</dd>{% endif %}
-
-                    {% if f.gain_resistance_mode %}
-                      <dt class="col-4">Grants</dt>
-                      <dd class="col-8">
-                        {% if f.gain_resistance_mode == "reduction" %}
-                          DR {{ f.gain_resistance_amount|default:"?" }}{% if f.gain_resistance_types %} vs {{ f.gain_resistance_types|join:", " }}{% endif %}
-                        {% else %}
-                          Resistance{% if f.gain_resistance_types %} vs {{ f.gain_resistance_types|join:", " }}{% endif %}
-                        {% endif %}
-                      </dd>
-                    {% endif %}
-
-                    {% if f.kind == "gain_proficiency" and f.modify_proficiency_target %}
-                      <dt class="col-4">Proficiency</dt>
-                      <dd class="col-8">{{ f.modify_proficiency_target }} → {{ f.modify_proficiency_amount }}</dd>
-                    {% endif %}
-
-                      {% with subs=f.gain_subskills.all %}
-                        {% if subs %}
-                          <dt class="col-4">Sub-skills</dt>
-                          <dd class="col-8">
-                            {% for s in subs %}{{ s.name }}{% if not forloop.last %}, {% endif %}{% endfor %}
-                          </dd>
-                        {% endif %}
-                      {% endwith %}
-
-                  </dl>
-                {% endwith %}
+                <div class="mt-2">
+                  {% include "partials/_feature_detail.html" with f=opt.grants_feature %}
+                </div>
               {% endif %}
             </div>
           </label>
@@ -583,75 +616,52 @@
       {% endfor %}
     </div>
 
-  {# 3) GAIN SUBCLASS FEATURE — pick actual features from the active subclass #}
   {% elif item.kind == "gain_subclass_feat" %}
     <div class="mb-4">
       <div class="mb-2 fw-semibold">{{ item.label }}</div>
 
-        {% if item.system == "linear" and not item.subclass %}
-          <div class="alert alert-warning p-2">Pick a subclass above …</div>
-        {% endif %}
-        {% if item.system == "linear" %}
-          <div class="alert alert-info p-2">
-            Linear progression: the following {{ item.group.name }} feature(s) are granted automatically.
-          </div>
-        {% endif %}
-
-        <div class="d-grid gap-2">
-          {% with selected_vals=item.field.value %}
-            {% for f in item.eligible %}
-              {% with cid="id_"|add:item.field.name|add:"_"|add:f.pk|stringformat:"s" %}
-              <label for="{{ cid }}" class="border rounded p-3 d-flex gap-3 align-items-start">
-                {% if item.system == "linear" %}
-                  <input type="checkbox" id="{{ cid }}" disabled checked class="form-check-input mt-1">
-                {% else %}
-                  <input
-                    type="checkbox"
-                    id="{{ cid }}"
-                    name="{{ item.field.name }}"
-                    value="{{ f.pk }}"
-                    class="form-check-input mt-1"
-                    {% if selected_vals and f.pk|stringformat:"s" in selected_vals %}checked{% endif %}
-                  >
-                {% endif %}
-
-                <div class="flex-grow-1">
-                  <div class="fw-semibold">{{ f.name }}</div>
-                  {% if f.description %}<div class="small mt-1">{{ f.description|safe }}</div>{% endif %}
-
-                  <dl class="row mt-2 small text-muted">
-                    {% if f.tier %}<dt class="col-4">Tier</dt><dd class="col-8">{{ f.tier }}</dd>{% endif %}
-                    {% if f.mastery_rank or f.mastery_rank == 0 %}
-                      <dt class="col-4">Mastery</dt><dd class="col-8">Rank {{ f.mastery_rank }}</dd>
-                    {% endif %}
-                    {% if f.level_required %}<dt class="col-4">Level Required</dt><dd class="col-8">{{ f.level_required }}</dd>{% endif %}
-                    {% if f.kind %}<dt class="col-4">Type</dt><dd class="col-8">{{ f.get_kind_display|default:f.kind }}</dd>{% endif %}
-                    {% if f.action_type %}<dt class="col-4">Action</dt><dd class="col-8">{{ f.get_action_type_display|default:f.action_type }}</dd>{% endif %}
-                    {% if f.uses %}<dt class="col-4">Uses</dt><dd class="col-8">{{ f.uses }}</dd>{% endif %}
-                    {% if f.formula %}
-                      <dt class="col-4">Formula</dt>
-                      <dd class="col-8">
-                        {{ f.formula }}
-                        {% if f.formula_target %} ({{ f.get_formula_target_display|default:f.formula_target }}){% endif %}
-                      </dd>
-                    {% endif %}
-                    {% if f.damage_type %}<dt class="col-4">Damage Type</dt><dd class="col-8">{{ f.get_damage_type_display|default:f.damage_type }}</dd>{% endif %}
-                  </dl>
-                </div>
-              </label>
-              {% endwith %}
-            {% empty %}
-              <div class="text-muted"><em>No eligible features at this level.</em></div>
-            {% endfor %}
-          {% endwith %}
+      {% if item.system == "linear" and not item.subclass %}
+        <div class="alert alert-warning p-2">Pick a subclass above …</div>
+      {% endif %}
+      {% if item.system == "linear" %}
+        <div class="alert alert-info p-2">
+          Linear progression: the following {{ item.group.name }} feature(s) are granted automatically.
         </div>
-     
+      {% endif %}
+
+      <div class="d-grid gap-2">
+        {% with selected_vals=item.field.value %}
+          {% for f in item.eligible %}
+            {% with cid=item.field.id_for_label|add:"_"|add:f.pk|stringformat:"s" %}
+            <label for="{{ cid }}" class="border rounded p-3 d-flex gap-3 align-items-start">
+              {% if item.system == "linear" %}
+                <input type="checkbox" id="{{ cid }}" disabled checked class="form-check-input mt-1">
+              {% else %}
+                <input
+                  type="checkbox"
+                  id="{{ cid }}"
+                  name="{{ item.field.name }}"
+                  value="{{ f.pk }}"
+                  class="form-check-input mt-1"
+                  {% if selected_vals and f.pk|stringformat:"s" in selected_vals %}checked{% endif %}
+                >
+              {% endif %}
+              <div class="flex-grow-1">
+                {% include "partials/_feature_detail.html" with f=f %}
+              </div>
+            </label>
+            {% endwith %}
+          {% empty %}
+            <div class="text-muted"><em>No eligible features at this level.</em></div>
+          {% endfor %}
+        {% endwith %}
+      </div>
+
       {% for err in item.field.errors %}
         <div class="text-danger mt-1">{{ err }}</div>
       {% endfor %}
     </div>
 
-  {# 4) FALLBACK — any other simple field #}
   {% else %}
     <div class="mb-3">
       <label class="form-label">{{ item.label }}</label>
@@ -664,6 +674,7 @@
 
 {% endfor %}
 {# === END: FEATURE FIELDS LOOP === #}
+
 
 
 
@@ -706,6 +717,148 @@
 
     });
   </script>
+  {{ ability_map|json_script:"abilities-data" }}
+{% if form.asi_mode %}
+<script>
+(function(){
+  const dataEl = document.getElementById("abilities-data");
+  if (!dataEl) return; // safety
+  const base = JSON.parse(dataEl.textContent || "{}"); // {"Strength": 18, ...}
+
+  const tbl = document.getElementById("asi-table");
+  if (!tbl) return;
+
+  const help = document.getElementById("asi-help");
+  const preview = document.getElementById("asi-preview");
+
+  // Hidden real fields
+  // Hidden real fields
+  const modeInput = document.getElementById("id_asi_mode");
+  const aInput    = document.getElementById("id_asi_a");
+  const bInput    = document.getElementById("id_asi_b");
+
+  let slotA = aInput?.value || "";
+  let slotB = bInput?.value || "";
+
+  function pretty(k){ return k.charAt(0).toUpperCase() + k.slice(1); }
+  function getBase(k){ return Number(base[pretty(k)] || 0); }
+
+  // Any row 20+ selected? then only one slot is allowed AND it cannot be +2 on that same 20+ ability
+  function lockToOne() {
+    // If either chosen ability is 20+, lock to one slot total
+    const chosen = [slotA, slotB].filter(Boolean);
+    return chosen.some(k => getBase(k) >= 20);
+  }
+
+  function updateUI() {
+    // Enforce single-selection per column (A and B):
+    ["A","B"].forEach((slot) => {
+      const boxes = tbl.querySelectorAll('input.asi-slot[data-slot="'+slot+'"]');
+      boxes.forEach(bx => {
+        const key = bx.closest("tr").dataset.key;
+        if (slot === "A") bx.checked = (key === slotA);
+        if (slot === "B") bx.checked = (key === slotB);
+      });
+    });
+
+    // Hard rule: if any selected is 20+, only one slot allowed
+    const oneOnly = lockToOne();
+    const bBoxes = tbl.querySelectorAll('input.asi-slot[data-slot="B"]');
+    if (oneOnly) {
+      // allow only one slot; keep A, clear B if both were set
+      if (slotA && slotB) slotB = "";
+      bBoxes.forEach(bx => bx.disabled = true);
+      help.innerHTML = '<span class="text-warning">Because one chosen ability is 20 or higher, you may only apply +1 to a single ability this level.</span>';
+    } else {
+      bBoxes.forEach(bx => bx.disabled = false);
+      help.textContent = '';
+    }
+
+    // Compute results per row & color hints
+    tbl.querySelectorAll("tbody tr").forEach(tr => {
+      const key = tr.dataset.key;
+      const before = Number(tr.dataset.base);
+      let inc = 0;
+      if (slotA === key) inc += 1;
+      if (slotB === key) inc += 1;
+      tr.querySelector(".asi-result").textContent = before + inc;
+
+      tr.classList.remove("table-success","table-warning");
+      if (inc === 2) tr.classList.add("table-success");
+      if (inc === 1) tr.classList.add("table-warning");
+    });
+
+// Deduce mode & build preview text
+// Deduce mode & build preview text
+function upText(k, inc){ return `${pretty(k)}: ${getBase(k)} → ${getBase(k)+inc}`; }
+
+let mode = "";
+if (slotA && slotB) {
+  mode = (slotA === slotB) ? "2" : "1+1";
+} else if (slotA || slotB) {
+  mode = "1";
+}
+
+// If any selected ability is 20+, force single-slot mode
+if (oneOnly && mode !== "1") {
+  // prefer keeping A; clear B
+  slotB = "";
+  mode = "1";
+}
+
+// push into hidden form fields
+modeInput.value = mode;
+aInput.value    = slotA || slotB || "";
+bInput.value    = (mode === "1+1" || mode === "2") ? (slotB || slotA) : "";
+
+// Preview string
+let txt = "—";
+if (mode === "2") {
+  txt = upText(slotA, 2);
+} else if (mode === "1+1") {
+  txt = `${upText(slotA,1)}; ${upText(slotB,1)}`;
+} else if (mode === "1") {
+  const k = slotA || slotB;
+  txt = upText(k, 1);
+}
+preview.textContent = txt;
+
+
+  }
+
+  // Click handling: only one checkbox per column at a time
+  tbl.addEventListener("change", (e) => {
+    const box = e.target;
+    if (!box.matches(".asi-slot")) return;
+
+    const slot = box.dataset.slot; // "A" or "B"
+    const key  = box.closest("tr").dataset.key;
+
+    // Toggle behavior: checking it selects that row for the slot; unchecking clears the slot
+    if (slot === "A") {
+      slotA = box.checked ? key : (slotA === key ? "" : slotA);
+    } else {
+      slotB = box.checked ? key : (slotB === key ? "" : slotB);
+    }
+
+    // If the currently selected ability in ANY slot is 20+, prevent two-slot allocations
+    if (lockToOne() && slotA && slotB) {
+      // Keep the one they just set in A; clear B (or vice versa) to enforce one slot
+      if (slot === "A") { slotB = ""; }
+      else { slotA = ""; }
+    }
+
+    updateUI();
+  });
+
+  // Initialize clean state
+  updateUI();
+})();
+</script>
+{% endif %}
+
+
+
 <script>
 (function(){
   function initFeatTable(opts){
