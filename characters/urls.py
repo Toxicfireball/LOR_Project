@@ -12,6 +12,7 @@ urlpatterns = [
     ClassFeatAutocomplete.as_view(),
     name="classfeat-autocomplete",
   ),
+   path('<int:pk>/override/', views.set_field_override, name='set_field_override'),
     path('', views.character_list, name='character_list'),
     path('create/stage1/', views.create_character, name='create_character'),
     path('<int:character_id>/link/<int:campaign_id>/', views.link_character_to_campaign, name='link_character'),
@@ -34,6 +35,8 @@ path('codex/classes/<int:pk>/', views.class_detail, name='class_detail'),
         RulebookPageDetailView.as_view(),
         name="rulebook_page_detail",
     ),
+path('<int:pk>/set-armor/', views.set_armor_choice, name='set_armor_choice'),
+
 path('<int:pk>/level-down/',        views.level_down, name='level_down'),    path('loremaster/',                             views.LoremasterListView.as_view(),   name='loremaster_list'),
     path('loremaster/<slug:slug>/',                 views.LoremasterDetailView.as_view(), name='loremaster_detail'),
 

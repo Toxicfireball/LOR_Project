@@ -635,17 +635,7 @@ class CharacterClass(models.Model):
     @property
     def secondary_image_url(self):
         return self.secondary_image.url if self.secondary_image else ""    
-    def clean(self):
-        """
-        Enforce exactly one or two abilities in key_abilities.
-        Called when full_clean() or ModelForm.clean() runs.
-        """
-        super().clean()
-        # Only validate if instance already saved (so that .key_abilities.all() is available)
-        if self.pk:
-            chosen = self.key_abilities.all().count()
-            if chosen not in (1, 2):
-                raise ValidationError("Select exactly one or two key ability scores.")   
+
 
 class SubclassGroup(models.Model):
     character_class = models.ForeignKey(
@@ -1564,6 +1554,36 @@ class ClassResource(models.Model):
 
     def __str__(self):
         return f"{self.character_class.name} → {self.resource_type.code}"
+
+class CharacterManualGrant(models.Model):
+    character     = models.ForeignKey('Character', on_delete=models.CASCADE, related_name='manual_grants')
+    content_type  = models.ForeignKey(
+        ContentType,
+        on_delete=models.PROTECT,
+        limit_choices_to=Q(app_label="characters", model__in=["classfeat","classfeature","racialfeature"])
+    )
+    object_id     = models.PositiveIntegerField()
+    item          = GenericForeignKey('content_type', 'object_id')
+    reason        = models.TextField(blank=True)
+    created_at    = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+class CharacterFieldOverride(models.Model):
+    character = models.ForeignKey('Character', on_delete=models.CASCADE, related_name='field_overrides')
+    key       = models.CharField(max_length=100)   # e.g., "HP", "temp_HP", "level", "strength"
+    value     = models.CharField(max_length=50)    # store as text; cast in view if needed
+    class Meta:
+        unique_together = ('character','key')
+
+class CharacterFieldNote(models.Model):
+    character = models.ForeignKey('Character', on_delete=models.CASCADE, related_name='field_notes')
+    key       = models.CharField(max_length=100)
+    note      = models.TextField(blank=True)
+    class Meta:
+        unique_together = ('character','key')
+
 
 
 class CharacterResource(models.Model):

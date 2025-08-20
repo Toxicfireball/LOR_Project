@@ -18,7 +18,9 @@
 
 #asi-table tbody tr.table-warning { background: #fff9db; }
 #asi-table tbody tr.table-success { background: #e6ffed; }
-
+  #skills-table { min-width: 720px; }                 /* give the table some breathing room */
+  #skills-table th, #skills-table td { white-space: nowrap; }
+  #skills-table td:first-child { min-width: 220px; }  
 </style>
 
 <div class="container my-4">
@@ -26,12 +28,7 @@
   <div class="d-flex justify-content-between align-items-center mb-4">
     <h1>{{ character.name }}</h1>
     <div>
-      <button
-        class="btn btn-secondary me-2"
-        {% if not can_edit %}disabled{% endif %}
-        data-bs-toggle="modal"
-        data-bs-target="#editCharacterModal"
-      >Edit Details</button>
+
       <button
         class="btn btn-primary me-2"
         data-bs-toggle="modal"
@@ -49,6 +46,11 @@
     <div class="col-lg-4">
       <div class="card p-3 mb-3">
         <h5>Basic Info</h5>
+            {% if can_edit %}
+      <button class="btn btn-sm btn-outline-secondary ms-auto"
+              data-bs-toggle="modal" data-bs-target="#editCharacterModal"
+              title="Edit details">✎ Edit</button>
+    {% endif %}
         <ul class="list-unstyled mb-0">
           <li><strong>Race:</strong> {{ character.race }}</li>
           {% if subrace_name %}<li><strong>Subrace:</strong> {{ subrace_name }}</li>{% endif %}
@@ -60,35 +62,34 @@
             {% if character.side_background_1 %}, {{ character.side_background_1 }}{% endif %}
             {% if character.side_background_2 %}, {{ character.side_background_2 }}{% endif %}
           </li>
-          <li><strong>HP:</strong> {{ character.HP }}
-            {% if character.temp_HP %}(+{{ character.temp_HP }} temp){% endif %}
+          <li>
+            <strong>HP:</strong>
+            {% editable_num character.HP "HP" %}{% note_icon "HP" %}
+            {% if character.temp_HP %}
+              ( +{% editable_num character.temp_HP "temp_HP" %}{% note_icon "temp_HP" %} temp )
+            {% endif %}
           </li>
-          <li><strong>Level:</strong> {{ character.level }}</li>
+          <li><strong>Level:</strong> {% editable_num character.level "level" %}{% note_icon "level" %}</li>
+
         </ul>
       </div>
 
       <div class="card p-3 mb-3">
         <h5>Ability Scores</h5>
-        <dl class="row mb-0">
-          {% for name,val in ability_map.items %}
-            <dt class="col-6">{{ name }}</dt>
-            <dd class="col-6">{{ val }}</dd>
-          {% endfor %}
-        </dl>
+<dl class="row mb-0">
+  {% for a in abilities %}
+    <dt class="col-6">{{ a.label }}</dt>
+    <dd class="col-6">
+      {% editable_num a.score a.key %}{% note_icon a.key %}
+      <span class="text-muted ms-1 small">({{ a.mod_str }})</span>
+    </dd>
+  {% endfor %}
+</dl>
+
       </div>
 
-      <div class="card p-3 mb-3">
-        <h5>Skill Proficiencies</h5>
-        {% if skill_proficiencies %}
-          <ul class="mb-0">
-            {% for prof in skill_proficiencies %}
-              <li><strong>{{ prof.selected_skill.name }}:</strong> {{ prof.proficiency.name }}</li>
-            {% endfor %}
-          </ul>
-        {% else %}
-          <p class="mb-0"><em>None</em></p>
-        {% endif %}
-      </div>
+
+
 
       <div class="card p-3">
         <h5>Racial Features</h5>
@@ -145,9 +146,218 @@
 </div>
 
     </div>
-
-    <!-- RIGHT COLUMN -->
     <div class="col-lg-8">
+      <div class="card mb-4">
+  <div class="card-header fw-bold">Combat</div>
+  <div class="card-body">
+<form class="d-flex flex-wrap gap-2 align-items-center mb-3"
+      method="post" action="{% url 'characters:set_armor_choice' character.pk %}">
+
+      {% csrf_token %}
+      <label class="me-2 fw-semibold">Armor:</label>
+      <select name="armor_id" class="form-select form-select-sm" style="max-width: 320px">
+        <option value="">— No armor —</option>
+        {% for a in armor_list %}
+          <option value="{{ a.id }}" {% if selected_armor and selected_armor.id == a.id %}selected{% endif %}>
+            {{ a.name }} (+{{ a.armor_value }})
+          </option>
+        {% endfor %}
+      </select>
+      <button class="btn btn-sm btn-outline-primary">Save</button>
+      {% if selected_armor %}
+        <span class="text-muted ms-2">Equipped: {{ selected_armor.name }}</span>
+      {% endif %}
+    </form>
+
+    <div class="row">
+      <div class="col-lg-7">
+        <h6 class="mb-2">Current Proficiencies</h6>
+        <table class="table table-sm align-middle">
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Tier</th>
+              <th>Prof</th>
+              <th>½ Lvl</th>
+              <th>Ability</th>
+              <th>Formula</th>
+              <th>Values</th>
+              <th>Total</th>
+              <th>Source</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in proficiency_detailed %}
+            <tr>
+              <td>{{ r.type }}</td>
+              <td>{{ r.tier }}</td>
+              <td>{{ r.prof_s }}</td>
+              <td>{{ r.half_s }}</td>
+              <td>{{ r.abil }}</td>
+              <td class="text-muted">{{ r.formula }}</td>
+              <td>{{ r.values }}</td>
+              <td class="fw-semibold">{{ r.total_s }}</td>
+              <td class="text-muted">{{ r.source }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="col-lg-5">
+        <h6 class="mb-2">Attacks</h6>
+        <table class="table table-sm align-middle">
+          <thead><tr><th>Type</th><th>Formula</th><th>Values</th><th>Total</th></tr></thead>
+          <tbody>
+            {% for a in attack_rows %}
+              <tr><td>{{ a.label }}</td><td class="text-muted">{{ a.formula }}</td><td>{{ a.values }}</td><td class="fw-semibold">{{ a.total_s }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+
+        <h6 class="mt-4 mb-2">Spell / DC</h6>
+        <table class="table table-sm align-middle">
+          <thead><tr><th>Type</th><th>Formula</th><th>Values</th><th>Total</th></tr></thead>
+          <tbody>
+            {% for d in spell_dc_rows %}
+              <tr><td>{{ d.label }}</td><td class="text-muted">{{ d.formula }}</td><td>{{ d.values }}</td><td class="fw-semibold">{{ d.total }}</td></tr>
+            {% empty %}
+              <tr><td colspan="4" class="text-muted">— None —</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+      <div class="card p-3 mb-3">
+  <h5>All Skills & Subskills</h5>
+
+  {% if skill_prof_errors and skill_prof_errors|length %}
+    <div class="alert alert-danger p-2">
+      Please provide a reason for changing: {{ skill_prof_errors|join:", " }}.
+    </div>
+  {% endif %}
+
+  <form method="post" action="{% url 'characters:character_detail' character.pk %}">
+    {% csrf_token %}
+    <div class="table-responsive">
+<table id="skills-table" class="table table-sm align-middle">
+  <thead>
+    <tr>
+      <th>Skill</th>
+      <th>Ability</th>
+      <th class="text-nowrap">Tier</th>
+      <th class="text-nowrap">Total</th>
+      {% if can_edit %}<th class="text-nowrap">Actions</th>{% endif %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in skills_rows %}
+      <tr id="row-{{ r.id_key }}">
+        <td>{{ r.label }}</td>
+        <td>
+          {{ r.ability1 }}{% if r.ability2 %}/{{ r.ability2 }}{% endif %}
+        </td>
+
+        <!-- Display-tier (always shows something; never blank) -->
+        <td class="text-nowrap">
+          <span class="badge bg-light text-dark">{{ r.prof_name }}</span>
+        </td>
+
+        <!-- Total (if dual ability, show both) -->
+        <td class="fw-semibold">
+          {% if r.total2 is not None %}
+            {{ r.total1 }} / {{ r.total2 }}
+          {% else %}
+            {{ r.total1 }}
+          {% endif %}
+        </td>
+
+        {% if can_edit %}
+        <td>
+          <!-- tiny edit toggle -->
+          <button type="button"
+                  class="btn btn-sm btn-outline-primary"
+                  data-edit-row="{{ r.id_key }}">
+            Edit
+          </button>
+        </td>
+        {% endif %}
+      </tr>
+
+      {% if can_edit %}
+      <!-- inline editor row (hidden by default) -->
+      <tr class="table-light d-none" id="editor-{{ r.id_key }}">
+        <td colspan="5">
+          <div class="d-flex flex-wrap gap-2 align-items-center">
+            <label class="me-2 mb-0">Tier:</label>
+            <select name="sp_{{ r.id_key }}"
+                    class="form-select form-select-sm w-auto">
+              {% for pl in proficiency_levels %}
+                <option value="{{ pl.pk }}"
+                        {% if pl.pk == r.prof_id %}selected{% endif %}>
+                  {{ pl.name }}
+                </option>
+              {% endfor %}
+            </select>
+
+            <input type="text"
+                   class="form-control form-control-sm w-auto"
+                   name="sp_note_{{ r.id_key }}"
+                   placeholder="Reason (required)">
+
+            <button class="btn btn-sm btn-success"
+                    name="save_skill_row"
+                    value="{{ r.id_key }}">
+              Save
+            </button>
+
+            <button class="btn btn-sm btn-outline-secondary"
+                    type="button"
+                    data-cancel-edit="{{ r.id_key }}">
+              Cancel
+            </button>
+
+            <span class="small text-muted ms-2">
+              (½ level is only added if tier is not <em>Untrained</em>)
+            </span>
+          </div>
+        </td>
+      </tr>
+      {% endif %}
+    {% endfor %}
+  </tbody>
+</table>
+
+    </div>
+
+
+  </form>
+</div>
+
+
+
+     {% if can_edit %}
+<div class="card p-3 mb-3">
+  <h5>Manually Add Item</h5>
+  <form method="post" action="{% url 'characters:character_detail' character.pk %}">
+    {% csrf_token %}
+    <div class="mb-2">{{ manual_form.kind.label_tag }} {{ manual_form.kind }}</div>
+    <div class="mb-2">
+      {{ manual_form.feat.label_tag }} {{ manual_form.feat }}
+      {{ manual_form.class_feature.label_tag }} {{ manual_form.class_feature }}
+      {{ manual_form.racial_feature.label_tag }} {{ manual_form.racial_feature }}
+      <div class="form-text">Pick one according to Kind.</div>
+    </div>
+    <div class="mb-3">{{ manual_form.reason.label_tag }} {{ manual_form.reason }}</div>
+    <button class="btn btn-outline-primary" name="manual_add_submit" value="1">Add to Sheet</button>
+  </form>
+
+</div>
+{% endif %}
+
+
       <div class="card p-3 mb-3">
         <h5>Class Breakdown</h5>
         <ul class="mb-0">
@@ -204,7 +414,141 @@
   {% if character.feats.all %}
     <ul class="mb-0">
       {% for f in character.feats.all %}
-        <li>{{ f.feat.name }} <small class="text-muted">(L{{ f.level }})</small></li>
+        <li class="mb-3">
+          <div class="fw-semibold">{{ f.feat.name }} <small class="text-muted">(L{{ f.level }})</small></div>
+          <div class="border rounded p-2 mt-1">
+            {# inline "feat detail" (no _feat_detail.html needed) #}
+            {% with feat=f.feat %}
+              {% if feat.description %}
+                <div class="mt-1 small">{{ feat.description|safe }}</div>
+              {% endif %}
+              <dl class="row mt-2 small text-muted mb-0">
+                {% if feat.level_prerequisite %}<dt class="col-4">Level</dt><dd class="col-8">{{ feat.level_prerequisite }}</dd>{% endif %}
+                {% if feat.class_name %}<dt class="col-4">Class</dt><dd class="col-8">{{ feat.class_name }}</dd>{% endif %}
+                {% if feat.race %}<dt class="col-4">Race</dt><dd class="col-8">{{ feat.race }}</dd>{% endif %}
+                {% if feat.prerequisites %}<dt class="col-4">Requirements</dt><dd class="col-8">{{ feat.prerequisites }}</dd>{% endif %}
+                {% if feat.tags %}<dt class="col-4">Tags</dt><dd class="col-8">{{ feat.tags }}</dd>{% endif %}
+              </dl>
+            {% endwith %}
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="mb-0"><em>None</em></p>
+  {% endif %}
+</div>
+<div class="card mb-4">
+  <div class="card-header fw-bold">Feats & Features</div>
+  <div class="card-body">
+    <div class="row">
+      <div class="col-md-6">
+        <h6 class="mb-2">General Feats</h6>
+        <table class="table table-sm align-middle">
+          <thead><tr><th style="width:70px">Level</th><th>Name</th></tr></thead>
+          <tbody>
+          {% for cf in general_feats %}
+            <tr><td>Lv {{ cf.level }}</td><td>{{ cf.feat.name }}</td></tr>
+          {% empty %}
+            <tr><td colspan="2" class="text-muted">— None —</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+
+        <h6 class="mt-4 mb-2">Class Feats</h6>
+        <table class="table table-sm align-middle">
+          <thead><tr><th style="width:70px">Level</th><th>Name</th></tr></thead>
+          <tbody>
+          {% for cf in class_feats %}
+            <tr><td>Lv {{ cf.level }}</td><td>{{ cf.feat.name }}</td></tr>
+          {% empty %}
+            <tr><td colspan="2" class="text-muted">— None —</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="col-md-6">
+        <h6 class="mb-2">Class/Racial Features</h6>
+        <table class="table table-sm align-middle">
+          <thead><tr><th style="width:70px">Level</th><th>Name</th><th>Source</th></tr></thead>
+          <tbody>
+          {% for it in owned_features %}
+            <tr>
+              <td>Lv {{ it.level }}</td>
+              <td>
+                {% if it.feature %}{{ it.feature.name }}
+                {% elif it.racial_feature %}{{ it.racial_feature.name }}
+                {% else %}—{% endif %}
+              </td>
+              <td>
+                {% if it.subclass %}{{ it.subclass.base_class.name }} – {{ it.subclass.name }}
+                {% elif it.feature and it.feature.character_class %}{{ it.feature.character_class.name }}
+                {% elif it.racial_feature and it.racial_feature.race %}{{ it.racial_feature.race.name }}
+                {% else %}—{% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="3" class="text-muted">— None —</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if can_edit %}
+<div class="card p-3 mb-3">
+  <h5>Remove Feats / Features</h5>
+  <form method="post" action="{% url 'characters:character_detail' character.pk %}">
+    {% csrf_token %}
+    <div class="mb-2">{{ remove_form.remove_feats.label_tag }} {{ remove_form.remove_feats }}</div>
+    <div class="mb-2">{{ remove_form.remove_features.label_tag }} {{ remove_form.remove_features }}</div>
+    <div class="mb-3">{{ remove_form.reason.label_tag }} {{ remove_form.reason }}</div>
+    {% for err in remove_form.non_field_errors %}<div class="text-danger">{{ err }}</div>{% endfor %}
+    <button class="btn btn-outline-danger" name="remove_items_submit" value="1">Remove Selected</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="card p-3 mb-3">
+  <h5>Manually Added</h5>
+  {% if manual_grants %}
+    <ul class="mb-0">
+      {% for g in manual_grants %}
+        <li class="mb-3">
+          <div>
+            <span class="badge bg-secondary">{{ g.content_type.model }}</span>
+            {{ g.item }}
+            <small class="text-muted">({{ g.created_at|date:"Y-m-d H:i" }})</small>
+          </div>
+
+          {% if g.content_type.model == 'classfeature' or g.content_type.model == 'racialfeature' %}
+            <div class="border rounded p-2 mt-1">
+              {% include "partials/_feature_detail.html" with f=g.item %}
+            </div>
+          {% elif g.content_type.model == 'classfeat' %}
+            <div class="border rounded p-2 mt-1">
+              {% with feat=g.item %}
+                {% if feat.description %}
+                  <div class="mt-1 small">{{ feat.description|safe }}</div>
+                {% endif %}
+                <dl class="row mt-2 small text-muted mb-0">
+                  {% if feat.level_prerequisite %}<dt class="col-4">Level</dt><dd class="col-8">{{ feat.level_prerequisite }}</dd>{% endif %}
+                  {% if feat.class_name %}<dt class="col-4">Class</dt><dd class="col-8">{{ feat.class_name }}</dd>{% endif %}
+                  {% if feat.race %}<dt class="col-4">Race</dt><dd class="col-8">{{ feat.race }}</dd>{% endif %}
+                  {% if feat.prerequisites %}<dt class="col-4">Requirements</dt><dd class="col-8">{{ feat.prerequisites }}</dd>{% endif %}
+                  {% if feat.tags %}<dt class="col-4">Tags</dt><dd class="col-8">{{ feat.tags }}</dd>{% endif %}
+                </dl>
+              {% endwith %}
+            </div>
+          {% endif %}
+
+          {% if g.reason %}
+            <div class="small text-muted mt-1">Reason: {{ g.reason }}</div>
+          {% endif %}
+        </li>
       {% endfor %}
     </ul>
   {% else %}
@@ -213,7 +557,7 @@
 </div>
 
 
-    </div>
+
   </div>
 </div>
 
@@ -291,7 +635,8 @@
             <thead>
               <tr>
                 <th class="text-nowrap">Rank</th>
-                {% for i in "12345678910"|make_list %}<th>{{ forloop.counter }}</th>{% endfor %}
+                {% for _ in "0123456789"|make_list %}<th>{{ forloop.counter }}</th>{% endfor %}
+
               </tr>
             </thead>
             <tbody>
@@ -327,8 +672,11 @@
     </div> {# closes LEFT column #}
     <div class="col-12 col-xl-7 p-4"> {# RIGHT column starts here, still inside the .row #}
 
-      {# MOVE your whole <form method="post" …> … </form> block HERE #}
 
+
+
+
+    </div>
 
         <form method="post" action="{% url 'characters:character_detail' character.pk %}">
           {% csrf_token %}
@@ -695,10 +1043,59 @@
         </form>
 
       </div>
+
+    </div>
+  </div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="modal fade" id="editCharacterModal" tabindex="-1" aria-labelledby="editCharacterModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 id="editCharacterModalLabel" class="modal-title">Edit Details</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <form method="post" action="{% url 'characters:character_detail' character.pk %}">
+        {% csrf_token %}
+        <div class="modal-body">
+            {% if edit_form %}
+              {{ edit_form.non_field_errors }}
+              <div class="row g-3">
+                {% for field in edit_form.visible_fields %}
+                  <div class="col-md-6">
+                    {{ field.label_tag }} {{ field }}
+                    {% if field.errors %}
+                      <div class="text-danger small">{{ field.errors|join:", " }}</div>
+                    {% endif %}
+                    <input class="form-control form-control-sm mt-1"
+                          name="note__{{ field.name }}"
+                          placeholder="Reason (required if changed)">
+                  </div>
+                {% endfor %}
+              </div>
+            {% else %}
+
+            <p class="mb-0 text-muted">You don’t have permission to edit this character.</p>
+          {% endif %}
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          {% if edit_form %}
+            <button type="submit" class="btn btn-primary" name="edit_character_submit" value="1">Save</button>
+          {% endif %}
+        </div>
+      </form>
     </div>
   </div>
 </div>
 {% endblock %}
+<!-- EDIT CHARACTER MODAL -->
+
 
 {% block extra_js %}
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
@@ -1000,5 +1397,144 @@ table.querySelectorAll(".excel-menu[data-col]").forEach(buildFilterMenu);
 })();
 </script>
 
+<div class="modal fade" id="editNumberModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form class="modal-content" id="editNumberForm">
+      <div class="modal-header">
+        <h5 class="modal-title">Edit Value</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="edit-key">
+        <div class="mb-3">
+          <label class="form-label">New value (number)</label>
+          <input type="number" step="any" class="form-control" id="edit-value" required>
+        </div>
+        <div class="mb-0">
+          <label class="form-label">Note (optional)</label>
+          <textarea class="form-control" id="edit-note" rows="3" placeholder="Why was this changed?"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal" type="button">Cancel</button>
+        <button class="btn btn-primary" type="submit">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+(function(){
+  const modalEl = document.getElementById('editNumberModal');
+  if (!modalEl) return;
+  const form = document.getElementById('editNumberForm');
+  const keyInput = document.getElementById('edit-key');
+  const valInput = document.getElementById('edit-value');
+  const noteInput= document.getElementById('edit-note');
+  const bsModal = new bootstrap.Modal(modalEl);
+
+  // Open modal on click of any editable number
+  document.body.addEventListener('click', (e)=>{
+    const el = e.target.closest('.editable-number');
+    if (!el) return;
+    const key = el.getAttribute('data-key');
+    const current = el.textContent.trim();
+    keyInput.value = key;
+    valInput.value = current.replace(/[^\d\.\-]/g,'') || "";
+    noteInput.value = "";
+    bsModal.show();
+  });
+
+  // CSRF helper for Django
+  function getCookie(name) {
+    const m = document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)');
+    return m ? m.pop() : '';
+  }
+
+  form.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const resp = await fetch("{% url 'characters:set_field_override' character.pk %}", {
+      method: "POST",
+      headers: {
+        "X-CSRFToken": getCookie("csrftoken"),
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        key: keyInput.value,
+        value: valInput.value,
+        note: noteInput.value
+      })
+    });
+    if (resp.ok){
+      window.location.reload();
+    } else {
+      alert("Failed to save override.");
+    }
+  });
+})();
+</script>
+<script>
+(function(){
+  document.addEventListener('click', function(e){
+    // Open editor
+    var openBtn = e.target.closest('[data-edit-row]');
+    if (openBtn){
+      var key = openBtn.getAttribute('data-edit-row');
+
+      // Close any other open editors and remove highlights
+      document.querySelectorAll('tr[id^="editor-"]').forEach(function(tr){
+        tr.classList.add('d-none');
+      });
+      document.querySelectorAll('tr[id^="row-"]').forEach(function(tr){
+        tr.classList.remove('is-active');
+      });
+
+      // Show this editor and highlight its display row
+      document.getElementById('editor-'+key)?.classList.remove('d-none');
+      document.getElementById('row-'+key)?.classList.add('is-active');
+      return;
+    }
+
+    // Cancel editor
+    var cancelBtn = e.target.closest('[data-cancel-edit]');
+    if (cancelBtn){
+      var key = cancelBtn.getAttribute('data-cancel-edit');
+      document.getElementById('editor-'+key)?.classList.add('d-none');
+      document.getElementById('row-'+key)?.classList.remove('is-active');
+      return;
+    }
+  });
+})();
+</script>
+
+
+<script>
+(function(){
+  const saveBtn = document.getElementById('armor-save');
+  if (!saveBtn) return;
+
+  function getCookie(name) {
+    const m = document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)');
+    return m ? m.pop() : '';
+  }
+
+  saveBtn.addEventListener('click', async function(){
+    const sel  = document.getElementById('armor-select');
+    const note = (document.getElementById('armor-note').value || '').trim();
+    if (!note) { alert('Please provide a reason.'); return; }
+
+    const resp = await fetch("{% url 'characters:set_field_override' character.pk %}", {
+      method: "POST",
+      headers: {
+        "X-CSRFToken": getCookie("csrftoken"),
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ key: "armor_value", value: sel.value, note })
+    });
+
+    if (resp.ok) window.location.reload();
+    else alert("Failed to save armor choice.");
+  });
+})();
+</script>
 
 {% endblock %}

@@ -1,5 +1,7 @@
 from django.shortcuts import render
+from django.contrib import messages
 
+from django.db.models import Case, When, IntegerField
 # Create your views here.
 # characters/views.py
 from django.db.models import Q, Max
@@ -7,11 +9,18 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django_select2.views import AutoResponseView
 from django.db.models import Count
-from .models import Character
+from .models import Character, Skill  
 from campaigns.models import Campaign
 from django.db import models
-import math 
+import math
+from django.views.decorators.http import require_POST
+from django.http import JsonResponse, HttpResponseBadRequest
+FIVE_TIERS = ["Untrained", "Trained", "Expert", "Master", "Legendary"]
 
+def _is_untrained_name(name: str | None) -> bool:
+    return (name or "").strip().lower() == "untrained"
+
+from django.contrib.contenttypes.models import ContentType
 @login_required
 def character_list(request):
     characters = request.user.characters.all()
@@ -32,7 +41,7 @@ from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
-from .forms import CharacterCreationForm
+from .forms import CharacterCreationForm, ManualGrantForm, CharacterCreationForm, RemoveItemsForm
 import re
 from django.views.generic import ListView, DetailView
 # views.py
@@ -43,17 +52,92 @@ from .forms import CharacterCreationForm
 # characters/views.py
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
-from .forms import CharacterCreationForm
-from .models import Character, CharacterFeat
+from .forms import ManualGrantForm, CharacterCreationForm
+from .models import Armor, Character, CharacterFeat, CharacterManualGrant
 from .models import SubSkill, ProficiencyLevel, CharacterSkillProficiency
 from django.core.exceptions import ValidationError
 from django.shortcuts import render
-from characters.models import LoremasterArticle,Spell,Subrace, CharacterFeature, ClassFeat,UniversalLevelFeature, CharacterClass, ClassFeature, ClassSubclass, SubclassGroup
+from characters.models import CharacterFieldOverride, CharacterFieldNote, LoremasterArticle,Spell,Subrace, CharacterFeature, ClassFeat,UniversalLevelFeature, CharacterClass, ClassFeature, ClassSubclass, SubclassGroup,  ClassProficiencyProgress, ProficiencyTier, PROFICIENCY_TYPES
 def _class_level_after_pick(character, base_class):
     """Class-level for the selected class *after* this level-up."""
     prog = character.class_progress.filter(character_class=base_class).first()
     return (prog.levels if prog else 0) + 1
 LEVEL_NUM_RE = re.compile(r'(\d+)\s*(?:st|nd|rd|th)?')
+
+def _fmt(n: int) -> str:
+    return f"+{n}" if n >= 0 else str(n)
+
+
+def _current_proficiencies_for_character(character):
+    """
+    For each PROFICIENCY_TYPES code, find the best (highest-bonus) ProficiencyTier
+    unlocked across all of the character's class_progress rows.
+    'modifier' here = ProficiencyTier.bonus (no ability added).
+    """
+    out = []
+    label_by_code = dict(PROFICIENCY_TYPES)
+    cps = (character.class_progress
+                      .select_related('character_class')
+                      .all())
+
+    for code in label_by_code.keys():
+        best_tier = None
+        best_row  = None
+        for cp in cps:
+            qs = (ClassProficiencyProgress.objects
+                    .select_related('tier')
+                    .filter(character_class=cp.character_class,
+                            proficiency_type=code,
+                            at_level__lte=cp.levels))
+            for row in qs:
+                t = row.tier
+                if (best_tier is None) or (t.bonus > best_tier.bonus):
+                    best_tier = t
+                    best_row  = row
+
+        out.append({
+            "type_code":  code,
+            "type_label": label_by_code[code],
+            "tier_name":  best_tier.name if best_tier else "—",
+            "modifier":   best_tier.bonus if best_tier else 0,
+            "source":     (f"{best_row.character_class.name} L{best_row.at_level}"
+                           if best_row else "—"),
+        })
+    return out
+
+def _half_level_total(level: int) -> int:
+    return math.ceil(level / 2)
+@login_required
+@require_POST
+def set_armor_choice(request, pk):
+    character = get_object_or_404(Character, pk=pk, user=request.user)
+    armor_id = (request.POST.get("armor_id") or "").strip()
+
+    # Clear equipped armor
+    if armor_id == "":
+        CharacterFieldOverride.objects.filter(character=character, key="equipped_armor_id").delete()
+        CharacterFieldOverride.objects.filter(character=character, key="armor_value").delete()
+        return JsonResponse({"ok": True})
+
+    # Set equipped armor by id
+    try:
+        armor = Armor.objects.get(pk=int(armor_id))
+    except (ValueError, Armor.DoesNotExist):
+        return HttpResponseBadRequest("Invalid armor_id")
+
+    CharacterFieldOverride.objects.update_or_create(
+        character=character, key="equipped_armor_id", defaults={"value": str(armor.id)}
+    )
+    CharacterFieldOverride.objects.update_or_create(
+        character=character, key="armor_value", defaults={"value": str(armor.armor_value)}
+    )
+    if request.headers.get("x-requested-with") == "XMLHttpRequest":
+        return JsonResponse({"ok": True})
+    return redirect('characters:character_detail', pk=pk)
+
+def _abil_mod(score: int) -> int:
+    # 5e style
+    return (score - 10) // 2
 
 def parse_req_level(txt: str | None) -> int:
     if not txt:
@@ -218,6 +302,7 @@ def feat_list(request):
         for part in full.split(',')
         if part.strip()
     })
+    
 
     return render(request, 'codex/feat_list.html', {
         'feats':          feats,
@@ -550,18 +635,17 @@ def level_down(request, pk):
     lvl = character.level
 
     with transaction.atomic():
-        # 1) Delete everything granted at this character level
-        CharacterFeature.objects.filter(character=character, level=lvl).delete()
-        CharacterFeat.objects.filter(character=character, level=lvl).delete()
-        
-        # 2) Find the class actually leveled at this character level (if possible)
-        last_cls_id = (
-            CharacterFeature.objects
-            .filter(character=character, level=lvl, feature__character_class__isnull=False)
-            .order_by('-id')
-            .values_list('feature__character_class_id', flat=True)
-            .first()
-        )
+        # (A) Snapshot rows for this level BEFORE deleting
+        cf_qs = (CharacterFeature.objects
+                 .filter(character=character, level=lvl)
+                 .select_related('feature', 'feature__character_class'))
+        feat_qs = CharacterFeat.objects.filter(character=character, level=lvl)
+
+        # Which class was actually leveled at this character level?
+        last_cls_id = (cf_qs.filter(feature__character_class__isnull=False)
+                           .order_by('-id')
+                           .values_list('feature__character_class_id', flat=True)
+                           .first())
 
         if last_cls_id:
             cp = CharacterClassProgress.objects.filter(
@@ -569,22 +653,30 @@ def level_down(request, pk):
                 character_class_id=last_cls_id
             ).first()
         else:
-            # Fallback: trim the class with most levels
+            # Fallback if we have no evidence (dirty data / L1 hiccups)
             cp = character.class_progress.order_by('-levels', '-id').first()
 
+        # (B) Now delete everything granted at this character level
+        cf_qs.delete()
+        feat_qs.delete()
+
+        # (C) Decrement per-class progress
         if cp:
-            cp.levels -= 1
+            cp.levels = models.F('levels') - 1
+            cp.save(update_fields=['levels'])
+            cp.refresh_from_db()
             if cp.levels <= 0:
                 cp.delete()
-            else:
-                cp.save()
 
-        # 3) Decrement overall level
+        # (D) Decrement overall character level
         character.level = lvl - 1
-        character.save()
+        character.save(update_fields=['level'])
+
+        # (E) Safety net: purge anything that somehow sits above new level
+        CharacterFeature.objects.filter(character=character, level__gt=character.level).delete()
+        CharacterFeat.objects.filter(character=character, level__gt=character.level).delete()
 
     return redirect('characters:character_detail', pk=pk)
-
 
 class RulebookPageDetailView(DetailView):
     model = RulebookPage
@@ -699,6 +791,7 @@ from .models import (
 from .forms import LevelUpForm
 
 
+
 @login_required
 def character_detail(request, pk):
     # ── 1) Load character & basic sheet context ─────────────────────────────
@@ -713,6 +806,16 @@ def character_detail(request, pk):
         'Wisdom':       character.wisdom,
         'Charisma':     character.charisma,
     }
+    abilities = []
+    for label, score in ability_map.items():
+        m = _abil_mod(score)
+        abilities.append({
+            "label": label,           # "Strength"
+            "key": label.lower(),     # "strength" (used by your editable helper)
+            "score": score,           # 15
+            "mod": m,                 # 2
+            "mod_str": f"{'+' if m >= 0 else ''}{m}",
+        })
     skill_proficiencies = list(
         character.skill_proficiencies.select_related('proficiency').all()
     )
@@ -820,6 +923,36 @@ def character_detail(request, pk):
 
 
     # which feature‐objects are auto‐granted
+
+    remove_form = RemoveItemsForm(request.POST or None, character=character) if can_edit else None
+
+    if request.method == "POST" and "remove_items_submit" in request.POST and can_edit:
+        if remove_form.is_valid():
+            reason = remove_form.cleaned_data["reason"]
+
+            # delete selected feats
+            for cf in remove_form.cleaned_data["remove_feats"]:
+                # log
+                CharacterManualGrant.objects.create(
+                    character=character,
+                    content_type=ContentType.objects.get_for_model(cf.feat.__class__),
+                    object_id=cf.feat.pk,
+                    reason=f"Removed feat (L{cf.level}): {cf.feat.name}. Reason: {reason}"
+                )
+                cf.delete()
+
+            # delete selected features
+            for cfeat in remove_form.cleaned_data["remove_features"]:
+                label = cfeat.feature.name if cfeat.feature else (cfeat.option.label if cfeat.option else "—")
+                CharacterManualGrant.objects.create(
+                    character=character,
+                    content_type=ContentType.objects.get_for_model((cfeat.feature or cfeat).__class__),
+                    object_id=(cfeat.feature.pk if cfeat.feature else cfeat.pk),
+                    reason=f"Removed feature (L{cfeat.level}): {label}. Reason: {reason}"
+                )
+                cfeat.delete()
+
+            return redirect('characters:character_detail', pk=pk)    
     auto_feats = [
         f for f in base_feats
         if isinstance(f, ClassFeature) and f.scope == 'class_feat'
@@ -856,6 +989,71 @@ def character_detail(request, pk):
     # ── 4) BIND & HANDLE LEVEL‐UP (POST) ───────────────────────────────────
     # ── 4) BIND & HANDLE LEVEL‐UP ─────────────────────────────────────────
     edit_form = CharacterCreationForm(request.POST or None, instance=character) if can_edit else None
+    # views.py inside character_detail(), POST branch handling `edit_character_submit`
+    if request.method == "POST" and "edit_character_submit" in request.POST and can_edit:
+        edit_form = CharacterCreationForm(request.POST, instance=character)
+        if edit_form.is_valid():
+            changed = edit_form.changed_data  # fields whose values actually changed
+            missing = []
+            for field in changed:
+                if not (request.POST.get(f"note__{field}") or "").strip():
+                    missing.append(field)
+
+            if missing:
+                for f in missing:
+                    edit_form.add_error(None, f"Please provide a reason for changing “{f}”.")
+            else:
+                character = edit_form.save()
+                # persist/update notes
+                for key, note in request.POST.items():
+                    if key.startswith("note__"):
+                        k = key[6:]
+                        note = note.strip()
+                        if note:
+                            CharacterFieldNote.objects.update_or_create(
+                                character=character, key=k, defaults={"note": note}
+                            )
+                        else:
+                            CharacterFieldNote.objects.filter(character=character, key=k).delete()
+                return redirect('characters:character_detail', pk=pk)
+
+
+    manual_form = ManualGrantForm(request.POST or None) if can_edit else None
+    # NEW: independent handler for “Manually Add Item”
+    if request.method == 'POST' and 'manual_add_submit' in request.POST and can_edit:
+        if manual_form and manual_form.is_valid():
+            kind   = manual_form.cleaned_data['kind']
+            reason = manual_form.cleaned_data['reason']
+
+            if kind == "feat":
+                obj = manual_form.cleaned_data['feat']
+            elif kind == "class_feature":
+                obj = manual_form.cleaned_data['class_feature']
+            else:
+                obj = manual_form.cleaned_data['racial_feature']
+
+            ct = ContentType.objects.get_for_model(obj.__class__)
+            CharacterManualGrant.objects.create(
+                character=character, content_type=ct, object_id=obj.pk, reason=reason
+            )
+
+            # Mirror into normal tables at current level
+            if kind == "feat":
+                CharacterFeat.objects.get_or_create(
+                    character=character, feat=obj, defaults={"level": character.level}
+                )
+            elif kind == "class_feature":
+                CharacterFeature.objects.get_or_create(
+                    character=character, feature=obj, level=character.level
+                )
+            elif kind == "racial_feature":
+                CharacterFeature.objects.get_or_create(
+                    character=character, racial_feature=obj, level=character.level
+                )
+
+            return redirect('characters:character_detail', pk=pk)
+        # invalid form -> fall through to render with errors
+
 
     # bind LevelUpForm on GET (so base_class stays selected) *and* on POST
     data = request.POST if request.method == 'POST' else request.GET
@@ -1209,17 +1407,33 @@ def character_detail(request, pk):
         # NEW: persist the actual ability increases
         asi_mode = level_form.cleaned_data.get("asi_mode")
         if asi_mode:
-            a = level_form.cleaned_data.get("asi_a")
-            b = level_form.cleaned_data.get("asi_b")
+            a = (level_form.cleaned_data.get("asi_a") or "").strip()
+            b = (level_form.cleaned_data.get("asi_b") or "").strip()
+
+            valid_fields = {"strength","dexterity","constitution","intelligence","wisdom","charisma"}
+            if a not in valid_fields or (b and b not in valid_fields):
+                raise ValidationError("Invalid ASI field(s).")
 
             if asi_mode == "1+1":
                 setattr(character, a, getattr(character, a) + 1)
                 setattr(character, b, getattr(character, b) + 1)
+
             elif asi_mode == "1":
                 setattr(character, a, getattr(character, a) + 1)
+
+            elif asi_mode == "2":
+                # If UI sent two different fields with mode "2", normalize to +1/+1.
+                if b and b != a:
+                    setattr(character, a, getattr(character, a) + 1)
+                    setattr(character, b, getattr(character, b) + 1)
+                else:
+                    setattr(character, a, getattr(character, a) + 2)
+
             else:
                 raise ValidationError("Invalid ASI mode.")
+
             character.save()
+
 
             # keep your audit row that “an ASI happened this level”
             CharacterFeature.objects.create(
@@ -1353,8 +1567,7 @@ def character_detail(request, pk):
                 feature=None,
                 level=next_level
             )
-
-        return redirect('characters:character_detail', pk=pk)
+        # Manual add (feat/feature/racial_feature) with explanation
 
     # ── 5) BUILD feature_fields FOR TEMPLATE ───────────────────────────────
     subclass_feats_at_next = {}
@@ -1437,6 +1650,316 @@ def character_detail(request, pk):
                 "feature": feat,  
             })
                
+    field_overrides = {o.key: o.value for o in character.field_overrides.all()}
+    field_notes     = {n.key: n.note  for n in character.field_notes.all()}
+
+    # ------- OVERRIDES map (includes numbers the user sets with a reason) -------
+    overrides = {o.key: o.value for o in character.field_overrides.all()}
+
+    # Apply overrides to the proficiency summary’s modifier values (if present)
+    prof_by_code = {r["type_code"]: r for r in _current_proficiencies_for_character(character)}
+    for code, row in prof_by_code.items():
+        ov = overrides.get(f"prof:{code}")
+        if ov not in (None, ""):
+            try:
+                row["modifier"] = int(ov)
+                row["source"]   = "Override"
+            except ValueError:
+                pass
+    # Keep list form for template
+    proficiency_summary = list(prof_by_code.values())
+    half_lvl = _half_level_total(character.level)
+
+    by_code = {r["type_code"]: r for r in proficiency_summary}
+    def hl_if_trained(code: str) -> int:
+        r = by_code.get(code)
+        if not r: return 0
+        return half_lvl if not _is_untrained_name(r.get("tier_name")) else 0
+    # Pull armor choices from the Armor model
+
+
+    # Armor picker: list + currently selected (by override)
+    armor_list = list(Armor.objects.all().order_by('type','name').values('id','name','armor_value'))
+    # Use overrides to determine equipped armor/value BEFORE computing derived stats
+    selected_armor = None
+    try:
+        equipped_id = overrides.get("equipped_armor_id")
+        # default to override value if set; fall back to 0
+        armor_value = int(overrides.get("armor_value") or 0)
+        if equipped_id:
+            selected_armor = Armor.objects.get(pk=int(equipped_id))
+            armor_value = selected_armor.armor_value  # authoritative if an armor is selected
+    except (ValueError, Armor.DoesNotExist):
+        armor_value = 0
+        selected_armor = None
+    str_mod = _abil_mod(character.strength)
+    dex_mod = _abil_mod(character.dexterity)
+    con_mod = _abil_mod(character.constitution)
+    wis_mod = _abil_mod(character.wisdom)
+    # pick a “primary class” = most levels; may be None
+    primary_cp = max(class_progress, key=lambda cp: cp.levels, default=None)
+    key_abil_names = []
+    if primary_cp:
+        key_abil_names = list(primary_cp.character_class.key_abilities.values_list("name", flat=True))
+
+    # per-type proficiency bonuses (after override above)
+    prof_armor     = prof_by_code.get("armor",     {"modifier": 0})["modifier"]
+    prof_dodge     = prof_by_code.get("dodge",     {"modifier": 0})["modifier"]
+    prof_dc        = prof_by_code.get("dc",        {"modifier": 0})["modifier"]
+    prof_reflex    = prof_by_code.get("reflex",    {"modifier": 0})["modifier"]
+    prof_fort      = prof_by_code.get("fortitude", {"modifier": 0})["modifier"]
+    prof_will      = prof_by_code.get("will",      {"modifier": 0})["modifier"]
+    prof_weapon    = prof_by_code.get("weapon",    {"modifier": 0})["modifier"]
+
+
+
+    derived = {
+        "half_level":         half_lvl,
+        "armor_total":        armor_value + prof_armor + hl_if_trained("armor"),
+        "dodge_total":        10 + dex_mod + prof_dodge + hl_if_trained("dodge"),
+        "reflex_total":       dex_mod + prof_reflex + hl_if_trained("reflex"),
+        "fortitude_total":    con_mod + prof_fort   + hl_if_trained("fortitude"),
+        "will_total":         wis_mod + prof_will   + hl_if_trained("will"),
+        "weapon_base":        prof_weapon + hl_if_trained("weapon"),
+        "weapon_with_str":    prof_weapon + hl_if_trained("weapon") + str_mod,
+        "weapon_with_dex":    prof_weapon + hl_if_trained("weapon") + dex_mod,
+        "spell_dcs": [],
+    }
+    LABELS = dict(PROFICIENCY_TYPES)
+    def _hl(code): return hl_if_trained(code)
+    rows = []
+
+    def add_row(code, abil_name=None, abil_mod_val=0, label=None):
+        r = prof_by_code.get(code, {"tier_name":"—","modifier":0,"source":"—"})
+        prof = int(r["modifier"])
+        half = _hl(code)
+        total = prof + half + (abil_mod_val if abil_name else 0)
+        rows.append({
+            "type": label or LABELS.get(code, code),
+            "tier": r["tier_name"],
+            "prof_s": _fmt(prof),
+            "half_s": _fmt(half),
+            "abil":  abil_name or "—",
+            "abil_s": _fmt(abil_mod_val) if abil_name else "—",
+            "formula": "prof + ½ level" + (f" + {abil_name[:3]} mod" if abil_name else ""),
+            "values": f"{_fmt(prof)} + {_fmt(half)}" + (f" + {_fmt(abil_mod_val)}" if abil_name else ""),
+            "total_s": _fmt(total),
+            "source": r["source"],
+        })
+
+    add_row("armor")
+    add_row("dodge",      "Dexterity", dex_mod)
+    add_row("reflex",     "Dexterity", dex_mod)
+    add_row("fortitude",  "Constitution", con_mod)
+    add_row("will",       "Wisdom", wis_mod)
+    add_row("perception")     # no ability in your model
+    add_row("initiative")     # no ability in your model
+    add_row("weapon")         # base “to-hit” without ability
+
+    # Weapon w/ abilities (for quick display)
+    attack_rows = [
+        {"label": "Weapon (base)", "total_s": _fmt(derived["weapon_base"]),
+        "formula": "prof + ½ level", "values": f"{_fmt(prof_weapon)} + {_fmt(_hl('weapon'))}"},
+        {"label": "Weapon (STR)",  "total_s": _fmt(derived["weapon_with_str"]),
+        "formula": "prof + ½ level + STR mod",
+        "values": f"{_fmt(prof_weapon)} + {_fmt(_hl('weapon'))} + {_fmt(str_mod)}"},
+        {"label": "Weapon (DEX)",  "total_s": _fmt(derived["weapon_with_dex"]),
+        "formula": "prof + ½ level + DEX mod",
+        "values": f"{_fmt(prof_weapon)} + {_fmt(_hl('weapon'))} + {_fmt(dex_mod)}"},
+    ]
+
+    # Spell/DC rows (one per key ability)
+    spell_dc_rows = []
+    for s in derived["spell_dcs"]:
+        abil = s["ability"]
+        mod  = _abil_mod(getattr(character, abil.lower(), 10))
+        spell_dc_rows.append({
+            "label": f"Spell/DC ({abil})",
+            "total": s["value"],
+            "formula": "8 + ability mod + prof + ½ level",
+            "values": f"8 + {_fmt(mod)} + {_fmt(prof_dc)} + {_fmt(_hl('dc'))}",
+        })
+
+    for abil in key_abil_names:
+        score = getattr(character, abil.lower(), 10)
+        mod   = _abil_mod(score)
+        derived["spell_dcs"].append({
+            "ability": abil,
+            "value": 8 + mod + prof_dc + hl_if_trained("dc"),
+        })
+
+
+    # ------- Build the Skills table (all skills + all subskills) -------
+    order = Case(
+        When(name__iexact="Untrained", then=0),
+        When(name__iexact="Trained",   then=1),
+        When(name__iexact="Expert",    then=2),
+        When(name__iexact="Master",    then=3),
+        When(name__iexact="Legendary", then=4),
+        default=5, output_field=IntegerField()
+    )
+    prof_levels = list(
+        ProficiencyLevel.objects
+            .filter(name__in=FIVE_TIERS)
+            .order_by(order, "bonus")
+    )
+
+    untrained_level = next((pl for pl in prof_levels if _is_untrained_name(pl.name)), None)
+    ct_skill    = ContentType.objects.get_for_model(Skill)
+    ct_sub      = ContentType.objects.get_for_model(SubSkill)
+
+    existing = {}  # (ctype_id, obj_id) -> ProficiencyLevel
+    for sp in character.skill_proficiencies.select_related("proficiency").all():
+        existing[(sp.selected_skill_type_id, sp.selected_skill_id)] = sp.proficiency
+
+    def current_prof_for(obj):
+        ctype_id = (ct_sub.id if isinstance(obj, SubSkill) else ct_skill.id)
+        return existing.get((ctype_id, obj.pk))
+
+    all_skill_rows = []
+    for sk in Skill.objects.prefetch_related("subskills").order_by("name"):
+        abil1 = sk.ability       # e.g. "strength"
+        abil2 = sk.secondary_ability  # may be None
+        a1_mod = _abil_mod(getattr(character, abil1, 10))
+        a2_mod = _abil_mod(getattr(character, abil2, 10)) if abil2 else None
+
+        # display each subskill; if none exist, show the skill itself
+        subs = list(sk.subskills.all())
+        targets = subs or [sk]
+        for obj in targets:
+            is_sub = isinstance(obj, SubSkill)
+            label  = f"{sk.name} – {obj.name}" if is_sub else sk.name
+            prof = current_prof_for(obj) or untrained_level
+            pbonus = prof.bonus if prof else 0
+
+            # half level only if not Untrained
+            h = half_lvl if (prof and not _is_untrained_name(prof.name)) else 0
+
+            total1 = pbonus + h + a1_mod
+            total2 = (pbonus + h + a2_mod) if a2_mod is not None else None
+
+            row = {
+                "id_key":    (f"sub_{obj.pk}" if is_sub else f"sk_{sk.pk}"),
+                "is_sub":    is_sub,
+                "skill_id":  sk.pk,
+                "sub_id":    (obj.pk if is_sub else None),
+                "label":     label,
+                "ability1":  abil1.title(),
+                "ability2":  abil2.title() if abil2 else None,
+                "prof_id":   (prof.pk if prof else None),
+                "prof_name": (prof.name if prof else "Untrained"),
+                "prof_bonus": pbonus,
+                "mod1":      a1_mod,
+                "mod2":      a2_mod,
+                "half":      h,              # NOTE: this is now 0 for Untrained
+                "total1":    total1,
+                "total2":    total2,
+            }
+
+            all_skill_rows.append(row)
+    if request.method == "POST" and "save_skill_row" in request.POST and can_edit:
+        key  = request.POST["save_skill_row"]  # e.g., "sk_5" or "sub_12"
+        new_pk = request.POST.get(f"sp_{key}")
+        note   = (request.POST.get(f"sp_note_{key}") or "").strip()
+
+        if not new_pk:
+            messages.error(request, "Pick a proficiency tier.")
+            return redirect("characters:character_detail", pk=pk)
+        if not note:
+            messages.error(request, f"Please provide a reason for changing {key}.")
+            return redirect("characters:character_detail", pk=pk)
+
+        new_prof = ProficiencyLevel.objects.get(pk=int(new_pk))
+        if key.startswith("sub_"):
+            obj_id = int(key[4:])
+            ctype  = ct_sub
+        else:
+            obj_id = int(key[3:])
+            ctype  = ct_skill
+
+        rec, created = CharacterSkillProficiency.objects.get_or_create(
+            character=character,
+            selected_skill_type=ctype,
+            selected_skill_id=obj_id,
+            defaults={"proficiency": new_prof},
+        )
+        if not created and rec.proficiency_id != new_prof.pk:
+            rec.proficiency = new_prof
+            rec.save()
+
+        CharacterFieldNote.objects.update_or_create(
+            character=character,
+            key=f"skill_prof:{key}",
+            defaults={"note": note},
+        )
+
+        return redirect("characters:character_detail", pk=pk)
+
+    # ------- Handle "Save Skill Proficiencies" POST with reason required -------
+    skill_prof_errors = []
+    if request.method == "POST" and "save_skill_profs_submit" in request.POST and can_edit:
+        to_apply = []
+        for row in all_skill_rows:
+            field = f"sp_{row['id_key']}"
+            new_pk = request.POST.get(field)
+            if new_pk is None:
+                continue
+            if str(new_pk) != str(row["prof_id"] or ""):
+                note = (request.POST.get(f"sp_note_{row['id_key']}") or "").strip()
+                if not note:
+                    skill_prof_errors.append(row["label"])
+                else:
+                    to_apply.append((row, int(new_pk), note))
+
+        if skill_prof_errors:
+            # fall through to render; template will show which rows need a reason
+            pass
+        else:
+            for row, new_pk, note in to_apply:
+                new_prof = ProficiencyLevel.objects.get(pk=new_pk)
+                if row["is_sub"]:
+                    ctype = ct_sub
+                    obj_id = row["sub_id"]
+                else:
+                    ctype = ct_skill
+                    obj_id = row["skill_id"]
+
+                rec, created = CharacterSkillProficiency.objects.get_or_create(
+                    character=character,
+                    selected_skill_type=ctype,
+                    selected_skill_id=obj_id,
+                    defaults={"proficiency": new_prof},
+                )
+                if not created and rec.proficiency_id != new_prof.pk:
+                    rec.proficiency = new_prof
+                    rec.save()
+
+                # log reason with CharacterFieldNote for audit
+                CharacterFieldNote.objects.update_or_create(
+                    character=character,
+                    key=f"skill_prof:{row['id_key']}",
+                    defaults={"note": note},
+                )
+            return redirect("characters:character_detail", pk=pk)
+
+
+
+    # ---- FEATS & FEATURES (owned) ----
+    owned_feats = (
+        character.feats
+        .select_related('feat')
+        .order_by('level', 'feat__name')
+    )
+
+    general_feats = [cf for cf in owned_feats if (cf.feat.feat_type or "").strip().lower() == "general"]
+    class_feats   = [cf for cf in owned_feats if (cf.feat.feat_type or "").strip().lower() == "class"]
+    other_feats   = [cf for cf in owned_feats if (cf.feat.feat_type or "").strip().lower() not in ("general","class")]
+
+    owned_features = (
+        character.features
+        .select_related('feature','racial_feature','subclass','option')
+        .order_by('level')
+    )
 
 
     # ── 6) RENDER character_detail.html ───────────────────────────────────
@@ -1453,16 +1976,63 @@ def character_detail(request, pk):
         'total_level':        total_level,
         'preview_class':      preview_cls,
         'tier_names':         tier_names,
-        'proficiency_rows':   proficiency_rows,
+        
         'auto_feats':         auto_feats,
         'form':               level_form,
         'edit_form':          edit_form,
     'feature_fields':         feature_fields,
     'spellcasting_blocks': spellcasting_blocks,
     'subclass_feats_at_next': subclass_feats_at_next,
-    
+            'proficiency_rows':   proficiency_rows,   # (preview table you already had)
+        'proficiency_summary': proficiency_summary,
+        'manual_form': manual_form,
+        'manual_grants': character.manual_grants.select_related('content_type').all(),
+            'field_overrides': field_overrides,
+            'field_notes': field_notes,
+        'derived':            derived,
+        'skills_rows':        all_skill_rows,
+        'proficiency_levels': prof_levels,
+        'skill_prof_errors':  skill_prof_errors,
+        'general_feats': general_feats,
+'class_feats':   class_feats,
+'other_feats':   other_feats,
+'owned_features': owned_features,
+'armor_list': armor_list,
+'selected_armor': selected_armor,
+'proficiency_detailed': rows,
+'attack_rows': attack_rows,
+'spell_dc_rows': spell_dc_rows,
+    'ability_map': ability_map,
+    'abilities': abilities, 
+
 
     })
+from django.views.decorators.http import require_POST
+
+
+@login_required
+@require_POST
+def set_field_override(request, pk):
+    character = get_object_or_404(Character, pk=pk, user=request.user)
+    key   = (request.POST.get("key") or "").strip()
+    value = (request.POST.get("value") or "").strip()
+    note  = (request.POST.get("note") or "").strip()
+    if not note:
+        return HttpResponseBadRequest("A reason is required for this change.")  # ← enforce
+
+    if value == "":
+        CharacterFieldOverride.objects.filter(character=character, key=key).delete()
+    else:
+        CharacterFieldOverride.objects.update_or_create(
+            character=character, key=key, defaults={"value": value}
+        )
+
+    CharacterFieldNote.objects.update_or_create(
+        character=character, key=key, defaults={"note": note}
+    )
+    return JsonResponse({"ok": True})
+
+
 from django import forms
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required

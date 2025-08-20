@@ -1,5 +1,6 @@
 # forms.py
 import json
+
 from django import forms
 from .models import Character
 from django.db import OperationalError, ProgrammingError
@@ -12,7 +13,7 @@ from django_select2.forms import HeavySelect2Widget
 from .models import CharacterSubSkillProficiency, CharacterClass, CharacterClassProgress
 from django.core.exceptions import ValidationError
 from django import forms
-from .models import CharacterClass, MartialMastery,ClassFeat,   Race,Subrace, ClassFeature, ClassSubclass,Background, FeatureOption, UniversalLevelFeature
+from .models import CharacterClass, MartialMastery, ClassFeat, Race, Subrace, ClassFeature, ClassSubclass, Background, FeatureOption, UniversalLevelFeature, RacialFeature
 class CharacterCreationForm(forms.ModelForm):
     # — pick race by its slug/code, not by PK
     race = forms.ModelChoiceField(
@@ -76,6 +77,7 @@ class CharacterCreationForm(forms.ModelForm):
             'main_background', 'side_background_1', 'side_background_2',
             'strength', 'dexterity', 'constitution',
             'intelligence', 'wisdom', 'charisma',
+            'HP', 'temp_HP', 'level',            # ← add these
             'backstory',
             'computed_skill_proficiencies',
         ]
@@ -414,13 +416,14 @@ class CharacterClassForm(forms.ModelForm):
         abilities = self.cleaned_data.get("key_abilities")
         if not abilities:
             raise ValidationError("You must select at least one key ability score.")
-        if abilities.count() not in (1, 2):
+        # abilities can be a QuerySet or a list; handle both
+        n = abilities.count() if hasattr(abilities, "count") else len(abilities)
+        if n not in (1, 2):
             raise ValidationError("Select exactly one or two key ability scores.")
         return abilities
 
     def clean(self):
         cleaned = super().clean()
-        # Model.clean() also runs, but this ensures form‐level validation first.
         return cleaned
 
 # characters/forms.py
@@ -521,3 +524,60 @@ class BackgroundForm(forms.ModelForm):
         if commit:
             inst.save()
         return inst
+class ManualGrantForm(forms.Form):
+    kind = forms.ChoiceField(choices=[
+        ("feat", "Class Feat"),
+        ("class_feature", "Class Feature"),
+        ("racial_feature", "Racial Feature"),
+    ])
+    feat = forms.ModelChoiceField(queryset=ClassFeat.objects.all().order_by("name"),
+                                  required=False, label="Feat")
+    class_feature = forms.ModelChoiceField(queryset=ClassFeature.objects.all().order_by("name"),
+                                           required=False, label="Class Feature")
+    racial_feature = forms.ModelChoiceField(queryset=RacialFeature.objects.all().order_by("name"),
+                                            required=False, label="Racial Feature")
+    reason = forms.CharField(widget=forms.Textarea(attrs={"rows":3}), required=False)
+
+    def clean(self):
+        data = super().clean()
+        k = data.get("kind")
+        pick = data.get("feat") if k=="feat" else (data.get("class_feature") if k=="class_feature" else data.get("racial_feature"))
+        if not pick:
+            raise forms.ValidationError("Select an item to add.")
+        return data
+    
+
+# forms.py
+from django import forms
+from .models import CharacterFeat, CharacterFeature
+
+class _FeatM2M(forms.ModelMultipleChoiceField):
+    def label_from_instance(self, obj):
+        return f"{obj.feat.name} (L{obj.level})"
+
+class _FeatureM2M(forms.ModelMultipleChoiceField):
+    def label_from_instance(self, obj):
+        base = obj.feature.name if obj.feature else "(custom)"
+        if obj.option:
+            base = obj.option.label
+        if obj.subclass:
+            base = f"{base} — {obj.subclass.name}"
+        return f"{base} (L{obj.level})"
+
+class RemoveItemsForm(forms.Form):
+    remove_feats = _FeatM2M(queryset=CharacterFeat.objects.none(), required=False, label="Feats")
+    remove_features = _FeatureM2M(queryset=CharacterFeature.objects.none(), required=False, label="Class/Racial Features")
+    reason = forms.CharField(widget=forms.Textarea(attrs={"rows":3}), required=True, label="Reason")
+
+    def __init__(self, *args, character, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["remove_feats"].queryset = character.feats.select_related("feat").all()
+        self.fields["remove_features"].queryset = character.features.select_related("feature","option","subclass").all()
+
+    def clean(self):
+        data = super().clean()
+        if not data.get("remove_feats") and not data.get("remove_features"):
+            raise forms.ValidationError("Pick at least one item to remove.")
+        if not (data.get("reason") or "").strip():
+            raise forms.ValidationError("A reason is required.")
+        return data
