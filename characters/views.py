@@ -52,9 +52,9 @@ from .forms import CharacterCreationForm
 # characters/views.py
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
-from .forms import ManualGrantForm, CharacterCreationForm
+from .forms import CharacterDetailsForm,ManualGrantForm, CharacterCreationForm
 from .models import Armor, Character, CharacterFeat, CharacterManualGrant
-from .models import SubSkill, ProficiencyLevel, CharacterSkillProficiency
+from .models import SubSkill, ProficiencyLevel, CharacterSkillProficiency  ,  Weapon, WeaponTraitValue, Armor, CharacterWeaponEquip,CharacterKnownSpell, CharacterPreparedSpell,MartialMastery,CharacterMartialMastery, CharacterActivation
 from django.core.exceptions import ValidationError
 from django.shortcuts import render
 from characters.models import CharacterFieldOverride, CharacterFieldNote, LoremasterArticle,Spell,Subrace, CharacterFeature, ClassFeat,UniversalLevelFeature, CharacterClass, ClassFeature, ClassSubclass, SubclassGroup,  ClassProficiencyProgress, ProficiencyTier, PROFICIENCY_TYPES
@@ -66,6 +66,112 @@ LEVEL_NUM_RE = re.compile(r'(\d+)\s*(?:st|nd|rd|th)?')
 
 def _fmt(n: int) -> str:
     return f"+{n}" if n >= 0 else str(n)
+def _weapon_trait_names_lower(weapon: Weapon) -> set[str]:
+    vals = WeaponTraitValue.objects.filter(weapon=weapon).select_related("trait")
+    return { (v.trait.name or "").strip().lower() for v in vals }
+
+
+def _wtraits_lower(weapon: Weapon) -> set[str]:
+    vals = WeaponTraitValue.objects.filter(weapon=weapon).select_related("trait")
+    return {(v.trait.name or "").strip().lower() for v in vals}
+
+def _weapon_math(weapon: Weapon, str_mod: int, dex_mod: int, prof_weapon: int, half_lvl_if_trained: int):
+    """
+    Finesse or ranged → show STR and DEX for hit AND damage
+    Balanced        → show STR and DEX for hit, STR only for damage
+    Default         → STR only for both
+    """
+    traits      = _wtraits_lower(weapon)
+    is_ranged   = (weapon.range_type or Weapon.MELEE) == Weapon.RANGED
+    has_finesse = "finesse" in traits
+    has_balanced= "balanced" in traits
+
+    base   = prof_weapon + half_lvl_if_trained
+    hit_S  = base + str_mod
+    hit_D  = base + dex_mod
+    dmg_S  = str_mod
+    dmg_D  = dex_mod
+
+    if is_ranged or has_finesse:
+        return dict(rule="finesse_or_ranged", show_choice_hit=True,  show_choice_dmg=True,
+                    base=base, hit_str=hit_S, hit_dex=hit_D, dmg_str=dmg_S, dmg_dex=dmg_D, traits=sorted(traits))
+    if has_balanced:
+        return dict(rule="balanced",       show_choice_hit=True,  show_choice_dmg=False,
+                    base=base, hit_str=hit_S, hit_dex=hit_D, dmg_str=dmg_S, dmg_dex=dmg_D, traits=sorted(traits))
+    return dict(rule="default",            show_choice_hit=False, show_choice_dmg=False,
+                base=base, hit_str=hit_S, hit_dex=hit_D, dmg_str=dmg_S, dmg_dex=dmg_D, traits=sorted(traits))
+
+
+def _weapon_math_for(weapon: Weapon, str_mod: int, dex_mod: int, prof_weapon: int, half_lvl_if_trained: int):
+    """
+    Returns a dict with hit/damage totals for STR and DEX, plus which are applicable by rules.
+    Rules:
+      - ranged OR has 'finesse' => use better(STR, DEX) for hit and damage (show both).
+      - has 'balanced'          => hit uses better(STR,DEX), damage uses STR (show both for hit only).
+      - else                    => STR for both (no choice).
+    """
+    traits = _weapon_trait_names_lower(weapon)
+    is_ranged   = (weapon.range_type or Weapon.MELEE) == Weapon.RANGED
+    has_finesse = "finesse" in traits
+    has_balanced= "balanced" in traits
+
+    base = prof_weapon + half_lvl_if_trained
+    hit_str = base + str_mod
+    hit_dex = base + dex_mod
+    dmg_str = str_mod
+    dmg_dex = dex_mod  # only “applicable” when finesse/ranged allows it
+
+    rule = "default"
+    show_choice_hit = False
+    show_choice_dmg = False
+
+    if is_ranged or has_finesse:
+        rule = "finesse_or_ranged"
+        show_choice_hit = True
+        show_choice_dmg = True
+    elif has_balanced:
+        rule = "balanced"
+        show_choice_hit = True
+        show_choice_dmg = False
+    # else: default STR only
+
+    return {
+        "rule": rule,
+        "show_choice_hit": show_choice_hit,
+        "show_choice_dmg": show_choice_dmg,
+        "hit_str": hit_str,
+        "hit_dex": hit_dex,
+        "dmg_str": dmg_str,
+        "dmg_dex": dmg_dex,
+        "base": base,
+        "traits": sorted(list(traits)),
+    }
+
+@login_required
+@require_POST
+def set_weapon_choice(request, pk):
+    character = get_object_or_404(Character, pk=pk, user=request.user)
+    raw_slot  = (request.POST.get("slot") or "").strip().lower()   # accepts "1/2/3" or "primary/secondary/tertiary"
+    weapon_id = (request.POST.get("weapon_id") or "").strip()
+
+    slot_map = {"1":1,"2":2,"3":3,"primary":1,"secondary":2,"tertiary":3}
+    slot_index = slot_map.get(raw_slot)
+    if slot_index not in (1,2,3):
+        return HttpResponseBadRequest("Invalid slot")
+
+    if weapon_id == "":
+        CharacterWeaponEquip.objects.filter(character=character, slot_index=slot_index).delete()
+        return JsonResponse({"ok": True})
+
+    try:
+        weapon = Weapon.objects.get(pk=int(weapon_id))
+    except (ValueError, Weapon.DoesNotExist):
+        return HttpResponseBadRequest("Invalid weapon_id")
+
+    CharacterWeaponEquip.objects.update_or_create(
+        character=character, slot_index=slot_index, defaults={"weapon": weapon}
+    )
+    return JsonResponse({"ok": True})
 
 
 def _current_proficiencies_for_character(character):
@@ -107,6 +213,88 @@ def _current_proficiencies_for_character(character):
 
 def _half_level_total(level: int) -> int:
     return math.ceil(level / 2)
+
+
+@login_required
+@require_POST
+def set_activation(request, pk):
+    character = get_object_or_404(Character, pk=pk, user=request.user)
+    ctype_id  = request.POST.get("ctype")
+    obj_id    = request.POST.get("obj")
+    active    = (request.POST.get("active") == "1")
+    note      = (request.POST.get("note") or "").strip()
+
+    try:
+        ct = ContentType.objects.get_for_id(int(ctype_id))
+        oid = int(obj_id)
+    except (ValueError, ContentType.DoesNotExist):
+        return HttpResponseBadRequest("Bad target")
+
+    rec, _ = CharacterActivation.objects.update_or_create(
+        character=character, content_type=ct, object_id=oid,
+        defaults={"is_active": active, "note": note}
+    )
+    return JsonResponse({"ok": True, "active": rec.is_active})
+
+@login_required
+@require_POST
+def add_known_spell(request, pk):
+    character = get_object_or_404(Character, pk=pk, user=request.user)
+    spell_id  = request.POST.get("spell_id")
+    origin    = (request.POST.get("origin") or "").lower()
+    rank      = int(request.POST.get("rank") or 1)
+
+    try:
+        sp = Spell.objects.get(pk=int(spell_id))
+    except (ValueError, Spell.DoesNotExist):
+        return HttpResponseBadRequest("Invalid spell_id")
+
+    rec, _ = CharacterKnownSpell.objects.update_or_create(
+        character=character, spell=sp,
+        defaults={"origin": origin, "rank": rank}
+    )
+    return JsonResponse({"ok": True, "id": rec.id})
+
+@login_required
+@require_POST
+def set_prepared_spell(request, pk):
+    character = get_object_or_404(Character, pk=pk, user=request.user)
+    spell_id  = request.POST.get("spell_id")
+    origin    = (request.POST.get("origin") or "").lower()
+    rank      = int(request.POST.get("rank") or 1)
+    action    = (request.POST.get("action") or "add").lower()
+
+    try:
+        sp = Spell.objects.get(pk=int(spell_id))
+    except (ValueError, Spell.DoesNotExist):
+        return HttpResponseBadRequest("Invalid spell_id")
+
+    if action == "remove":
+        CharacterPreparedSpell.objects.filter(
+            character=character, spell=sp, origin=origin, rank=rank
+        ).delete()
+        return JsonResponse({"ok": True, "removed": True})
+
+    rec, _ = CharacterPreparedSpell.objects.get_or_create(
+        character=character, spell=sp, origin=origin, rank=rank
+    )
+    return JsonResponse({"ok": True, "id": rec.id})
+@login_required
+@require_POST
+def pick_martial_mastery(request, pk):
+    character = get_object_or_404(Character, pk=pk, user=request.user)
+    mastery_id = request.POST.get("mastery_id")
+    try:
+        mm = MartialMastery.objects.get(pk=int(mastery_id))
+    except (ValueError, MartialMastery.DoesNotExist):
+        return HttpResponseBadRequest("Invalid mastery_id")
+
+    CharacterMartialMastery.objects.get_or_create(
+        character=character, mastery=mm,
+        defaults={"level_picked": character.level}
+    )
+    return JsonResponse({"ok": True})
+
 @login_required
 @require_POST
 def set_armor_choice(request, pk):
@@ -955,8 +1143,11 @@ def character_detail(request, pk):
             return redirect('characters:character_detail', pk=pk)    
     auto_feats = [
         f for f in base_feats
-        if isinstance(f, ClassFeature) and f.scope == 'class_feat'
+        if isinstance(f, ClassFeature) and (
+            f.scope == 'class_feat' or getattr(f, "kind", "") == "spell_table"
+        )
     ]
+
     for f in auto_feats:
         if getattr(f, "kind", "") == "spell_table":
             row = f.spell_slot_rows.filter(level=cls_level_after).first()
@@ -990,7 +1181,21 @@ def character_detail(request, pk):
     # ── 4) BIND & HANDLE LEVEL‐UP ─────────────────────────────────────────
     edit_form = CharacterCreationForm(request.POST or None, instance=character) if can_edit else None
     # views.py inside character_detail(), POST branch handling `edit_character_submit`
+    details_form = (
+        CharacterDetailsForm(request.POST or None, instance=character)
+        if can_edit else CharacterDetailsForm(instance=character)
+    )
+ 
     if request.method == "POST" and "edit_character_submit" in request.POST and can_edit:
+
+        if request.method == "POST" and "update_details_submit" in request.POST and can_edit:
+            details_form = CharacterDetailsForm(request.POST, instance=character)
+            if details_form.is_valid():
+                details_form.save()
+                return redirect('characters:character_detail', pk=pk)
+            # fall through to render with errors if invalid
+
+
         edit_form = CharacterCreationForm(request.POST, instance=character)
         if edit_form.is_valid():
             changed = edit_form.changed_data  # fields whose values actually changed
@@ -1385,7 +1590,12 @@ def character_detail(request, pk):
         .get(character_class=picked_cls, level=cls_level_after_post)
 )
 
-            auto_feats_post = [f for f in cl_next.features.all() if f.scope == 'class_feat']
+
+            auto_feats_post = [
+                f for f in cl_next.features.all()
+                if (getattr(f, "scope", "") == "class_feat" or getattr(f, "kind", "") == "spell_table")
+            ]
+
         except ClassLevel.DoesNotExist:
             auto_feats_post = []
 
@@ -1568,6 +1778,7 @@ def character_detail(request, pk):
                 level=next_level
             )
         # Manual add (feat/feature/racial_feature) with explanation
+        return redirect('characters:character_detail', pk=pk)
 
     # ── 5) BUILD feature_fields FOR TEMPLATE ───────────────────────────────
     subclass_feats_at_next = {}
@@ -1710,42 +1921,75 @@ def character_detail(request, pk):
     prof_fort      = prof_by_code.get("fortitude", {"modifier": 0})["modifier"]
     prof_will      = prof_by_code.get("will",      {"modifier": 0})["modifier"]
     prof_weapon    = prof_by_code.get("weapon",    {"modifier": 0})["modifier"]
+    # perception/prof
+    prof_perception = prof_by_code.get("perception", {"modifier": 0})["modifier"]
+    prof_armor      = prof_by_code.get("armor",     {"modifier": 0})["modifier"]
+    prof_dodge      = prof_by_code.get("dodge",     {"modifier": 0})["modifier"]
+    prof_dc         = prof_by_code.get("dc",        {"modifier": 0})["modifier"]
+    prof_reflex     = prof_by_code.get("reflex",    {"modifier": 0})["modifier"]
+    prof_fort       = prof_by_code.get("fortitude", {"modifier": 0})["modifier"]
+    prof_will       = prof_by_code.get("will",      {"modifier": 0})["modifier"]
+    prof_weapon     = prof_by_code.get("weapon",    {"modifier": 0})["modifier"]
+
+    # HP/Temp HP resilient to model differences
+    hp_current = getattr(character, "hp_current", None) or getattr(character, "hp", None) or 0
+    hp_max     = getattr(character, "hp_max", None)     or getattr(character, "max_hp", None) or 0
+    temp_hp    = getattr(character, "temp_hp", 0)
 
 
 
     derived = {
-        "half_level":         half_lvl,
-        "armor_total":        armor_value + prof_armor + hl_if_trained("armor"),
-        "dodge_total":        10 + dex_mod + prof_dodge + hl_if_trained("dodge"),
-        "reflex_total":       dex_mod + prof_reflex + hl_if_trained("reflex"),
-        "fortitude_total":    con_mod + prof_fort   + hl_if_trained("fortitude"),
-        "will_total":         wis_mod + prof_will   + hl_if_trained("will"),
-        "weapon_base":        prof_weapon + hl_if_trained("weapon"),
-        "weapon_with_str":    prof_weapon + hl_if_trained("weapon") + str_mod,
-        "weapon_with_dex":    prof_weapon + hl_if_trained("weapon") + dex_mod,
-        "spell_dcs": [],
+        "half_level":      half_lvl,
+        "armor_total":     (int(overrides.get("armor_value") or 0)) + prof_armor + hl_if_trained("armor"),
+        "dodge_total":     10 + dex_mod + prof_dodge + hl_if_trained("dodge"),
+        "reflex_total":    dex_mod + prof_reflex + hl_if_trained("reflex"),
+        "fortitude_total": con_mod + prof_fort   + hl_if_trained("fortitude"),
+        "will_total":      wis_mod + prof_will   + hl_if_trained("will"),
+        "perception_total": prof_perception + hl_if_trained("perception"),  # (no ability in your model)
+        "weapon_base":     prof_weapon + hl_if_trained("weapon"),
+        "weapon_with_str": prof_weapon + hl_if_trained("weapon") + str_mod,
+        "weapon_with_dex": prof_weapon + hl_if_trained("weapon") + dex_mod,
+        "spell_dcs":       [],
     }
+
     LABELS = dict(PROFICIENCY_TYPES)
     def _hl(code): return hl_if_trained(code)
-    rows = []
+    defense_rows = []
 
-    def add_row(code, abil_name=None, abil_mod_val=0, label=None):
+    def add_row(code, abil_name=None, abil_mod_val=0, label=None, base_const=0):
         r = prof_by_code.get(code, {"tier_name":"—","modifier":0,"source":"—"})
         prof = int(r["modifier"])
         half = _hl(code)
-        total = prof + half + (abil_mod_val if abil_name else 0)
-        rows.append({
-            "type": label or LABELS.get(code, code),
-            "tier": r["tier_name"],
-            "prof_s": _fmt(prof),
-            "half_s": _fmt(half),
-            "abil":  abil_name or "—",
-            "abil_s": _fmt(abil_mod_val) if abil_name else "—",
-            "formula": "prof + ½ level" + (f" + {abil_name[:3]} mod" if abil_name else ""),
-            "values": f"{_fmt(prof)} + {_fmt(half)}" + (f" + {_fmt(abil_mod_val)}" if abil_name else ""),
+        total = base_const + prof + half + (abil_mod_val if abil_name else 0)
+        # build formula string
+        parts_f = []
+        parts_v = []
+        if base_const:
+            parts_f.append(str(base_const))
+            parts_v.append(str(base_const))
+        parts_f.append("prof");              parts_v.append(_fmt(prof))
+        parts_f.append("½ level");           parts_v.append(_fmt(half))
+        if abil_name:
+            parts_f.append(f"{abil_name[:3]} mod")
+            parts_v.append(_fmt(abil_mod_val))
+        defense_rows.append({
+            "type":   label or LABELS.get(code, code).title(),
+            "tier":   r["tier_name"],
+            "formula": " + ".join(parts_f),
+            "values":  " + ".join(parts_v),
             "total_s": _fmt(total),
             "source": r["source"],
         })
+
+    add_row("armor",                      label="Armor")
+    add_row("dodge",  "Dexterity", dex_mod, label="Dodge", base_const=10)   # ← 10 + DEX + prof + ½ level
+    add_row("reflex", "Dexterity", dex_mod, label="Reflex")
+    add_row("fortitude","Constitution", con_mod, label="Fortitude")
+    add_row("will",   "Wisdom",   wis_mod, label="Will")
+    add_row("perception",               label="Perception")  # (no ability in your model)
+    add_row("initiative",               label="Initiative")  # (no ability in your model)
+    add_row("weapon",                   label="Weapon (base)")
+
 
     add_row("armor")
     add_row("dodge",      "Dexterity", dex_mod)
@@ -1769,6 +2013,16 @@ def character_detail(request, pk):
     ]
 
     # Spell/DC rows (one per key ability)
+    # Build Spell/DC values from key abilities, then produce rows for the template
+    derived["spell_dcs"] = []
+    for abil in key_abil_names:
+        score = getattr(character, abil.lower(), 10)
+        mod   = _abil_mod(score)
+        derived["spell_dcs"].append({
+            "ability": abil,
+            "value": 8 + mod + prof_dc + hl_if_trained("dc"),
+        })
+
     spell_dc_rows = []
     for s in derived["spell_dcs"]:
         abil = s["ability"]
@@ -1780,13 +2034,7 @@ def character_detail(request, pk):
             "values": f"8 + {_fmt(mod)} + {_fmt(prof_dc)} + {_fmt(_hl('dc'))}",
         })
 
-    for abil in key_abil_names:
-        score = getattr(character, abil.lower(), 10)
-        mod   = _abil_mod(score)
-        derived["spell_dcs"].append({
-            "ability": abil,
-            "value": 8 + mod + prof_dc + hl_if_trained("dc"),
-        })
+
 
 
     # ------- Build the Skills table (all skills + all subskills) -------
@@ -1960,7 +2208,243 @@ def character_detail(request, pk):
         .select_related('feature','racial_feature','subclass','option')
         .order_by('level')
     )
+    # Activation state map
+    acts = CharacterActivation.objects.filter(character=character)
+    act_map = {(a.content_type_id, a.object_id): a.is_active for a in acts}
 
+    ct_classfeat   = ContentType.objects.get_for_model(ClassFeat)
+    ct_classfeature= ContentType.objects.get_for_model(ClassFeature)
+
+    owned_feats = list(CharacterFeat.objects.filter(character=character).select_related("feat"))
+    owned_features = list(
+        CharacterFeature.objects
+        .filter(character=character, feature__isnull=False)
+        .select_related("feature", "feature__character_class", "subclass")
+    )
+
+    feat_rows = [{
+        "ctype": ct_classfeat.id,
+        "obj_id": cf.feat.id,
+        "label": cf.feat.name,
+        "meta":  f"Lv {cf.level}",
+        "active": act_map.get((ct_classfeat.id, cf.feat.id), False),
+        "note_key": f"cfeat:{cf.id}",
+    } for cf in owned_feats if cf.feat_id]
+
+    feature_rows = []
+    for cfeat in owned_features:
+        label = cfeat.feature.name
+        meta  = []
+        if cfeat.feature.character_class_id:
+            meta.append(cfeat.feature.character_class.name)
+        if cfeat.subclass_id:
+            meta.append(cfeat.subclass.name)
+        row = {
+            "ctype": ct_classfeature.id,
+            "obj_id": cfeat.feature.id,
+            "label": label,
+            "meta":  " / ".join(m for m in meta if m) or "",
+            "active": act_map.get((ct_classfeature.id, cfeat.feature.id), False),
+            "note_key": f"cfeature:{cfeat.id}",
+        }
+        feature_rows.append(row)
+
+    all_rows     = feat_rows + feature_rows
+    active_rows  = [r for r in all_rows if r["active"]]
+    passive_rows = [r for r in all_rows if not r["active"]]
+
+    # ...after you compute prof_armor/prof_dodge/etc. and half_lvl...
+    prof_weapon = prof_by_code.get("weapon", {"modifier": 0})["modifier"]
+    half_weapon = hl_if_trained("weapon")
+
+    # --- Single Spell/DC (per your rule: each class has only 1 DC) ---
+    primary_cp = max(class_progress, key=lambda cp: cp.levels, default=None)
+    dc_ability = None
+    if primary_cp:
+        # you said: only one; if data has 2, pick the first deterministically
+        dc_ability = primary_cp.character_class.key_abilities.first()
+    if dc_ability:
+        abil_name = (dc_ability.name or "").lower()
+        abil_mod  = _abil_mod(getattr(character, abil_name, 10))
+        derived["spell_dc_main"] = 8 + abil_mod + prof_by_code.get("dc", {"modifier":0})["modifier"] + hl_if_trained("dc")
+        derived["spell_dc_ability"] = abil_name.title()
+    else:
+        derived["spell_dc_main"] = 8 + prof_by_code.get("dc", {"modifier":0})["modifier"] + hl_if_trained("dc")
+        derived["spell_dc_ability"] = "—"
+
+    # --- Equip pickers (Combat tab) ---
+    weapons_list = list(
+        Weapon.objects.all().order_by("name").values("id","name","damage","range_type")
+    )
+    # currently equipped (new 3-slot system)
+    by_slot = {
+        e.slot_index: e
+        for e in character.equipped_weapons.select_related("weapon").all()
+    }
+
+    # keep “main/alt” convenience vars for old templates (map to 1/2)
+    equipped_main = by_slot.get(1)
+    equipped_alt  = by_slot.get(2)
+
+    # ability mods for math
+    str_mod = _abil_mod(character.strength)
+    dex_mod = _abil_mod(character.dexterity)
+
+    # --- Build attack lines per equipped weapon (show both choices when allowed) ---
+    attacks_detailed = []
+    for idx, label in [(1, "Primary"), (2, "Secondary"), (3, "Tertiary")]:
+        rec = by_slot.get(idx)
+        if not rec:
+            continue
+        w = rec.weapon
+        math_ = _weapon_math_for(w, str_mod, dex_mod, prof_weapon, half_weapon)
+        attacks_detailed.append({
+            "slot": label,
+            "weapon_id": w.id,
+            "name": w.name,
+            "damage_die": w.damage,
+            "range_type": w.range_type,
+            "traits": math_["traits"],
+            "base": math_["base"],
+            "hit_str": math_["hit_str"],
+            "hit_dex": math_["hit_dex"],
+            "dmg_str": math_["dmg_str"],
+            "dmg_dex": math_["dmg_dex"],
+            "show_choice_hit": math_["show_choice_hit"],
+            "show_choice_dmg": math_["show_choice_dmg"],
+            "rule": math_["rule"],
+        })
+
+    # ----- LEFT CARD: finals only -----
+    finals_left = [
+        {"label": "Armor",       "value": derived["armor_total"]},
+        {"label": "Dodge",       "value": derived["dodge_total"]},
+        {"label": "Reflex",      "value": derived["reflex_total"]},
+        {"label": "Fortitude",   "value": derived["fortitude_total"]},
+        {"label": "Will",        "value": derived["will_total"]},
+        {"label": "Weapon (base)","value": derived["weapon_base"]},
+    ]
+    if derived.get("spell_dcs"):
+        # keep just the main one (you required one DC per class)
+        finals_left.append({"label":"Spell/DC", "value": derived["spell_dcs"][0]["value"]})
+
+    # ----- Weapons (3 equipped) + math, lowercase trait matching -----
+    weapons_list = list(Weapon.objects.all().order_by("name").values("id","name","damage","range_type"))
+    by_slot = {e.slot_index: e for e in character.equipped_weapons.select_related("weapon").all()}
+
+    prof_weapon = prof_by_code.get("weapon", {"modifier": 0})["modifier"]
+    half_weapon = hl_if_trained("weapon")
+    str_mod = _abil_mod(character.strength)
+    dex_mod = _abil_mod(character.dexterity)
+
+    attacks_detailed = []
+    for slot_index, slot_label in [(1,"Primary"),(2,"Secondary"),(3,"Tertiary")]:
+        rec = by_slot.get(slot_index)
+        if not rec: 
+            continue
+        w   = rec.weapon
+        m   = _weapon_math(w, str_mod, dex_mod, prof_weapon, half_weapon)
+        attacks_detailed.append({
+            "slot": slot_label,
+            "weapon_id": w.id,
+            "name": w.name,
+            "damage_die": w.damage,
+            "range_type": w.range_type,
+            **m
+        })
+
+    # ----- Tabs payloads -----
+    # Details: placeholders now, fill later in your editor
+    details_placeholders = {
+        "appearance": character.backstory[:200] if character.backstory else "",
+        "hooks": "",
+        "notes": "",
+    }
+
+    # Combat tab (defense/offense split)
+    combat_blocks = {
+        "defense": [
+            {"label":"Armor", "value": derived["armor_total"]},
+            {"label":"Dodge", "value": derived["dodge_total"]},
+            {"label":"Reflex","value": derived["reflex_total"]},
+            {"label":"Fortitude","value": derived["fortitude_total"]},
+            {"label":"Will","value": derived["will_total"]},
+        ],
+        "offense": {
+            "spell_dc": (derived["spell_dcs"][0]["value"] if derived.get("spell_dcs") else None),
+            "weapons": attacks_detailed,  # contains hit_str/hit_dex/dmg_str/dmg_dex + flags
+        }
+    }
+
+    # Feats tab (you already compute these)
+    feats_tab = {
+        "general": general_feats,
+        "class":   class_feats,
+        "other":   other_feats,
+    }
+
+    # Active/Passive tab:
+    # — features with “Active” trait (activity_type == 'active' in your model)
+    active_candidates = list(ClassFeature.objects
+                             .filter(character_features__character=character,
+                                     activity_type="active")
+                             .distinct())
+    passive_candidates = list(ClassFeature.objects
+                              .filter(character_features__character=character,
+                                      activity_type="passive")
+                              .distinct())
+
+    # — spells (known + prepared) summarized against your spell slot tables
+    spell_tables = spellcasting_blocks  # you already build this earlier
+    known_spells = list(character.known_spells.select_related("spell").all())
+    prepared_spells = list(character.prepared_spells.select_related("spell").all())
+
+    # — martial masteries
+    masteries = list(character.martial_masteries.select_related("mastery").all())
+
+    # — current activation states + notes
+    activations_map = {
+        (a.content_type_id, a.object_id): {"active": a.is_active, "note": a.note}
+        for a in character.activations.all()
+    }
+
+    active_passive_tab = {
+        "features_active":   active_candidates,
+        "features_passive":  passive_candidates,
+        "spell_tables":      spell_tables,
+        "known_spells":      known_spells,
+        "prepared_spells":   prepared_spells,
+        "masteries":         masteries,
+        "activations_map":   activations_map,
+        "actions_text": True,  # tell template to show the long combat-actions section below
+    }
+
+    # ----- include in context -----
+    extra_ctx = {
+        "finals_left": finals_left,
+        "weapons_list": weapons_list,
+        "equipped_weapon_1": by_slot.get(1).weapon if by_slot.get(1) else None,
+        "equipped_weapon_2": by_slot.get(2).weapon if by_slot.get(2) else None,
+        "equipped_weapon_3": by_slot.get(3).weapon if by_slot.get(3) else None,
+        "attacks_detailed": attacks_detailed,
+        "details_placeholders": details_placeholders,
+        "combat_blocks": combat_blocks,
+        "feats_tab": feats_tab,
+        "active_passive_tab": active_passive_tab,
+    }
+
+    context_updates = {
+        'weapons_list': weapons_list,
+        'equipped_weapon_main': equipped_main.weapon if equipped_main else None,
+        'equipped_weapon_alt':  equipped_alt.weapon  if equipped_alt  else None,
+        'attacks_detailed': attacks_detailed,
+        'spell_dc_main': derived.get("spell_dc_main"),
+        'spell_dc_ability': derived.get("spell_dc_ability"),
+    }
+    # include in your final render(...) call:
+    # ---- Final aliases for context (fix NameErrors) ----
+    rows = defense_rows
+    spell_dc_main = derived.get("spell_dc_main")
 
     # ── 6) RENDER character_detail.html ───────────────────────────────────
     return render(request, 'forge/character_detail.html', {
@@ -2004,6 +2488,24 @@ def character_detail(request, pk):
 'spell_dc_rows': spell_dc_rows,
     'ability_map': ability_map,
     'abilities': abilities, 
+'armor_total': derived["armor_total"],
+'spell_dc_rows': spell_dc_rows,
+'attack_rows': attack_rows,
+    "derived": derived,
+    "armor_total": derived["armor_total"],  # keep legacy var if the template uses it elsewhere
+    "attack_rows": attack_rows,
+    "spell_dc_rows": spell_dc_rows,
+    "spell_dc_main": spell_dc_main,
+    "defense_rows": defense_rows,
+    "hp_current": hp_current,
+    "hp_max": hp_max,
+    "temp_hp": temp_hp,
+    "active_rows": active_rows,
+    "passive_rows": passive_rows,
+    "all_rows": all_rows,
+    # if you also reference selected_armor/armor_list anywhere:
+    "armor_list": armor_list,
+    "selected_armor": selected_armor,
 
 
     })

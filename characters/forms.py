@@ -7,6 +7,7 @@ from django.db import OperationalError, ProgrammingError
 # Define a dictionary for the default skill proficiencies.
 # In LOR, during character creation every skill is by default Trained.
 from django.db.models import Q
+from django_summernote.widgets import SummernoteWidget
 # forms.py (app `characters`)
 from django import forms
 from django_select2.forms import HeavySelect2Widget
@@ -404,8 +405,30 @@ class LevelUpForm(forms.Form):
         return cleaned
 
 
-
-
+class CharacterDetailsForm(forms.ModelForm):
+    class Meta:
+        model = Character
+        fields = [
+            "backstory",
+            "worshipped_gods",
+            "believers_and_ideals",
+            "iconic_strengths",
+            "iconic_flaws",
+            "bonds_relationships",
+            "ties_connections",
+            "outlook",
+        ]
+        widgets = {f: SummernoteWidget() for f in fields}
+        labels = {
+            "backstory":             "Backstory",
+            "worshipped_gods":       "Worshipped Gods",
+            "believers_and_ideals":  "Believers and ideals",
+            "iconic_strengths":      "Iconic (Strength)",
+            "iconic_flaws":          "Iconic (Flaws)",
+            "bonds_relationships":   "Bonds/Relationship",
+            "ties_connections":      "Ties and Connections",
+            "outlook":               "Outlook",
+        }
 
 class CharacterClassForm(forms.ModelForm):
     class Meta:

@@ -10,7 +10,7 @@
   </div>
 
   {% if f.description %}
-    <div class="mt-1 small">{{ f.description|safe }}</div>
+    <div class="mt-1 small summernote-content">{{ f.description|safe }}</div>
   {% endif %}
 
   <dl class="row mt-2 small text-muted">
@@ -41,13 +41,31 @@
       </dd>
 
       {% if f.saving_throw_granularity == "basic" %}
-        {% if f.saving_throw_basic_success %}<dt class="col-4">On Success</dt><dd class="col-8">{{ f.saving_throw_basic_success }}</dd>{% endif %}
-        {% if f.saving_throw_basic_failure %}<dt class="col-4">On Failure</dt><dd class="col-8">{{ f.saving_throw_basic_failure }}</dd>{% endif %}
+        {% if f.saving_throw_basic_success %}
+          <dt class="col-4">On Success</dt>
+          <dd class="col-8"><div class="summernote-content">{{ f.saving_throw_basic_success|safe }}</div></dd>
+        {% endif %}
+        {% if f.saving_throw_basic_failure %}
+          <dt class="col-4">On Failure</dt>
+          <dd class="col-8"><div class="summernote-content">{{ f.saving_throw_basic_failure|safe }}</div></dd>
+        {% endif %}
       {% else %}
-        {% if f.saving_throw_critical_success %}<dt class="col-4">Crit Success</dt><dd class="col-8">{{ f.saving_throw_critical_success }}</dd>{% endif %}
-        {% if f.saving_throw_success %}<dt class="col-4">Success</dt><dd class="col-8">{{ f.saving_throw_success }}</dd>{% endif %}
-        {% if f.saving_throw_failure %}<dt class="col-4">Failure</dt><dd class="col-8">{{ f.saving_throw_failure }}</dd>{% endif %}
-        {% if f.saving_throw_critical_failure %}<dt class="col-4">Crit Failure</dt><dd class="col-8">{{ f.saving_throw_critical_failure }}</dd>{% endif %}
+        {% if f.saving_throw_critical_success %}
+          <dt class="col-4">Crit Success</dt>
+          <dd class="col-8"><div class="summernote-content">{{ f.saving_throw_critical_success|safe }}</div></dd>
+        {% endif %}
+        {% if f.saving_throw_success %}
+          <dt class="col-4">Success</dt>
+          <dd class="col-8"><div class="summernote-content">{{ f.saving_throw_success|safe }}</div></dd>
+        {% endif %}
+        {% if f.saving_throw_failure %}
+          <dt class="col-4">Failure</dt>
+          <dd class="col-8"><div class="summernote-content">{{ f.saving_throw_failure|safe }}</div></dd>
+        {% endif %}
+        {% if f.saving_throw_critical_failure %}
+          <dt class="col-4">Crit Failure</dt>
+          <dd class="col-8"><div class="summernote-content">{{ f.saving_throw_critical_failure|safe }}</div></dd>
+        {% endif %}
       {% endif %}
     {% endif %}
 

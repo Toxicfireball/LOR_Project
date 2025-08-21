@@ -477,7 +477,13 @@ class Character(models.Model):
                             related_name="characters"
                         )
     created_at         = models.DateTimeField(auto_now_add=True)
-
+    worshipped_gods      = SummernoteTextField(blank=True)
+    believers_and_ideals = SummernoteTextField(blank=True)   # “Believers and ideals”
+    iconic_strengths     = SummernoteTextField(blank=True)   # “Iconic (Strength)”
+    iconic_flaws         = SummernoteTextField(blank=True)   # “Iconic (Flaws)”
+    bonds_relationships  = SummernoteTextField(blank=True)
+    ties_connections     = SummernoteTextField(blank=True)
+    outlook              = SummernoteTextField(blank=True)
     def __str__(self):
         return self.name or f"Character {self.id}"
 class RaceTag(models.Model):
@@ -1770,3 +1776,89 @@ class ClassFeat(models.Model):
     def __str__(self):
         # show just the name (you can append level_prerequisite if you like)
         return self.name
+    
+# --- New: which weapons a character has equipped (2 simple slots) ---
+class CharacterWeaponEquip(models.Model):
+    SLOT_CHOICES = [(1, "Primary"), (2, "Secondary"), (3, "Tertiary")]
+    character   = models.ForeignKey(Character, on_delete=models.CASCADE, related_name="equipped_weapons")
+    weapon      = models.ForeignKey(Weapon, on_delete=models.CASCADE)
+    slot_index  = models.PositiveSmallIntegerField(choices=SLOT_CHOICES)
+
+    class Meta:
+        unique_together = ("character", "slot_index")
+
+    def __str__(self):
+        return f"{self.character.name} – {dict(self.SLOT_CHOICES).get(self.slot_index, self.slot_index)}: {self.weapon.name}"
+
+# --- New: character spell picks (split known vs prepared for clarity) ---
+class CharacterKnownSpell(models.Model):
+    ORIGIN_CHOICES = [
+        ("arcane", "Arcane"),
+        ("divine", "Divine"),
+        ("primal", "Primal"),
+        ("occult", "Occult"),
+    ]
+    character = models.ForeignKey(Character, on_delete=models.CASCADE, related_name="known_spells")
+    spell     = models.ForeignKey(Spell, on_delete=models.CASCADE)
+    origin    = models.CharField(max_length=10, choices=ORIGIN_CHOICES)  # tradition
+    rank      = models.PositiveSmallIntegerField(default=1)
+    from_class = models.ForeignKey(
+        CharacterClass, on_delete=models.SET_NULL, null=True, blank=True,
+        help_text="Optional: which class granted/learned this"
+    )
+
+    class Meta:
+        unique_together = ("character", "spell")
+
+    def __str__(self):
+        return f"{self.character.name} knows {self.spell.name} (R{self.rank}, {self.origin})"
+
+
+class CharacterPreparedSpell(models.Model):
+    character = models.ForeignKey(Character, on_delete=models.CASCADE, related_name="prepared_spells")
+    spell     = models.ForeignKey(Spell, on_delete=models.CASCADE)
+    origin    = models.CharField(max_length=10, choices=CharacterKnownSpell.ORIGIN_CHOICES)
+    rank      = models.PositiveSmallIntegerField(default=1)
+    # Optional: track which table granted the slot for audit/display
+    source_feature = models.ForeignKey(
+        ClassFeature, on_delete=models.SET_NULL, null=True, blank=True,
+        limit_choices_to={"kind": "spell_table"}
+    )
+
+    class Meta:
+        unique_together = ("character", "spell", "rank", "origin")
+
+    def __str__(self):
+        return f"{self.character.name} prepared {self.spell.name} (R{self.rank}, {self.origin})"
+
+
+# --- New: martial mastery picks saved per character ---
+class CharacterMartialMastery(models.Model):
+    character = models.ForeignKey(Character, on_delete=models.CASCADE, related_name="martial_masteries")
+    mastery   = models.ForeignKey(MartialMastery, on_delete=models.CASCADE)
+    level_picked = models.PositiveSmallIntegerField(help_text="Character level when selected")
+
+    class Meta:
+        unique_together = ("character", "mastery")
+
+    def __str__(self):
+        return f"{self.character.name} – {self.mastery.name} @L{self.level_picked}"
+
+
+# --- New: generic Active/Passive toggle + note for any owned thing (feat/feature/spell/item) ---
+class CharacterActivation(models.Model):
+    character    = models.ForeignKey(Character, on_delete=models.CASCADE, related_name="activations")
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    object_id    = models.PositiveIntegerField()
+    target       = GenericForeignKey("content_type", "object_id")
+
+    is_active = models.BooleanField(default=False)
+    note      = models.TextField(blank=True)
+
+    class Meta:
+        unique_together = ("character", "content_type", "object_id")
+
+    def __str__(self):
+        k = self.content_type.model
+        return f"{self.character.name} – {k}:{self.object_id} {'ACTIVE' if self.is_active else 'passive'}"
+
