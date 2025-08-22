@@ -44,7 +44,7 @@ urlpatterns = [
 
     # Rulebooks
     path("rulebooks/", views.RulebookListView.as_view(), name="rulebook_list"),
-    path("rulebooks/<slug:slug>/", views.RulebookDetailView.as_view(), name="rulebook_detail"),
+    path("rulebooks/<int:pk>/", views.RulebookDetailView.as_view(), name="rulebook_detail").
     path("rulebooks/id/<int:pk>/", views.RulebookDetailView.as_view(), name="rulebook_detail_by_pk"),
     path("rulebooks/page/<int:pk>/", views.RulebookPageDetailView.as_view(), name="rulebook_page_detail"),
 
