@@ -42,11 +42,12 @@ urlpatterns = [
     path("loremaster/<slug:slug>/", views.LoremasterDetailView.as_view(), name="loremaster_detail"),
     path("loremaster/id/<int:pk>/", views.LoremasterDetailView.as_view(), name="loremaster_detail_by_pk"),
 
+    # Rules
     # Rulebooks
-    path("rulebooks/", views.RulebookListView.as_view(), name="rulebook_list"),
-    path("rulebooks/<int:pk>/", views.RulebookDetailView.as_view(), name="rulebook_detail").
-    path("rulebooks/id/<int:pk>/", views.RulebookDetailView.as_view(), name="rulebook_detail_by_pk"),
-    path("rulebooks/page/<int:pk>/", views.RulebookPageDetailView.as_view(), name="rulebook_page_detail"),
+path("rulebooks/", views.RulebookListView.as_view(), name="rulebook_list"),
+path("rulebooks/<int:pk>/", views.RulebookDetailView.as_view(), name="rulebook_detail"),
+path("rulebooks/id/<int:pk>/", views.RulebookDetailView.as_view(), name="rulebook_detail_by_pk"),
+path("rulebooks/page/<int:pk>/", views.RulebookPageDetailView.as_view(), name="rulebook_page_detail"),
 
     # Select2 autocomplete
     path("autocomplete/classfeats/", views.ClassFeatAutocomplete.as_view(), name="classfeat_autocomplete"),
