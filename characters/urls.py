@@ -2,9 +2,8 @@
 from django.urls import path
 from . import views
 
-# NOTE: no app namespace here so your existing {% url '...' %} still work.
-# If you want namespacing later, see the note below.
 app_name = "characters"
+
 urlpatterns = [
     # Characters
     path("", views.character_list, name="character_list"),
@@ -22,9 +21,11 @@ urlpatterns = [
     path("<int:pk>/override/", views.set_field_override, name="set_field_override"),
 
     # Link character ↔ campaign
-    path("campaigns/<int:campaign_id>/link/<int:character_id>/",
-         views.link_character_to_campaign,
-         name="link_character_to_campaign"),
+    path(
+        "campaigns/<int:campaign_id>/link/<int:character_id>/",
+        views.link_character_to_campaign,
+        name="link_character_to_campaign",
+    ),
 
     # Codex
     path("codex/", views.codex_index, name="codex_index"),
@@ -42,12 +43,10 @@ urlpatterns = [
     path("loremaster/<slug:slug>/", views.LoremasterDetailView.as_view(), name="loremaster_detail"),
     path("loremaster/id/<int:pk>/", views.LoremasterDetailView.as_view(), name="loremaster_detail_by_pk"),
 
-    # Rules
-    # Rulebooks
-path("rulebooks/", views.RulebookListView.as_view(), name="rulebook_list"),
-path("rulebooks/<int:pk>/", views.RulebookDetailView.as_view(), name="rulebook_detail"),
-path("rulebooks/id/<int:pk>/", views.RulebookDetailView.as_view(), name="rulebook_detail_by_pk"),
-path("rulebooks/page/<int:pk>/", views.RulebookPageDetailView.as_view(), name="rulebook_page_detail"),
+    # Rulebooks (PK-based)
+    path("rulebooks/", views.RulebookListView.as_view(), name="rulebook_list"),
+    path("rulebooks/<int:pk>/", views.RulebookDetailView.as_view(), name="rulebook_detail"),
+    path("rulebooks/page/<int:pk>/", views.RulebookPageDetailView.as_view(), name="rulebook_page_detail"),
 
     # Select2 autocomplete
     path("autocomplete/classfeats/", views.ClassFeatAutocomplete.as_view(), name="classfeat_autocomplete"),
