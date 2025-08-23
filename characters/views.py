@@ -4,6 +4,8 @@ from django.contrib import messages
 from django.db.models import Case, When, IntegerField
 # Create your views here.
 # characters/views.py
+from collections import defaultdict
+
 from django.db.models import Q, Max
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
@@ -16,6 +18,44 @@ import math
 from django.views.decorators.http import require_POST
 from django.http import JsonResponse, HttpResponseBadRequest
 FIVE_TIERS = ["Untrained", "Trained", "Expert", "Master", "Legendary"]
+# ---- Background helpers ------------------------------------------------------
+
+def _skill_label(obj) -> str:
+    """
+    Background.primary/secondary skill can be Skill or SubSkill (GenericFK).
+    SubSkill.__str__ returns 'Skill – SubSkill' already; Skill returns 'Skill'.
+    """
+    if not obj:
+        return ""
+    try:
+        return str(obj)
+    except Exception:
+        return ""
+
+def _bg_label(bg) -> str:
+    """Human-friendly label for dropdowns: shows ability bonuses and proficiencies."""
+    if not bg:
+        return ""
+    prim_abil = bg.get_primary_ability_display()
+    sec_abil  = bg.get_secondary_ability_display()
+    prim_sk   = _skill_label(bg.primary_skill)
+    sec_sk    = _skill_label(bg.secondary_skill)
+    return (
+        f"{bg.name} — Primary: +{bg.primary_bonus} {prim_abil}"
+        f"{' • ' + prim_sk if prim_sk else ''} | "
+        f"Secondary: +{bg.secondary_bonus} {sec_abil}"
+        f"{' • ' + sec_sk if sec_sk else ''}"
+    )
+
+def _fetch_bg(code: str):
+    from .models import Background
+    if not code:
+        return None
+    try:
+        return Background.objects.get(code=code)
+    except Background.DoesNotExist:
+        return None
+
 
 def _is_untrained_name(name: str | None) -> bool:
     return (name or "").strip().lower() == "untrained"
@@ -880,55 +920,240 @@ def create_character(request):
     if request.method == 'POST':
         form = CharacterCreationForm(request.POST)
         if form.is_valid():
-            # 1) persist the Character
+            # Build but don't save yet; we want to apply background math first.
             character = form.save(commit=False)
             character.user = request.user
+
+            # ---- Resolve Background choices from the form (codes stored in model fields) ----
+            main_code = (getattr(character, "main_background", "") or "").strip()
+            s1_code   = (getattr(character, "side_background_1", "") or "").strip()
+            s2_code   = (getattr(character, "side_background_2", "") or "").strip()
+
+            main_bg = _fetch_bg(main_code)
+            side1   = _fetch_bg(s1_code)
+            side2   = _fetch_bg(s2_code)
+
+            # ---- Apply Background Rules (server-side backstop) -----------------------------
+            # Stacking limit: same ability or skill can only be applied twice total.
+            abil_applied_counts = defaultdict(int)   # e.g. "strength" -> 0..2
+            abil_adds           = defaultdict(int)   # how much to add to character fields
+
+            def _add_one_abil(abil_key: str) -> bool:
+                """Try to add +1 to an ability respecting the 'applied ≤ 2' rule."""
+                if not abil_key:
+                    return False
+                if abil_applied_counts[abil_key] >= 2:
+                    return False
+                abil_applied_counts[abil_key] += 1
+                abil_adds[abil_key] += 1
+                return True
+
+            def _add_bonus(abil_key: str, n: int) -> int:
+                done = 0
+                for _ in range(max(0, n)):
+                    if _add_one_abil(abil_key):
+                        done += 1
+                return done
+
+            # Skills: count how many times each exact Skill/SubSkill was granted (0..2)
+            skill_counts = defaultdict(int)  # key=(ctype_id,obj_id) -> 0..2
+
+            from django.contrib.contenttypes.models import ContentType
+            from .models import Skill as SkillModel, SubSkill as SubSkillModel
+
+            ct_skill = ContentType.objects.get_for_model(SkillModel)
+            ct_sub   = ContentType.objects.get_for_model(SubSkillModel)
+
+            def _skill_key(obj):
+                if not obj:
+                    return None
+                if isinstance(obj, SubSkillModel):
+                    return (ct_sub.id, obj.id)
+                return (ct_skill.id, obj.id)
+
+            def _grant_skill_once(obj) -> bool:
+                key = _skill_key(obj)
+                if not key:
+                    return False
+                if skill_counts[key] >= 2:
+                    return False
+                skill_counts[key] += 1
+                return True
+
+            # ---- Case logic ---------------------------------------------------------------
+            # Always aim for: total +3 ability (spread across up to two abilities) and 2 profs.
+            # Main Only  => main primary (+2), main secondary (+1); main primary skill AND main secondary skill
+            # Main + 1   => main primary (+2) + one +1 from Side (prefer side primary, else side secondary).
+            #               Skills: main primary skill + one skill from Side (primary preferred).
+            # Main + 2   => main primary (+2) + one +1 from either Side.
+            #               Skills: main primary skill + one skill from either Side.
+            # Stacking guard: if a +1 would exceed the per-ability cap (2), fallback to Main's secondary ability.
+
+            # Helper to safely extract ability field keys from Background rows
+            def _abil_key(name: str | None) -> str:
+                return (name or "").strip().lower()
+
+            if main_bg:
+                # Main's primary always applies as +2
+                _add_bonus(_abil_key(main_bg.primary_ability), int(main_bg.primary_bonus or 0))
+
+                if side1 or side2:
+                    # ---- with Sides ----
+                    # One +1 drawn from sides (pick best available)
+                    side_pool = [s for s in (side1, side2) if s]
+                    chosen = None
+                    for s in side_pool:
+                        # try primary first, then secondary
+                        if _add_one_abil(_abil_key(s.primary_ability)):
+                            chosen = s
+                            break
+                        if _add_one_abil(_abil_key(s.secondary_ability)):
+                            chosen = s
+                            break
+                    if not chosen:
+                        # fallback: push main secondary +1 if possible
+                        _add_one_abil(_abil_key(main_bg.secondary_ability))
+
+                    # Skills: main primary + one from sides (prefer primary of first viable side)
+                    if main_bg.primary_skill:
+                        _grant_skill_once(main_bg.primary_skill)
+
+                    picked_side_skill = False
+                    for s in side_pool:
+                        if s and s.primary_skill and _grant_skill_once(s.primary_skill):
+                            picked_side_skill = True
+                            break
+                        if s and s.secondary_skill and _grant_skill_once(s.secondary_skill):
+                            picked_side_skill = True
+                            break
+                    if not picked_side_skill and main_bg.secondary_skill:
+                        # emergency fallback to keep total 2
+                        _grant_skill_once(main_bg.secondary_skill)
+
+                else:
+                    # ---- Main only ----
+                    _add_bonus(_abil_key(main_bg.secondary_ability), int(main_bg.secondary_bonus or 0))
+                    if main_bg.primary_skill:
+                        _grant_skill_once(main_bg.primary_skill)
+                    if main_bg.secondary_skill:
+                        _grant_skill_once(main_bg.secondary_skill)
+
+            # ---- Apply the ability adds to the character before saving --------------------
+            for abil_key, inc in abil_adds.items():
+                if inc <= 0:
+                    continue
+                cur = getattr(character, abil_key, None)
+                if isinstance(cur, int):
+                    setattr(character, abil_key, cur + inc)
+
+            # Now persist the Character
             character.save()
 
-            # 2) parse & save the computed skill proficiencies JSON
+            # ---- Persist skill proficiencies coming from background picks -----------------
+            # 1 stacked grant = Trained, 2 stacked grants = Expert (cap at 2, per your rule).
+            from .models import ProficiencyLevel, CharacterSkillProficiency
+
+            trained = ProficiencyLevel.objects.filter(name__iexact="Trained").first()
+            expert  = ProficiencyLevel.objects.filter(name__iexact="Expert").first()
+            tier_by_count = {1: trained, 2: expert}
+
+            for (ctype_id, obj_id), count in skill_counts.items():
+                if count <= 0:
+                    continue
+                tier = tier_by_count.get(min(count, 2))
+                if not tier:
+                    continue
+                CharacterSkillProficiency.objects.update_or_create(
+                    character=character,
+                    selected_skill_type_id=ctype_id,
+                    selected_skill_id=obj_id,
+                    defaults={"proficiency": tier},
+                )
+
+            # ---- Also accept/merge any frontend-computed rows (keeps your current behavior) ----
             raw = form.cleaned_data.get('computed_skill_proficiencies') or '{}'
             try:
                 prof_map = json.loads(raw)
                 for full_name, tier_name in prof_map.items():
-                    # "Athletics – Climbing"
-                    category, subname = full_name.split(' – ', 1)
-                    subskill = SubSkill.objects.get(name=subname, skill__name=category)
-                    prof     = ProficiencyLevel.objects.get(name__iexact=tier_name)
-                    CharacterSkillProficiency.objects.create(
+                    # "Athletics – Climbing" (SubSkill) or plain "Athletics" (Skill)
+                    # Try SubSkill first
+                    sub = SubSkill.objects.filter(name__iexact=full_name.split(' – ', 1)[-1]).first()
+                    if ' – ' in full_name and sub:
+                        obj_ct, obj_id = ct_sub, sub.id
+                    else:
+                        sk = Skill.objects.filter(name__iexact=full_name).first()
+                        if not sk:
+                            continue
+                        obj_ct, obj_id = ct_skill, sk.id
+
+                    prof = ProficiencyLevel.objects.filter(name__iexact=tier_name).first()
+                    if not prof:
+                        continue
+
+                    # Upgrade if this is higher than what we already saved above
+                    existing = CharacterSkillProficiency.objects.filter(
                         character=character,
-                        subskill=subskill,
-                        proficiency=prof
-                    )
-            except (ValueError, SubSkill.DoesNotExist, ProficiencyLevel.DoesNotExist):
-                # ignore any parse/look-up errors
-                pass
+                        selected_skill_type=obj_ct,
+                        selected_skill_id=obj_id
+                    ).first()
+                    if (not existing) or (prof.bonus > existing.proficiency.bonus):
+                        CharacterSkillProficiency.objects.update_or_create(
+                            character=character,
+                            selected_skill_type=obj_ct,
+                            selected_skill_id=obj_id,
+                            defaults={"proficiency": prof},
+                        )
+            except Exception:
+                # Don’t fail the create flow; just surface a warning.
+                messages.warning(request, "Some skill proficiency data could not be read; backgrounds were applied correctly.")
 
             return redirect('characters:character_list')
 
-
+        # Form invalid: explain instead of “resetting”
+        messages.error(request, "Please correct the errors below. Your inputs are preserved.")
     else:
         form = CharacterCreationForm()
-
     # prepare JSON for frontend
     races = []
     for race in Race.objects.prefetch_related('subraces').all():
+        # Build a compact, friendly summary label: "Elf — +2 Dex, +1 Int (+1 free)"
+        mods = {
+            'Strength':     race.strength_bonus,
+            'Dexterity':    race.dexterity_bonus,
+            'Constitution': race.constitution_bonus,
+            'Intelligence': race.intelligence_bonus,
+            'Wisdom':       race.wisdom_bonus,
+            'Charisma':     race.charisma_bonus,
+        }
+        mod_parts = [f"+{v} {k[:3]}" for k, v in mods.items() if (v or 0) != 0]
+        free_part = f" (+{race.free_points} free)" if (race.free_points or 0) > 0 else ""
+        race_label = f"{race.name} — {', '.join(mod_parts) if mod_parts else '+0'}{free_part}"
+
         races.append({
+            'id': race.id,  
             'code': race.code,
             'name': race.name,
-            'modifiers': {
-                'Strength':     race.strength_bonus,
-                'Dexterity':    race.dexterity_bonus,
-                'Constitution': race.constitution_bonus,
-                'Intelligence': race.intelligence_bonus,
-                'Wisdom':       race.wisdom_bonus,
-                'Charisma':     race.charisma_bonus,
-            },
+            'label': race_label,
+            'modifiers': mods,
             'free_points':           race.free_points,
-           'max_bonus_per_ability': race.max_bonus_per_ability,
+            'max_bonus_per_ability': race.max_bonus_per_ability,
             'subraces': [
                 {
+                    'id': sub.id, 
                     'code': sub.code,
                     'name': sub.name,
+                    'label': (
+                        f"{sub.name} — " +
+                        ", ".join([f"+{v} {k[:3]}" for k, v in {
+                            'Strength':     sub.strength_bonus,
+                            'Dexterity':    sub.dexterity_bonus,
+                            'Constitution': sub.constitution_bonus,
+                            'Intelligence': sub.intelligence_bonus,
+                            'Wisdom':       sub.wisdom_bonus,
+                            'Charisma':     sub.charisma_bonus,
+                        }.items() if (v or 0) != 0]) +
+                        (f" (+{sub.free_points} free)" if (sub.free_points or 0) > 0 else "")
+                    ),
                     'modifiers': {
                         'Strength':     sub.strength_bonus,
                         'Dexterity':    sub.dexterity_bonus,
@@ -949,25 +1174,24 @@ def create_character(request):
         backgrounds.append({
             'code': bg.code,
             'name': bg.name,
+            'label': _bg_label(bg),  # << shows +ability and profs for the dropdown
             'primary': {
                 'ability': bg.get_primary_ability_display(),
                 'bonus':   bg.primary_bonus,
-                'skill':   bg.primary_skill.name,
+                'skill':   _skill_label(bg.primary_skill),
             },
             'secondary': {
                 'ability': bg.get_secondary_ability_display(),
                 'bonus':   bg.secondary_bonus,
-                'skill':   bg.secondary_skill.name,
+                'skill':   _skill_label(bg.secondary_skill),
             }
         })
-
     context = {
         'form':             form,
         'races_json':       json.dumps(races,       cls=DjangoJSONEncoder),
         'backgrounds_json': json.dumps(backgrounds, cls=DjangoJSONEncoder),
     }
     return render(request, 'forge/create_character.html', context)
-
 
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required

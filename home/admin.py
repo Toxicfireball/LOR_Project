@@ -673,7 +673,7 @@ class ArmorTraitInline(admin.TabularInline):
 
 @admin.register(Armor)
 class ArmorAdmin(admin.ModelAdmin):
-    list_display = ("name","armor_value","type","speed_penalty","hinderance")
+    list_display = ("name","armor_value","type","speed_penalty", "dex_cap","hinderance")
     list_filter  = ("type","traits")
     search_fields= ("name",)
     inlines      = [ArmorTraitInline]
@@ -1737,7 +1737,7 @@ class SpecialItemAdmin(admin.ModelAdmin):
 
 @admin.register(Weapon)
 class WeaponAdmin(admin.ModelAdmin):
-    list_display   = ("name","category","damage","range_type","range_normal","range_max")
+    list_display   = ("name","category","damage","range_type","range_normal","range_max","damage_type" )
     list_filter    = ("category","range_type")
     search_fields  = ("name","damage")
     inlines        = [WeaponTraitValueInline]

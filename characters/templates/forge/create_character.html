@@ -124,6 +124,21 @@
   }
 
 </style>
+{% if form.errors %}
+  <div class="error-summary" style="background:#fdecea;border:1px solid #f5c2c7;padding:12px;margin:12px 0;">
+    <strong>There are errors in your submission:</strong>
+    {% if form.non_field_errors %}
+      <div style="margin-top:6px;">{{ form.non_field_errors }}</div>
+    {% endif %}
+    <ul style="margin:6px 0 0 18px;">
+      {% for field in form %}
+        {% for error in field.errors %}
+          <li><strong>{{ field.label }}:</strong> {{ error }}</li>
+        {% endfor %}
+      {% endfor %}
+    </ul>
+  </div>
+{% endif %}
 
 <h2 style="text-align:center;">Stage 1: Basic Character Creation</h2>
 <p style="text-align:center;">Enter your character’s name, choose your race (and subrace if available) and background, provide a backstory, and adjust your ability scores using the point-buy system.</p>
@@ -226,16 +241,17 @@
 
 <div id="side_bg1_fields" style="margin-top:10px;">
   <label for="side_bg1_ability_choice">Choose Side Background 1 Ability Bonus:</label>
-  <select id="side_bg1_ability_choice">
-    <option value="primary">Primary Ability (+2)</option>
-    <option value="secondary">Secondary Ability (+1)</option>
-  </select>
+<select id="side_bg1_ability_choice">
+  <option value="primary">Primary Ability (+1)</option>
+  <option value="secondary">Secondary Ability (+1)</option>
+</select>
 
-  <label for="side_bg1_skill_choice">Choose Side Background 1 Skill Proficiency:</label>
-  <select id="side_bg1_skill_choice">
-    <option value="primary">Primary Skill</option>
-    <option value="secondary">Secondary Skill</option>
-  </select>
+<label for="side_bg1_skill_choice">Choose Side Background 1 Skill Proficiency:</label>
+<select id="side_bg1_skill_choice">
+  <option value="primary">Primary Skill</option>
+  <option value="secondary">Secondary Skill</option>
+</select>
+
 </div>
 </div>
 
@@ -256,10 +272,12 @@
   <label><input type="radio" name="whichSideAbility" value="2"> Side 2 gives ability, Side 1 gives skill</label>
   <!-- now the two dropdowns for each side: -->
   <label for="side_bg2_ability_choice">Choose Side Background 2 Ability Bonus:</label>
-  <select id="side_bg2_ability_choice">
-    <option value="primary">Primary Ability (+2)</option>
-    <option value="secondary">Secondary Ability (+1)</option>
-  </select>
+<select id="side_bg2_ability_choice">
+  <option value="primary">Primary Ability (+1)</option>
+  <option value="secondary">Secondary Ability (+1)</option>
+</select>
+
+
   <label for="side_bg2_skill_choice">Choose Side Background 2 Skill Proficiency:</label>
   <select id="side_bg2_skill_choice">
     <option value="primary">Primary Skill</option>
@@ -291,25 +309,52 @@
 
   <div style="text-align:center;"><button type="submit">Finish Stage 1 &amp; Create Character</button></div>
 </form>
+<script id="races-data" type="application/json">{{ races_json|safe }}</script>
+<script id="backgrounds-data" type="application/json">{{ backgrounds_json|safe }}</script>
+<script>
+(function () {
+  const races = JSON.parse(document.getElementById('races-data').textContent || '[]');
+  const bgs   = JSON.parse(document.getElementById('backgrounds-data').textContent || '[]');
+
+  const raceLabelByCode = Object.fromEntries(races.map(r => [r.code, r.label]));
+  const subraceLabelByParent = Object.fromEntries(
+    races.map(r => [r.code, Object.fromEntries((r.subraces || []).map(s => [s.code, s.label]))])
+  );
+  const bgLabelByCode = Object.fromEntries(bgs.map(bg => [bg.code, bg.label]));
+
+  function relabelSelectOptions(selectEl, labelMap) {
+    if (!selectEl) return;
+    Array.from(selectEl.options).forEach(opt => {
+      if (labelMap[opt.value]) opt.textContent = labelMap[opt.value];
+    });
+  }
+
+  // Expose small helpers for the next steps:
+  window.__lor = { races, bgs, raceLabelByCode, subraceLabelByParent, bgLabelByCode, relabelSelectOptions };
+})();
+</script>
+
 
 <script>
-  const races       = {{ races_json|safe }};
-  const backgrounds = {{ backgrounds_json|safe }};
-  const racialModifiersDict = {};
-  const customizableRaces   = {};
-  const subracesDict        = {};
+const racesData       = {{ races_json|safe }};
+const backgroundsData = {{ backgrounds_json|safe }};
 
-  races.forEach(r => {
-    racialModifiersDict[r.code] = r.modifiers;
-    if (r.free_points > 0) customizableRaces[r.code] = r.free_points;
-    if (Array.isArray(r.subraces)) {
-      subracesDict[r.code] = r.subraces.map(sr => ({ value: sr.code, label: sr.name, free_points: sr.free_points||0 }));
-        r.subraces.forEach(sr => {
-        racialModifiersDict[sr.code] = sr.modifiers;
-        if (sr.free_points > 0) customizableRaces[sr.code] = sr.free_points;
-      });
-    }
-  });
+const racialModifiersDict = {};
+const customizableRaces   = {};
+const subracesDict        = {};
+
+racesData.forEach(r => {
+  racialModifiersDict[r.id] = r.modifiers;
+  if ((r.free_points || 0) > 0) customizableRaces[r.id] = r.free_points;
+  if (Array.isArray(r.subraces)) {
+    subracesDict[r.id] = r.subraces.map(sr => ({ value: sr.id, label: sr.name, free_points: sr.free_points || 0 }));
+    r.subraces.forEach(sr => {
+      racialModifiersDict[sr.id] = sr.modifiers;
+      if ((sr.free_points || 0) > 0) customizableRaces[sr.id] = sr.free_points;
+    });
+  }
+});
+
   document.addEventListener("DOMContentLoaded", () => {
     //
     // Element references
@@ -376,10 +421,11 @@
     function addAbilityBonus(ability,bonus){
       bgAbilityBonuses[ability] = Math.min(bgAbilityBonuses[ability]+bonus,2);
     }
-    function addSkill(name){
-      if(!name) return;
-      bgSkillProficiencies[name]=1;
-    }
+function addSkill(name){
+  if(!name) return;
+  bgSkillProficiencies[name] = "Trained";
+}
+
 
     //
     // Initialize everything
@@ -401,53 +447,58 @@
     //
     // Populate race & background selects
     //
-    function populateRaceDropdown(){
-      races.forEach(r=>{
-        let opt = new Option(r.name,r.code);
-        raceSelect.add(opt);
-      });
-    }
-    function populateBackgroundDropdowns(){
-      [mainBgSelect,side1Select,side2Select].forEach(el=>{
-        backgrounds.forEach(b=>{
-          el.add(new Option(b.name,b.code));
-        });
-      });
-    }
+function populateRaceDropdown(){
+  racesData.forEach(r=>{
+    const text = r.label || r.name;       // show bonuses if present
+    const val  = r.id;                    // ✅ submit PK
+    raceSelect.add(new Option(text, val));
+  });
+}
+function populateBackgroundDropdowns(){
+  [mainBgSelect, side1Select, side2Select].forEach(el=>{
+    backgroundsData.forEach(b=>{
+      const text = b.label || b.name; // show the nice label if present
+      el.add(new Option(text, b.code));
+    });
+  });
+}
+
 
     //
     // Subrace & customizable ASIs
     //
-    function applyRacialSlots(){
-      const code = raceSelect.value;
-      const r = races.find(x=>x.code===code);
-      const parentPts = r ? r.free_points||0 : 0;
-      let subPts=0;
-      if(subraceDiv.style.display==="block"){
-        let sr = r.subraces.find(x=>x.code===subraceSelect.value);
-        subPts = sr ? sr.free_points||0 : 0;
-      }
-      racialASIPoints = parentPts+subPts;
-      document.getElementById("racial-points").innerText = racialASIPoints;
-      document.getElementById("racial-allocation-section").style.display = racialASIPoints>0?"":"none";
-      // set max on each input = max_bonus_per_ability - fixed racial mod
-      if(racialASIPoints>0){
-        const maxPer = r.max_bonus_per_ability;
-        stats.forEach(s=>{
-          const fixed = (racialModifiersDict[subraceSelect.value||code][s]||0);
-          document.getElementById("racial-"+s.toLowerCase()).max = Math.max(maxPer-fixed,0);
-        });
-      }
-    }
+function applyRacialSlots(){
+  const raceId = Number(raceSelect.value);
+  const r = racesData.find(x => x.id === raceId);
+
+  const parentPts = r ? (r.free_points || 0) : 0;
+  let subPts = 0;
+  if (subraceDiv.style.display === "block" && r && Array.isArray(r.subraces)) {
+    const sr = r.subraces.find(x => x.id === Number(subraceSelect.value));
+    subPts = sr ? (sr.free_points || 0) : 0;
+  }
+  racialASIPoints = parentPts + subPts;
+  document.getElementById("racial-points").innerText = racialASIPoints;
+  document.getElementById("racial-allocation-section").style.display = racialASIPoints > 0 ? "" : "none";
+
+  if (racialASIPoints > 0) {
+    const maxPer = r.max_bonus_per_ability;
+    const fixedMods = racialModifiersDict[Number(subraceSelect.value) || raceId] || {};
+    stats.forEach(s => {
+      const fixed = fixedMods[s] || 0;
+      document.getElementById("racial-" + s.toLowerCase()).max = Math.max(maxPer - fixed, 0);
+    });
+  }
+}
+
 function getCurrentRacialModifiers() {
   // always pick up whichever subrace (if any) is selected
-  const mainCode = raceSelect.value;
-  const subCode  = subraceSelect.value;
+const mainId = Number(raceSelect.value);
+const subId  = Number(subraceSelect.value);
 
-  const mainMods = racialModifiersDict[mainCode] || {};
-  const subMods  = subCode
-                  ? (racialModifiersDict[subCode] || {})
-                  : {};
+const mainMods = racialModifiersDict[mainId] || {};
+const subMods  = subId ? (racialModifiersDict[subId] || {}) : {};
+
 
   // combine fixed race + fixed subrace + any ASI allocations
   const combined = {};
@@ -464,18 +515,27 @@ function getCurrentRacialModifiers() {
     //
     // Half-elf origin
     //
-    function updateHalfElfOriginDisplay(){
-      const code = subraceDiv.style.display==="block"
-                 ? subraceSelect.value
-                 : raceSelect.value;
-      if(code==="half_elf_fully"){
-        halfElfDiv.style.display="block";
-        halfElfSelect.disabled=false;
-      } else {
-        halfElfDiv.style.display="none";
-        halfElfSelect.value="";
-      }
-    }
+function updateHalfElfOriginDisplay(){
+  const selectedId = Number(subraceDiv.style.display === "block" && subraceSelect.value ? subraceSelect.value : raceSelect.value);
+  // find selected object to check its code/name
+  const selected =
+    racesData.find(r => r.id === selectedId)
+    || racesData.flatMap(r => r.subraces || []).find(sr => sr.id === selectedId);
+
+  const isHalfElf = selected && (
+    (selected.code && selected.code === "half_elf_fully") ||
+    (selected.name && selected.name.toLowerCase().includes("half-elf"))
+  );
+
+  if (isHalfElf) {
+    halfElfDiv.style.display = "block";
+    halfElfSelect.disabled = false;
+  } else {
+    halfElfDiv.style.display = "none";
+    halfElfSelect.value = "";
+  }
+}
+
 
     //
     // Prevent duplicate backgrounds
@@ -495,8 +555,7 @@ function getCurrentRacialModifiers() {
     //
     function updateBackgroundModifiers(){
       resetBGState();
-      const main = backgrounds.find(b=>b.code===mainBgSelect.value);
-      const combo = document.querySelector('input[name="bg_combo"]:checked').value;
+const main = backgroundsData.find(b=>b.code===mainBgSelect.value);      const combo = document.querySelector('input[name="bg_combo"]:checked').value;
       if(main){
         // always primary
         addAbilityBonus(main.primary.ability,main.primary.bonus);
@@ -506,8 +565,7 @@ function getCurrentRacialModifiers() {
           addAbilityBonus(main.secondary.ability,main.secondary.bonus);
           addSkill(main.secondary.skill);
         } else if(combo==="1" && side1Select.value){
-          const side = backgrounds.find(b=>b.code===side1Select.value);
-          addAbilityBonus(side[side1AbilitySelect.value].ability,1);
+const side = backgroundsData.find(b=>b.code===side1Select.value);          addAbilityBonus(side[side1AbilitySelect.value].ability,1);
           addSkill(side[side1SkillSelect.value].skill);
         } else if(combo==="2"){
           const which = Array.from(whichSideRadios).find(r=>r.checked).value;
@@ -515,14 +573,12 @@ function getCurrentRacialModifiers() {
           const abilEl = which==="1" ? side1Select : side2Select;
           const abilChoice = (abilEl===side1Select?side1AbilitySelect:side2AbilitySelect).value;
           if(abilEl.value){
-            const s = backgrounds.find(b=>b.code===abilEl.value);
-            addAbilityBonus(s[abilChoice].ability,1);
+const s = backgroundsData.find(b=>b.code===abilEl.value);            addAbilityBonus(s[abilChoice].ability,1);
           }
           const skillEl = which==="1"? side2Select : side1Select;
           const skillChoice = (skillEl===side1Select?side1SkillSelect:side2SkillSelect).value;
           if(skillEl.value){
-            const s = backgrounds.find(b=>b.code===skillEl.value);
-            addSkill(s[skillChoice].skill);
+const s = backgroundsData.find(b=>b.code===skillEl.value);            addSkill(s[skillChoice].skill);
           }
         }
       }
@@ -730,19 +786,23 @@ function getCurrentRacialModifiers() {
     initializeCharacter();
 
     // race → subrace + ASI slots + half-elf
-    raceSelect.addEventListener("change",()=>{
-      // populate subrace
-      subraceSelect.innerHTML = "<option value=''>-- Select a Subrace --</option>";
-      const r = races.find(x=>x.code===raceSelect.value);
-      if(r && Array.isArray(r.subraces)&&r.subraces.length){
-        r.subraces.forEach(sr=>subraceSelect.add(new Option(sr.name,sr.code)));
-        subraceDiv.style.display="";
-      } else subraceDiv.style.display="none";
-
-      applyRacialSlots();
-      updateHalfElfOriginDisplay();
-      updateDisplay();
+raceSelect.addEventListener("change", () => {
+  subraceSelect.innerHTML = "<option value=''>-- Select a Subrace --</option>";
+  const r = racesData.find(x => x.id === Number(raceSelect.value));
+  if (r && Array.isArray(r.subraces) && r.subraces.length) {
+    r.subraces.forEach(sr => {
+      const text = sr.label || sr.name;
+      subraceSelect.add(new Option(text, sr.id));    // ✅ submit PK
     });
+    subraceDiv.style.display = "";
+  } else {
+    subraceDiv.style.display = "none";
+  }
+  applyRacialSlots();
+  updateHalfElfOriginDisplay();
+  updateDisplay();
+});
+
     subraceSelect.addEventListener("change",()=>{
       applyRacialSlots();
       updateHalfElfOriginDisplay();
@@ -761,12 +821,15 @@ function getCurrentRacialModifiers() {
     });
 
     // any background dropdown/choice change
-    [ mainBgSelect, side1Select, side1AbilitySelect, side1SkillSelect,
-      side2Select, side2AbilitySelect, side2SkillSelect,
-      ...whichSideRadios
-    ].forEach(el=>{
-      el.addEventListener("change",()=>updateDisplay());
-    });
+[ mainBgSelect, side1Select, side1AbilitySelect, side1SkillSelect,
+  side2Select, side2AbilitySelect, side2SkillSelect,
+  ...whichSideRadios
+].forEach(el=>{
+  if (el && el.addEventListener) {
+    el.addEventListener("change", ()=>updateDisplay());
+  }
+});
+
 
     // duplicate prevention
     preventDuplicate(mainBgSelect,side1Select,"Main and Side 1 cannot match.");
@@ -774,6 +837,26 @@ function getCurrentRacialModifiers() {
     preventDuplicate(side1Select, side2Select,"Side 1 and Side 2 cannot match.");
     // also prevent selecting side2 = side1
     preventDuplicate(side2Select, side1Select, "Side Background cannot match Side Background.");
+// After options are populated, swap visible labels to show bonuses/proficiencies
+if (window.__lor) {
+  // race + subrace
+  window.__lor.relabelSelectOptions(document.getElementById('race'), window.__lor.raceLabelByCode);
+  const firstSubMap = window.__lor.subraceLabelByParent[document.getElementById('race').value] || {};
+  window.__lor.relabelSelectOptions(document.getElementById('subrace'), firstSubMap);
+
+  // backgrounds
+  const bgMap = window.__lor.bgLabelByCode;
+  ['main_background', 'side_background_1', 'side_background_2'].forEach(id => {
+    const sel = document.getElementById(id);
+    if (sel) window.__lor.relabelSelectOptions(sel, bgMap);
+  });
+
+  // keep subrace labels in sync with race change
+  document.getElementById('race').addEventListener('change', () => {
+    const subMap = window.__lor.subraceLabelByParent[document.getElementById('race').value] || {};
+    window.__lor.relabelSelectOptions(document.getElementById('subrace'), subMap);
+  });
+}
 
     // finally initial render
     updateDisplay();

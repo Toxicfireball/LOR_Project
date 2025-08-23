@@ -19,18 +19,17 @@ class CharacterCreationForm(forms.ModelForm):
     # — pick race by its slug/code, not by PK
     race = forms.ModelChoiceField(
         queryset=Race.objects.all(),
-        to_field_name='code',
         empty_label="— Select a Race —",
         widget=forms.Select(attrs={'id': 'id_race'}),
     )
-    # — will be filtered in __init__
+
     subrace = forms.ModelChoiceField(
         queryset=Subrace.objects.none(),
-        to_field_name='code',
         required=False,
         empty_label="— Select a Subrace —",
         widget=forms.Select(attrs={'id': 'id_subrace'}),
     )
+
 
     # backgrounds all come from the DB
     main_background = forms.ModelChoiceField(
@@ -70,30 +69,13 @@ class CharacterCreationForm(forms.ModelForm):
         widget=forms.HiddenInput(), required=False
     )
 
-    class Meta:
-        model = Character
-        fields = [
-            'name',
-            'race', 'subrace', 'half_elf_origin',
-            'main_background', 'side_background_1', 'side_background_2',
-            'strength', 'dexterity', 'constitution',
-            'intelligence', 'wisdom', 'charisma',
-            'HP', 'temp_HP', 'level',            # ← add these
-            'backstory',
-            'computed_skill_proficiencies',
-        ]
-        widgets = {
-            'backstory': forms.Textarea(attrs={'rows': 4, 'cols': 40}),
-        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
-        # if the form is bound, filter subrace queryset to that race
         data = self.data or {}
-        race_code = data.get('race') or getattr(self.instance.race, 'code', None)
-        if race_code:
-            self.fields['subrace'].queryset = Subrace.objects.filter(race__code=race_code)
+        race_pk = data.get('race') or (getattr(self.instance, 'race_id', None))
+        if race_pk:
+            self.fields['subrace'].queryset = Subrace.objects.filter(race_id=race_pk)
         else:
             self.fields['subrace'].queryset = Subrace.objects.none()
 

@@ -771,7 +771,11 @@ class Weapon(models.Model):
         ('martial', 'Martial'),
         ('special', 'Special'),
     ]
-
+    Damage_Choices = [
+        ('bludgeoning', 'Bludgeoning'),
+        ('piercing', 'Piercing'),
+        ('slashing', 'Slashing'),
+    ]
     MELEE = "melee"
     RANGED = "ranged"
     RANGE_CHOICES = [(MELEE, "Melee"), (RANGED, "Ranged")]
@@ -783,6 +787,8 @@ class Weapon(models.Model):
     range_type     = models.CharField(max_length=6, choices=RANGE_CHOICES, default=MELEE)
     range_normal   = models.PositiveIntegerField(null=True, blank=True, help_text="Normal range for ranged weapons")
     range_max      = models.PositiveIntegerField(null=True, blank=True, help_text="Maximum range")
+    damage_type =  models.CharField(max_length=30, choices=Damage_Choices, default=None, null=True, blank=True)
+
 
     def __str__(self):
         return f"{self.name} ({self.get_category_display()})"
@@ -831,7 +837,7 @@ class Armor(models.Model):
     traits        = models.ManyToManyField(ArmorTrait, blank=True, help_text="Select any special traits")
     speed_penalty = models.IntegerField(help_text="Flat penalty to speed (ft)")
     hinderance    = models.IntegerField(help_text="Penalty to Str/Dex checks")
-
+    dex_cap = models.IntegerField(help_text="10 + dex cap for dodge", blank=True, null=True)
     def __str__(self):
         return f"{self.name} ({self.get_type_display()})"
 
