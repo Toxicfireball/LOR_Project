@@ -69,7 +69,34 @@ class CharacterCreationForm(forms.ModelForm):
         widget=forms.HiddenInput(), required=False
     )
 
+    class Meta:
+        model = Character
+        fields = [
+            "name",
+            "race",
+            "subrace",
+            "main_background",
+            "side_background_1",
+            "side_background_2",
+            "backstory",
+            "strength", "dexterity", "constitution",
+            "intelligence", "wisdom", "charisma",
+        ]
+        # NOTE: extra non-model fields like half_elf_origin and
+        # computed_skill_proficiencies are fine; they just aren't saved.
 
+    # Make sure we store codes (strings) in the Character model:
+    def clean_main_background(self):
+        obj = self.cleaned_data.get("main_background")
+        return getattr(obj, "code", "") if obj else ""
+
+    def clean_side_background_1(self):
+        obj = self.cleaned_data.get("side_background_1")
+        return getattr(obj, "code", "") if obj else ""
+
+    def clean_side_background_2(self):
+        obj = self.cleaned_data.get("side_background_2")
+        return getattr(obj, "code", "") if obj else ""
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         data = self.data or {}
