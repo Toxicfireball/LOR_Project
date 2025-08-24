@@ -13,6 +13,12 @@
 
 {% block content %}
 <style>
+  .edit-pill {
+  border: 0; background: transparent; padding: 0 .25rem; font-size: .85rem;
+  color: #6c757d; cursor: pointer;
+}
+.edit-pill:hover { color: #0d6efd; text-decoration: underline; }
+
   .summernote-content p{ margin-bottom:.5rem; }
   .summernote-content ul, .summernote-content ol{ padding-left:1.25rem; margin-bottom:.5rem; }
   .summernote-content h1,.summernote-content h2,.summernote-content h3,
@@ -94,47 +100,69 @@
         </div>
 
         <!-- Quick finals -->
-        <div class="card">
-          <div class="card-header fw-bold">Core Stats</div>
-          <ul class="list-unstyled mb-0 p-3">
-            <li class="d-flex justify-content-between align-items-center">
-              <span>HP {% note_icon "core:hp" %}</span>
-              <span class="fw-bold">{{ hp_current }} / {{ hp_max }}</span>
-            </li>
-            <li class="d-flex justify-content-between align-items-center">
-              <span>Temp HP {% note_icon "core:temp_hp" %}</span>
-              <span class="fw-bold">{{ temp_hp|default:0 }}</span>
-            </li>
-            <li class="d-flex justify-content-between align-items-center">
-              <span>Armor {% note_icon "core:armor" %}</span>
-              <span class="fw-bold">{{ derived.armor_total }}</span>
-            </li>
-            <li class="d-flex justify-content-between align-items-center">
-              <span>Dodge {% note_icon "core:dodge" %}</span>
-              <span class="fw-bold">{{ derived.dodge_total }}</span>
-            </li>
-            <li class="d-flex justify-content-between align-items-center">
-              <span>Reflex {% note_icon "core:reflex" %}</span>
-              <span class="fw-bold">{{ derived.reflex_total }}</span>
-            </li>
-            <li class="d-flex justify-content-between align-items-center">
-              <span>Fortitude {% note_icon "core:fortitude" %}</span>
-              <span class="fw-bold">{{ derived.fortitude_total }}</span>
-            </li>
-            <li class="d-flex justify-content-between align-items-center">
-              <span>Will {% note_icon "core:will" %}</span>
-              <span class="fw-bold">{{ derived.will_total }}</span>
-            </li>
-            <li class="d-flex justify-content-between align-items-center">
-              <span>Perception {% note_icon "core:perception" %}</span>
-              <span class="fw-bold">{{ derived.perception_total }}</span>
-            </li>
-            <li class="d-flex justify-content-between align-items-center">
-              <span>Spell/DC {% note_icon "core:spell_dc" %}</span>
-              <span class="fw-bold">{{ spell_dc_main|default:"—" }}</span>
-            </li>
-          </ul>
-        </div>
+<div class="card">
+  <div class="card-header fw-bold">Core Stats</div>
+  <ul class="list-group list-group-flush">
+    <li class="list-group-item d-flex justify-content-between align-items-center">
+      <span>HP</span>
+      <span><strong>{{ hp_current }}</strong> / <strong>{{ hp_max }}</strong></span>
+    </li>
+    <li class="list-group-item d-flex justify-content-between align-items-center">
+      <span>Temp HP</span>
+      <span><strong>{{ temp_hp|default:0 }}</strong></span>
+    </li>
+    <li class="list-group-item d-flex justify-content-between align-items-center">
+      <span>Armor</span>
+      <span class="d-flex align-items-center gap-2">
+        <strong>{{ derived.armor_total }}</strong>
+        <button class="btn btn-xs btn-outline-secondary edit-override" data-key="prof:armor" type="button">✎</button>
+      </span>
+    </li>
+    <li class="list-group-item d-flex justify-content-between align-items-center">
+      <span>Dodge</span>
+      <span class="d-flex align-items-center gap-2">
+        <strong>{{ derived.dodge_total }}</strong>
+        <button class="btn btn-xs btn-outline-secondary edit-override" data-key="prof:dodge" type="button">✎</button>
+      </span>
+    </li>
+    <li class="list-group-item d-flex justify-content-between align-items-center">
+      <span>Reflex</span>
+      <span class="d-flex align-items-center gap-2">
+        <strong>{{ derived.reflex_total }}</strong>
+        <button class="btn btn-xs btn-outline-secondary edit-override" data-key="prof:reflex" type="button">✎</button>
+      </span>
+    </li>
+    <li class="list-group-item d-flex justify-content-between align-items-center">
+      <span>Fortitude</span>
+      <span class="d-flex align-items-center gap-2">
+        <strong>{{ derived.fortitude_total }}</strong>
+        <button class="btn btn-xs btn-outline-secondary edit-override" data-key="prof:fortitude" type="button">✎</button>
+      </span>
+    </li>
+    <li class="list-group-item d-flex justify-content-between align-items-center">
+      <span>Will</span>
+      <span class="d-flex align-items-center gap-2">
+        <strong>{{ derived.will_total }}</strong>
+        <button class="btn btn-xs btn-outline-secondary edit-override" data-key="prof:will" type="button">✎</button>
+      </span>
+    </li>
+    <li class="list-group-item d-flex justify-content-between align-items-center">
+      <span>Perception</span>
+      <span class="d-flex align-items-center gap-2">
+        <strong>{{ derived.perception_total }}</strong>
+        <button class="btn btn-xs btn-outline-secondary edit-override" data-key="prof:perception" type="button">✎</button>
+      </span>
+    </li>
+    <li class="list-group-item d-flex justify-content-between align-items-center">
+      <span>Spell/DC</span>
+      <span class="d-flex align-items-center gap-2">
+        <strong>{{ spell_dc_main|default:"—" }}</strong>
+        <button class="btn btn-xs btn-outline-secondary edit-override" data-key="prof:dc" type="button">✎</button>
+      </span>
+    </li>
+  </ul>
+</div>
+
 
       </div>
     </aside>
@@ -156,59 +184,49 @@
       <div class="tab-content pt-3">
         <!-- DETAILS TAB -->
         <div class="tab-pane fade show active" id="tab-details">
-          {% if can_edit %}
-            {{ details_form.media }}
-            <form method="post" novalidate>
-              {% csrf_token %}
-              {{ details_form.non_field_errors }}
+<div class="d-flex align-items-center justify-content-between mb-2">
+  <h5 class="mb-0">Details</h5>
+  {% if can_edit %}
+    <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#detailsEdit">
+      ✎ Edit
+    </button>
+  {% endif %}
+</div>
 
-              <div class="mb-3">
-                <label class="form-label">Backstory</label>
-                {{ details_form.backstory }}
-              </div>
-              <div class="mb-3">
-                <label class="form-label">Worshipped Gods</label>
-                {{ details_form.worshipped_gods }}
-              </div>
-              <div class="mb-3">
-                <label class="form-label">Believers and ideals</label>
-                {{ details_form.believers_and_ideals }}
-              </div>
-              <div class="mb-3">
-                <label class="form-label">Iconic (Strength)</label>
-                {{ details_form.iconic_strengths }}
-              </div>
-              <div class="mb-3">
-                <label class="form-label">Iconic (Flaws)</label>
-                {{ details_form.iconic_flaws }}
-              </div>
-              <div class="mb-3">
-                <label class="form-label">Bonds/Relationship</label>
-                {{ details_form.bonds_relationships }}
-              </div>
-              <div class="mb-3">
-                <label class="form-label">Ties and Connections</label>
-                {{ details_form.ties_connections }}
-              </div>
-              <div class="mb-3">
-                <label class="form-label">Outlook</label>
-                {{ details_form.outlook }}
-              </div>
+{% if can_edit %}
+  {{ details_form.media }}
+  <div id="detailsEdit" class="collapse">
+    <form method="post" novalidate>
+      {% csrf_token %}
+      {{ details_form.non_field_errors }}
 
-              <button type="submit" name="update_details_submit" class="btn btn-primary">
-                Save Details
-              </button>
-            </form>
-          {% else %}
-            <div class="mb-4"><h5>Backstory</h5><div class="summernote-view">{{ character.backstory|safe }}</div></div>
-            <div class="mb-4"><h5>Worshipped Gods</h5><div class="summernote-view">{{ character.worshipped_gods|safe }}</div></div>
-            <div class="mb-4"><h5>Believers and ideals</h5><div class="summernote-view">{{ character.believers_and_ideals|safe }}</div></div>
-            <div class="mb-4"><h5>Iconic (Strength)</h5><div class="summernote-view">{{ character.iconic_strengths|safe }}</div></div>
-            <div class="mb-4"><h5>Iconic (Flaws)</h5><div class="summernote-view">{{ character.iconic_flaws|safe }}</div></div>
-            <div class="mb-4"><h5>Bonds/Relationship</h5><div class="summernote-view">{{ character.bonds_relationships|safe }}</div></div>
-            <div class="mb-4"><h5>Ties and Connections</h5><div class="summernote-view">{{ character.ties_connections|safe }}</div></div>
-            <div class="mb-4"><h5>Outlook</h5><div class="summernote-view">{{ character.outlook|safe }}</div></div>
-          {% endif %}
+      {% for field in details_form.visible_fields %}
+        <div class="mb-3">
+          <label class="form-label">{{ field.label }}</label>
+          {{ field }}
+          <input class="form-control form-control-sm mt-1"
+                 name="note__{{ field.name }}"
+                 placeholder="Reason (required if changed)">
+        </div>
+      {% endfor %}
+
+      <button type="submit" name="update_details_submit" class="btn btn-primary">
+        Save Details
+      </button>
+    </form>
+  </div>
+{% endif %}
+
+{# Always show the read view below; the edit form above is collapsed #}
+<div class="mb-4"><h6>Backstory</h6><div class="summernote-view">{{ character.backstory|safe|default:"—" }}</div></div>
+<div class="mb-4"><h6>Worshipped Gods</h6><div class="summernote-view">{{ character.worshipped_gods|safe|default:"—" }}</div></div>
+<div class="mb-4"><h6>Believers and ideals</h6><div class="summernote-view">{{ character.believers_and_ideals|safe|default:"—" }}</div></div>
+<div class="mb-4"><h6>Iconic (Strength)</h6><div class="summernote-view">{{ character.iconic_strengths|safe|default:"—" }}</div></div>
+<div class="mb-4"><h6>Iconic (Flaws)</h6><div class="summernote-view">{{ character.iconic_flaws|safe|default:"—" }}</div></div>
+<div class="mb-4"><h6>Bonds/Relationship</h6><div class="summernote-view">{{ character.bonds_relationships|safe|default:"—" }}</div></div>
+<div class="mb-4"><h6>Ties and Connections</h6><div class="summernote-view">{{ character.ties_connections|safe|default:"—" }}</div></div>
+<div class="mb-4"><h6>Outlook</h6><div class="summernote-view">{{ character.outlook|safe|default:"—" }}</div></div>
+
         </div>
 
         <!-- COMBAT TAB -->
@@ -268,7 +286,11 @@
             <td class="text-muted">{{ r.formula }}</td>
             <td>{{ r.values }}</td>
             <td class="fw-semibold">{{ r.total_s }}</td>
-            <td>{% note_icon "defense:"|add:r.type %}</td>
+            <td>
+  {% note_icon "defense:"|add:r.type %}
+  <button class="btn btn-xs btn-outline-secondary ms-2 edit-override" data-key="prof:{{ r.code }}" type="button">✎</button>
+</td>
+
           </tr>
         {% endfor %}
       </tbody>
@@ -427,37 +449,34 @@
               </tr>
 
               {# inline editor (hidden until Edit is clicked) #}
-              <tr id="edit-{{ row.id_key }}" class="d-none">
-                <td colspan="5">
-                  <div class="row g-2 align-items-center">
-                    <div class="col-md-3">
-                      <label class="form-label form-label-sm mb-1">New Tier</label>
-                      <select name="sp_{{ row.id_key }}" class="form-select form-select-sm">
-                        {% for pl in proficiency_levels %}
-                          <option value="{{ pl.id }}" {% if pl.id == row.prof_id %}selected{% endif %}>
-                            {{ pl.name }} {% if pl.bonus >= 0 %}+{% endif %}{{ pl.bonus }}
-                          </option>
-                        {% endfor %}
-                      </select>
-                    </div>
-                    <div class="col-md-7">
-                      <label class="form-label form-label-sm mb-1">Reason (required)</label>
-                      <input
-                        name="sp_note_{{ row.id_key }}"
-                        class="form-control form-control-sm"
-                        placeholder="Why are you changing this?"
-                        required
-                      >
-                    </div>
-                    <div class="col-md-2 text-end">
-                      <label class="form-label form-label-sm mb-1 d-block">&nbsp;</label>
-                      <button class="btn btn-sm btn-primary" name="save_skill_row" value="{{ row.id_key }}">
-                        Save
-                      </button>
-                    </div>
-                  </div>
-                </td>
-              </tr>
+{# inline editor (hidden until Edit is clicked) #}
+<tr id="edit-{{ row.id_key }}" class="d-none">
+  <td colspan="5">
+    <div class="row g-2 align-items-center">
+      <div class="col-md-3">
+        <label class="form-label form-label-sm mb-1">Adjustment (±)</label>
+        <input type="number" step="1" class="form-control form-control-sm"
+               name="skadj_{{ row.id_key }}"
+               value="{{ row.adjustment|default:0 }}">
+        <div class="form-text">Adds to this skill’s total.</div>
+      </div>
+      <div class="col-md-7">
+        <label class="form-label form-label-sm mb-1">Reason (required)</label>
+        <input name="skadj_note_{{ row.id_key }}"
+               class="form-control form-control-sm"
+               placeholder="Why are you changing this?"
+               required>
+      </div>
+      <div class="col-md-2 text-end">
+        <label class="form-label form-label-sm mb-1 d-block">&nbsp;</label>
+        <button class="btn btn-sm btn-primary" name="save_skill_row" value="{{ row.id_key }}">
+          Save
+        </button>
+      </div>
+    </div>
+  </td>
+</tr>
+
             {% endfor %}
           </tbody>
         </table>
@@ -479,7 +498,16 @@
                   <thead><tr><th style="width:70px">Level</th><th>Name</th></tr></thead>
                   <tbody>
                     {% for cf in general_feats %}
-                      <tr><td>Lv {{ cf.level }}</td><td>{{ cf.feat.name }} {% note_icon "cfeat:"|add:cf.id %}</td></tr>
+            <tr>
+              <td>Lv {{ cf.level }}</td>
+              <td>
+                <div class="d-flex justify-content-between align-items-center">
+                  <span>{{ cf.feat.name }} {% note_icon "cfeat:"|add:cf.id %}</span>
+                  <button class="btn btn-sm btn-link p-0 toggle-desc" type="button">Details</button>
+                </div>
+                <div class="small text-muted d-none desc-body">{{ cf.feat.description|safe }}</div>
+              </td>
+            </tr>
                     {% empty %}<tr><td colspan="2" class="text-muted">— None —</td></tr>{% endfor %}
                   </tbody>
                 </table>
@@ -492,7 +520,16 @@
                   <thead><tr><th style="width:70px">Level</th><th>Name</th></tr></thead>
                   <tbody>
                     {% for cf in class_feats %}
-<tr><td>Lv {{ cf.level }}</td><td>{{ cf.feat.name }} {% note_icon "cfeat:"|add:cf.id %}</td></tr>
+<tr>
+  <td>Lv {{ cf.level }}</td>
+  <td>
+    <div class="d-flex justify-content-between align-items-center">
+      <span>{{ cf.feat.name }} {% note_icon "cfeat:"|add:cf.id %}</span>
+      <button class="btn btn-sm btn-link p-0 toggle-desc" type="button">Details</button>
+    </div>
+    <div class="small text-muted d-none desc-body">{{ cf.feat.description|safe }}</div>
+  </td>
+</tr>
                     {% empty %}<tr><td colspan="2" class="text-muted">— None —</td></tr>{% endfor %}
                   </tbody>
                 </table>
@@ -590,7 +627,7 @@
   </div>
 </div>
 
-<!-- SPELLCASTING TAB (moved out) -->
+<!-- SPELLCASTING TAB (single, consolidated) -->
 <div class="tab-pane fade" id="tab-spellcasting">
   <div class="row g-3">
     <div class="col-lg-12">
@@ -633,7 +670,164 @@
       </div>
     </div>
   </div>
+
+  <div class="card p-3 mt-3">
+    <h5 class="mb-3">Spellcasting</h5>
+    {% if spellcasting_blocks %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle">
+          <thead>
+            <tr>
+              <th>Class / List</th>
+              <th>Cantrips</th>
+              <th>Known</th>
+              <th>Prepared</th>
+              <th>DC</th>
+              <th>Formula</th>
+              <th>Values</th>
+              <th>Edit</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for b in spellcasting_blocks %}
+              <tr>
+                <td>{{ b.klass.name }} <small class="text-muted">• {{ b.list|default:"—" }}</small></td>
+                <td>{{ b.cantrips|default:"—" }}</td>
+                <td>{{ b.known|default:"—" }}</td>
+                <td>{{ b.prepared|default:"—" }}</td>
+                <td class="fw-semibold">{{ b.dc_total|default:"—" }}</td>
+                <td class="text-muted">{{ b.dc_formula_h|default:"" }}</td>
+                <td>{{ b.dc_values_h|default:"" }}</td>
+                <td>
+                  {% if b.dc_total %}
+                    <button class="btn btn-xs btn-outline-secondary edit-override" data-key="prof:dc" type="button">✎</button>
+                  {% endif %}
+                </td>
+              </tr>
+              {% if b.slots %}
+                <tr>
+                  <td colspan="8" class="pt-0">
+                    <div class="small text-muted">Slots by Rank:
+                      {% for s in b.slots %}
+                        <span class="badge text-bg-light me-1">R{{ forloop.counter }}: {{ s|default:"0" }}</span>
+                      {% endfor %}
+                    </div>
+                  </td>
+                </tr>
+              {% endif %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="mb-0 text-muted">This character has no spellcasting feature.</p>
+    {% endif %}
+  </div>
+
+  <hr class="my-3">
+  <h6 class="mb-2">Learn & Prepare</h6>
+  <form method="post" action="{% url 'characters:character_detail' character.pk %}">
+    {% csrf_token %}
+    {% for b in spell_selection_blocks %}
+      <div class="border rounded p-3 mb-3">
+        <div class="d-flex justify-content-between align-items-center">
+          <div class="fw-semibold">
+            {{ b.class_name }} • {{ b.origin }}
+            <small class="text-muted"> (max rank {{ b.max_rank }})</small>
+          </div>
+          <div class="small text-muted">
+            Cantrips: {{ b.known_cantrips_current }}/{{ b.cantrips_max }}
+            {% if b.known_max is not None %} • Known: {{ b.known_leveled_current }}/{{ b.known_max }}{% endif %}
+            {% if b.prepared_max is not None %} • Prepared: {{ b.prepared_current }}/{{ b.prepared_max }}{% endif %}
+          </div>
+        </div>
+
+        {% if b.needs_cantrips > 0 %}
+          <label class="form-label mt-2">Learn Cantrips (pick up to {{ b.needs_cantrips }})</label>
+          <select class="form-select" name="learn_cantrips_{{ b.feature_id }}" multiple>
+            {% for s in b.cantrip_choices %}
+              <option value="{{ s.id }}">{{ s.name }}</option>
+            {% endfor %}
+          </select>
+        {% endif %}
+
+        {% if b.known_max is not None and b.needs_known > 0 %}
+          <label class="form-label mt-2">Learn Spells (rank ≤ {{ b.max_rank }}) — up to {{ b.needs_known }}</label>
+          <select class="form-select" name="learn_known_{{ b.feature_id }}" multiple>
+            {% for s in b.spell_choices %}
+              <option value="{{ s.id }}">[{{ s.rank }}] {{ s.name }}</option>
+            {% endfor %}
+          </select>
+        {% endif %}
+
+        {% if b.prepared_max is not None and b.needs_prepared > 0 %}
+          <label class="form-label mt-2">Prepare Spells (from your Known) — up to {{ b.needs_prepared }}</label>
+          <select class="form-select" name="prepare_{{ b.feature_id }}" multiple>
+            {% for s in b.known_spell_choices %}
+              <option value="{{ s.id }}">[{{ s.rank }}] {{ s.name }}</option>
+            {% endfor %}
+          </select>
+          <div class="form-text">Prepared spells clear when you change preparations as per your rules.</div>
+        {% endif %}
+      </div>
+    {% endfor %}
+    <button class="btn btn-primary" name="save_spells_submit" value="1">Save Spells</button>
+  </form>
 </div>
+
+<hr class="my-3">
+<h6 class="mb-2">Learn & Prepare</h6>
+
+<form method="post" action="{% url 'characters:character_detail' character.pk %}">
+  {% csrf_token %}
+
+  {% for b in spell_selection_blocks %}
+    <div class="border rounded p-3 mb-3">
+      <div class="d-flex justify-content-between align-items-center">
+        <div class="fw-semibold">
+          {{ b.class_name }} • {{ b.origin }}
+          <small class="text-muted"> (max rank {{ b.max_rank }})</small>
+        </div>
+        <div class="small text-muted">
+          Cantrips: {{ b.known_cantrips_current }}/{{ b.cantrips_max }}
+          {% if b.known_max is not None %} • Known: {{ b.known_leveled_current }}/{{ b.known_max }}{% endif %}
+          {% if b.prepared_max is not None %} • Prepared: {{ b.prepared_current }}/{{ b.prepared_max }}{% endif %}
+        </div>
+      </div>
+
+      {% if b.needs_cantrips > 0 %}
+        <label class="form-label mt-2">Learn Cantrips (pick up to {{ b.needs_cantrips }})</label>
+        <select class="form-select" name="learn_cantrips_{{ b.feature_id }}" multiple>
+          {% for s in b.cantrip_choices %}
+            <option value="{{ s.id }}">{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      {% endif %}
+
+      {% if b.known_max is not None and b.needs_known > 0 %}
+        <label class="form-label mt-2">Learn Spells (rank ≤ {{ b.max_rank }}) — up to {{ b.needs_known }}</label>
+        <select class="form-select" name="learn_known_{{ b.feature_id }}" multiple>
+          {% for s in b.spell_choices %}
+            <option value="{{ s.id }}">[{{ s.rank }}] {{ s.name }}</option>
+          {% endfor %}
+        </select>
+      {% endif %}
+
+      {% if b.prepared_max is not None and b.needs_prepared > 0 %}
+        <label class="form-label mt-2">Prepare Spells (from your Known) — up to {{ b.needs_prepared }}</label>
+        <select class="form-select" name="prepare_{{ b.feature_id }}" multiple>
+          {% for s in b.known_spell_choices %}
+            <option value="{{ s.id }}">[{{ s.rank }}] {{ s.name }}</option>
+          {% endfor %}
+        </select>
+        <div class="form-text">Prepared spells clear when you change preparations as per your rules.</div>
+      {% endif %}
+    </div>
+  {% endfor %}
+
+  <button class="btn btn-primary" name="save_spells_submit" value="1">Save Spells</button>
+</form>
+
 
       </div> <!-- /.tab-content -->
     </main>
@@ -1126,6 +1320,60 @@
     </div>
   </div>
 </div>
+<!-- QUICK EDIT NUMBER MODAL -->
+<div class="modal fade" id="editNumberModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title">Adjust Value</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="editNumberForm">
+        <div class="modal-body">
+          <input type="hidden" id="edit-key" name="key">
+          <div class="mb-2">
+            <label class="form-label form-label-sm">New value</label>
+            <input type="number" step="1" class="form-control form-control-sm" id="edit-value" required>
+          </div>
+          <div>
+            <label class="form-label form-label-sm">Reason</label>
+            <input class="form-control form-control-sm" id="edit-note" placeholder="Why are you changing this?" required>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-primary btn-sm">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<!-- Override modal -->
+<div class="modal fade" id="overrideModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-sm"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">Set Override</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
+    <form id="overrideForm" method="post" action="{% url 'characters:set_field_override' character.pk %}">
+      {% csrf_token %}
+      <div class="modal-body">
+        <input type="hidden" name="key" id="ov-key">
+        <div class="mb-2">
+          <label class="form-label">Value (number)</label>
+          <input type="number" name="value" id="ov-val" class="form-control form-control-sm" step="1" required>
+          <div class="form-text">This replaces the “prof” piece for that row.</div>
+        </div>
+        <div>
+          <label class="form-label">Reason</label>
+          <input name="note" id="ov-note" class="form-control form-control-sm" placeholder="Required" required>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary btn-sm" type="submit">Save</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
 {% endblock %}
 
 {% block extra_js %}
@@ -1378,6 +1626,7 @@
   });
 </script>
   <script>
+    
   (function(){
     const modalEl = document.getElementById('editNumberModal');
     if (!modalEl) return;
@@ -1404,6 +1653,7 @@
     }
 
     form.addEventListener('submit', async (e)=>{
+      
       e.preventDefault();
       const resp = await fetch("{% url 'characters:set_field_override' character.pk %}", {
         method: "POST",
@@ -1479,5 +1729,32 @@
   });
 })();
 </script>
+<script>
+  // bootstrap modal helper
+  const overrideModal = new bootstrap.Modal(document.getElementById('overrideModal'));
+
+  // open modal with the target override key
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.edit-override');
+    const toggle = e.target.closest('.toggle-desc');
+    if (btn) {
+      const key = btn.getAttribute('data-key');
+      document.getElementById('ov-key').value = key;
+      document.getElementById('ov-val').value = '';
+      document.getElementById('ov-note').value = '';
+      overrideModal.show();
+    }
+    if (toggle) {
+      const body = toggle.parentElement.parentElement.querySelector('.desc-body');
+      if (body) body.classList.toggle('d-none');
+    }
+  });
+
+  // submit via standard POST (keeps CSRF + redirects handled by view)
+  document.getElementById('overrideForm').addEventListener('submit', function(){
+    // allow normal submission
+  });
+</script>
+
 
 {% endblock %}

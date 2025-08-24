@@ -298,10 +298,69 @@ class ClassProficiencyProgressInline(admin.TabularInline):
 
 
 
+class MartialMasteryForm(forms.ModelForm):
+    # render as big checkbox lists
+    allowed_weapons = forms.ModelMultipleChoiceField(
+        label="Allowed weapons",
+        queryset=Weapon.objects.all(),
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        help_text="Shown only if ‘Weapon restriction’ is enabled."
+    )
+    allowed_traits = forms.ModelMultipleChoiceField(
+        label="Allowed weapon traits",
+        queryset=WeaponTrait.objects.all(),
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        help_text="Shown only if ‘Weapon trait restriction’ is enabled."
+    )
+
+    class Meta:
+        model = MartialMastery
+        fields = "__all__"
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get("restrict_to_weapons") and not cleaned.get("allowed_weapons"):
+            self.add_error("allowed_weapons", "Select at least one weapon or uncheck ‘Weapon restriction’.")
+        if cleaned.get("restrict_to_traits") and not cleaned.get("allowed_traits"):
+            self.add_error("allowed_traits", "Select at least one trait or uncheck ‘Weapon trait restriction’.")
+        return cleaned
+
+
 @admin.register(MartialMastery)
 class MartialMasteryAdmin(admin.ModelAdmin):
+    form = MartialMasteryForm
     filter_horizontal = ('classes',)
-    list_display = ('name','level_required','points_cost','all_classes')
+
+    list_display = ('name', 'level_required', 'points_cost', 'all_classes',
+                    'restrict_to_weapons', 'restrict_to_traits', 'restriction_summary')
+    list_filter  = ('all_classes', 'restrict_to_weapons', 'restrict_to_traits')
+
+    fieldsets = [
+        (None, {
+            "fields": ("name", "level_required", "points_cost", "description", "all_classes", "classes"),
+        }),
+        ("Restrictions (optional)", {
+            "fields": (
+                "restrict_to_weapons", "allowed_weapons",
+                "restrict_to_traits", "allowed_traits",
+            ),
+        }),
+    ]
+
+    def restriction_summary(self, obj):
+        parts = []
+        if obj.restrict_to_weapons:
+            parts.append(f"Weapons({obj.allowed_weapons.count()})")
+        if obj.restrict_to_traits:
+            parts.append(f"Traits({obj.allowed_traits.count()})")
+        return ", ".join(parts) or "—"
+    restriction_summary.short_description = "Restrictions"
+
+    class Media:
+        # simple JS to toggle the two big checkbox lists
+        js = ("characters/js/martialmastery_admin.js",)
 
 class ClassSubclassForm(forms.ModelForm):
     class Meta:

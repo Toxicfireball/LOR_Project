@@ -1421,17 +1421,60 @@ class ResourceType(models.Model):
     
 # characters/models.py
 
+# characters/models.py
+
 class MartialMastery(models.Model):
-    name               = models.CharField(max_length=100, unique=True)
-    level_required     = models.PositiveSmallIntegerField()
-    description        = models.TextField(blank=True)
-    points_cost        = models.PositiveIntegerField()
-    classes            = models.ManyToManyField(CharacterClass, blank=True)
-    all_classes        = models.BooleanField(default=False,
-        help_text="If true, any class may take this mastery.")
+    name           = models.CharField(max_length=100, unique=True)
+    level_required = models.PositiveSmallIntegerField()
+    description    = models.TextField(blank=True)
+    points_cost    = models.PositiveIntegerField()
+    classes        = models.ManyToManyField(CharacterClass, blank=True)
+    all_classes    = models.BooleanField(
+        default=False,
+        help_text="If true, any class may take this mastery."
+    )
+
+    # NEW: restriction toggles
+    restrict_to_weapons = models.BooleanField(
+        default=False,
+        help_text="If checked, this mastery only applies to selected weapons."
+    )
+    restrict_to_traits = models.BooleanField(
+        default=False,
+        help_text="If checked, this mastery only applies to weapons having any of the selected traits."
+    )
+
+    # NEW: picklists (only used when the toggles above are true)
+    allowed_weapons = models.ManyToManyField(
+        'Weapon',
+        blank=True,
+        related_name='masteries',
+        help_text="Check the weapons this mastery is usable with (shown when ‘Weapon restriction’ is enabled)."
+    )
+    allowed_traits = models.ManyToManyField(
+        'WeaponTrait',
+        blank=True,
+        related_name='masteries',
+        help_text="Check the weapon traits this mastery targets (shown when ‘Weapon trait restriction’ is enabled)."
+    )
 
     def __str__(self):
         return f"{self.name} (L{self.level_required}, cost {self.points_cost})"
+
+    def applies_to_weapon(self, weapon) -> bool:
+        """
+        Returns True if this mastery can be used with the given Weapon.
+        - If restrict_to_weapons is on, weapon must be in allowed_weapons.
+        - If restrict_to_traits is on, weapon must have at least ONE of allowed_traits.
+          (Change to 'all()' logic if you want “must have all traits”.)
+        """
+        if self.restrict_to_weapons and not self.allowed_weapons.filter(pk=weapon.pk).exists():
+            return False
+        if self.restrict_to_traits:
+            wanted = self.allowed_traits.values_list('pk', flat=True)
+            if not WeaponTraitValue.objects.filter(weapon=weapon, trait_id__in=wanted).exists():
+                return False
+        return True
 
 
 class CharacterFeat(models.Model):
