@@ -339,21 +339,35 @@
 const racesData       = {{ races_json|safe }};
 const backgroundsData = {{ backgrounds_json|safe }};
 
+// ✅ you must declare this before you write into it
 const racialModifiersDict = {};
+
 const customizableRaces   = {};
 const subracesDict        = {};
 
+const toNumMods = (mods = {}) => {
+  const get = (Nice, ugly) => Number((mods[Nice] ?? mods[ugly] ?? 0));
+  return {
+    Strength:     get("Strength", "strength"),
+    Dexterity:    get("Dexterity","dexterity"),
+    Constitution: get("Constitution","constitution"),
+    Intelligence: get("Intelligence","intelligence"),
+    Wisdom:       get("Wisdom","wisdom"),
+    Charisma:     get("Charisma","charisma"),
+  };
+};
+
+
+
 racesData.forEach(r => {
-  racialModifiersDict[r.id] = r.modifiers;
-  if ((r.free_points || 0) > 0) customizableRaces[r.id] = r.free_points;
+  racialModifiersDict[`R-${r.id}`] = toNumMods(r.modifiers);
   if (Array.isArray(r.subraces)) {
-    subracesDict[r.id] = r.subraces.map(sr => ({ value: sr.id, label: sr.name, free_points: sr.free_points || 0 }));
     r.subraces.forEach(sr => {
-      racialModifiersDict[sr.id] = sr.modifiers;
-      if ((sr.free_points || 0) > 0) customizableRaces[sr.id] = sr.free_points;
+      racialModifiersDict[`S-${sr.id}`] = toNumMods(sr.modifiers);
     });
   }
 });
+
 
   document.addEventListener("DOMContentLoaded", () => {
     //
@@ -418,9 +432,10 @@ racesData.forEach(r => {
       bgAbilityBonuses = stats.reduce((o,s)=>{o[s]=0;return o},{});
       bgSkillProficiencies = {};
     }
-    function addAbilityBonus(ability,bonus){
-      bgAbilityBonuses[ability] = Math.min(bgAbilityBonuses[ability]+bonus,2);
-    }
+function addAbilityBonus(ability, bonus){
+  bgAbilityBonuses[ability] = Math.min(Number(bgAbilityBonuses[ability]||0) + Number(bonus||0), 2);
+}
+
 function addSkill(name){
   if(!name) return;
   bgSkillProficiencies[name] = "Trained";
@@ -483,7 +498,9 @@ function applyRacialSlots(){
 
   if (racialASIPoints > 0) {
     const maxPer = r.max_bonus_per_ability;
-    const fixedMods = racialModifiersDict[Number(subraceSelect.value) || raceId] || {};
+const fixedMods = (subraceSelect.value)
+  ? (racialModifiersDict[`S-${Number(subraceSelect.value)}`] || {})
+  : (racialModifiersDict[`R-${raceId}`] || {});
     stats.forEach(s => {
       const fixed = fixedMods[s] || 0;
       document.getElementById("racial-" + s.toLowerCase()).max = Math.max(maxPer - fixed, 0);
@@ -492,23 +509,18 @@ function applyRacialSlots(){
 }
 
 function getCurrentRacialModifiers() {
-  // always pick up whichever subrace (if any) is selected
-const mainId = Number(raceSelect.value);
-const subId  = Number(subraceSelect.value);
+  const mainId = Number(raceSelect.value);
+  const subId  = Number(subraceSelect.value);
 
-const mainMods = racialModifiersDict[mainId] || {};
-const subMods  = subId ? (racialModifiersDict[subId] || {}) : {};
+  const mainMods = racialModifiersDict[`R-${mainId}`] || {};
+  const subMods  = subId ? (racialModifiersDict[`S-${subId}`] || {}) : {};
 
-
-  // combine fixed race + fixed subrace + any ASI allocations
   const combined = {};
-  stats.forEach(stat => {
-    combined[stat] = 
-      (mainMods[stat]      || 0) +
-      (subMods[stat]       || 0) +
-      (racialASIBonus[stat]|| 0);
-  });
+  const n = (x) => Number(x ?? 0);
 
+  ["Strength","Dexterity","Constitution","Intelligence","Wisdom","Charisma"].forEach(stat => {
+    combined[stat] = n(mainMods[stat]) + n(subMods[stat]) + n(racialASIBonus[stat]);
+  });
   return combined;
 }
 
@@ -706,13 +718,15 @@ const s = backgroundsData.find(b=>b.code===skillEl.value);            addSkill(s
       statTableBody.innerHTML = rows;
 
       // hidden inputs
-      const eff = getCurrentRacialModifiers();
-      strengthInput.value     = baseStats.Strength + (eff.Strength||0) + (backgroundModifiers.Strength||0);
-      dexterityInput.value    = baseStats.Dexterity + (eff.Dexterity||0) + (backgroundModifiers.Dexterity||0);
-      constitutionInput.value = baseStats.Constitution + (eff.Constitution||0) + (backgroundModifiers.Constitution||0);
-      intelligenceInput.value = baseStats.Intelligence + (eff.Intelligence||0) + (backgroundModifiers.Intelligence||0);
-      wisdomInput.value       = baseStats.Wisdom + (eff.Wisdom||0) + (backgroundModifiers.Wisdom||0);
-      charismaInput.value     = baseStats.Charisma + (eff.Charisma||0) + (backgroundModifiers.Charisma||0);
+  // hidden inputs (Final = Base + Race + Background + Boost)
+  const eff = getCurrentRacialModifiers();
+  strengthInput.value     = baseStats.Strength     + (eff.Strength||0)     + (backgroundModifiers.Strength||0)     + (boostModifiers.Strength||0);
+  dexterityInput.value    = baseStats.Dexterity    + (eff.Dexterity||0)    + (backgroundModifiers.Dexterity||0)    + (boostModifiers.Dexterity||0);
+  constitutionInput.value = baseStats.Constitution + (eff.Constitution||0) + (backgroundModifiers.Constitution||0) + (boostModifiers.Constitution||0);
+  intelligenceInput.value = baseStats.Intelligence + (eff.Intelligence||0) + (backgroundModifiers.Intelligence||0) + (boostModifiers.Intelligence||0);
+  wisdomInput.value       = baseStats.Wisdom       + (eff.Wisdom||0)       + (backgroundModifiers.Wisdom||0)       + (boostModifiers.Wisdom||0);
+  charismaInput.value     = baseStats.Charisma     + (eff.Charisma||0)     + (backgroundModifiers.Charisma||0)     + (boostModifiers.Charisma||0);
+
     }
 
     //
@@ -838,25 +852,29 @@ raceSelect.addEventListener("change", () => {
     // also prevent selecting side2 = side1
     preventDuplicate(side2Select, side1Select, "Side Background cannot match Side Background.");
 // After options are populated, swap visible labels to show bonuses/proficiencies
+// build label maps by ID, not code
+// After options are populated, swap visible labels to show bonuses/proficiencies
+// After options are populated, swap visible labels to show bonuses/proficiencies
+const raceLabelById = Object.fromEntries(racesData.map(r => [String(r.id), r.label]));
+const subraceLabelByParentId = Object.fromEntries(
+  racesData.map(r => [
+    String(r.id),
+    Object.fromEntries((r.subraces || []).map(s => [String(s.id), s.label]))
+  ])
+);
+
 if (window.__lor) {
-  // race + subrace
-  window.__lor.relabelSelectOptions(document.getElementById('race'), window.__lor.raceLabelByCode);
-  const firstSubMap = window.__lor.subraceLabelByParent[document.getElementById('race').value] || {};
-  window.__lor.relabelSelectOptions(document.getElementById('subrace'), firstSubMap);
+  window.__lor.relabelSelectOptions(raceSelect, raceLabelById);
+  const firstSubMap = subraceLabelByParentId[raceSelect.value] || {};
+  window.__lor.relabelSelectOptions(subraceSelect, firstSubMap);
 
-  // backgrounds
-  const bgMap = window.__lor.bgLabelByCode;
-  ['main_background', 'side_background_1', 'side_background_2'].forEach(id => {
-    const sel = document.getElementById(id);
-    if (sel) window.__lor.relabelSelectOptions(sel, bgMap);
-  });
-
-  // keep subrace labels in sync with race change
-  document.getElementById('race').addEventListener('change', () => {
-    const subMap = window.__lor.subraceLabelByParent[document.getElementById('race').value] || {};
-    window.__lor.relabelSelectOptions(document.getElementById('subrace'), subMap);
+  raceSelect.addEventListener('change', () => {
+    const subMap = subraceLabelByParentId[raceSelect.value] || {};
+    window.__lor.relabelSelectOptions(subraceSelect, subMap);
   });
 }
+
+
 
     // finally initial render
     updateDisplay();
