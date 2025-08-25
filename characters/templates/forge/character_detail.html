@@ -2,7 +2,7 @@
 {% extends "base.html" %}
 {% load static %}
 {% load ui_extras %}
-
+{% load range_extras %}
 {% block extra_css %}
   <link rel="stylesheet" href="{% static 'css/character.css' %}">
   <link
@@ -103,13 +103,23 @@
 <div class="card">
   <div class="card-header fw-bold">Core Stats</div>
   <ul class="list-group list-group-flush">
-    <li class="list-group-item d-flex justify-content-between align-items-center">
-      <span>HP</span>
-      <span><strong>{{ hp_current }}</strong> / <strong>{{ hp_max }}</strong></span>
-    </li>
+<li class="list-group-item d-flex justify-content-between align-items-center">
+  <span>HP</span>
+  <span class="d-flex align-items-center gap-2">
+    <strong>{{ hp_current }}</strong>
+    <button class="btn btn-xs btn-outline-secondary edit-override" data-key="HP" type="button">✎</button>
+    <span>/</span>
+    <strong>{{ hp_max }}</strong>
+    <button class="btn btn-xs btn-outline-secondary edit-override" data-key="hp_max" type="button">✎</button>
+  </span>
+</li>
+
     <li class="list-group-item d-flex justify-content-between align-items-center">
       <span>Temp HP</span>
-      <span><strong>{{ temp_hp|default:0 }}</strong></span>
+<span class="d-flex align-items-center gap-2">
+  <strong>{{ temp_hp|default:0 }}</strong>
+  <button class="btn btn-xs btn-outline-secondary edit-override" data-key="temp_HP" type="button">✎</button>
+</span>
     </li>
     <li class="list-group-item d-flex justify-content-between align-items-center">
       <span>Armor</span>
@@ -503,9 +513,27 @@
               <td>
                 <div class="d-flex justify-content-between align-items-center">
                   <span>{{ cf.feat.name }} {% note_icon "cfeat:"|add:cf.id %}</span>
-                  <button class="btn btn-sm btn-link p-0 toggle-desc" type="button">Details</button>
-                </div>
-                <div class="small text-muted d-none desc-body">{{ cf.feat.description|safe }}</div>
+                      <button class="btn btn-sm btn-link p-0 toggle-desc" type="button">Details</button>
+                      <div class="d-none desc-body mt-2">
+                        {% if cf.feat.description %}
+                          <div class="summernote-content mb-2">{{ cf.feat.description|safe }}</div>
+                        {% endif %}
+                        {% with row=cf %}
+                        <div class="table-responsive">
+                          <table class="table table-sm table-bordered mb-0">
+                            <tbody>
+                              {% for k,v in row.details %}
+                                <tr>
+                                  <th class="text-nowrap" style="width: 180px;">{{ k }}</th>
+                                  <td>{% if k == "Description" %}{{ v|safe }}{% else %}{{ v }}{% endif %}</td>
+                                </tr>
+                              {% endfor %}
+                            </tbody>
+                          </table>
+                        </div>
+                        {% endwith %}
+                      </div>
+
               </td>
             </tr>
                     {% empty %}<tr><td colspan="2" class="text-muted">— None —</td></tr>{% endfor %}
@@ -537,6 +565,59 @@
             </div>
           </div>
         </div>
+        <div class="card mt-3">
+  <div class="card-header fw-bold">Manually Add Item</div>
+  <div class="card-body">
+    {% if manual_form %}
+      <form method="post" action="{% url 'characters:character_detail' character.pk %}">
+        {% csrf_token %}
+        <div class="row g-3">
+          <div class="col-md-3">
+            {{ manual_form.kind.label_tag }} {{ manual_form.kind }}
+          </div>
+          <div class="col-md-3" id="mf-feat">
+            {{ manual_form.feat.label_tag }} {{ manual_form.feat }}
+          </div>
+          <div class="col-md-3 d-none" id="mf-classfeature">
+            {{ manual_form.class_feature.label_tag }} {{ manual_form.class_feature }}
+          </div>
+          <div class="col-md-3 d-none" id="mf-racialfeature">
+            {{ manual_form.racial_feature.label_tag }} {{ manual_form.racial_feature }}
+          </div>
+          <div class="col-12">
+            {{ manual_form.reason.label_tag }} {{ manual_form.reason }}
+          </div>
+        </div>
+        <button class="btn btn-primary mt-2" name="manual_add_submit" value="1">Add</button>
+      </form>
+
+      {% if manual_form.errors %}
+        <div class="alert alert-danger mt-2 mb-0">
+          {{ manual_form.errors }}
+        </div>
+      {% endif %}
+    {% else %}
+      <p class="mb-0 text-muted">You don’t have permission to add items.</p>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+  // Simple switcher: show the relevant select for the chosen kind
+  (function(){
+    const kindSel = document.getElementById("id_kind");
+    if (!kindSel) return;
+    function flip(){
+      const v = (kindSel.value || "").toLowerCase();
+      document.getElementById("mf-feat").classList.toggle("d-none", v !== "feat");
+      document.getElementById("mf-classfeature").classList.toggle("d-none", v !== "class_feature");
+      document.getElementById("mf-racialfeature").classList.toggle("d-none", v !== "racial_feature");
+    }
+    kindSel.addEventListener("change", flip);
+    flip();
+  })();
+</script>
+
 
         <!-- ACTIVE/PASSIVE TAB -->
 <!-- ACTIVE TAB -->
@@ -559,6 +640,7 @@
               <button class="btn btn-sm btn-outline-secondary toggle-activation"
                       data-ctype="{{ r.ctype }}" data-obj="{{ r.obj_id }}" data-active="0">Set Passive</button>
             </div>
+
           </li>
         {% endfor %}
       </ul>
@@ -588,6 +670,23 @@
               <button class="btn btn-sm btn-outline-secondary toggle-activation"
                       data-ctype="{{ r.ctype }}" data-obj="{{ r.obj_id }}" data-active="0">Passive</button>
             </div>
+            <div class="d-none desc-body mt-2">
+  {% if r.desc %}
+    <div class="summernote-content mb-2">{{ r.desc|safe }}</div>
+  {% endif %}
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered mb-0">
+      <tbody>
+        {% for k,v in r.details %}
+          <tr>
+            <th class="text-nowrap" style="width:180px;">{{ k }}</th>
+            <td>{% if k == "Description" %}{{ v|safe }}{% else %}{{ v }}{% endif %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
           </li>
         {% endfor %}
       </ul>
@@ -637,27 +736,35 @@
           {% if spellcasting_blocks %}
             {% for b in spellcasting_blocks %}
               <div class="mb-3">
-                <div class="fw-semibold">{{ b.klass.name }} — {{ b.list|default:"(Unknown list)" }}</div>
+                <div class="fw-semibold">
+                  {{ b.klass.name }} — {{ b.list|default:"(Unknown list)" }}
+                </div>
+
                 {% if b.slots %}
                   <div class="table-responsive mt-2">
                     <table class="table table-sm table-bordered w-auto">
                       <thead>
                         <tr>
                           <th class="text-nowrap">Rank</th>
-                          {% for _ in b.slots %}<th>{{ forloop.counter }}</th>{% endfor %}
+                          {% for _ in b.slots %}
+                            <th>{{ forloop.counter }}</th>
+                          {% endfor %}
                         </tr>
                       </thead>
                       <tbody>
                         <tr>
                           <td class="text-nowrap">Slots {% note_icon "spell:slots:"|add:b.klass.pk %}</td>
-                          {% for s in b.slots %}<td>{{ s }}</td>{% endfor %}
+                          {% for s in b.slots %}
+                            <td>{{ s }}</td>
+                          {% endfor %}
                         </tr>
                       </tbody>
                     </table>
                   </div>
                 {% endif %}
+
                 <div class="small text-muted mt-1">
-                  Cantrips: {{ b.cantrips|default:0 }}.
+                  Cantrips: {{ b.cantrips }}.
                   {% if b.known is not None %} Spells known: {{ b.known }}.{% endif %}
                   {% if b.prepared is not None %} Prepared: {{ b.prepared }}.{% endif %}
                 </div>
@@ -671,162 +778,99 @@
     </div>
   </div>
 
-  <div class="card p-3 mt-3">
-    <h5 class="mb-3">Spellcasting</h5>
-    {% if spellcasting_blocks %}
-      <div class="table-responsive">
-        <table class="table table-sm align-middle">
-          <thead>
-            <tr>
-              <th>Class / List</th>
-              <th>Cantrips</th>
-              <th>Known</th>
-              <th>Prepared</th>
-              <th>DC</th>
-              <th>Formula</th>
-              <th>Values</th>
-              <th>Edit</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for b in spellcasting_blocks %}
-              <tr>
-                <td>{{ b.klass.name }} <small class="text-muted">• {{ b.list|default:"—" }}</small></td>
-                <td>{{ b.cantrips|default:"—" }}</td>
-                <td>{{ b.known|default:"—" }}</td>
-                <td>{{ b.prepared|default:"—" }}</td>
-                <td class="fw-semibold">{{ b.dc_total|default:"—" }}</td>
-                <td class="text-muted">{{ b.dc_formula_h|default:"" }}</td>
-                <td>{{ b.dc_values_h|default:"" }}</td>
-                <td>
-                  {% if b.dc_total %}
-                    <button class="btn btn-xs btn-outline-secondary edit-override" data-key="prof:dc" type="button">✎</button>
-                  {% endif %}
-                </td>
-              </tr>
-              {% if b.slots %}
-                <tr>
-                  <td colspan="8" class="pt-0">
-                    <div class="small text-muted">Slots by Rank:
-                      {% for s in b.slots %}
-                        <span class="badge text-bg-light me-1">R{{ forloop.counter }}: {{ s|default:"0" }}</span>
-                      {% endfor %}
-                    </div>
-                  </td>
-                </tr>
-              {% endif %}
-            {% endfor %}
-          </tbody>
-        </table>
+  <!-- KNOWN SPELLS: Excel-like table with rank tabs -->
+  {% if spell_table_by_rank %}
+    <div class="card p-3 mt-3">
+      <h5 class="mb-3">Known Spells</h5>
+
+      <!-- Tabs per rank (0..10) -->
+      <ul class="nav nav-pills mb-3" role="tablist">
+        {% for r in spell_rank_range %}
+          <li class="nav-item" role="presentation">
+            <button class="nav-link {% if forloop.first %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#spells-r{{ r }}" type="button" role="tab">
+              {% if r == 0 %}Cantrips{% else %}Rank {{ r }}{% endif %}
+            </button>
+          </li>
+        {% endfor %}
+      </ul>
+
+      <div class="tab-content">
+        {% for r in spell_rank_range %}
+          <div class="tab-pane fade {% if forloop.first %}show active{% endif %}" id="spells-r{{ r }}">
+            <div class="d-flex gap-2 align-items-center mb-2">
+              <input id="spell-filter-{{ r }}" class="form-control form-control-sm" placeholder="Search this list…">
+            </div>
+
+            <div class="table-responsive">
+              <table id="spells-table-{{ r }}" class="table table-sm align-middle excel-setup">
+                <thead>
+                  <tr>
+                    <th data-sort="0">Name</th>
+                    <th data-sort="1">Origin</th>
+                    <th data-sort="2">Rank</th>
+                    <th data-sort="3">
+                      Classification
+                      <div class="dropdown d-inline ms-1" data-bs-auto-close="outside">
+                        <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown">▾</button>
+                        <div class="dropdown-menu p-3 excel-menu" data-col="3" data-split="1" style="width:260px;"></div>
+                      </div>
+                    </th>
+                    <th data-sort="4">
+                      Tags
+                      <div class="dropdown d-inline ms-1" data-bs-auto-close="outside">
+                        <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown">▾</button>
+                        <div class="dropdown-menu p-3 excel-menu" data-col="4" data-split="1" style="width:260px;"></div>
+                      </div>
+                    </th>
+                    <th data-sort="5">Prepared?</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in rows_for_rank %}
+                    <tr>
+                      <td class="spell-name">{{ row.name }}</td>
+                      <td class="spell-origin">{{ row.origin|title }}</td>
+                      <td class="spell-rank">{{ row.rank }}</td>
+                      <td class="spell-classification">{{ row.classification|default:"" }}</td>
+                      <td class="spell-tags">{{ row.tags|default:"" }}</td>
+                      <td class="spell-prepared">
+                        {% if row.prepared_count and row.prepared_count > 0 %}
+                          <span class="badge text-bg-success">{{ row.prepared_count }}</span>
+                        {% else %}
+                          <span class="text-muted">—</span>
+                        {% endif %}
+                      </td>
+                    </tr>
+                  {% empty %}
+                    <tr><td colspan="6" class="text-muted"><em>No spells at this rank.</em></td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        {% endfor %}
       </div>
-    {% else %}
-      <p class="mb-0 text-muted">This character has no spellcasting feature.</p>
-    {% endif %}
+    </div>
+  {% endif %}
+
+  <!-- LEARN & PREPARE (tables-based) -->
+  <div class="card p-3 mt-3">
+    <h5 class="mb-3">Learn & Prepare</h5>
+    <form method="post" action="{% url 'characters:character_detail' character.pk %}">
+      {% csrf_token %}
+      {% for b in spell_selection_blocks %}
+        {% include "characters/_spellcasting_block.html" with b=b %}
+      {% empty %}
+        <div class="muted">No spellcasting features to manage.</div>
+      {% endfor %}
+      <p class="muted small">Prepared spells can be changed as your rules allow; changing them clears previous preparations.</p>
+      <button class="btn btn-primary" name="save_spells_submit" value="1">Save Spells</button>
+    </form>
   </div>
 
-  <hr class="my-3">
-  <h6 class="mb-2">Learn & Prepare</h6>
-  <form method="post" action="{% url 'characters:character_detail' character.pk %}">
-    {% csrf_token %}
-    {% for b in spell_selection_blocks %}
-      <div class="border rounded p-3 mb-3">
-        <div class="d-flex justify-content-between align-items-center">
-          <div class="fw-semibold">
-            {{ b.class_name }} • {{ b.origin }}
-            <small class="text-muted"> (max rank {{ b.max_rank }})</small>
-          </div>
-          <div class="small text-muted">
-            Cantrips: {{ b.known_cantrips_current }}/{{ b.cantrips_max }}
-            {% if b.known_max is not None %} • Known: {{ b.known_leveled_current }}/{{ b.known_max }}{% endif %}
-            {% if b.prepared_max is not None %} • Prepared: {{ b.prepared_current }}/{{ b.prepared_max }}{% endif %}
-          </div>
-        </div>
-
-        {% if b.needs_cantrips > 0 %}
-          <label class="form-label mt-2">Learn Cantrips (pick up to {{ b.needs_cantrips }})</label>
-          <select class="form-select" name="learn_cantrips_{{ b.feature_id }}" multiple>
-            {% for s in b.cantrip_choices %}
-              <option value="{{ s.id }}">{{ s.name }}</option>
-            {% endfor %}
-          </select>
-        {% endif %}
-
-        {% if b.known_max is not None and b.needs_known > 0 %}
-          <label class="form-label mt-2">Learn Spells (rank ≤ {{ b.max_rank }}) — up to {{ b.needs_known }}</label>
-          <select class="form-select" name="learn_known_{{ b.feature_id }}" multiple>
-            {% for s in b.spell_choices %}
-              <option value="{{ s.id }}">[{{ s.rank }}] {{ s.name }}</option>
-            {% endfor %}
-          </select>
-        {% endif %}
-
-        {% if b.prepared_max is not None and b.needs_prepared > 0 %}
-          <label class="form-label mt-2">Prepare Spells (from your Known) — up to {{ b.needs_prepared }}</label>
-          <select class="form-select" name="prepare_{{ b.feature_id }}" multiple>
-            {% for s in b.known_spell_choices %}
-              <option value="{{ s.id }}">[{{ s.rank }}] {{ s.name }}</option>
-            {% endfor %}
-          </select>
-          <div class="form-text">Prepared spells clear when you change preparations as per your rules.</div>
-        {% endif %}
-      </div>
-    {% endfor %}
-    <button class="btn btn-primary" name="save_spells_submit" value="1">Save Spells</button>
-  </form>
 </div>
 
-<hr class="my-3">
-<h6 class="mb-2">Learn & Prepare</h6>
 
-<form method="post" action="{% url 'characters:character_detail' character.pk %}">
-  {% csrf_token %}
-
-  {% for b in spell_selection_blocks %}
-    <div class="border rounded p-3 mb-3">
-      <div class="d-flex justify-content-between align-items-center">
-        <div class="fw-semibold">
-          {{ b.class_name }} • {{ b.origin }}
-          <small class="text-muted"> (max rank {{ b.max_rank }})</small>
-        </div>
-        <div class="small text-muted">
-          Cantrips: {{ b.known_cantrips_current }}/{{ b.cantrips_max }}
-          {% if b.known_max is not None %} • Known: {{ b.known_leveled_current }}/{{ b.known_max }}{% endif %}
-          {% if b.prepared_max is not None %} • Prepared: {{ b.prepared_current }}/{{ b.prepared_max }}{% endif %}
-        </div>
-      </div>
-
-      {% if b.needs_cantrips > 0 %}
-        <label class="form-label mt-2">Learn Cantrips (pick up to {{ b.needs_cantrips }})</label>
-        <select class="form-select" name="learn_cantrips_{{ b.feature_id }}" multiple>
-          {% for s in b.cantrip_choices %}
-            <option value="{{ s.id }}">{{ s.name }}</option>
-          {% endfor %}
-        </select>
-      {% endif %}
-
-      {% if b.known_max is not None and b.needs_known > 0 %}
-        <label class="form-label mt-2">Learn Spells (rank ≤ {{ b.max_rank }}) — up to {{ b.needs_known }}</label>
-        <select class="form-select" name="learn_known_{{ b.feature_id }}" multiple>
-          {% for s in b.spell_choices %}
-            <option value="{{ s.id }}">[{{ s.rank }}] {{ s.name }}</option>
-          {% endfor %}
-        </select>
-      {% endif %}
-
-      {% if b.prepared_max is not None and b.needs_prepared > 0 %}
-        <label class="form-label mt-2">Prepare Spells (from your Known) — up to {{ b.needs_prepared }}</label>
-        <select class="form-select" name="prepare_{{ b.feature_id }}" multiple>
-          {% for s in b.known_spell_choices %}
-            <option value="{{ s.id }}">[{{ s.rank }}] {{ s.name }}</option>
-          {% endfor %}
-        </select>
-        <div class="form-text">Prepared spells clear when you change preparations as per your rules.</div>
-      {% endif %}
-    </div>
-  {% endfor %}
-
-  <button class="btn btn-primary" name="save_spells_submit" value="1">Save Spells</button>
-</form>
 
 
       </div> <!-- /.tab-content -->
@@ -1695,6 +1739,40 @@
     });
   });
   </script>
+<script>
+  // Initialize all spells tables with the same Excel-like behavior
+  (function(){
+    document.querySelectorAll('table[id^="spells-table-"]').forEach(function(tbl){
+      var id = tbl.id;
+      var r  = id.replace('spells-table-','');
+      var searchId = 'spell-filter-' + r;
+      if (typeof initFeatTable === 'function') {
+        initFeatTable({ tableId: id, searchId: searchId });
+      }
+    });
+  })();
+</script>
+<script>
+  (function(){
+    // Cantrips pickers
+    document.querySelectorAll('table[id^="cantrips-table-"]').forEach(function(tbl){
+      var fid = tbl.id.replace('cantrips-table-','');
+      var searchId = 'cantrip-filter-' + fid;
+      if (typeof initFeatTable === 'function') {
+        initFeatTable({ tableId: tbl.id, searchId: searchId });
+      }
+    });
+
+    // Learn-by-level pickers
+    document.querySelectorAll('table[id^="learn-table-"]').forEach(function(tbl){
+      var suffix = tbl.id.replace('learn-table-','');           // <fid>-r<rank>
+      var searchId = 'learn-filter-' + suffix;                  // must match inputs added above
+      if (typeof initFeatTable === 'function') {
+        initFeatTable({ tableId: tbl.id, searchId: searchId });
+      }
+    });
+  })();
+</script>
 
   <script>
 (function(){
@@ -1756,5 +1834,54 @@
   });
 </script>
 
+<script>
+(function(){
+  // Tabs
+  document.querySelectorAll('.tabs').forEach(tabs => {
+    tabs.addEventListener('click', (e) => {
+      const btn = e.target.closest('.tab-btn');
+      if (!btn || btn.disabled) return;
+      const wrap = tabs.parentElement; // card-body
+      tabs.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      wrap.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      const panel = wrap.querySelector(btn.dataset.target);
+      if (panel) panel.classList.add('active');
+    });
+  });
+
+  // Selection caps (cantrip / known overall / prepare per rank)
+  function updateCounts(root){
+    const canMax = +root.querySelector('[data-role="count-cantrips"]')?.dataset.max || 0;
+    const canSel = root.querySelectorAll('.pick-cantrip:checked').length;
+    const canLbl = root.querySelector('[data-role="count-cantrips"]');
+    if (canLbl){ canLbl.textContent = canSel + ' selected'; }
+    root.querySelectorAll('.pick-cantrip:not(:checked)').forEach(cb => cb.disabled = canSel >= canMax && canMax > 0);
+
+    const knMax = +root.querySelector('[data-role="count-known"]')?.dataset.max || 0;
+    const knSel = root.querySelectorAll('.pick-known:checked').length;
+    const knLbl = root.querySelector('[data-role="count-known"]');
+    if (knLbl){ knLbl.textContent = knSel + ' selected'; }
+    root.querySelectorAll('.pick-known:not(:checked)').forEach(cb => cb.disabled = knSel >= knMax && knMax > 0);
+
+    root.querySelectorAll('[data-role="count-prepare"]').forEach(lbl => {
+      const r = lbl.dataset.rank;
+      const pMax = +lbl.dataset.max || 0;
+      const pSel = root.querySelectorAll('.pick-prepare[data-rank="'+r+'"]:checked').length;
+      lbl.textContent = pSel + ' selected';
+      root.querySelectorAll('.pick-prepare[data-rank="'+r+'"]:not(:checked)').forEach(cb => cb.disabled = pSel >= pMax && pMax > 0);
+    });
+  }
+
+  document.querySelectorAll('.spellcard').forEach(card => {
+    card.addEventListener('change', (e) => {
+      if (!e.target.matches('.pick-cantrip, .pick-known, .pick-prepare')) return;
+      updateCounts(card);
+    });
+    // initial
+    updateCounts(card);
+  });
+})();
+</script>
 
 {% endblock %}

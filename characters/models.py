@@ -765,30 +765,39 @@ class WeaponTrait(models.Model):
     def __str__(self):
         return self.name
 
+# at top
+from django.contrib.postgres.fields import ArrayField
+
 class Weapon(models.Model):
     CATEGORY_CHOICES = [
         ('simple', 'Simple'),
         ('martial', 'Martial'),
         ('special', 'Special'),
     ]
-    Damage_Choices = [
-        ('bludgeoning', 'Bludgeoning'),
-        ('piercing', 'Piercing'),
-        ('slashing', 'Slashing'),
-    ]
-    MELEE = "melee"
-    RANGED = "ranged"
+    MELEE, RANGED = "melee", "ranged"
     RANGE_CHOICES = [(MELEE, "Melee"), (RANGED, "Ranged")]
 
-    name           = models.CharField(max_length=100, unique=True)
-    damage         = models.CharField(max_length=50)
-    category       = models.CharField(max_length=10, choices=CATEGORY_CHOICES)
-    is_melee       = models.BooleanField(default=True)  # keep for backwards-compat
-    range_type     = models.CharField(max_length=6, choices=RANGE_CHOICES, default=MELEE)
-    range_normal   = models.PositiveIntegerField(null=True, blank=True, help_text="Normal range for ranged weapons")
-    range_max      = models.PositiveIntegerField(null=True, blank=True, help_text="Maximum range")
-    damage_type =  models.CharField(max_length=30, choices=Damage_Choices, default=None, null=True, blank=True)
+    DAMAGE_CHOICES = [
+        ('bludgeoning', 'Bludgeoning'),
+        ('piercing',    'Piercing'),
+        ('slashing',    'Slashing'),
+    ]
 
+    name         = models.CharField(max_length=100, unique=True)
+    damage       = models.CharField(max_length=50)
+    category     = models.CharField(max_length=10, choices=CATEGORY_CHOICES)
+    is_melee     = models.BooleanField(default=True)
+    range_type   = models.CharField(max_length=6, choices=RANGE_CHOICES, default=MELEE)
+    range_normal = models.PositiveIntegerField(null=True, blank=True)
+    range_max    = models.PositiveIntegerField(null=True, blank=True)
+
+    # ⬇️ replace the old CharField with ArrayField
+    damage_types = ArrayField(
+        base_field=models.CharField(max_length=30, choices=DAMAGE_CHOICES),
+        default=list,
+        blank=True,
+        help_text="Select one or more damage types."
+    )
 
     def __str__(self):
         return f"{self.name} ({self.get_category_display()})"
@@ -830,7 +839,10 @@ class Armor(models.Model):
         (TYPE_HEAVY,    "Heavy"),
         (TYPE_SHIELD,   "Shield"),
     ]
-
+    strength_requirement = models.PositiveSmallIntegerField(
+        blank=True, null=True,
+        help_text="Minimum Strength to wear effectively (optional)."
+    )
     name          = models.CharField(max_length=100, unique=True)
     armor_value   = models.PositiveSmallIntegerField()
     type          = models.CharField(max_length=10, choices=TYPE_CHOICES)
@@ -1428,6 +1440,24 @@ class MartialMastery(models.Model):
     level_required = models.PositiveSmallIntegerField()
     description    = models.TextField(blank=True)
     points_cost    = models.PositiveIntegerField()
+    ACTION_TYPES = (
+        ('action_1', "One Action"),
+        ('action_2', "Two Actions"),
+        ('action_3', "Three Actions"),
+        ('reaction', "Reaction"),
+        ('free',     "Free Action"),
+    )
+    is_rare = models.BooleanField(
+        default=False,
+        help_text="If checked, this mastery is rare/unusual."
+    )
+    action_cost = models.CharField(
+        max_length=10,
+        choices=ACTION_TYPES,
+        blank=True,
+        null=True,
+        help_text="How many actions this mastery takes to use (if applicable)."
+    )
     classes        = models.ManyToManyField(CharacterClass, blank=True)
     all_classes    = models.BooleanField(
         default=False,

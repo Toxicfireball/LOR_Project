@@ -1,0 +1,187 @@
+{% load static %}
+{% load range_extras %}
+{% load ui_extras %}
+
+<style>
+  .spellcard { margin-bottom: 1rem; border: 1px solid #ddd; border-radius: .5rem; overflow: hidden; }
+  .spellcard .card-header { padding: .5rem .75rem; background: #f7f7f9; border-bottom: 1px solid #ddd; display:flex; gap:.5rem; align-items:center; }
+  .spellcard .card-header .muted { margin-left:auto; color:#666; font-size:.9em; }
+  .spellcard .card-body { padding: .75rem; display:flex; flex-direction:column; gap:.75rem; }
+  .spell-table { width: 100%; border-collapse: collapse; }
+  .spell-table th, .spell-table td { padding: .4rem .5rem; border-bottom: 1px solid #eee; vertical-align: top; }
+  .muted { color:#666; }
+  .small { font-size:.9em; }
+  .tabs { display: flex; gap: .25rem; flex-wrap: wrap; margin-top: .25rem; }
+  .tab-btn { padding: .3rem .5rem; border: 1px solid #ddd; background: #fff; border-radius: .4rem; cursor: pointer; }
+  .tab-btn.active { background: #eef5ff; border-color: #bcd; }
+  .tab-btn.disabled { opacity: .45; cursor: not-allowed; }
+  .tab-panel { display: none; margin-top: .5rem; }
+  .tab-panel.active { display: block; }
+  .capline { color:#333; font-size:.95em; margin:.25rem 0 .5rem; }
+  .prepare-row { margin-top:.5rem; }
+  .prepare-head { display:flex; gap:.5rem; align-items:center; margin:.25rem 0; }
+  .prepare-head .muted { margin-left:.25rem; }
+  .livecount { margin-left:auto; color:#444; }
+</style>
+
+<div class="card spellcard" data-fid="{{ b.feature_id }}">
+  <div class="card-header">
+    <strong>{{ b.class_name }}</strong>
+    <span>• {{ b.origin }}</span>
+    <span class="muted">Cantrips: {{ b.known_cantrips_current }}/{{ b.cantrips_max|default:0 }}
+      · Known: {{ b.known_leveled_current }}{% if b.known_max %}/{{ b.known_max }}{% endif %}
+      · Prepared: {{ b.prepared_current }}</span>
+  </div>
+
+  <div class="card-body">
+{# CANTRIPS PICKER #}
+<table id="cantrips-table-{{ b.feature_id }}" class="table table-sm align-middle excel-setup">
+  <thead>
+    <tr>
+      <th style="width:28px;"></th>
+      <th data-sort="1">Name</th>
+      <th data-sort="2">Origin</th>
+      <th data-sort="3">
+        Classification
+        <div class="dropdown d-inline ms-1" data-bs-auto-close="outside">
+          <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown">▾</button>
+          <div class="dropdown-menu p-3 excel-menu" data-col="3" data-split="1" style="width:260px;"></div>
+        </div>
+      </th>
+      <th data-sort="4">
+        Tags
+        <div class="dropdown d-inline ms-1" data-bs-auto-close="outside">
+          <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown">▾</button>
+          <div class="dropdown-menu p-3 excel-menu" data-col="4" data-split="1" style="width:260px;"></div>
+        </div>
+      </th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for s in b.cantrip_choices %}
+      <tr>
+        <td><input type="checkbox" class="pick-cantrip" name="learn_cantrips_{{ b.feature_id }}" value="{{ s.id }}" {% if b.needs_cantrips|default:0 <= 0 %}disabled{% endif %}></td>
+        <td class="spell-name">{{ s.name }}</td>
+        <td class="spell-origin">{{ s.origin|title }}</td>
+        <td class="spell-classification">{{ s.classification|default:"" }}</td>
+        <td class="spell-tags">{{ s.tags|default:"" }}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{# add a small search box for the cantrip table #}
+<input id="cantrip-filter-{{ b.feature_id }}" class="form-control form-control-sm my-2" placeholder="Search Name / Origin / Tags…">
+
+
+    <!-- KNOWN (LEARN) TABS BY RANK -->
+    <h4>Learn Spells (by level)</h4>
+
+    <div class="tabs" role="tablist">
+      {% for r in 1|to:b.max_rank %}
+        {% with slots=b.slots_by_rank.r %}
+        <button type="button"
+                class="tab-btn {% if slots == 0 %}disabled{% endif %} {% if forloop.first %}active{% endif %}"
+                data-target="#tab-learn-{{ b.feature_id }}-r{{ r }}"
+                {% if slots == 0 %}disabled aria-disabled="true"{% endif %}>
+          Lv {{ r }}{% if slots %} · {{ slots }} slot{{ slots|pluralize }}{% else %} · no slots{% endif %}
+        </button>
+        {% endwith %}
+      {% endfor %}
+    </div>
+
+    <div class="capline">
+      Choose up to
+      <b>{{ b.needs_known|default:0 }}</b>
+      more leveled spell{{ b.needs_known|default:0|pluralize }} to know (any level tabs).
+      <span class="livecount" data-role="count-known" data-max="{{ b.needs_known|default:0 }}">0</span> selected.
+    </div>
+
+    {% for r in 1|to:b.max_rank %}
+      <div id="tab-learn-{{ b.feature_id }}-r{{ r }}" class="tab-panel {% if forloop.first %}active{% endif %}">
+<input id="learn-filter-{{ b.feature_id }}-r{{ r }}" class="form-control form-control-sm my-2" placeholder="Search Name / Origin / Tags…">
+
+<table id="learn-table-{{ b.feature_id }}-r{{ r }}" class="table table-sm align-middle excel-setup">
+  <thead>
+    <tr>
+      <th style="width:28px;"></th>
+      <th data-sort="1">Name</th>
+      <th data-sort="2">Origin</th>
+      <th data-sort="3">
+        Classification
+        <div class="dropdown d-inline ms-1" data-bs-auto-close="outside">
+          <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown">▾</button>
+          <div class="dropdown-menu p-3 excel-menu" data-col="3" data-split="1" style="width:260px;"></div>
+        </div>
+      </th>
+      <th data-sort="4">
+        Tags
+        <div class="dropdown d-inline ms-1" data-bs-auto-close="outside">
+          <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown">▾</button>
+          <div class="dropdown-menu p-3 excel-menu" data-col="4" data-split="1" style="width:260px;"></div>
+        </div>
+      </th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for s in b.spell_choices_by_rank.r %}
+      <tr>
+        <td><input type="checkbox"
+                   class="pick-known"
+                   name="learn_known_{{ b.feature_id }}"
+                   value="{{ s.id }}"
+                   data-rank="{{ r }}"
+                   {% if b.needs_known|default:0 <= 0 %}disabled{% endif %}></td>
+        <td class="spell-name">{{ s.name }}</td>
+        <td class="spell-origin">{{ s.origin|title }}</td>
+        <td class="spell-classification">{{ s.classification|default:"" }}</td>
+        <td class="spell-tags">{{ s.tags|default:"" }}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="5" class="muted">No learnable spells at level {{ r }}.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+      </div>
+    {% endfor %}
+
+    <!-- PREPARE (FROM KNOWN) -->
+    <h4>Prepare (from your Known)</h4>
+    {% for r, remain in b.prepared_remaining_by_rank.items %}
+      {% with rank=r|add:0 %}
+      <div class="prepare-row">
+        <div class="prepare-head">
+          <strong>Level {{ rank }}</strong>
+          <span class="muted">up to {{ remain }} this rest</span>
+          <span class="livecount" data-role="count-prepare" data-rank="{{ rank }}" data-max="{{ remain }}">0</span> selected.
+        </div>
+        <table class="spell-table">
+          <thead>
+            <tr>
+              <th style="width:28px;"></th>
+              <th>Name</th>
+            </tr>
+          </thead>
+          <tbody>
+{% for s in b.prepare_choices_by_rank|dict_get:rank %}            <tr>
+              <td><input type="checkbox"
+                         class="pick-prepare"
+                         name="prepare_{{ b.feature_id }}_r{{ rank }}"
+                         value="{{ s.id }}"
+                         data-rank="{{ rank }}"
+                         {% if remain|add:0 <= 0 %}disabled{% endif %}></td>
+              <td>{{ s.name }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="2" class="muted">No known spells at level {{ rank }} to prepare.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endwith %}
+    {% endfor %}
+
+  </div>
+</div>
+

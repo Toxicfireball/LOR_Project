@@ -333,13 +333,26 @@ class MartialMasteryAdmin(admin.ModelAdmin):
     form = MartialMasteryForm
     filter_horizontal = ('classes',)
 
-    list_display = ('name', 'level_required', 'points_cost', 'all_classes',
-                    'restrict_to_weapons', 'restrict_to_traits', 'restriction_summary')
-    list_filter  = ('all_classes', 'restrict_to_weapons', 'restrict_to_traits')
+
+    list_display = (
+        'name', 'level_required', 'points_cost', 'action_cost',
+        'is_rare',                       # ← NEW
+        'all_classes', 'restrict_to_weapons', 'restrict_to_traits',
+        'restriction_summary'
+    )
+    list_filter  = (
+        'is_rare',                      # ← NEW
+        'all_classes', 'restrict_to_weapons', 'restrict_to_traits'
+    )
 
     fieldsets = [
         (None, {
-            "fields": ("name", "level_required", "points_cost", "description", "all_classes", "classes"),
+            "fields": (
+                "name", "level_required", "points_cost", "action_cost",
+                "description",
+                "is_rare",               # ← NEW
+                "all_classes", "classes",
+            ),
         }),
         ("Restrictions (optional)", {
             "fields": (
@@ -732,11 +745,11 @@ class ArmorTraitInline(admin.TabularInline):
 
 @admin.register(Armor)
 class ArmorAdmin(admin.ModelAdmin):
-    list_display = ("name","armor_value","type","speed_penalty", "dex_cap","hinderance")
+    list_display = ("name","armor_value","type","speed_penalty","dex_cap","hinderance","strength_requirement")
     list_filter  = ("type","traits")
     search_fields= ("name",)
     inlines      = [ArmorTraitInline]
-
+    
 @admin.register(SubclassGroup)
 class SubclassGroupAdmin(admin.ModelAdmin):
     list_display = ("character_class", "name", "code", "system_type")
@@ -1794,17 +1807,31 @@ class SpecialItemAdmin(admin.ModelAdmin):
         js = ("characters/js/specialitem_admin.js",)
 
 
+class WeaponForm(forms.ModelForm):
+    # render as multi-check
+    damage_types = forms.MultipleChoiceField(
+        choices=Weapon.DAMAGE_CHOICES,
+        widget=forms.CheckboxSelectMultiple,
+        required=False,
+        label="Damage types",
+    )
+    class Meta:
+        model  = Weapon
+        fields = "__all__"
+
 @admin.register(Weapon)
 class WeaponAdmin(admin.ModelAdmin):
-    list_display   = ("name","category","damage","range_type","range_normal","range_max","damage_type" )
-    list_filter    = ("category","range_type")
-    search_fields  = ("name","damage")
-    inlines        = [WeaponTraitValueInline]
+    form = WeaponForm
+    inlines = [WeaponTraitValueInline]
+    list_display  = ("name","category","damage","range_type","range_normal","range_max","damage_types_list")
+    list_filter   = ("category","range_type")
+    search_fields = ("name","damage")
 
-    def get_form(self, request, obj=None, **kwargs):
-        form = super().get_form(request,obj,**kwargs)
-        # hide range fields when melee selected in JS
-        return form
+    def damage_types_list(self, obj):
+        # display friendly labels
+        mapping = dict(Weapon.DAMAGE_CHOICES)
+        return ", ".join(mapping.get(v, v) for v in (obj.damage_types or [])) or "—"
+    damage_types_list.short_description = "Damage types"
 
     class Media:
         js = ("characters/js/weapon_admin.js",)
