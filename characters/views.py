@@ -1190,13 +1190,17 @@ def class_detail(request, pk):
         cl = next((c for c in levels if c.level == lvl), None)
         feats = list(cl.features.all()) if cl else []
 
-        labels = []
-        for f in feats:
-            if f.scope == 'subclass_feat':
-                names = [s.group.name for s in f.subclasses.all()]
-                labels.append(names[0] if names else f"{f.code}–{f.name}")
-            else:
-                labels.append(f"{f.code}–{f.name}")
+    labels = []
+    for f in feats:
+        if f.scope == 'subclass_feat':
+            names = []
+            for sub in f.subclasses.all().select_related('group'):
+                gname = getattr(getattr(sub, "group", None), "name", None)
+                names.append((gname or sub.name or "").strip())
+            names = [n for n in names if n]
+            labels.append(names[0] if names else (f.name or f.code or "Subclass Feature"))
+        else:
+            labels.append("–".join(p for p in [f.code, f.name] if p))
 
         # dedupe, preserve order
         unique = list(dict.fromkeys(labels))
