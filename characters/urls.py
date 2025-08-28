@@ -30,6 +30,7 @@ urlpatterns = [
     path("codex/", views.codex_index, name="codex_index"),
     path("codex/spells/", views.spell_list, name="codex_spells"),
     path("codex/feats/", views.feat_list, name="codex_feats"),
+        path("codex/feats/data/", views.feat_data, name="feat_data"),
     path("codex/classes/", views.class_list, name="codex_classes"),
     # 🔧 renamed so templates `{% url 'characters:class_detail' pk=... %}` work
     path("codex/classes/<int:pk>/", views.class_detail, name="class_detail"),

@@ -1,186 +1,568 @@
-{% extends 'base.html' %}
+{% extends "base.html" %}
 {% load static %}
+
+{% block title %}Spells{% endblock %}
+
 {% block content %}
-<link rel="stylesheet" href="{% static 'characters/css/style.css' %}">
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Spells</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <style>
+    :root { --b:#e5e7eb; --t:#111827; --bg:#ffffff; --muted:#6b7280; --hi:#2563eb; }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color:var(--t); background:var(--bg); margin:0; }
+    .wrap { max-width: 1200px; margin: 28px auto; padding: 0 16px; }
 
-<h1>All Spells</h1>
+    /* TABS (use your pattern; 0 = Cantrip) */
+    .tabs { display:flex; gap:8px; flex-wrap:wrap; margin:0 0 12px; }
+    .tab-button { border:1px solid var(--b); background:#fff; padding:8px 12px; border-radius:10px; cursor:pointer; }
+    .tab-button.active { background:var(--hi); color:#fff; border-color:var(--hi); }
 
-<!-- Tabs for each spell level -->
-<div class="tabs">
-  {% for level in levels %}
-    <button class="tab-button" onclick="showTab({{ level }})" id="tab-btn-{{ level }}">Level {{ level }}</button>
-  {% endfor %}
-</div>
+    /* Toolbar */
+    .toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:8px 0 16px; }
+    .toolbar input[type="search"] { padding:10px 12px; border:1px solid var(--b); border-radius:10px; min-width:260px; outline: none; }
+    .toolbar .reset { border:1px solid var(--b); background:#f9fafb; padding:8px 10px; border-radius:10px; cursor:pointer; }
+    .muted { color:var(--muted); }
 
-<!-- Spell tables per level -->
-{% for level in levels %}
-  <div class="tab-content" id="tab-{{ level }}" style="display: none;">
-    <input type="text" class="search-box" placeholder="Search level {{ level }} spells..." onkeyup="filterTable(this, 'table-{{ level }}')">
+    /* Table */
+    .table-wrap { overflow:auto; border:1px solid var(--b); border-radius:12px; }
+    table { width:100%; border-collapse:collapse; }
+    th, td { text-align:left; padding:12px 12px; border-bottom:1px solid var(--b); vertical-align:top; }
+    th { position:relative; font-size:14px; color:#111827; background:#f9fafb; }
+    tr:hover td { background:#fafafa; }
+    .tag { font-size:12px; padding:2px 6px; border:1px solid var(--b); border-radius:999px; margin-right:6px; display:inline-block; }
+    .cell-actions { white-space:nowrap; }
 
-    <table class="styled-table sortable" id="table-{{ level }}">
+    /* Header popover menus (Excel-style) */
+    .filter-toggle { margin-left:8px; font-size:12px; color:var(--muted); cursor:pointer; user-select:none; }
+    .menu { position:absolute; top: calc(100% + 4px); left: 8px; z-index:20; background:#fff; border:1px solid var(--b); border-radius:12px; box-shadow:0 12px 30px rgba(0,0,0,.12); width:300px; max-height:340px; overflow:auto; padding:8px; display:none; }
+    .menu.open { display:block; }
+    .menu .hdr { display:flex; justify-content:space-between; align-items:center; position:sticky; top:0; background:#fff; padding:6px 4px; border-bottom:1px solid var(--b); }
+    .menu .hdr button { border:none; background:none; color:var(--hi); cursor:pointer; font-weight:600; }
+    .menu .row { display:flex; align-items:center; gap:8px; padding:6px 4px; }
+    .menu input[type="search"], .menu input[type="number"] { width:100%; padding:8px 10px; border:1px solid var(--b); border-radius:8px; }
+    .menu .list { padding:4px 2px; }
+
+    /* Pills for active filters */
+    .pillbar { display:flex; gap:6px; flex-wrap:wrap; margin:10px 0 0; }
+    .pill { font-size:12px; background:#eef2ff; border:1px solid #c7d2fe; padding:2px 8px; border-radius:999px; }
+
+    /* Drawer */
+    .backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.25); backdrop-filter: blur(2px); z-index: 40; display:none; }
+    .backdrop.open { display:block; }
+    .drawer { position: fixed; top: 0; right: 0; height: 100%; width: min(560px, 92vw); background: #fff;
+              box-shadow: -12px 0 30px rgba(0,0,0,.15); padding: 20px 20px 40px; overflow: auto; z-index: 50;
+              border-left: 1px solid var(--b); transform: translateX(100%); transition: transform .22s ease; }
+    .drawer.open { transform: translateX(0%); }
+    .drawer-close { position: sticky; top: 0; float: right; border: 1px solid var(--b); background: #f3f4f6; border-radius: 8px; padding: 4px 8px; cursor: pointer; }
+    .d-name { margin: 6px 0 4px; }
+    .d-meta { margin-bottom: 12px; color: var(--muted); }
+    .d-row { display: grid; grid-template-columns: 160px 1fr; gap: 10px; margin: 6px 0; }
+    .d-sep { border: 0; border-top: 1px solid var(--b); margin: 12px 0 14px; }
+    .d-desc p { line-height: 1.55; margin: 10px 0; }
+    .view-btn { border:1px solid var(--b); background:#fff; padding:6px 10px; border-radius:10px; cursor:pointer; }
+
+    /* keep big fields compact in-grid; full content is in drawer */
+    .desc-cell { max-width: 420px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    @media (max-width: 900px) { .desc-cell { max-width: 250px; } }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1 style="margin:0 0 8px;">Spells</h1>
+
+  <!-- Level Tabs (your style) -->
+  <div class="tabs" role="tablist" aria-label="Spell Level">
+    {% for n in levels %}
+      <button class="tab-button{% if forloop.first %} active{% endif %}" data-level="{{ n }}" role="tab" aria-selected="{% if forloop.first %}true{% else %}false{% endif %}">
+        {% if n == 0 %}Cantrip{% else %}Level {{ n }}{% endif %}
+      </button>
+    {% endfor %}
+  </div>
+
+  <!-- Toolbar -->
+  <div class="toolbar" role="region" aria-label="Filters">
+    <input id="q" type="search" placeholder="Global: name, tags, effect…" aria-label="Global search"/>
+    <span class="muted" id="count"></span>
+    <button class="reset" id="resetBtn" type="button">Reset filters</button>
+  </div>
+
+  <!-- Grid (single grid; tabs just filter it) -->
+  <div class="table-wrap">
+    <table id="grid">
       <thead>
         <tr>
-          <th>
-            Origin
-            <div class="dropdown-filter" onclick="event.stopPropagation(); toggleDropdown('origin-filter-{{ level }}')">
-              ⏷
-              <div class="dropdown-content" id="origin-filter-{{ level }}">
-                {% for o in origins %}
-                  <label><input type="checkbox" value="{{ o }}" checked onchange="applyCheckboxFilter('table-{{ level }}', 0, 'origin-filter-{{ level }}')"> {{ o }}</label><br>
-                {% endfor %}
+          <th data-col="name">Name
+            <span class="filter-toggle" data-for="name" tabindex="0" aria-haspopup="true" aria-expanded="false">▼</span>
+            <div class="menu" data-menu="name" role="menu" aria-label="Filter by name">
+              <div class="hdr">
+                <strong>Name</strong>
+                <button data-action="clear" type="button">Clear</button>
               </div>
+              <div class="row"><input type="search" placeholder="Contains…" data-kind="text" data-field="nameContains" aria-label="Name contains"></div>
             </div>
           </th>
-          <th onclick="sortTable('table-{{ level }}', 1)">Name</th>
-          <th>
-            Classification
-            <div class="dropdown-filter" onclick="event.stopPropagation(); toggleDropdown('class-filter-{{ level }}')">
-              ⏷
-              <div class="dropdown-content" id="class-filter-{{ level }}">
-                {% for c in classifications %}
-                  <label><input type="checkbox" value="{{ c }}" checked onchange="applyCheckboxFilter('table-{{ level }}', 2, 'class-filter-{{ level }}')"> {{ c }}</label><br>
-                {% endfor %}
+
+          <th data-col="level">Level
+            <span class="filter-toggle" data-for="level" tabindex="0" aria-haspopup="true" aria-expanded="false">▼</span>
+            <div class="menu" data-menu="level" role="menu" aria-label="Filter by level">
+              <div class="hdr">
+                <strong>Level</strong>
+                <button data-action="clear" type="button">Clear</button>
               </div>
+              <div class="row"><label>Exact = <input type="number" min="0" max="10" data-kind="level-eq" aria-label="Exact level"></label></div>
+              <div class="row"><label>≤ <input type="number" min="0" max="10" data-kind="level-max" aria-label="Max level"></label></div>
             </div>
           </th>
-          <th>Description</th>
-          <th>Details</th>
+
+          <th data-col="origin">Origin
+            <span class="filter-toggle" data-for="origin" tabindex="0" aria-haspopup="true" aria-expanded="false">▼</span>
+            <div class="menu" data-menu="origin" role="menu" aria-label="Filter by origin">
+              <div class="hdr">
+                <strong>Origin</strong>
+                <button data-action="all" type="button">All</button>
+                <button data-action="none" type="button">None</button>
+              </div>
+              <div class="list" data-list="origin"></div>
+              <div class="muted" style="padding:6px 4px;">Checks membership in the cell (comma/semicolon/slash tolerated).</div>
+            </div>
+          </th>
+
+          <th data-col="classification">Classification
+            <span class="filter-toggle" data-for="classification" tabindex="0" aria-haspopup="true" aria-expanded="false">▼</span>
+            <div class="menu" data-menu="classification" role="menu" aria-label="Filter by classification">
+              <div class="hdr">
+                <strong>Classification</strong>
+                <button data-action="all" type="button">All</button>
+                <button data-action="none" type="button">None</button>
+              </div>
+              <div class="list" data-list="classification"></div>
+            </div>
+          </th>
+
+          <th data-col="tags">Tags
+            <span class="filter-toggle" data-for="tags" tabindex="0" aria-haspopup="true" aria-expanded="false">▼</span>
+            <div class="menu" data-menu="tags" role="menu" aria-label="Filter by tags">
+              <div class="hdr">
+                <strong>Tags</strong>
+                <button data-action="all" type="button">All</button>
+                <button data-action="none" type="button">None</button>
+              </div>
+              <div class="list" data-list="tags"></div>
+            </div>
+          </th>
+
+          <th data-col="casting_time">Casting Time
+            <span class="filter-toggle" data-for="casting_time" tabindex="0" aria-haspopup="true" aria-expanded="false">▼</span>
+            <div class="menu" data-menu="casting_time" role="menu" aria-label="Filter by casting time">
+              <div class="hdr">
+                <strong>Casting Time</strong>
+                <button data-action="clear" type="button">Clear</button>
+              </div>
+              <div class="row"><input type="search" placeholder="Contains…" data-kind="text" data-field="castContains" aria-label="Casting time contains"></div>
+            </div>
+          </th>
+
+          <th data-col="duration">Duration
+            <span class="filter-toggle" data-for="duration" tabindex="0" aria-haspopup="true" aria-expanded="false">▼</span>
+            <div class="menu" data-menu="duration" role="menu" aria-label="Filter by duration">
+              <div class="hdr">
+                <strong>Duration</strong>
+                <button data-action="clear" type="button">Clear</button>
+              </div>
+              <div class="row"><input type="search" placeholder="Contains…" data-kind="text" data-field="durContains" aria-label="Duration contains"></div>
+            </div>
+          </th>
+
+          <th data-col="components">Components
+            <span class="filter-toggle" data-for="components" tabindex="0" aria-haspopup="true" aria-expanded="false">▼</span>
+            <div class="menu" data-menu="components" role="menu" aria-label="Filter by components">
+              <div class="hdr">
+                <strong>Components</strong>
+                <button data-action="clear" type="button">Clear</button>
+              </div>
+              <div class="row"><input type="search" placeholder="Contains…" data-kind="text" data-field="compContains" aria-label="Components contains"></div>
+            </div>
+          </th>
+
+          <th data-col="range_target">Range / Target
+            <span class="filter-toggle" data-for="range_target" tabindex="0" aria-haspopup="true" aria-expanded="false">▼</span>
+            <div class="menu" data-menu="range_target" role="menu" aria-label="Filter by range/target">
+              <div class="hdr">
+                <strong>Range / Target</strong>
+                <button data-action="clear" type="button">Clear</button>
+              </div>
+              <div class="row"><input type="search" placeholder="Contains…" data-kind="text" data-field="rngContains" aria-label="Range/Target contains"></div>
+            </div>
+          </th>
+
+          <th class="cell-actions" aria-label="Actions"><span class="sr-only">Actions</span></th>
         </tr>
       </thead>
-      <tbody>
-        {% for spell in spells %}
-          {% if spell.level == level %}
-            <tr>
-              <td>{{ spell.origin }}</td>
-              <td>{{ spell.name }}</td>
-              <td>{{ spell.classification }}</td>
-              <td>{{ spell.description }}</td>
-              <td><button onclick="toggleDetails('spell-{{ spell.id }}')">Show</button></td>
-            </tr>
-            <tr id="spell-{{ spell.id }}" class="detail-row" style="display: none;">
-              <td colspan="5">
-                <strong>Effect:</strong> <p>{{ spell.effect|linebreaks }}</p><br>
-                <strong>Upcast Effect:</strong> {{ spell.upcast_effect|linebreaks  }}<br>
-                <strong>Saving Throw:</strong> {{ spell.saving_throw }}<br>
-                <strong>Casting Time:</strong> {{ spell.casting_time }}<br>
-                <strong>Duration:</strong> {{ spell.duration }}<br>
-                <strong>Components:</strong> {{ spell.components }}<br>
-                <strong>Range:</strong> {{ spell.range }}<br>
-                <strong>Target:</strong> {{ spell.target }}<br>
-                <strong>School:</strong> {{ spell.school }}<br>
-                <strong>Sub Origin:</strong> {{ spell.sub_origin }}<br>
-                <strong>Mastery Req:</strong> {{ spell.mastery_req }}<br>
-                <strong>Tags:</strong> {{ spell.tags }}
-              </td>
-            </tr>
-          {% endif %}
-        {% endfor %}
-      </tbody>
+      <tbody></tbody>
     </table>
   </div>
-{% endfor %}
+
+  <!-- Active filter pills -->
+  <div class="pillbar" id="activePills" aria-live="polite"></div>
+</div>
+
+<!-- Drawer -->
+<div id="backdrop" class="backdrop" aria-hidden="true"></div>
+<aside id="drawer" class="drawer" aria-hidden="true" aria-label="Spell details panel">
+  <button id="closeDrawer" class="drawer-close" type="button" aria-label="Close">✕</button>
+  <h2 id="d_name" class="d-name"></h2>
+  <div class="d-meta" id="d_meta"></div>
+
+  <div class="d-row"><strong>Origin</strong><div id="d_origin" class="d-value">—</div></div>
+  <div class="d-row"><strong>Sub-Origin</strong><div id="d_suborigin" class="d-value">—</div></div>
+  <div class="d-row"><strong>Classification</strong><div id="d_classification" class="d-value">—</div></div>
+  <div class="d-row"><strong>Saving Throw</strong><div id="d_save" class="d-value">—</div></div>
+  <div class="d-row"><strong>Casting Time</strong><div id="d_cast" class="d-value">—</div></div>
+  <div class="d-row"><strong>Duration</strong><div id="d_duration" class="d-value">—</div></div>
+  <div class="d-row"><strong>Components</strong><div id="d_components" class="d-value">—</div></div>
+  <div class="d-row"><strong>Range / Target</strong><div id="d_range" class="d-value">—</div></div>
+  <div class="d-row"><strong>Tags</strong><div id="d_tags" class="d-value">—</div></div>
+  <hr class="d-sep">
+  <article id="d_effect" class="d-desc"><em>No effect provided.</em></article>
+  <hr class="d-sep">
+  <article id="d_upcast" class="d-desc"><em>No upcast effect.</em></article>
+  <div class="muted" id="d_synced" style="margin-top:10px;"></div>
+</aside>
+
+<!-- Safe JSON payload -->
+{{ spells_json|json_script:"spell-data" }}
 
 <script>
-function showTab(level) {
-  const tabs = document.querySelectorAll(".tab-content");
-  tabs.forEach(tab => tab.style.display = "none");
-  document.getElementById(`tab-${level}`).style.display = "block";
+/* ---------- State ---------- */
+const ORIGINS_SEED = {{ origins|safe }};
+const state = {
+  all: [],
+  tabLevel: 0,   // 0..10
+  filters: {
+    q: "",
+    nameContains: "",
+    levelEq: "",
+    levelMax: "",
+    origin: new Set(),
+    classification: new Set(),
+    tags: new Set(),
+    castContains: "",
+    durContains: "",
+    compContains: "",
+    rngContains: "",
+  },
+  catalog: { tags: [], classifications: [], origins: [] }
+};
 
-  const buttons = document.querySelectorAll(".tab-button");
-  buttons.forEach(btn => btn.classList.remove("active"));
-  document.getElementById(`tab-btn-${level}`).classList.add("active");
+/* ---------- Utilities ---------- */
+const el = sel => document.querySelector(sel);
+const $$ = sel => Array.from(document.querySelectorAll(sel));
+const norm = s => (s||"").toString().trim().toLowerCase();
+const tokenSplitRe = /\s*[,;/|]\s*/;   // Excel-like membership split
+
+function parseData(){
+  try { state.all = JSON.parse(document.getElementById("spell-data").textContent) || []; }
+  catch(e){ state.all = []; }
 }
 
-function toggleDetails(id) {
-  const row = document.getElementById(id);
-  row.style.display = row.style.display === 'none' ? '' : 'none';
+function buildCatalog(){
+  const tags = new Set(), cls = new Set(), ori = new Set(ORIGINS_SEED.map(norm));
+  state.all.forEach(s=>{
+    (s.tags||[]).forEach(t=>{ if(t) tags.add(t); });
+    if (s.classification) cls.add(s.classification);
+    // also learn origins from data if not in seed
+    if (s.origin) {
+      s.origin.split(tokenSplitRe).forEach(v => { if(v) ori.add(norm(v)); });
+    }
+  });
+  state.catalog.tags = Array.from(tags).sort((a,b)=>a.localeCompare(b));
+  state.catalog.classifications = Array.from(cls).sort((a,b)=>a.localeCompare(b));
+  state.catalog.origins = Array.from(ori).sort((a,b)=>a.localeCompare(b));
 }
 
-function toggleDropdown(id) {
-  document.querySelectorAll('.dropdown-content').forEach(el => {
-    if (el.id !== id) el.style.display = 'none';
-  });
-  const target = document.getElementById(id);
-  target.style.display = target.style.display === 'block' ? 'none' : 'block';
+function renderCheckboxList(containerSel, values, selectedSet, field){
+  const box = document.querySelector(containerSel);
+  box.innerHTML = values.map(v=>{
+    const id = `${field}-${v.replace(/\s+/g,"_")}`;
+    const ck = selectedSet.has(norm(v)) ? "checked" : "";
+    return `<label class="row"><input type="checkbox" data-kind="multi" data-field="${field}" value="${v}" ${ck}><span>${v}</span></label>`;
+  }).join("") || `<div class="muted" style="padding:6px 4px;">No values</div>`;
 }
 
-document.addEventListener('click', function() {
-  document.querySelectorAll('.dropdown-content').forEach(el => {
-    el.style.display = 'none';
+function hasAnyToken(cellText, selectedSet){
+  if(!selectedSet.size) return true;
+  const toks = (cellText||"").split(tokenSplitRe).map(norm).filter(Boolean);
+  return toks.some(t => selectedSet.has(t));
+}
+
+/* ---------- Filters ---------- */
+function matchesFilters(s){
+  // Level tab
+  if(Number(s.level)!==Number(state.tabLevel)) return false;
+
+  // Column: Level exact/max
+  if(state.filters.levelEq!==""){
+    if(Number(s.level)!==Number(state.filters.levelEq)) return false;
+  } else if(state.filters.levelMax!==""){
+    if(Number(s.level)>Number(state.filters.levelMax)) return false;
+  }
+
+  // Global search: name + tags + effect + upcast
+  const q = norm(state.filters.q);
+  if(q){
+    const hay = `${norm(s.name)} ${(s.tags||[]).map(norm).join(" ")} ${norm(s.effect)} ${norm(s.upcast_effect)}`;
+    if(!hay.includes(q)) return false;
+  }
+
+  // per-column contains filters
+  if(state.filters.nameContains && !norm(s.name).includes(norm(state.filters.nameContains))) return false;
+  if(state.filters.castContains && !norm(s.casting_time).includes(norm(state.filters.castContains))) return false;
+  if(state.filters.durContains  && !norm(s.duration).includes(norm(state.filters.durContains))) return false;
+  if(state.filters.compContains && !norm(s.components).includes(norm(state.filters.compContains))) return false;
+  const rngText = `${s.range||""} ${s.target||""}`;
+  if(state.filters.rngContains  && !norm(rngText).includes(norm(state.filters.rngContains))) return false;
+
+  // Origin membership (Excel-style checkboxes; membership within the cell)
+  if(state.filters.origin.size){
+    if(!hasAnyToken(s.origin, state.filters.origin)) return false;
+  }
+
+  // Classification membership
+  if(state.filters.classification.size){
+    if(!hasAnyToken(s.classification, state.filters.classification)) return false;
+  }
+
+  // Tags membership (array)
+  if(state.filters.tags.size){
+    const set = new Set((s.tags||[]).map(norm));
+    let ok = false; state.filters.tags.forEach(v=>{ if(set.has(v)) ok=true; });
+    if(!ok) return false;
+  }
+
+  return true;
+}
+
+function renderPills(){
+  const pills = [];
+  pills.push({k:"tabLevel", v:`Level: ${state.tabLevel===0?"Cantrip":state.tabLevel}`});
+  if(state.filters.q) pills.push({k:"q", v:`Search: ${state.filters.q}`});
+  if(state.filters.levelEq!=="") pills.push({k:"levelEq", v:`Level = ${state.filters.levelEq}`});
+  else if(state.filters.levelMax!=="") pills.push({k:"levelMax", v:`Level ≤ ${state.filters.levelMax}`});
+  if(state.filters.nameContains) pills.push({k:"nameContains", v:`Name: ${state.filters.nameContains}`});
+  if(state.filters.castContains) pills.push({k:"castContains", v:`Casting: ${state.filters.castContains}`});
+  if(state.filters.durContains)  pills.push({k:"durContains",  v:`Duration: ${state.filters.durContains}`});
+  if(state.filters.compContains) pills.push({k:"compContains", v:`Components: ${state.filters.compContains}`});
+  if(state.filters.rngContains)  pills.push({k:"rngContains",  v:`Range/Target: ${state.filters.rngContains}`});
+  state.filters.origin.forEach(v=>pills.push({k:"origin", v:`Origin: ${v}`}));
+  state.filters.classification.forEach(v=>pills.push({k:"classification", v:`Class: ${v}`}));
+  state.filters.tags.forEach(v=>pills.push({k:"tags", v:`Tag: ${v}`}));
+  el("#activePills").innerHTML = pills.map(p=>`<span class="pill" data-k="${p.k}">${p.v}</span>`).join("");
+}
+
+/* ---------- Rendering ---------- */
+function actionsCell(sp){
+  return `<button class="view-btn" type="button" data-view="${sp.id}" aria-label="View details of ${sp.name}">View</button>`;
+}
+
+function renderTable(){
+  const tbody = el("#grid tbody");
+  tbody.innerHTML = "";
+  const rows = state.all.filter(matchesFilters)
+                        .sort((a,b)=> a.name.localeCompare(b.name));
+  rows.forEach(s=>{
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><strong>${s.name}</strong></td>
+      <td>${s.level===0?'Cantrip':'Level '+s.level}</td>
+      <td style="text-transform:capitalize">${s.origin||"—"}</td>
+      <td>${s.classification||"—"}</td>
+      <td>${(s.tags||[]).map(t=>`<span class="tag">${t}</span>`).join(" ")||"—"}</td>
+      <td>${s.casting_time||"—"}</td>
+      <td>${s.duration||"—"}</td>
+      <td>${s.components||"—"}</td>
+      <td>${[s.range,s.target].filter(Boolean).join(" • ")||"—"}</td>
+      <td class="cell-actions">${actionsCell(s)}</td>
+    `;
+    tr.addEventListener("click",(e)=>{
+      if (e.target.closest('button, input, a, .menu')) return;
+      openDetail(s);
+    });
+    tr.querySelector('button[data-view]').addEventListener('click',(e)=>{
+      e.stopPropagation();
+      openDetail(s);
+    });
+    tbody.appendChild(tr);
   });
-});
+  el("#count").textContent = `${rows.length} shown`;
+  renderPills();
+}
 
-document.querySelectorAll('.dropdown-filter').forEach(filter => {
-  filter.addEventListener('click', function(event) {
-    event.stopPropagation();
+/* ---------- Menus & Wiring ---------- */
+function openMenu(col){
+  $$(".menu").forEach(m=>m.classList.remove("open"));
+  const menu = document.querySelector(`.menu[data-menu="${col}"]`);
+  if(menu){ menu.classList.add("open"); }
+}
+function closeMenus(){ $$(".menu").forEach(m=>m.classList.remove("open")); }
+
+function resetFilters(){
+  state.filters.q = "";
+  state.filters.nameContains = "";
+  state.filters.levelEq = "";
+  state.filters.levelMax = "";
+  state.filters.origin.clear();
+  state.filters.classification.clear();
+  state.filters.tags.clear();
+  state.filters.castContains = "";
+  state.filters.durContains  = "";
+  state.filters.compContains = "";
+  state.filters.rngContains  = "";
+  el("#q").value = "";
+  $$('.menu [data-kind="text"]').forEach(i=>i.value="");
+  $$('.menu [data-kind="level-eq"]').forEach(i=>i.value="");
+  $$('.menu [data-kind="level-max"]').forEach(i=>i.value="");
+  $$('.menu input[type="checkbox"][data-kind="multi"]').forEach(cb=>cb.checked=false);
+  renderTable();
+}
+
+function wireMenus(){
+  // open/close
+  $$(".filter-toggle").forEach(t=>{
+    t.addEventListener("click", (e)=>{ e.stopPropagation(); openMenu(t.dataset.for); });
+    t.addEventListener("keydown", (e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); openMenu(t.dataset.for); }});
   });
-});
+  document.addEventListener("click",(e)=>{
+    if(!e.target.closest(".menu") && !e.target.classList.contains("filter-toggle")) closeMenus();
+  });
 
-function applyCheckboxFilter(tableId, colIndex, dropdownId) {
-  const checkedValues = Array.from(document.querySelectorAll(`#${dropdownId} input:checked`)).map(input => input.value.toLowerCase());
-  const table = document.getElementById(tableId);
-  const rows = table.querySelectorAll("tbody tr:not(.detail-row)");
+  // header menu actions
+  $$(".menu .hdr button").forEach(b=>{
+    b.addEventListener("click",(e)=>{
+      const menu = e.target.closest(".menu");
+      const which = menu.dataset.menu;
+      const action = e.target.dataset.action;
+      if(action==="clear"){
+        if(which==="name"){ state.filters.nameContains=""; menu.querySelector('[data-kind="text"]').value=""; }
+        if(which==="level"){ state.filters.levelEq=""; state.filters.levelMax=""; menu.querySelectorAll('[data-kind^="level"]').forEach(i=>i.value=""); }
+        if(which==="casting_time"){ state.filters.castContains=""; menu.querySelector('[data-kind="text"]').value=""; }
+        if(which==="duration"){ state.filters.durContains=""; menu.querySelector('[data-kind="text"]').value=""; }
+        if(which==="components"){ state.filters.compContains=""; menu.querySelector('[data-kind="text"]').value=""; }
+        if(which==="range_target"){ state.filters.rngContains=""; menu.querySelector('[data-kind="text"]').value=""; }
+      } else {
+        const set = state.filters[which]; // origin | classification | tags
+        if(!(set instanceof Set)) return;
+        const cbs = menu.querySelectorAll('input[type="checkbox"][data-kind="multi"]');
+        if(action==="all"){ cbs.forEach(cb=>{ cb.checked=true; set.add(norm(cb.value)); }); }
+        if(action==="none"){ cbs.forEach(cb=>cb.checked=false); set.clear(); }
+      }
+      renderTable();
+    });
+  });
 
-  rows.forEach(row => {
-    const text = row.cells[colIndex].textContent.toLowerCase();
-    const match = checkedValues.some(val => text.split(',').map(v => v.trim()).includes(val));
-    row.style.display = match ? '' : 'none';
-    const detailRow = row.nextElementSibling;
-    if (detailRow && detailRow.classList.contains("detail-row")) {
-      detailRow.style.display = 'none';
+  // per-menu inputs
+  $$('.menu [data-kind="text"]').forEach(inp=>{
+    inp.addEventListener("input", (e)=>{
+      const field = e.target.dataset.field;
+      state.filters[field] = e.target.value;
+      renderTable();
+    });
+  });
+  $$('.menu [data-kind="level-eq"]').forEach(inp=>{
+    inp.addEventListener("input",(e)=>{ state.filters.levelEq = e.target.value; renderTable(); });
+  });
+  $$('.menu [data-kind="level-max"]').forEach(inp=>{
+    inp.addEventListener("input",(e)=>{ state.filters.levelMax = e.target.value; renderTable(); });
+  });
+
+  document.addEventListener("change", (e)=>{
+    const tgt = e.target;
+    if(tgt.matches('input[type="checkbox"][data-kind="multi"]')){
+      const set = state.filters[tgt.dataset.field];
+      const val = norm(tgt.value);
+      if(tgt.checked) set.add(val); else set.delete(val);
+      renderTable();
     }
   });
 }
 
-function sortTable(tableId, colIndex) {
-  const table = document.getElementById(tableId);
-  const rows = Array.from(table.querySelectorAll("tbody tr:not(.detail-row)"));
-  const detailMap = new Map();
-  rows.forEach(row => {
-    const detailRow = row.nextElementSibling;
-    if (detailRow && detailRow.classList.contains("detail-row")) {
-      detailMap.set(row, detailRow);
-    }
+function wireGeneral(){
+  // Level tabs (your pattern)
+  $$(".tab-button").forEach((btn, i)=>{
+    btn.addEventListener("click", ()=>{
+      $$(".tab-button").forEach(b=>{ b.classList.remove("active"); b.setAttribute("aria-selected","false"); });
+      btn.classList.add("active");
+      btn.setAttribute("aria-selected","true");
+      state.tabLevel = Number(btn.dataset.level);
+      renderTable();
+    });
+    // auto-select first on boot
+    if(i===0){ state.tabLevel = Number(btn.dataset.level); }
   });
-  const sorted = rows.sort((a, b) => {
-    const cellA = a.cells[colIndex].textContent.toLowerCase();
-    const cellB = b.cells[colIndex].textContent.toLowerCase();
-    return cellA.localeCompare(cellB);
-  });
-  const tbody = table.querySelector("tbody");
-  sorted.forEach(row => {
-    const detail = detailMap.get(row);
-    tbody.appendChild(row);
-    if (detail) tbody.appendChild(detail);
-  });
+
+  // Global search
+  el("#q").addEventListener("input", (e)=>{ state.filters.q = e.target.value; renderTable(); });
+
+  // Reset
+  el("#resetBtn").addEventListener("click", resetFilters);
 }
 
-// Auto-activate first tab
-showTab({{ levels.0 }});
+/* ---------- Drawer ---------- */
+function sanitizeHtml(s){
+  if(!s) return "";
+  s = s.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "");
+  s = s.replace(/\son\w+="[^"]*"/gi, "").replace(/\son\w+='[^']*'/gi, "");
+  return s;
+}
+function openDetail(sp){
+  el("#d_name").textContent = sp.name || "Spell";
+  el("#d_meta").textContent = sp.level===0 ? "Cantrip" : `Level ${sp.level}`;
+  el("#d_origin").textContent = sp.origin || "—";
+  el("#d_suborigin").textContent = sp.sub_origin || "—";
+  el("#d_classification").textContent = sp.classification || "—";
+  el("#d_save").textContent = sp.saving_throw || "—";
+  el("#d_cast").textContent = sp.casting_time || "—";
+  el("#d_duration").textContent = sp.duration || "—";
+  el("#d_components").textContent = sp.components || "—";
+  el("#d_range").textContent = [sp.range, sp.target].filter(Boolean).join(" • ") || "—";
+  el("#d_tags").innerHTML = (sp.tags||[]).map(t=>`<span class="tag">${t}</span>`).join(" ") || "—";
+  el("#d_effect").innerHTML = sanitizeHtml(sp.effect || "<em>No effect provided.</em>");
+  el("#d_upcast").innerHTML = sanitizeHtml(sp.upcast_effect || "<em>No upcast effect.</em>");
+  el("#d_synced").textContent = sp.last_synced ? `Last synced: ${sp.last_synced}` : "";
+  el("#backdrop").classList.add("open");
+  const dr = el("#drawer");
+  dr.classList.add("open");
+  dr.setAttribute("aria-hidden","false");
+}
+function closeDetail(){
+  el("#backdrop").classList.remove("open");
+  const dr = el("#drawer");
+  dr.classList.remove("open");
+  dr.setAttribute("aria-hidden","true");
+}
+el("#closeDrawer").addEventListener("click", closeDetail);
+el("#backdrop").addEventListener("click", closeDetail);
+document.addEventListener("keydown",(e)=>{ if(e.key==="Escape") closeDetail(); });
+
+/* ---------- Boot ---------- */
+function boot(){
+  parseData();
+  buildCatalog();
+
+  // Build per-column checkbox lists
+  renderCheckboxList('.menu[data-menu="origin"] .list[data-list="origin"]', state.catalog.origins, state.filters.origin, "origin");
+  renderCheckboxList('.menu[data-menu="classification"] .list[data-list="classification"]', state.catalog.classifications, state.filters.classification, "classification");
+  renderCheckboxList('.menu[data-menu="tags"] .list[data-list="tags"]', state.catalog.tags, state.filters.tags, "tags");
+
+  wireMenus();
+  wireGeneral();
+  renderTable();
+}
+boot();
 </script>
-
-<style>
-.dropdown-filter {
-  display: inline-block;
-  position: relative;
-  cursor: pointer;
-  font-weight: normal;
-  font-size: 0.9rem;
-  margin-left: 5px;
-}
-.dropdown-content {
-  display: none;
-  position: absolute;
-  background: white;
-  border: 1px solid #ccc;
-  padding: 8px;
-  z-index: 100;
-  max-height: 200px;
-  overflow-y: auto;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-  font-size: 0.85rem;
-  min-width: 150px;
-}
-</style>
-
+</body>
+</html>
 {% endblock %}

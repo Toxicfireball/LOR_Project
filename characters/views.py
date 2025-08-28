@@ -735,26 +735,111 @@ def _spellcasting_context(char: Character) -> Dict[str, Any]:
     )
 
 # ----------------------------- page views --------------------------------
+# characters/views.py
+from django.shortcuts import render
+from django.http import JsonResponse
+from django.urls import reverse
+import re
 
+from .models import ClassFeat
+
+# Split "Wizard, Fighter / Ranger; Rogue" → ["Wizard","Fighter","Ranger","Rogue"]
+_TOKEN_SPLIT_RE = re.compile(r"\s*[,;/|]\s*")
+def _tokens(s: str | None) -> list[str]:
+    if not s:
+        return []
+    return [t.strip() for t in _TOKEN_SPLIT_RE.split(s) if t.strip()]
+
+# Your helper from above; keep as-is if already defined
+LEVEL_NUM_RE = re.compile(r'(\d+)\s*(?:st|nd|rd|th)?')
+def parse_req_level(txt: str | None) -> int:
+    if not txt:
+        return 0
+    nums = [int(n) for n in LEVEL_NUM_RE.findall(txt)]
+    return min(nums) if nums else 0
+
+def feat_list(request):
+    # Just render the page; JS will fetch data from feat_data()
+    return render(request, "codex/feat_list.html", {
+        "data_url": reverse("feat_data"),
+    })
+
+def feat_data(request):
+    """
+    Lightweight JSON for client-side filtering.
+    Tokenizes class_name and race columns so filters match each value correctly.
+    """
+    rows = []
+    for f in ClassFeat.objects.all().order_by("name"):
+        feat_types = [t.strip() for t in (f.feat_type or "").split(",") if t.strip()]
+        class_vals = _tokens(f.class_name)
+        race_vals  = _tokens(f.race)
+        tag_vals   = [t.strip() for t in (f.tags or "").split(",") if t.strip()]
+        rows.append({
+            "id": f.id,
+            "name": f.name or "",
+            "feat_type_raw": f.feat_type or "",
+            "feat_types": feat_types,                 # e.g. ["Class"]
+            "class_tokens": class_vals,               # ["Wizard","Fighter","Ranger"]
+            "race_tokens": race_vals,                 # ["Elf","Dwarf"]
+            "tags": tag_vals,                         # ["Focus","Defense"]
+            "level_req_num": parse_req_level(getattr(f, "level_prerequisite", "")),
+            "level_prereq_raw": getattr(f, "level_prerequisite", "") or "",
+            "prerequisites": getattr(f, "prerequisites", "") or "",
+            "description": getattr(f, "description", "") or "",
+        })
+    return JsonResponse({"feats": rows})
+
+
+# characters/views.py  (replace your spell_list with this version)
+
+ORIGINS = ["arcane", "divine", "primal", "occult"]
+# characters/views.py
+ORIGINS = ["arcane", "divine", "primal", "occult"]
+
+# views.py
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render
+from .models import Spell
+
+ORIGINS = ["arcane", "divine", "primal", "occult"]
 
 @login_required
 def spell_list(request):
-    """
-    Codex → Spells
-    """
     qs = Spell.objects.all().order_by("level", "name")
-    q  = request.GET.get("q", "").strip()
-    origin = request.GET.get("origin", "").strip().lower()
-    level  = request.GET.get("level", "").strip()
 
-    if q:
-        qs = qs.filter(name__icontains=q)
-    if origin in ORIGINS:
-        qs = qs.filter(origin__iexact=origin)
-    if level.isdigit():
-        qs = qs.filter(level=int(level))
+    # Build JSON rows for the client grid (drawer + per-column filters)
+    spells_json = []
+    for s in qs:
+        # tags split once here so the template doesn't need custom filters
+        tag_list = [t.strip() for t in (s.tags or "").split(",") if t.strip()]
+        spells_json.append({
+            "id": s.id,
+            "name": s.name or "",
+            "level": int(s.level or 0),
+            "origin": (s.origin or "").strip(),         # keep raw; JS will tokenize
+            "classification": (s.classification or "").strip(),
+            "tags": tag_list,
+            "casting_time": s.casting_time or "",
+            "duration": s.duration or "",
+            "components": s.components or "",
+            "range": s.range or "",
+            "target": s.target or "",
+            "sub_origin": s.sub_origin or "",
+            "saving_throw": s.saving_throw or "",
+            "effect": s.effect or "",
+            "upcast_effect": s.upcast_effect or "",
+            "last_synced": (s.last_synced.isoformat() if getattr(s, "last_synced", None) else ""),
+        })
 
-    return render(request, "characters/codex_spells.html", {"spells": qs, "q": q, "origin": origin, "level": level})
+    return render(request, "codex/spell_list.html", {
+        "spells_json": spells_json,
+        "levels": list(range(0, 11)),   # Cantrip (0) … 10
+        "origins": ORIGINS,             # seed only; menus populate from data too
+    })
+
+
+
 
 # --------------------------- AJAX mutations -------------------------------
 
@@ -972,44 +1057,42 @@ def _active_subclass_for_group(character, grp, level_form, base_feats):
 
 
 
-
-
 WORD_BOUNDARY = r'\b{}\b'
 
 def feat_list(request):
     feats = ClassFeat.objects.all()
 
-    # ——— text search “q” ———
-    q = request.GET.get('q')
+    q = (request.GET.get('q') or '').strip()
     if q:
-        feats = feats.filter(name__icontains=q) | feats.filter(tags__icontains=q)
+        feats = feats.filter(Q(name__icontains=q) | Q(tags__icontains=q))
 
-    # ——— feat_type filter ———
-    ft = request.GET.get('type')
-    if ft:
-        # match “Thievery” won’t catch “Rogue”, but “Rogue” catches “Rogue (Thief)”
-        pattern = WORD_BOUNDARY.format(re.escape(ft))
-        feats = feats.filter(feat_type__iregex=pattern)
+    type_vals = [t.strip() for t in request.GET.getlist('type') if t.strip()]
+    if type_vals:
+        ors = [Q(feat_type__iregex=WORD_BOUNDARY.format(re.escape(t))) for t in type_vals]
+        from functools import reduce
+        feats = feats.filter(reduce(lambda a, b: a | b, ors))
 
-    # ——— class filter ———
-    cls = request.GET.get('class')
+    cls = (request.GET.get('class') or '').strip()
     if cls:
-        pattern = WORD_BOUNDARY.format(re.escape(cls))
-        feats = feats.filter(class_name__iregex=pattern)
+        feats = feats.filter(class_name__iregex=WORD_BOUNDARY.format(re.escape(cls)))
 
-    # ——— race filter ———
-    rc = request.GET.get('race')
+    rc = (request.GET.get('race') or '').strip()
     if rc:
-        pattern = WORD_BOUNDARY.format(re.escape(rc))
-        feats = feats.filter(race__iregex=pattern)
+        feats = feats.filter(race__iregex=WORD_BOUNDARY.format(re.escape(rc)))
 
-    feats = feats.order_by('name')
+    feats = list(feats.order_by('name'))
 
-    # ——— tabs (full feat_type strings) ———
-    types = sorted(set(feats.values_list('feat_type', flat=True)))
+    # Provide a pre-split tag list for pills (avoids .split in template)
+    for f in feats:
+        f.tag_list = [t.strip() for t in (f.tags or '').split(',') if t.strip()]
 
-    # ——— dropdown lists ———
-    raw_feat_types = feats.values_list('feat_type', flat=True)
+    # Also provide a plain list for the three feat-type checkboxes
+    feat_type_options = ["General", "Class", "Skill"]
+
+    # (unchanged helper sets, optional for other UI pieces)
+    types = sorted(set(cf.feat_type for cf in feats if cf.feat_type))
+
+    raw_feat_types = [cf.feat_type or "" for cf in feats]
     feat_types = sorted({
         part.strip()
         for full in raw_feat_types
@@ -1017,7 +1100,7 @@ def feat_list(request):
         if part.strip()
     })
 
-    raw_classes = feats.values_list('class_name', flat=True)
+    raw_classes = [cf.class_name or "" for cf in feats]
     class_names = sorted({
         part.strip()
         for full in raw_classes
@@ -1025,26 +1108,25 @@ def feat_list(request):
         if part.strip()
     })
 
-    raw_races = feats.values_list('race', flat=True)
+    raw_races = [cf.race or "" for cf in feats]
     race_names = sorted({
         part.strip()
         for full in raw_races
         for part in full.split(',')
         if part.strip()
     })
-    
 
     return render(request, 'codex/feat_list.html', {
-        'feats':          feats,
-        'types':          types,
-        'feat_types':     feat_types,
-        'class_names':    class_names,
-        'race_names':     race_names,
-        # so your template can re-check the boxes on reload
-        'selected_type':  ft,
+        'feats': feats,
+        'types': types,
+        'feat_types': feat_types,
+        'class_names': class_names,
+        'race_names': race_names,
+        'feat_type_options': feat_type_options,   # ← NEW
+        'selected_types': type_vals,
         'selected_class': cls,
-        'selected_race':  rc,
-        'query':          q,
+        'selected_race': rc,
+        'query': q,
     })
 
 def codex_index(request):

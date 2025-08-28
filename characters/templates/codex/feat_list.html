@@ -1,165 +1,552 @@
-{% extends 'base.html' %}
+{% extends "base.html" %}
 {% load static %}
+
+{% block title %}feat_list{% endblock %}
+
 {% block content %}
-<link rel="stylesheet" href="{% static 'characters/css/style.css' %}">
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Feats</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { --b:#e5e7eb; --t:#111827; --bg:#ffffff; --muted:#6b7280; --hi:#2563eb; }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color:var(--t); background:var(--bg); margin:0; }
+    a { color: var(--hi); text-decoration: none; }
+    .wrap { max-width: 1100px; margin: 28px auto; padding: 0 16px; }
 
-<h1>All Feats</h1>
+    /* Tabs */
+    .tabs { display:flex; gap:8px; margin-bottom:16px; border-bottom:1px solid var(--b); }
+    .tab-btn { border:none; background:none; padding:12px 14px; cursor:pointer; font-weight:600; color:var(--muted); border-bottom:3px solid transparent; border-radius:4px 4px 0 0; }
+    .tab-btn:hover { color:#1f2937; }
+    .tab-btn.active { color:var(--t); border-color:var(--hi); }
 
-<div class="tabs">
-  {% for type in types %}
-    <button class="tab-button" onclick="showTab('{{ type|slugify }}')" id="tab-btn-{{ type|slugify }}">{{ type }}</button>
-  {% endfor %}
-</div>
+    /* Toolbar */
+    .toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:8px 0 16px; }
+    .toolbar input[type="search"] { padding:10px 12px; border:1px solid var(--b); border-radius:10px; min-width:260px; outline: none; }
+    .toolbar .reset { border:1px solid var(--b); background:#f9fafb; padding:8px 10px; border-radius:10px; cursor:pointer; }
+    .muted { color:var(--muted); }
 
-{% for type in types %}
-  <div class="tab-content" id="tab-{{ type|slugify }}" style="display: none;">
-    <input type="text" class="search-box" placeholder="Search {{ type }} feats..." onkeyup="filterTable(this, 'table-{{ type|slugify }}')">
+    /* Grid */
+    .table-wrap { overflow:auto; border:1px solid var(--b); border-radius:12px; }
+    table { width:100%; border-collapse:collapse; }
+    th, td { text-align:left; padding:12px 12px; border-bottom:1px solid var(--b); vertical-align:top; }
+    th { position:relative; font-size:14px; color:#111827; background:#f9fafb; }
+    tr:hover td { background:#fafafa; }
+    .tag { font-size:12px; padding:2px 6px; border:1px solid var(--b); border-radius:999px; margin-right:6px; display:inline-block; }
+    .cell-actions { white-space: nowrap; }
 
-    <table class="styled-table sortable" id="table-{{ type|slugify }}">
+    /* Header popover menus */
+    .filter-toggle { margin-left:8px; font-size:12px; color:var(--muted); cursor:pointer; user-select:none; }
+    .menu { position:absolute; top: calc(100% + 4px); left: 8px; z-index:20; background:#fff; border:1px solid var(--b); border-radius:12px; box-shadow:0 12px 30px rgba(0,0,0,.12); width:280px; max-height:320px; overflow:auto; padding:8px; display:none; }
+    .menu.open { display:block; }
+    .menu .hdr { display:flex; justify-content:space-between; align-items:center; position:sticky; top:0; background:#fff; padding:6px 4px; border-bottom:1px solid var(--b); }
+    .menu .hdr button { border:none; background:none; color:var(--hi); cursor:pointer; font-weight:600; }
+    .menu .row { display:flex; align-items:center; gap:8px; padding:6px 4px; }
+    .menu input[type="search"], .menu input[type="number"] { width:100%; padding:8px 10px; border:1px solid var(--b); border-radius:8px; }
+
+    /* Active filters */
+    .pillbar { display:flex; gap:6px; flex-wrap:wrap; margin:10px 0 0; }
+    .pill { font-size:12px; background:#eef2ff; border:1px solid #c7d2fe; padding:2px 8px; border-radius:999px; }
+
+    /* Drawer */
+    .backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.25); backdrop-filter: blur(2px); z-index: 40; display:none; }
+    .backdrop.open { display:block; }
+    .drawer { position: fixed; top: 0; right: 0; height: 100%; width: min(560px, 92vw); background: #fff;
+              box-shadow: -12px 0 30px rgba(0,0,0,.15); padding: 20px 20px 40px; overflow: auto; z-index: 50;
+              border-left: 1px solid var(--b); transform: translateX(100%); transition: transform .22s ease; }
+    .drawer.open { transform: translateX(0%); }
+    .drawer-close { position: sticky; top: 0; float: right; border: 1px solid var(--b); background: #f3f4f6; border-radius: 8px; padding: 4px 8px; cursor: pointer; }
+    .d-name { margin: 6px 0 4px; }
+    .d-meta { margin-bottom: 12px; color: var(--muted); }
+    .d-row { display: grid; grid-template-columns: 140px 1fr; gap: 10px; margin: 6px 0; }
+    .d-value .tag { margin: 0 6px 6px 0; }
+    .d-sep { border: 0; border-top: 1px solid var(--b); margin: 12px 0 14px; }
+    .d-desc p { line-height: 1.55; margin: 10px 0; }
+    .view-btn { border:1px solid var(--b); background:#fff; padding:6px 10px; border-radius:10px; cursor:pointer; }
+
+    /* Small helpers */
+    .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1 style="margin:0 0 8px;">Feats</h1>
+
+  <!-- Tabs -->
+  <div class="tabs" role="tablist" aria-label="Feat type">
+    <button class="tab-btn active" data-tab="General" role="tab" aria-selected="true">General</button>
+    <button class="tab-btn" data-tab="Class" role="tab" aria-selected="false">Class</button>
+    <button class="tab-btn" data-tab="Skill" role="tab" aria-selected="false">Skill</button>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="toolbar" role="region" aria-label="Filters">
+    <input id="q" type="search" placeholder="Search name, tags, description…" aria-label="Search feats" />
+    <span class="muted" id="count"></span>
+    <button class="reset" id="resetBtn" type="button">Reset filters</button>
+  </div>
+
+  <!-- Grid -->
+  <div class="table-wrap">
+    <table id="grid">
       <thead>
         <tr>
-          <th onclick="sortTable('table-{{ type|slugify }}', 0)">Name</th>
-          <th>
-            Feat Type
-            <div class="dropdown-filter" onclick="event.stopPropagation(); toggleDropdown('feat-type-{{ type|slugify }}')">
-              ⏷
-              <div class="dropdown-content" id="feat-type-{{ type|slugify }}">
-                {% for t in feat_types %}
-                  <label><input type="checkbox" value="{{ t }}" checked onchange="applyCheckboxFilter('table-{{ type|slugify }}', 1, 'feat-type-{{ type|slugify }}')"> {{ t }}</label><br>
-                {% endfor %}
+          <th data-col="name">Name
+            <span class="filter-toggle" data-for="name" tabindex="0" aria-haspopup="true" aria-expanded="false">▼</span>
+            <div class="menu" data-menu="name" role="menu" aria-label="Filter by name">
+              <div class="hdr">
+                <strong>Name</strong>
+                <button data-action="clear" type="button">Clear</button>
               </div>
+              <div class="row"><input type="search" placeholder="Contains…" data-kind="text" data-field="name" aria-label="Name contains"></div>
+              <div class="muted" style="padding:6px 4px;">Tip: the big search box above covers names too.</div>
             </div>
           </th>
-          <th onclick="sortTable('table-{{ type|slugify }}', 2)">Class</th>
-          <th onclick="sortTable('table-{{ type|slugify }}', 3)">Race</th>
-          <th onclick="sortTable('table-{{ type|slugify }}', 4)">Level Req</th>
-          <th>Details</th>
+          <th data-col="class">Class
+            <span class="filter-toggle" data-for="class" tabindex="0" aria-haspopup="true" aria-expanded="false">▼</span>
+            <div class="menu" data-menu="class" role="menu" aria-label="Filter by class">
+              <div class="hdr">
+                <strong>Class</strong>
+                <button data-action="all" type="button">All</button>
+                <button data-action="none" type="button">None</button>
+              </div>
+              <div class="list"></div>
+            </div>
+          </th>
+          <th data-col="race">Race
+            <span class="filter-toggle" data-for="race" tabindex="0" aria-haspopup="true" aria-expanded="false">▼</span>
+            <div class="menu" data-menu="race" role="menu" aria-label="Filter by race">
+              <div class="hdr">
+                <strong>Race</strong>
+                <button data-action="all" type="button">All</button>
+                <button data-action="none" type="button">None</button>
+              </div>
+              <div class="list"></div>
+            </div>
+          </th>
+          <th data-col="tags">Tags
+            <span class="filter-toggle" data-for="tags" tabindex="0" aria-haspopup="true" aria-expanded="false">▼</span>
+            <div class="menu" data-menu="tags" role="menu" aria-label="Filter by tags">
+              <div class="hdr">
+                <strong>Tags</strong>
+                <button data-action="all" type="button">All</button>
+                <button data-action="none" type="button">None</button>
+              </div>
+              <div class="list"></div>
+            </div>
+          </th>
+          <th data-col="level">Req. Lvl
+            <span class="filter-toggle" data-for="level" tabindex="0" aria-haspopup="true" aria-expanded="false">▼</span>
+            <div class="menu" data-menu="level" role="menu" aria-label="Filter by required level">
+              <div class="hdr">
+                <strong>Required Level</strong>
+                <button data-action="clear" type="button">Clear</button>
+              </div>
+              <div class="row"><label>≤ <input type="number" min="0" value="" data-kind="maxlevel" aria-label="Max level"></label></div>
+            </div>
+          </th>
+          <th class="cell-actions" aria-label="Actions"><span class="sr-only">Actions</span></th>
         </tr>
       </thead>
-      <tbody>
-        {% for feat in feats %}
-          {% if feat.feat_type == type %}
-            <tr>
-              <td>{{ feat.name }}</td>
-              <td>{{ feat.feat_type }}</td>
-              <td>{{ feat.class_name }}</td>
-              <td>{{ feat.race }}</td>
-              <td>{{ feat.level_prerequisite }}</td>
-              <td><button onclick="toggleDetails('feat-{{ feat.id }}')">Show</button></td>
-            </tr>
-            <tr id="feat-{{ feat.id }}" class="detail-row" style="display: none;">
-              <td colspan="6">
-                <strong>Description:</strong> {{ feat.description }}<br>
-                <strong>Tags:</strong> {{ feat.tags }}<br>
-                <strong>Prerequisites:</strong> {{ feat.prerequisites }}
-              </td>
-            </tr>
-          {% endif %}
-        {% endfor %}
-      </tbody>
+      <tbody></tbody>
     </table>
   </div>
-{% endfor %}
+
+  <!-- Active filter pills -->
+  <div class="pillbar" id="activePills" aria-live="polite"></div>
+</div>
+
+<!-- Details Drawer + Backdrop -->
+<div id="backdrop" class="backdrop" aria-hidden="true"></div>
+<aside id="drawer" class="drawer" aria-hidden="true" aria-label="Feat details panel">
+  <button id="closeDrawer" class="drawer-close" type="button" aria-label="Close">✕</button>
+  <h2 id="d_name" class="d-name"></h2>
+  <div class="d-meta" id="d_meta"></div>
+  <div class="d-row">
+    <strong>Prerequisites</strong>
+    <div id="d_prereq" class="d-value muted">—</div>
+  </div>
+  <div class="d-row">
+    <strong>Class</strong>
+    <div id="d_class" class="d-value">—</div>
+  </div>
+  <div class="d-row">
+    <strong>Race</strong>
+    <div id="d_race" class="d-value">—</div>
+  </div>
+  <div class="d-row">
+    <strong>Tags</strong>
+    <div id="d_tags" class="d-value">—</div>
+  </div>
+  <hr class="d-sep">
+  <article id="d_desc" class="d-desc"><em>No description provided.</em></article>
+</aside>
+
+<!-- Server can optionally set the data URL here; fallback will be computed -->
+<span id="feat-data-url" class="sr-only" data-url="{{ data_url|default:'' }}"></span>
 
 <script>
-function showTab(typeSlug) {
-  const tabs = document.querySelectorAll(".tab-content");
-  tabs.forEach(tab => tab.style.display = "none");
-  document.getElementById(`tab-${typeSlug}`).style.display = "block";
+/* ---------- Config / State ---------- */
+const DATA_URL = (function(){
+  const tag = document.getElementById('feat-data-url');
+  const val = tag ? tag.getAttribute('data-url') : '';
+  if (val) return val;
+  try {
+    // default: sibling "data/" endpoint to this page's URL
+    const u = new URL(window.location.href);
+    let base = u.pathname.endsWith('/') ? u.pathname : (u.pathname + '/');
+    return base + 'data/';
+  } catch(e) {
+    return '/characters/codex/feats/data/';
+  }
+})();
 
-  const buttons = document.querySelectorAll(".tab-button");
-  buttons.forEach(btn => btn.classList.remove("active"));
-  document.getElementById(`tab-btn-${typeSlug}`).classList.add("active");
+const state = {
+  all: [],                // all feats (raw)
+  tab: "General",         // current tab (General | Class | Skill)
+  filters: {
+    q: "",                // free-text
+    nameContains: "",     // tiny per-column text (Name popover)
+    class: new Set(),     // allowed class tokens (empty => any)
+    race: new Set(),      // allowed race tokens
+    tags: new Set(),      // allowed tag tokens
+    maxLevel: null        // numeric cap
+  },
+  catalog: { classes: [], races: [], tags: [] } // unique values per tab
+};
+
+/* ---------- Utilities ---------- */
+const el = sel => document.querySelector(sel);
+const $$ = sel => Array.from(document.querySelectorAll(sel));
+function normalize(s){ return (s||"").trim().toLowerCase(); }
+function parseQueryParam(name){
+  const u = new URL(window.location.href);
+  return u.searchParams.get(name) || "";
 }
 
-function toggleDetails(id) {
-  const row = document.getElementById(id);
-  row.style.display = row.style.display === 'none' ? '' : 'none';
+/* ---------- Catalog building (per current tab) ---------- */
+function buildCatalog(feats){
+  const c = new Set(), r = new Set(), t = new Set();
+  feats.forEach(f=>{
+    (f.class_tokens||[]).forEach(v=>c.add(v));
+    (f.race_tokens||[]).forEach(v=>r.add(v));
+    (f.tags||[]).forEach(v=>t.add(v));
+  });
+  state.catalog.classes = Array.from(c).sort((a,b)=>a.localeCompare(b));
+  state.catalog.races   = Array.from(r).sort((a,b)=>a.localeCompare(b));
+  state.catalog.tags    = Array.from(t).sort((a,b)=>a.localeCompare(b));
+}
+function renderList(menuSel, values, filterSet){
+  const container = document.querySelector(`.menu[data-menu="${menuSel}"] .list`);
+  container.innerHTML = values.map(v=>{
+    const id = `${menuSel}-${v.replace(/\s+/g,"_")}`;
+    const checked = filterSet.has(normalize(v)) ? "checked" : "";
+    return `<label class="row"><input type="checkbox" data-kind="multi" data-field="${menuSel}" value="${v}" ${checked}><span>${v}</span></label>`;
+  }).join("") || `<div class="muted" style="padding:6px 4px;">No values</div>`;
+}
+function buildMenus(){
+  const tabFeats = state.all.filter(inCurrentTab);
+  buildCatalog(tabFeats);
+  renderList("class", state.catalog.classes, state.filters.class);
+  renderList("race",  state.catalog.races,   state.filters.race);
+  renderList("tags",  state.catalog.tags,    state.filters.tags);
 }
 
-function toggleDropdown(id) {
-  document.querySelectorAll('.dropdown-content').forEach(el => {
-    if (el.id !== id) el.style.display = 'none';
-  });
-  const target = document.getElementById(id);
-  target.style.display = target.style.display === 'block' ? 'none' : 'block';
+/* ---------- Filters & View ---------- */
+function inCurrentTab(f){
+  const types = (f.feat_types||[]).map(normalize);
+  return types.includes(normalize(state.tab));
+}
+function matchesFilters(f){
+  // tab constraint
+  if(!inCurrentTab(f)) return false;
+
+  // free-text: name + tags + description
+  const q = normalize(state.filters.q);
+  if(q){
+    const hay = `${normalize(f.name)} ${normalize((f.tags||[]).join(" "))} ${normalize(f.description)}`;
+    if(!hay.includes(q)) return false;
+  }
+
+  // nameContains
+  if(state.filters.nameContains){
+    if(!normalize(f.name).includes(normalize(state.filters.nameContains))) return false;
+  }
+
+  // class filter (any)
+  if(state.filters.class.size){
+    const set = new Set((f.class_tokens||[]).map(normalize));
+    let ok = false;
+    state.filters.class.forEach(v=>{ if(set.has(v)) ok = true; });
+    if(!ok) return false;
+  }
+
+  // race filter (any)
+  if(state.filters.race.size){
+    const set = new Set((f.race_tokens||[]).map(normalize));
+    let ok = false;
+    state.filters.race.forEach(v=>{ if(set.has(v)) ok = true; });
+    if(!ok) return false;
+  }
+
+  // tags filter (any)
+  if(state.filters.tags.size){
+    const set = new Set((f.tags||[]).map(normalize));
+    let ok = false;
+    state.filters.tags.forEach(v=>{ if(set.has(v)) ok = true; });
+    if(!ok) return false;
+  }
+
+  // max level cap
+  if(state.filters.maxLevel != null && state.filters.maxLevel !== ""){
+    const cap = Number(state.filters.maxLevel) || 0;
+    if((f.level_req_num||0) > cap) return false;
+  }
+  return true;
 }
 
-document.addEventListener('click', function() {
-  document.querySelectorAll('.dropdown-content').forEach(el => {
-    el.style.display = 'none';
+function renderPills(){
+  const bar = el("#activePills");
+  const pills = [];
+  if(state.filters.q) pills.push({k:"q", v: `Search: ${state.filters.q}`});
+  if(state.filters.nameContains) pills.push({k:"nameContains", v:`Name contains: ${state.filters.nameContains}`});
+  state.filters.class.forEach(v=>pills.push({k:"class", v:`Class: ${v}`}));
+  state.filters.race.forEach(v=>pills.push({k:"race", v:`Race: ${v}`}));
+  state.filters.tags.forEach(v=>pills.push({k:"tags", v:`Tag: ${v}`}));
+  if(state.filters.maxLevel!=null && state.filters.maxLevel!=="") pills.push({k:"maxLevel", v:`≤ L${state.filters.maxLevel}`});
+  bar.innerHTML = pills.map(p=>`<span class="pill" data-k="${p.k}">${p.v}</span>`).join("");
+}
+
+function actionsCell(f){
+  return `
+    <button class="view-btn" type="button" data-view="${f.id}" aria-label="View details of ${f.name}">View</button>
+  `;
+}
+
+function renderTable(){
+  const tbody = el("#grid tbody");
+  tbody.innerHTML = "";
+  const rows = state.all.filter(matchesFilters).sort((a,b)=>a.name.localeCompare(b.name));
+  rows.forEach(f=>{
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>
+        <strong>${f.name}</strong><br>
+        <span class="muted">${f.level_prereq_raw || ""}</span>
+      </td>
+      <td>${(f.class_tokens||[]).join(", ") || "—"}</td>
+      <td>${(f.race_tokens||[]).join(", ") || "—"}</td>
+      <td>${(f.tags||[]).map(t=>`<span class="tag">${t}</span>`).join(" ")}</td>
+      <td>${f.level_req_num ?? 0}</td>
+      <td class="cell-actions">${actionsCell(f)}</td>
+    `;
+    // row click opens drawer (but ignore clicks on interactive elements)
+    tr.addEventListener("click", (e)=>{
+      if (e.target.closest('button, input, a, .menu')) return;
+      openDetail(f);
+    });
+    // button explicit
+    tr.querySelector('button[data-view]').addEventListener('click', (e)=>{
+      e.stopPropagation();
+      openDetail(f);
+    });
+    tbody.appendChild(tr);
   });
-});
+  el("#count").textContent = `${rows.length} shown`;
+  renderPills();
+}
 
-document.querySelectorAll('.dropdown-filter').forEach(filter => {
-  filter.addEventListener('click', function(event) {
-    event.stopPropagation();
+/* ---------- Menus & Wiring ---------- */
+function openMenu(col){
+  $$(".menu").forEach(m=>m.classList.remove("open"));
+  const menu = document.querySelector(`.menu[data-menu="${col}"]`);
+  if(menu){ menu.classList.add("open"); }
+}
+function closeMenus(){ $$(".menu").forEach(m=>m.classList.remove("open")); }
+
+function resetFilters(){
+  state.filters.q = "";
+  state.filters.nameContains = "";
+  state.filters.class.clear();
+  state.filters.race.clear();
+  state.filters.tags.clear();
+  state.filters.maxLevel = null;
+  el("#q").value = "";
+  const nameInput  = document.querySelector('.menu[data-menu="name"] [data-kind="text"]');
+  if (nameInput) nameInput.value = "";
+  const levelInput = document.querySelector('.menu[data-menu="level"] [data-kind="maxlevel"]');
+  if (levelInput) levelInput.value = "";
+  $$('.menu input[type="checkbox"][data-kind="multi"]').forEach(cb => cb.checked = false);
+  renderTable();
+}
+
+function wire(){
+  // tab switching
+  $$(".tab-btn").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      $$(".tab-btn").forEach(b=>{ b.classList.remove("active"); b.setAttribute("aria-selected","false"); });
+      btn.classList.add("active");
+      btn.setAttribute("aria-selected","true");
+      state.tab = btn.dataset.tab;
+      buildMenus();
+      renderTable();
+    });
   });
-});
 
-function applyCheckboxFilter(tableId, colIndex, dropdownId) {
-  const checkedValues = Array.from(document.querySelectorAll(`#${dropdownId} input:checked`)).map(input => input.value.toLowerCase());
-  const table = document.getElementById(tableId);
-  const rows = table.querySelectorAll("tbody tr:not(.detail-row)");
+  // open menus
+  $$(".filter-toggle").forEach(t=>{
+    t.addEventListener("click", (e)=>{ e.stopPropagation(); openMenu(t.dataset.for); });
+    t.addEventListener("keydown", (e)=>{ if(e.key==="Enter" || e.key===" ") { e.preventDefault(); openMenu(t.dataset.for); } });
+  });
+  document.addEventListener("click", (e)=>{
+    if(!e.target.closest(".menu") && !e.target.classList.contains("filter-toggle")) closeMenus();
+  });
 
-  rows.forEach(row => {
-    const text = row.cells[colIndex].textContent.toLowerCase();
-    const match = checkedValues.some(val => text.split(',').map(v => v.trim()).includes(val));
-    row.style.display = match ? '' : 'none';
-    const detailRow = row.nextElementSibling;
-    if (detailRow && detailRow.classList.contains("detail-row")) {
-      detailRow.style.display = 'none';
+  // menu actions
+  $$(".menu .hdr button").forEach(b=>{
+    b.addEventListener("click", (e)=>{
+      const menu = e.target.closest(".menu");
+      const which = menu.dataset.menu;
+      const action = e.target.dataset.action;
+      if(which==="name" && action==="clear"){
+        state.filters.nameContains = "";
+        menu.querySelector('[data-kind="text"]').value="";
+      } else if(which==="level" && action==="clear"){
+        state.filters.maxLevel = null;
+        menu.querySelector('[data-kind="maxlevel"]').value="";
+      } else {
+        const set = state.filters[which];
+        if(!(set instanceof Set)) return;
+        set.clear();
+        const cbs = menu.querySelectorAll('input[type="checkbox"][data-kind="multi"]');
+        if(action==="all"){ cbs.forEach(cb=>{ cb.checked = true; set.add(normalize(cb.value)); }); }
+        if(action==="none"){ cbs.forEach(cb=>{ cb.checked = false; }); }
+      }
+      renderTable();
+    });
+  });
+
+  // per-menu inputs
+  $$('.menu [data-kind="text"]').forEach(inp=>{
+    inp.addEventListener("input", (e)=>{
+      state.filters.nameContains = e.target.value;
+      renderTable();
+    });
+  });
+  $$('.menu [data-kind="maxlevel"]').forEach(inp=>{
+    inp.addEventListener("input", (e)=>{
+      state.filters.maxLevel = e.target.value;
+      renderTable();
+    });
+  });
+  document.addEventListener("change", (e)=>{
+    const el = e.target;
+    if(el.matches('input[type="checkbox"][data-kind="multi"]')){
+      const field = el.dataset.field;        // "class" | "race" | "tags"
+      const set = state.filters[field];
+      const val = normalize(el.value);
+      if(el.checked) set.add(val); else set.delete(val);
+      renderTable();
     }
   });
+
+  // global search
+  el("#q").addEventListener("input", (e)=>{
+    state.filters.q = e.target.value;
+    renderTable();
+  });
+
+  // reset
+  el("#resetBtn").addEventListener("click", resetFilters);
 }
 
-function sortTable(tableId, colIndex) {
-  const table = document.getElementById(tableId);
-  const rows = Array.from(table.querySelectorAll("tbody tr:not(.detail-row)"));
-  const detailMap = new Map();
-  rows.forEach(row => {
-    const detailRow = row.nextElementSibling;
-    if (detailRow && detailRow.classList.contains("detail-row")) {
-      detailMap.set(row, detailRow);
-    }
-  });
-  const sorted = rows.sort((a, b) => {
-    const cellA = a.cells[colIndex].textContent.toLowerCase();
-    const cellB = b.cells[colIndex].textContent.toLowerCase();
-    return cellA.localeCompare(cellB);
-  });
-  const tbody = table.querySelector("tbody");
-  sorted.forEach(row => {
-    const detail = detailMap.get(row);
-    tbody.appendChild(row);
-    if (detail) tbody.appendChild(detail);
-  });
+/* ---------- Drawer (full detail incl. description) ---------- */
+function sanitizeHtml(s){
+  // Trust admin-authored HTML? Return directly. Else, light sanitize:
+  if (!s) return "";
+  s = s.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "");
+  s = s.replace(/\son\w+="[^"]*"/gi, "").replace(/\son\w+='[^']*'/gi, "");
+  return s;
+}
+function openDetail(f){
+  el("#d_name").textContent = f.name || "Feat";
+  const types = (f.feat_types||[]).join(", ") || "—";
+  const lvl   = f.level_prereq_raw || "—";
+  el("#d_meta").textContent = `${types} • Required Level: ${lvl}`;
+
+  el("#d_prereq").textContent = f.prerequisites || "—";
+  el("#d_class").textContent  = (f.class_tokens||[]).join(", ") || "—";
+  el("#d_race").textContent   = (f.race_tokens||[]).join(", ") || "—";
+  el("#d_tags").innerHTML     = (f.tags||[]).map(t=>`<span class="tag">${t}</span>`).join(" ") || "—";
+
+  el("#d_desc").innerHTML = sanitizeHtml(f.description || "<em>No description provided.</em>");
+
+  el("#backdrop").classList.add("open");
+  const dr = el("#drawer");
+  dr.classList.add("open");
+  dr.setAttribute("aria-hidden","false");
+  try { history.replaceState(null, "", `#feat-${f.id}`); } catch(_){}
+}
+function closeDetail(){
+  el("#backdrop").classList.remove("open");
+  const dr = el("#drawer");
+  dr.classList.remove("open");
+  dr.setAttribute("aria-hidden","true");
+  try {
+    if (location.hash.startsWith("#feat-")) history.replaceState(null, "", location.pathname + location.search);
+  } catch(_){}
+}
+el("#closeDrawer").addEventListener("click", closeDetail);
+el("#backdrop").addEventListener("click", closeDetail);
+document.addEventListener("keydown", (e)=>{ if(e.key === "Escape") closeDetail(); });
+
+function openFromHash(){
+  const m = (location.hash || "").match(/^#feat-(\d+)$/);
+  if (!m) return;
+  const id = parseInt(m[1], 10);
+  const f = state.all.find(x => x.id === id);
+  if (f) openDetail(f);
 }
 
-showTab("{{ types.0|slugify }}");
+/* ---------- Boot ---------- */
+async function boot(){
+  wire();
+
+  // Respect ?type=General|Class|Skill on load
+  const qsType = parseQueryParam("type");
+  if (["General","Class","Skill"].includes(qsType)) {
+    state.tab = qsType;
+    $$(".tab-btn").forEach(b=>{
+      const on = b.dataset.tab === qsType;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-selected", on ? "true" : "false");
+    });
+  }
+
+  // Fetch data
+  let data = { feats: [] };
+  try {
+    const res = await fetch(DATA_URL, { credentials: "same-origin", headers: { "Accept": "application/json" }});
+    data = await res.json();
+  } catch (e) {
+    console.error("Failed to load feats from", DATA_URL, e);
+  }
+
+  state.all = (data.feats || []).map(f=>{
+    f.feat_types = (f.feat_types||[]).map(v => v.trim());
+    return f;
+  });
+
+  buildMenus();
+  renderTable();
+  openFromHash();
+}
+
+boot();
 </script>
-
-<style>
-.dropdown-filter {
-  display: inline-block;
-  position: relative;
-  cursor: pointer;
-  font-weight: normal;
-  font-size: 0.9rem;
-  margin-left: 5px;
-}
-.dropdown-content {
-  display: none;
-  position: absolute;
-  background: white;
-  border: 1px solid #ccc;
-  padding: 8px;
-  z-index: 100;
-  max-height: 200px;
-  overflow-y: auto;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-  font-size: 0.85rem;
-  min-width: 150px;
-}
-</style>
+</body>
+</html>
 {% endblock %}
