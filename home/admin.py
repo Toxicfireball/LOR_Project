@@ -16,7 +16,7 @@ from characters.models import (
     SubclassGroup,
     MartialMastery,
     SpellSlotRow , 
-    ResourceType, ClassResource, CharacterResource, Spell
+    ResourceType, ClassResource, CharacterResource, Spell, SubclassMasteryUnlock, 
 )
 from django.contrib.contenttypes.models import ContentType
 from django.urls import resolve
@@ -31,7 +31,18 @@ from characters.models import PROFICIENCY_TYPES, Skill
 from django.contrib import admin
 import json
 # admin.py
-
+from django.contrib.admin import SimpleListFilter
+from django.db.models import Q
+class SubclassTierLevelInline(admin.TabularInline):
+    model = SubclassTierLevel
+    extra = 1
+    fields = ("tier", "unlock_level")
+    verbose_name        = "Tier → Level Mapping"
+    verbose_name_plural = "Tier → Level Mappings"
+    help_text           = (
+        "For this SubclassGroup, specify which tier index is unlocked at which class level.\n"
+        "e.g. Tier=1 unlock_level=1,  Tier=2 unlock_level=3, Tier=3 unlock_level=5, etc."
+    )
 class FeatureOptionInline(admin.TabularInline):
     model   = FeatureOption
     fk_name = "feature"
@@ -291,6 +302,32 @@ class SubclassGroupForm(forms.ModelForm):
             sub.save()
         return group
 
+
+
+# characters/admin.py
+class SubclassMasteryUnlockInline(admin.TabularInline):
+    model = SubclassMasteryUnlock
+    extra = 1
+    fields = ("rank", "unlock_level", "modules_required")
+    verbose_name = "Mastery Rank Gate"
+    verbose_name_plural = "Mastery Rank Gates"
+
+@admin.register(SubclassGroup)
+class SubclassGroupAdmin(admin.ModelAdmin):
+    list_display = ("character_class", "name", "code", "system_type")
+    list_filter  = ("character_class", "system_type")
+    inlines      = (SubclassTierLevelInline, SubclassMasteryUnlockInline)  # ← add here
+    fields       = ("character_class", "name", "code", "system_type", "modules_per_mastery", "modular_rules")
+
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        grp = form.instance
+        chosen = form.cleaned_data.get("subclasses", [])
+        chosen_ids = [s.pk for s in chosen]
+        # Link selected subclasses to this group
+        ClassSubclass.objects.filter(pk__in=chosen_ids).update(group=grp)
+        # Unlink any other that used to be in this group
+        ClassSubclass.objects.filter(group=grp).exclude(pk__in=chosen_ids).update(group=None)
 class ClassProficiencyProgressInline(admin.TabularInline):
     model  = ClassProficiencyProgress
     extra  = 1
@@ -299,7 +336,7 @@ class ClassProficiencyProgressInline(admin.TabularInline):
 
 
 class MartialMasteryForm(forms.ModelForm):
-    # render as big checkbox lists
+    # ==== existing ====
     allowed_weapons = forms.ModelMultipleChoiceField(
         label="Allowed weapons",
         queryset=Weapon.objects.all(),
@@ -307,42 +344,86 @@ class MartialMasteryForm(forms.ModelForm):
         widget=forms.CheckboxSelectMultiple,
         help_text="Shown only if ‘Weapon restriction’ is enabled."
     )
+
+    # ---- NEW: Damage types multi-pick ----
+    allowed_damage_types = forms.MultipleChoiceField(
+        label="Allowed damage types",
+        choices=Weapon.DAMAGE_CHOICES,
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        help_text="Shown only if ‘Damage restriction’ is enabled."
+    )
+
+    # ---- UX improvement: explicit ‘Class restriction’ switch ----
+    restrict_to_classes = forms.BooleanField(
+        required=False,
+        label="Class restriction",
+        help_text="When checked, limit to specific classes below."
+    )
     allowed_traits = forms.ModelMultipleChoiceField(
-        label="Allowed weapon traits",
+        label="Allowed traits",
         queryset=WeaponTrait.objects.all(),
         required=False,
         widget=forms.CheckboxSelectMultiple,
-        help_text="Shown only if ‘Weapon trait restriction’ is enabled."
+        help_text="Shown only if ‘Trait restriction’ is enabled."
     )
-
     class Meta:
         model = MartialMastery
         fields = "__all__"
 
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # keep your existing stuff (hiding all_classes, initial for restrict_to_classes, etc.)
+        if "all_classes" in self.fields:
+            self.fields["all_classes"].widget = forms.HiddenInput()
+        inst = getattr(self, "instance", None)
+        if inst and inst.pk:
+            self.fields["restrict_to_classes"].initial = not bool(inst.all_classes)
+
+
+
     def clean(self):
         cleaned = super().clean()
+
+        # Enforce picks if toggles are on
         if cleaned.get("restrict_to_weapons") and not cleaned.get("allowed_weapons"):
             self.add_error("allowed_weapons", "Select at least one weapon or uncheck ‘Weapon restriction’.")
-        if cleaned.get("restrict_to_traits") and not cleaned.get("allowed_traits"):
-            self.add_error("allowed_traits", "Select at least one trait or uncheck ‘Weapon trait restriction’.")
+        if cleaned.get("restrict_to_damage") and not cleaned.get("allowed_damage_types"):
+            self.add_error("allowed_damage_types", "Select at least one damage type or uncheck ‘Damage restriction’.")
+        # class restriction: if on, require classes
+        if cleaned.get("restrict_to_classes") and not cleaned.get("classes"):
+            self.add_error("classes", "Select at least one class or uncheck ‘Class restriction’.")
         return cleaned
+
+    def save(self, commit=True):
+        inst = super().save(commit=False)
+        # Map synthetic toggle → stored field
+        restrict = bool(self.cleaned_data.get("restrict_to_classes"))
+        inst.all_classes = not restrict
+        if commit:
+            inst.save()
+            self.save_m2m()
+        return inst
 
 
 @admin.register(MartialMastery)
-class MartialMasteryAdmin(admin.ModelAdmin):
+class MartialMasteryAdmin(SummernoteModelAdmin):
     form = MartialMasteryForm
-    filter_horizontal = ('classes',)
+    summernote_fields = ('description',)
 
+    filter_horizontal = ('classes',)
 
     list_display = (
         'name', 'level_required', 'points_cost', 'action_cost',
-        'is_rare',                       # ← NEW
-        'all_classes', 'restrict_to_weapons', 'restrict_to_traits',
+        'is_rare',
+        'all_classes', 'restrict_to_weapons', 'restrict_to_damage', 'restrict_to_traits',
         'restriction_summary'
     )
     list_filter  = (
-        'is_rare',                      # ← NEW
-        'all_classes', 'restrict_to_weapons', 'restrict_to_traits'
+        'is_rare',
+        'all_classes', 'restrict_to_weapons', 'restrict_to_damage', 'restrict_to_traits'
     )
 
     fieldsets = [
@@ -350,14 +431,18 @@ class MartialMasteryAdmin(admin.ModelAdmin):
             "fields": (
                 "name", "level_required", "points_cost", "action_cost",
                 "description",
-                "is_rare",               # ← NEW
-                "all_classes", "classes",
+                "is_rare",
+                # class restriction UX: synthetic toggle + M2M, real field hidden in the form
+                "restrict_to_classes", "classes",
             ),
         }),
+    
         ("Restrictions (optional)", {
             "fields": (
                 "restrict_to_weapons", "allowed_weapons",
-                "restrict_to_traits", "allowed_traits",
+                "restrict_to_damage",  "allowed_damage_types",
+                "restrict_to_traits",  "allowed_traits",
+                "all_classes",  # hidden by form; kept here so admin saves it
             ),
         }),
     ]
@@ -366,14 +451,22 @@ class MartialMasteryAdmin(admin.ModelAdmin):
         parts = []
         if obj.restrict_to_weapons:
             parts.append(f"Weapons({obj.allowed_weapons.count()})")
+        if getattr(obj, "restrict_to_damage", False):
+            parts.append(f"Damage({len(obj.allowed_damage_types or [])})")
         if obj.restrict_to_traits:
             parts.append(f"Traits({obj.allowed_traits.count()})")
+        if not obj.all_classes:
+            parts.append(f"Classes({obj.classes.count()})")
         return ", ".join(parts) or "—"
     restriction_summary.short_description = "Restrictions"
 
     class Media:
-        # simple JS to toggle the two big checkbox lists
-        js = ("characters/js/martialmastery_admin.js",)
+       js = (
+           "characters/js/martialmastery_admin.js",
+           "characters/js/formula_builder.js",
+       )
+       css = {"all": ("characters/css/formula_builder.css",)}
+
 
 class ClassSubclassForm(forms.ModelForm):
     class Meta:
@@ -452,8 +545,7 @@ class ClassSubclassAdmin(admin.ModelAdmin):
 
         return ChainedForm
 
-
-        return ChainedForm        
+ 
 
 
 
@@ -477,16 +569,6 @@ class ProficiencyTierAdmin(admin.ModelAdmin):
 
 
 
-class SubclassTierLevelInline(admin.TabularInline):
-    model = SubclassTierLevel
-    extra = 1
-    fields = ("tier", "unlock_level")
-    verbose_name        = "Tier → Level Mapping"
-    verbose_name_plural = "Tier → Level Mappings"
-    help_text           = (
-        "For this SubclassGroup, specify which tier index is unlocked at which class level.\n"
-        "e.g. Tier=1 unlock_level=1,  Tier=2 unlock_level=3, Tier=3 unlock_level=5, etc."
-    )
 # ─── ClassFeature ────────────────────────────────────────────────────────────────
 from django.apps import apps
 from django.db import models
@@ -598,7 +680,7 @@ class ClassFeatureForm(forms.ModelForm):
         }
         help_texts = {
             "character_class": "Which CharacterClass grants this feature.",
-            "feature_type":    (
+            "kind": (
                 "• class_trait: always active trait\n"
                 "• class_feat: pickable class feat\n"
                 "• subclass_choice: present options from umbrella\n"
@@ -627,6 +709,9 @@ class ClassFeatureForm(forms.ModelForm):
             "cantrips_formula":    FormulaBuilderWidget(variables=VARS, dice=DICE, attrs={"rows":2,"cols":40}),
             "spells_known_formula": FormulaBuilderWidget(variables=VARS, dice=DICE, attrs={"rows":2,"cols":40}),
             "spells_prepared_formula": FormulaBuilderWidget(variables=VARS, dice=DICE, attrs={"rows":2,"cols":40}),
+            # ✅ new
+            "martial_points_formula":       FormulaBuilderWidget(variables=VARS, dice=DICE, attrs={"rows":2,"cols":40}),
+            "available_masteries_formula":  FormulaBuilderWidget(variables=VARS, dice=DICE, attrs={"rows":2,"cols":40}),
             "gain_subskills": FilteredSelectMultiple("Sub-skills", is_stacked=True),
             "subclasses": FilteredSelectMultiple("Subclasses", is_stacked=True),
             "description": SummernoteWidget(),
@@ -690,6 +775,10 @@ class ClassFeatureForm(forms.ModelForm):
         # 1) If scope is some subclass‐flow, force them to pick a group
         if scope_val in ("subclass_choice", "subclass_feat", "gain_subclass_feat") and grp is None:
             self.add_error("subclass_group", "Pick an umbrella …")
+                # Hide/clear MM formulas at the server if not a martial mastery feature
+        if cleaned.get("kind") != "martial_mastery":
+            cleaned["martial_points_formula"] = ""
+            cleaned["available_masteries_formula"] = ""
         if grp and scope_val not in ("subclass_choice", "subclass_feat", "gain_subclass_feat"):
             self.add_error("subclass_group", "Only subclass_feats (or subclass_choices) may set a subclass_group.")
 
@@ -714,24 +803,45 @@ class ClassFeatureForm(forms.ModelForm):
         return cleaned
 
 
+class MasteryChoiceFormSet(BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+        for form in self.forms:
+            if self.can_delete and form.cleaned_data.get("DELETE"):
+                continue
+            feat = form.cleaned_data.get("feature")
+            if not feat:
+                continue
+            if (
+                feat.scope == "subclass_choice"
+                and feat.subclass_group
+                and feat.subclass_group.system_type == SubclassGroup.SYSTEM_MODULAR_MASTERY
+            ):
+                picks = form.cleaned_data.get("num_picks") or 0
+                if picks < 1:
+                    raise ValidationError(
+                        f"‘{feat.name}’ is a modular-mastery choice; set num_picks ≥ 1."
+                    )
 
 
 from characters.models import ClassLevelFeature
 
+# characters/admin.py
 class ClassLevelFeatureInline(admin.TabularInline):
-    model = ClassLevelFeature
-    extra = 1
-    
+    model  = ClassLevelFeature
+    extra  = 1
+    fields = ("feature", "num_picks")   # ← show it
+    formset = MasteryChoiceFormSet      # ← validate it
+
     verbose_name = "Feature granted at this level"
     verbose_name_plural = "Features granted at this level"
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "feature":
-            # Remove the filter; show everything:
-            # kwargs["queryset"] = ClassFeature.objects.filter(scope="subclass_choice")
-            # instead use:
             kwargs["queryset"] = ClassFeature.objects.all()
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+
 
 @admin.register(ArmorTrait)
 class ArmorTraitAdmin(admin.ModelAdmin):
@@ -750,24 +860,6 @@ class ArmorAdmin(admin.ModelAdmin):
     search_fields= ("name",)
     inlines      = [ArmorTraitInline]
     
-@admin.register(SubclassGroup)
-class SubclassGroupAdmin(admin.ModelAdmin):
-    list_display = ("character_class", "name", "code", "system_type")
-    list_filter  = ("character_class", "system_type")
-    inlines      = (SubclassTierLevelInline,)
-    form         = SubclassGroupForm
-    fields       = ("character_class", "name", "code", "system_type", "modular_rules")
-    readonly_fields = ()  # leave modular_rules visible if you use it for other purposes
-
-    def save_related(self, request, form, formsets, change):
-        super().save_related(request, form, formsets, change)
-        grp = form.instance
-        chosen = form.cleaned_data.get("subclasses", [])
-        chosen_ids = [s.pk for s in chosen]
-        # Link selected subclasses to this group
-        ClassSubclass.objects.filter(pk__in=chosen_ids).update(group=grp)
-        # Unlink any other that used to be in this group
-        ClassSubclass.objects.filter(group=grp).exclude(pk__in=chosen_ids).update(group=None)
 
 # characters/admin.py
 class SpellSlotRowForm(forms.ModelForm):
@@ -778,39 +870,27 @@ class SpellSlotRowForm(forms.ModelForm):
         fields = "__all__"
         labels = {f"slot{i}": f"Level {i}" for i in range(1, 11)}
 
+# admin.py (SpellSlotRowInline)
 class SpellSlotRowInline(admin.TabularInline):
-    form            = SpellSlotRowForm
-    model           = SpellSlotRow
-    fields          = ["level"] + [f"slot{i}" for i in range(1, 11)]
-    can_delete      = False
-    min_num         = 20
-    max_num         = 20
-    extra           = 0
-    # absolutely no deletions, ever
-    def has_delete_permission(self, request, obj=None):
-        return False
-    max_num         = 20
-    extra           = 0
-    classes         = ["spell-slot-inline"]
-    verbose_name    = "Spell Slots for Level"
+    form       = SpellSlotRowForm
+    model      = SpellSlotRow
+    fields     = ["level"] + [f"slot{i}" for i in range(1, 11)]
+    can_delete = False
+    min_num    = 20
+    max_num    = 20
+    extra      = 0
+    classes    = ["spell-slot-inline"]
+    verbose_name        = "Spell Slots for Level"
     verbose_name_plural = "Spell Slots Table"
 
+    def has_delete_permission(self, request, obj=None):
+        return False
+
     def get_extra(self, request, obj=None, **kwargs):
-        if obj is None or getattr(obj, "feature_type", None) == "spell_table":
+        # Only prefill the 20 rows if this feature is a spell table
+        if obj is None or getattr(obj, "kind", None) == "spell_table":
             return 20
         return 0
-
-    def get_formset(self, request, obj=None, **kwargs):
-        FormSet = super().get_formset(request, obj, **kwargs)
-        class Prefilled(FormSet):
-            def __init__(self, *args, **fkwargs):
-                fkwargs.setdefault(
-                    "initial",
-                    [{"level": lvl} for lvl in range(1, 21)]
-                )
-                super().__init__(*args, **fkwargs)
-        return Prefilled
-
 
 
 @admin.register(ResourceType)
@@ -825,7 +905,7 @@ class ClassFeatureAdmin(admin.ModelAdmin):
     prepopulated_fields = {"code": ("name",)}
     search_fields = ("name", "code")
     form         = ClassFeatureForm
-    inlines = [FeatureOptionInline, SpellSlotRowInline, SpellInline]    
+    inlines = [FeatureOptionInline, SpellSlotRowInline]    
     list_display = (
         'character_class','scope','kind','subclass_group',
         'code','name','formula_target','has_options',
@@ -872,7 +952,7 @@ class ClassFeatureAdmin(admin.ModelAdmin):
         
     ]
     def get_fieldsets(self, request, obj=None):
-        return [
+        base = [
             (None, {
                 "fields": [
                     "character_class","scope","kind","gain_subskills","activity_type",
@@ -884,32 +964,25 @@ class ClassFeatureAdmin(admin.ModelAdmin):
                     "spells_known_formula","spells_prepared_formula",
                 ],
             }),
-            ("Saving Throw (optional)", {
-                
-                "fields": [
-                    "saving_throw_required",
-                    "saving_throw_type",
-                    "saving_throw_granularity",
-                    "saving_throw_basic_success",
-                    "saving_throw_basic_failure",
-                    "saving_throw_critical_success",
-                    "saving_throw_success",
-                    "saving_throw_failure",
-                    "saving_throw_critical_failure",
-                ],
-            }),
-            ("Damage / Formula (optional)", {
-                
-                "fields": ["damage_type","formula","uses"],
-            }),
-            ("Resistance (optional)", {
-               "fields": [
-                   "gain_resistance_mode",
-                   "gain_resistance_types",
-                   "gain_resistance_amount",
-               ],
-           }),
+            ("Saving Throw (optional)", { "fields": [
+                "saving_throw_required","saving_throw_type","saving_throw_granularity",
+                "saving_throw_basic_success","saving_throw_basic_failure",
+                "saving_throw_critical_success","saving_throw_success",
+                "saving_throw_failure","saving_throw_critical_failure",
+            ]}),
+            ("Damage / Formula (optional)", { "fields": ["damage_type","formula","uses"]}),
+            ("Resistance (optional)", { "fields": [
+                "gain_resistance_mode","gain_resistance_types","gain_resistance_amount",
+            ]}),
         ]
+
+        # ✅ Add this small fieldset for martial mastery formulas
+        base.append((
+            "Martial Mastery (optional)",
+            { "fields": ["martial_points_formula", "available_masteries_formula"] }
+        ))
+
+        return base
 
     def formfield_for_dbfield(self, db_field, request, **kwargs):
         # Force a <select> for modify_proficiency_target even though the model is CharField
@@ -1125,6 +1198,7 @@ class BackgroundAdmin(admin.ModelAdmin):
 @admin.register(AbilityScore)
 class AbilityScoreAdmin(admin.ModelAdmin):
     search_fields = ("name",)
+# characters/admin.py
 
 @admin.register(ClassLevel)
 class ClassLevelAdmin(admin.ModelAdmin):
@@ -1377,23 +1451,38 @@ class RaceFeatureOptionInline(admin.TabularInline):
 class RaceFeatureForm(ClassFeatureForm):
     class Meta(ClassFeatureForm.Meta):
         model = RacialFeature
-        # leave `fields = "__all__"` so you get every field on RacialFeature
+        fields = "__all__"
+
+    # extra selects for proficiency (OK to keep here)
+    gain_proficiency_target = forms.ChoiceField(
+        choices=[("", "---------")] + list(PROFICIENCY_TYPES)
+                + [(f"skill_{s.pk}", s.name) for s in Skill.objects.all()],
+        required=False,
+        label="Gain Proficiency Target",
+        help_text="Which proficiency (or skill) does this feature grant?",
+    )
+    gain_proficiency_amount = forms.ModelChoiceField(
+        queryset=ProficiencyTier.objects.all(),
+        required=False,
+        label="Gain Proficiency Amount",
+        help_text="What tier of proficiency does the character gain?",
+    )
 
     def __init__(self, *args, **kwargs):
-        # ← **Bypass** ClassFeatureForm.__init__, call ModelForm.__init__ directly
+        # bypass ClassFeatureForm.__init__ (as you intended)
         forms.ModelForm.__init__(self, *args, **kwargs)
 
-        # ─── 1) Drop any class-only fields ────────────────────────────────
+        # drop class-only fields
         for f in ("character_class", "subclass_group", "subclasses", "tier", "mastery_rank"):
             self.fields.pop(f, None)
 
-        # ─── 2) Swap out the scope choices ────────────────────────────────
+        # tweak scope labels
         self.fields["scope"].choices = [
             ("class_feat",   "Race Feature"),
             ("subclass_feat","Subrace Feature"),
         ]
 
-        # ─── 3) Limit subrace dropdown to only children of the chosen race ─
+        # limit subrace list to chosen race
         race_val = (
             self.data.get("race")
             or self.initial.get("race")
@@ -1401,40 +1490,19 @@ class RaceFeatureForm(ClassFeatureForm):
         )
         if "subrace" in self.fields:
             self.fields["subrace"].queryset = (
-                Subrace.objects.filter(race_id=race_val)
-                if race_val else Subrace.objects.none()
+                Subrace.objects.filter(race_id=race_val) if race_val else Subrace.objects.none()
             )
-    gain_proficiency_target = forms.ChoiceField(
-        choices=[("", "---------")]
-                + list(PROFICIENCY_TYPES)
-                + [(f"skill_{s.pk}", s.name) for s in Skill.objects.all()],
-        required=False,
-        label="Gain Proficiency Target",
-        help_text="Which proficiency (or skill) does this feature grant?"
-    )
-    gain_proficiency_amount = forms.ModelChoiceField(
-        queryset=ProficiencyTier.objects.all(),
-        required=False,
-        label="Gain Proficiency Amount",
-        help_text="What tier of proficiency does the character gain?")
-    def clean(self):
-        # ← Skip ClassFeatureForm.clean() — jump straight to ModelForm.clean()
-        cleaned = super(ClassFeatureForm, self).clean()
 
-        # If they picked “Subrace Feature,” ensure a subrace was selected:
-        if cleaned.get("scope") == "subclass_feat" and not cleaned.get("subrace"):
-            self.add_error("subrace", "Please select a Subrace for a Subrace Feature.")
-
-        return cleaned
-    def __init__(self, *args, **kwargs):
-        # ← bypass ClassFeatureForm.__init__
-        forms.ModelForm.__init__(self, *args, **kwargs)
-
-        # ───────────────────────────────────────────────────────────
-        #  ⮞ If editing, preserve the existing code.
-        # ───────────────────────────────────────────────────────────
+        # preserve code when editing
         if getattr(self.instance, "pk", None):
             self.fields["code"].initial = self.instance.code
+
+    def clean(self):
+        cleaned = super(ClassFeatureForm, self).clean()  # intentionally skip CFForm.clean
+        if cleaned.get("scope") == "subclass_feat" and not cleaned.get("subrace"):
+            self.add_error("subrace", "Please select a Subrace for a Subrace Feature.")
+        return cleaned
+
 @admin.register(RacialFeature)
 class RacialFeatureAdmin(ClassFeatureAdmin):
     form = RaceFeatureForm
@@ -1605,42 +1673,43 @@ class WearableSlotAdmin(admin.ModelAdmin):
     search_fields        = ("code","name")
     prepopulated_fields  = {"code": ("name",)}
 
+# admin.py
 class SpecialItemTraitValueForm(forms.ModelForm):
-    # — exactly the “Active” fields from ClassFeatureForm —
+    # ACTIVE (match model types)
     formula_target = forms.ChoiceField(
         choices=ClassFeature._meta.get_field("formula_target").choices,
-        required=False, label="Roll Type",
-        help_text=ClassFeatureForm.Meta.help_texts["formula_target"],
+        required=False,
+        label="Roll Type",
     )
     formula = forms.CharField(
         widget=FormulaBuilderWidget(variables=VARS, dice=DICE, attrs={"rows":2,"cols":40}),
-        required=False, help_text=ClassFeatureForm.Meta.help_texts["formula"],
+        required=False,
     )
     uses = forms.CharField(
         widget=FormulaBuilderWidget(variables=VARS, dice=DICE, attrs={"rows":2,"cols":40}),
-        required=False, help_text=ClassFeatureForm.Meta.help_texts["uses"],
+        required=False,
     )
     action_type = forms.ChoiceField(
         choices=ClassFeature._meta.get_field("action_type").choices,
-        required=False, label="Action Required",
-        help_text=ClassFeatureForm.Meta.help_texts["action_type"],
+        required=False,
+        label="Action Required",
     )
-    damage_type = forms.MultipleChoiceField(
+    # ↓ SINGLE choice to match CharField on the model
+    damage_type = forms.ChoiceField(
         choices=ClassFeature.DAMAGE_TYPE_CHOICES,
-        widget=forms.CheckboxSelectMultiple,
-        required=False, label="Damage Type",
-        help_text=ClassFeatureForm.Meta.help_texts.get("damage_type", ""),
+        required=False,
+        label="Damage Type",
     )
-    saving_throw_required = forms.BooleanField(
-        required=False, label="Saving Throw?",
-    )
+
+    # SAVES (all present on the model)
+    saving_throw_required = forms.BooleanField(required=False, label="Saving Throw?")
     saving_throw_type = forms.ChoiceField(
         choices=SpecialItemTraitValue._meta.get_field("saving_throw_type").choices,
-        required=False, label="Saving Throw Type",
+        required=False
     )
     saving_throw_granularity = forms.ChoiceField(
         choices=SpecialItemTraitValue._meta.get_field("saving_throw_granularity").choices,
-        required=False, label="Saving Throw Granularity",
+        required=False
     )
     saving_throw_basic_success    = forms.CharField(required=False)
     saving_throw_basic_failure    = forms.CharField(required=False)
@@ -1649,48 +1718,37 @@ class SpecialItemTraitValueForm(forms.ModelForm):
     saving_throw_failure          = forms.CharField(required=False)
     saving_throw_critical_failure = forms.CharField(required=False)
 
-    # — exactly the “Passive” fields from ClassFeatureForm —
+    # PASSIVE (match model types that actually exist)
     modify_proficiency_target = forms.ChoiceField(
         choices=[("", "---------")] + list(PROFICIENCY_TYPES)
                 + [(f"skill_{s.pk}", s.name) for s in Skill.objects.all()],
         required=False,
-        label=ClassFeature._meta.get_field("modify_proficiency_target").verbose_name,
-        help_text=ClassFeature._meta.get_field("modify_proficiency_target").help_text,
     )
     modify_proficiency_amount = forms.ModelChoiceField(
         queryset=ProficiencyTier.objects.all(),
-        required=False, label="Modify Proficiency Amount",
+        required=False,
     )
     gain_resistance_mode = forms.ChoiceField(
         choices=SpecialItemTraitValue._meta.get_field("gain_resistance_mode").choices,
-        widget=forms.RadioSelect,
-        required=False, label="Resistance Mode",
+        widget=forms.RadioSelect, required=False,
     )
-    gain_resistance_types = forms.MultipleChoiceField(
-        choices=ClassFeature.DAMAGE_TYPE_CHOICES,
-        widget=forms.CheckboxSelectMultiple,
-        required=False, label="Resistance Types",
-    )
-    gain_resistance_amount = forms.IntegerField(
-        required=False, label="Resistance Amount",
-    )
+    # ⚠️ Removed gain_resistance_types / gain_resistance_amount here,
+    # because they are not on the model.
 
     class Meta:
         model = SpecialItemTraitValue
         fields = [
             "name", "active",
-            # Active
             "formula_target", "formula", "uses", "action_type", "damage_type",
             "saving_throw_required", "saving_throw_type", "saving_throw_granularity",
             "saving_throw_basic_success", "saving_throw_basic_failure",
-            "saving_throw_critical_success","saving_throw_success",
-            "saving_throw_failure","saving_throw_critical_failure",
-            # Passive
+            "saving_throw_critical_success", "saving_throw_success",
+            "saving_throw_failure", "saving_throw_critical_failure",
             "modify_proficiency_target", "modify_proficiency_amount",
-            "gain_resistance_mode", "gain_resistance_types", "gain_resistance_amount",
-            # always visible
+            "gain_resistance_mode",
             "description",
         ]
+
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

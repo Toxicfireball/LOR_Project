@@ -61,7 +61,8 @@
       normalSuccess:      row("saving_throw_success"),
       normalFailure:      row("saving_throw_failure"),
       normalCritFailure:  row("saving_throw_critical_failure"),
-
+  mmPoints:    row("martial_points_formula"),
+  mmAvailable: row("available_masteries_formula"),
       profTarget:   row("modify_proficiency_target"),
       profAmount:   row("modify_proficiency_amount"),
 
@@ -109,6 +110,14 @@ if (rows.spellInline) rows.spellInline.style.display = "none";
     spellInline.style.display = kindVal === "inherent_spell" ? "" : "none";
   }
 
+  if (kindVal === "martial_mastery") {
+    if (rows.mmPoints)    rows.mmPoints.style.display = "";
+    if (rows.mmAvailable) rows.mmAvailable.style.display = "";
+    // If you also want the generic Formula/Uses to show for martial mastery, un-comment:
+    // if (rows.formula) rows.formula.style.display = "";
+    // if (rows.uses)    rows.uses.style.display    = "";
+    return; // stop here so no other sections open
+  }
 
 
 
