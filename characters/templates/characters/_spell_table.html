@@ -1,12 +1,5 @@
 {# characters/_spell_table.html #}
-{# required context:
-   table_id      : unique id (string)
-   rows          : list of dicts (see view, includes row.id, name, rank, origin, etc.)
-   feature_id    : int (the spell table feature id)
-   action        : one of: "prepare", "unprepare", "learn_known", "learn_cantrip", "unlearn_known", "unlearn_cantrip"
-   rank          : int (only needed when action == "prepare")
-   is_cantrip    : optional boolean to hint UI badges
-#}
+
 <form method="post" action="{% url 'characters:character_detail' character.pk %}" class="mb-3">
   {% csrf_token %}
   <input type="hidden" name="spells_op" value="{{ action }}">

@@ -988,7 +988,7 @@
 
           <div class="mt-4">
             <details>
-              <summary class="mb-2">Adjust numeric caps (admin override)</summary>
+              <summary class="mb-2">Adjust numeric caps </summary>
               <form method="post" action="{% url 'characters:character_detail' character.pk %}" class="row g-2">
                 {% csrf_token %}
                 <input type="hidden" name="spells_op" value="adjust_caps">
