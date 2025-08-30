@@ -556,28 +556,35 @@ class BackgroundForm(forms.ModelForm):
         if commit:
             inst.save()
         return inst
+# forms.py
+from django import forms
+from .models import ClassFeature, ClassFeat, RacialFeature  # adjust imports as in your project
+
 class ManualGrantForm(forms.Form):
-    kind = forms.ChoiceField(choices=[
-        ("feat", "Class Feat"),
+    KIND_CHOICES = [
+        ("feat", "Feat"),
         ("class_feature", "Class Feature"),
         ("racial_feature", "Racial Feature"),
-    ])
-    feat = forms.ModelChoiceField(queryset=ClassFeat.objects.all().order_by("name"),
-                                  required=False, label="Feat")
-    class_feature = forms.ModelChoiceField(queryset=ClassFeature.objects.all().order_by("name"),
-                                           required=False, label="Class Feature")
-    racial_feature = forms.ModelChoiceField(queryset=RacialFeature.objects.all().order_by("name"),
-                                            required=False, label="Racial Feature")
-    reason = forms.CharField(widget=forms.Textarea(attrs={"rows":3}), required=False)
+    ]
+    kind = forms.ChoiceField(choices=KIND_CHOICES)
+    feat = forms.ModelChoiceField(queryset=ClassFeat.objects.all(), required=False)
+    class_feature = forms.ModelChoiceField(queryset=ClassFeature.objects.all(), required=False)
+    racial_feature = forms.ModelChoiceField(queryset=RacialFeature.objects.all(), required=False)
+    reason = forms.CharField(widget=forms.Textarea, required=True)
 
-    def clean(self):
-        data = super().clean()
-        k = data.get("kind")
-        pick = data.get("feat") if k=="feat" else (data.get("class_feature") if k=="class_feature" else data.get("racial_feature"))
-        if not pick:
-            raise forms.ValidationError("Select an item to add.")
-        return data
-    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # Make sure the dropdowns show human names, not raw PKs
+        if "feat" in self.fields:
+            self.fields["feat"].label_from_instance = lambda o: o.name
+        if "class_feature" in self.fields:
+            self.fields["class_feature"].label_from_instance = lambda o: (
+                f"{o.name}  •  {o.character_class.name}" if getattr(o, "character_class", None) else o.name
+            )
+        if "racial_feature" in self.fields:
+            self.fields["racial_feature"].label_from_instance = lambda o: getattr(o, "name", f"Racial Feature #{o.pk}")
+
 
 # forms.py
 from django import forms

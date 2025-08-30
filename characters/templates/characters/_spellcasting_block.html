@@ -72,6 +72,10 @@
 
 {# add a small search box for the cantrip table #}
 <input id="cantrip-filter-{{ b.feature_id }}" class="form-control form-control-sm my-2" placeholder="Search Name / Origin / Tags…">
+<div class="capline small">
+  Choose up to <b>{{ b.needs_cantrips|default:0 }}</b> cantrip{{ b.needs_cantrips|default:0|pluralize }}.
+  <span class="livecount" data-role="count-cantrips" data-max="{{ b.needs_cantrips|default:0 }}">0</span> selected.
+</div>
 
 
     <!-- KNOWN (LEARN) TABS BY RANK -->

@@ -50,3 +50,11 @@ def dict_get(d, key):
         return d.get(key, [])
     except Exception:
         return []
+from django import template
+
+@register.filter
+def get_item(d, k):
+    try:
+        return d.get(k)
+    except Exception:
+        return None

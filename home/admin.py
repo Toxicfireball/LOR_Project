@@ -951,6 +951,7 @@ class ClassFeatureAdmin(admin.ModelAdmin):
 
         
     ]
+    # in home/admin.py  (inside ClassFeatureAdmin)
     def get_fieldsets(self, request, obj=None):
         base = [
             (None, {
@@ -958,10 +959,12 @@ class ClassFeatureAdmin(admin.ModelAdmin):
                     "character_class","scope","kind","gain_subskills","activity_type",
                     "action_type","subclass_group","subclasses",
                     "code","name","description","has_options",
-                    "tier","mastery_rank","formula_target","formula","uses",
-                    "spell_list","modify_proficiency_target",
-                    "modify_proficiency_amount","cantrips_formula",
-                    "spells_known_formula","spells_prepared_formula",
+                    # ↓↓↓ add level_required to the admin form ↓↓↓
+                    "tier","mastery_rank","level_required",
+                    "formula_target","formula","uses",
+                    "spell_list",
+                    "modify_proficiency_target","modify_proficiency_amount",
+                    "cantrips_formula","spells_known_formula","spells_prepared_formula",
                 ],
             }),
             ("Saving Throw (optional)", { "fields": [
@@ -975,14 +978,12 @@ class ClassFeatureAdmin(admin.ModelAdmin):
                 "gain_resistance_mode","gain_resistance_types","gain_resistance_amount",
             ]}),
         ]
-
-        # ✅ Add this small fieldset for martial mastery formulas
         base.append((
             "Martial Mastery (optional)",
             { "fields": ["martial_points_formula", "available_masteries_formula"] }
         ))
-
         return base
+
 
     def formfield_for_dbfield(self, db_field, request, **kwargs):
         # Force a <select> for modify_proficiency_target even though the model is CharField

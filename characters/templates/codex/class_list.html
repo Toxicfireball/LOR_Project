@@ -2,6 +2,8 @@
 {% block title %}All Classes — Codex{% endblock %}
 
 {% block content %}
+<main class="container mx-auto px-4 pt-20">  {# pt-20 ≈ 80px; adjust to your navbar height #}
+
 <h1 class="text-3xl font-bold mb-6">All Classes</h1>
 
 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -36,5 +38,7 @@
   {% empty %}
     <p class="text-gray-500 col-span-full text-center">No classes available.</p>
   {% endfor %}
-</div>
+    ...
+  </div>
+</main>
 {% endblock %}

@@ -102,76 +102,86 @@
         <!-- Quick finals -->
 <div class="card">
   <div class="card-header fw-bold">Core Stats</div>
-  <ul class="list-group list-group-flush">
-<li class="list-group-item d-flex justify-content-between align-items-center">
-  <span>HP</span>
-  <span class="d-flex align-items-center gap-2">
-    <strong>{{ hp_current }}</strong>
-    <button class="btn btn-xs btn-outline-secondary edit-override" data-key="HP" type="button">✎</button>
-    <span>/</span>
-    <strong>{{ hp_max }}</strong>
-    <button class="btn btn-xs btn-outline-secondary edit-override" data-key="hp_max" type="button">✎</button>
-  </span>
-</li>
+  <form method="post" action="{% url 'characters:character_detail' character.pk %}" class="mb-0">
+    {% csrf_token %}
+    <ul class="list-group list-group-flush">
 
-    <li class="list-group-item d-flex justify-content-between align-items-center">
-      <span>Temp HP</span>
-<span class="d-flex align-items-center gap-2">
-  <strong>{{ temp_hp|default:0 }}</strong>
-  <button class="btn btn-xs btn-outline-secondary edit-override" data-key="temp_HP" type="button">✎</button>
-</span>
-    </li>
-    <li class="list-group-item d-flex justify-content-between align-items-center">
-      <span>Armor</span>
-      <span class="d-flex align-items-center gap-2">
-        <strong>{{ derived.armor_total }}</strong>
-        <button class="btn btn-xs btn-outline-secondary edit-override" data-key="prof:armor" type="button">✎</button>
-      </span>
-    </li>
-    <li class="list-group-item d-flex justify-content-between align-items-center">
-      <span>Dodge</span>
-      <span class="d-flex align-items-center gap-2">
-        <strong>{{ derived.dodge_total }}</strong>
-        <button class="btn btn-xs btn-outline-secondary edit-override" data-key="prof:dodge" type="button">✎</button>
-      </span>
-    </li>
-    <li class="list-group-item d-flex justify-content-between align-items-center">
-      <span>Reflex</span>
-      <span class="d-flex align-items-center gap-2">
-        <strong>{{ derived.reflex_total }}</strong>
-        <button class="btn btn-xs btn-outline-secondary edit-override" data-key="prof:reflex" type="button">✎</button>
-      </span>
-    </li>
-    <li class="list-group-item d-flex justify-content-between align-items-center">
-      <span>Fortitude</span>
-      <span class="d-flex align-items-center gap-2">
-        <strong>{{ derived.fortitude_total }}</strong>
-        <button class="btn btn-xs btn-outline-secondary edit-override" data-key="prof:fortitude" type="button">✎</button>
-      </span>
-    </li>
-    <li class="list-group-item d-flex justify-content-between align-items-center">
-      <span>Will</span>
-      <span class="d-flex align-items-center gap-2">
-        <strong>{{ derived.will_total }}</strong>
-        <button class="btn btn-xs btn-outline-secondary edit-override" data-key="prof:will" type="button">✎</button>
-      </span>
-    </li>
-    <li class="list-group-item d-flex justify-content-between align-items-center">
-      <span>Perception</span>
-      <span class="d-flex align-items-center gap-2">
-        <strong>{{ derived.perception_total }}</strong>
-        <button class="btn btn-xs btn-outline-secondary edit-override" data-key="prof:perception" type="button">✎</button>
-      </span>
-    </li>
-    <li class="list-group-item d-flex justify-content-between align-items-center">
-      <span>Spell/DC</span>
-      <span class="d-flex align-items-center gap-2">
-        <strong>{{ spell_dc_main|default:"—" }}</strong>
-        <button class="btn btn-xs btn-outline-secondary edit-override" data-key="prof:dc" type="button">✎</button>
-      </span>
-    </li>
-  </ul>
+      <li class="list-group-item d-flex justify-content-between align-items-center">
+        <span>HP</span>
+        <span class="d-flex align-items-center gap-2">
+          <input name="HP" type="number" class="form-control form-control-sm" style="width:90px"
+                 value="{{ hp_current }}" min="0">
+          <span>/</span>
+          <input name="hp_max" type="number" class="form-control form-control-sm" style="width:90px"
+                 value="{{ hp_max }}" min="0">
+        </span>
+      </li>
+
+      <li class="list-group-item d-flex justify-content-between align-items-center">
+        <span>Temp HP</span>
+        <span class="d-flex align-items-center gap-2">
+          <input name="temp_HP" type="number" class="form-control form-control-sm" style="width:90px"
+                 value="{{ temp_hp|default:0 }}" min="0">
+        </span>
+      </li>
+
+      <li class="list-group-item d-flex justify-content-end">
+        <button class="btn btn-sm btn-primary" name="save_core_stats_submit" value="1">Save</button>
+      </li>
+
+      <li class="list-group-item d-flex justify-content-between align-items-center">
+        <span>Armor</span>
+        <span class="d-flex align-items-center gap-2">
+          <strong>{{ derived.armor_total }}</strong>
+          <button class="btn btn-xs btn-outline-secondary edit-override" data-key="prof:armor" type="button">✎</button>
+        </span>
+      </li>
+      <li class="list-group-item d-flex justify-content-between align-items-center">
+        <span>Dodge</span>
+        <span class="d-flex align-items-center gap-2">
+          <strong>{{ derived.dodge_total }}</strong>
+          <button class="btn btn-xs btn-outline-secondary edit-override" data-key="prof:dodge" type="button">✎</button>
+        </span>
+      </li>
+      <li class="list-group-item d-flex justify-content-between align-items-center">
+        <span>Reflex</span>
+        <span class="d-flex align-items-center gap-2">
+          <strong>{{ derived.reflex_total }}</strong>
+          <button class="btn btn-xs btn-outline-secondary edit-override" data-key="prof:reflex" type="button">✎</button>
+        </span>
+      </li>
+      <li class="list-group-item d-flex justify-content-between align-items-center">
+        <span>Fortitude</span>
+        <span class="d-flex align-items-center gap-2">
+          <strong>{{ derived.fortitude_total }}</strong>
+          <button class="btn btn-xs btn-outline-secondary edit-override" data-key="prof:fortitude" type="button">✎</button>
+        </span>
+      </li>
+      <li class="list-group-item d-flex justify-content-between align-items-center">
+        <span>Will</span>
+        <span class="d-flex align-items-center gap-2">
+          <strong>{{ derived.will_total }}</strong>
+          <button class="btn btn-xs btn-outline-secondary edit-override" data-key="prof:will" type="button">✎</button>
+        </span>
+      </li>
+      <li class="list-group-item d-flex justify-content-between align-items-center">
+        <span>Perception</span>
+        <span class="d-flex align-items-center gap-2">
+          <strong>{{ derived.perception_total }}</strong>
+          <button class="btn btn-xs btn-outline-secondary edit-override" data-key="prof:perception" type="button">✎</button>
+        </span>
+      </li>
+      <li class="list-group-item d-flex justify-content-between align-items-center">
+        <span>Spell/DC</span>
+        <span class="d-flex align-items-center gap-2">
+          <strong>{{ spell_dc_main|default:"—" }}</strong>
+          <button class="btn btn-xs btn-outline-secondary edit-override" data-key="prof:dc" type="button">✎</button>
+        </span>
+      </li>
+    </ul>
+  </form>
 </div>
+
 
 
       </div>
@@ -188,7 +198,9 @@
 <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-active"       type="button">Active</button></li>
 <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-passive"      type="button">Passive</button></li>
 <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-all"          type="button">All</button></li>
-<li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-spellcasting" type="button">Spellcasting</button></li>
+{% if show_spellcasting_tab %}
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-spellcasting" type="button">Spellcasting</button></li>
+{% endif %}
       </ul>
 
       <div class="tab-content pt-3">
@@ -247,7 +259,7 @@
               <div class="card h-100">
                 <div class="card-header fw-bold">Defense</div>
                 <ul class="list-group list-group-flush">
-                  <li class="list-group-item d-flex justify-content-between"><span>Armor</span><span class="fw-bold">{{ armor_total }}</span></li>
+<li class="list-group-item d-flex justify-content-between"><span>Armor</span><span class="fw-bold">{{ derived.armor_total }}</span></li>
                   <li class="list-group-item d-flex justify-content-between"><span>Dodge</span><span class="fw-bold">{% for r in proficiency_detailed %}{% if r.type == "Dodge" %}{{ r.total_s }}{% endif %}{% endfor %}</span></li>
                   <li class="list-group-item d-flex justify-content-between"><span>Reflex</span><span class="fw-bold">{% for r in proficiency_detailed %}{% if r.type == "Reflex" %}{{ r.total_s }}{% endif %}{% endfor %}</span></li>
                   <li class="list-group-item d-flex justify-content-between"><span>Fortitude</span><span class="fw-bold">{% for r in proficiency_detailed %}{% if r.type == "Fortitude" %}{{ r.total_s }}{% endif %}{% endfor %}</span></li>
@@ -398,7 +410,43 @@
                   {% endif %}
                 </div>
               </div>
+              <hr class="my-3">
+<h6 class="mb-2">Martial Mastery</h6>
+<div class="mb-2">
+  <strong>Total Points:</strong> {{ combat_blocks.martial_mastery.total_points|default:0 }}
+  &nbsp;•&nbsp;
+  <strong>Known Cap:</strong> {{ combat_blocks.martial_mastery.total_known_cap|default:0 }}
+</div>
+
+{% if combat_blocks.martial_mastery.known_names and combat_blocks.martial_mastery.known_names|length %}
+  <div class="mb-2">
+    <strong>Known:</strong>
+    {% for n in combat_blocks.martial_mastery.known_names %}
+      <span class="badge text-bg-secondary me-1 mb-1">{{ n }}</span>
+    {% endfor %}
+  </div>
+{% endif %}
+
+{% if active_passive_tab.martial_mastery_entitlement.by_feature and active_passive_tab.martial_mastery_entitlement.by_feature|length %}
+  <div class="table-responsive">
+    <table class="table table-sm">
+      <thead><tr><th>Feature</th><th>Class</th><th>Points</th><th>Known Cap</th></tr></thead>
+      <tbody>
+        {% for row in active_passive_tab.martial_mastery_entitlement.by_feature %}
+          <tr>
+            <td>{{ row.feature_name }}</td>
+            <td>{{ row.class_name }}</td>
+            <td>{{ row.points }}</td>
+            <td>{{ row.known_cap }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+
             </div>
+            
           </div>
         </div>
 
@@ -555,9 +603,28 @@
       <span>{{ cf.feat.name }} {% note_icon "cfeat:"|add:cf.id %}</span>
       <button class="btn btn-sm btn-link p-0 toggle-desc" type="button">Details</button>
     </div>
-    <div class="small text-muted d-none desc-body">{{ cf.feat.description|safe }}</div>
+    <div class="d-none desc-body mt-2">
+      {% if cf.feat.description %}
+        <div class="summernote-content mb-2">{{ cf.feat.description|safe }}</div>
+      {% endif %}
+      {% with row=cf %}
+      <div class="table-responsive">
+        <table class="table table-sm table-bordered mb-0">
+          <tbody>
+            {% for k,v in row.details %}
+              <tr>
+                <th class="text-nowrap" style="width: 180px;">{{ k }}</th>
+                <td>{% if k == "Description" %}{{ v|safe }}{% else %}{{ v }}{% endif %}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endwith %}
+    </div>
   </td>
 </tr>
+
                     {% empty %}<tr><td colspan="2" class="text-muted">— None —</td></tr>{% endfor %}
                   </tbody>
                 </table>
@@ -565,42 +632,7 @@
             </div>
           </div>
         </div>
-        <div class="card mt-3">
-  <div class="card-header fw-bold">Manually Add Item</div>
-  <div class="card-body">
-    {% if manual_form %}
-      <form method="post" action="{% url 'characters:character_detail' character.pk %}">
-        {% csrf_token %}
-        <div class="row g-3">
-          <div class="col-md-3">
-            {{ manual_form.kind.label_tag }} {{ manual_form.kind }}
-          </div>
-          <div class="col-md-3" id="mf-feat">
-            {{ manual_form.feat.label_tag }} {{ manual_form.feat }}
-          </div>
-          <div class="col-md-3 d-none" id="mf-classfeature">
-            {{ manual_form.class_feature.label_tag }} {{ manual_form.class_feature }}
-          </div>
-          <div class="col-md-3 d-none" id="mf-racialfeature">
-            {{ manual_form.racial_feature.label_tag }} {{ manual_form.racial_feature }}
-          </div>
-          <div class="col-12">
-            {{ manual_form.reason.label_tag }} {{ manual_form.reason }}
-          </div>
-        </div>
-        <button class="btn btn-primary mt-2" name="manual_add_submit" value="1">Add</button>
-      </form>
 
-      {% if manual_form.errors %}
-        <div class="alert alert-danger mt-2 mb-0">
-          {{ manual_form.errors }}
-        </div>
-      {% endif %}
-    {% else %}
-      <p class="mb-0 text-muted">You don’t have permission to add items.</p>
-    {% endif %}
-  </div>
-</div>
 
 <script>
   // Simple switcher: show the relevant select for the chosen kind
@@ -625,29 +657,86 @@
   <div class="card p-3">
     <h5 class="mb-3">Active Abilities</h5>
     {% if active_rows %}
-      <ul class="list-group">
-        {% for r in active_rows %}
-          <li class="list-group-item d-flex justify-content-between align-items-center">
-            <div>
-              {{ r.label }}
-              {% if r.meta %}<small class="text-muted">— {{ r.meta }}</small>{% endif %}
-              {% note_icon r.note_key %}
-            </div>
-            <div class="d-flex align-items-center gap-2">
-              <input class="form-control form-control-sm act-note" placeholder="Note (optional)">
-              <button class="btn btn-sm btn-outline-success toggle-activation"
-                      data-ctype="{{ r.ctype }}" data-obj="{{ r.obj_id }}" data-active="1">Active</button>
-              <button class="btn btn-sm btn-outline-secondary toggle-activation"
-                      data-ctype="{{ r.ctype }}" data-obj="{{ r.obj_id }}" data-active="0">Set Passive</button>
-            </div>
+<ul class="list-group">
+  {% for r in active_rows %}
+    <li class="list-group-item">
+      <div class="d-flex justify-content-between align-items-center">
+        <div>
+          {{ r.label }}
+          {% if r.meta %}<small class="text-muted">— {{ r.meta }}</small>{% endif %}
+          {% note_icon r.note_key %}
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <input class="form-control form-control-sm act-note" placeholder="Note (optional)">
+          <button class="btn btn-sm btn-outline-success toggle-activation"
+                  data-ctype="{{ r.ctype }}" data-obj="{{ r.obj_id }}" data-active="1">Active</button>
+          <button class="btn btn-sm btn-outline-secondary toggle-activation"
+                  data-ctype="{{ r.ctype }}" data-obj="{{ r.obj_id }}" data-active="0">Set Passive</button>
+          <button class="btn btn-sm btn-link p-0 toggle-desc" type="button">Details</button>
+        </div>
+      </div>
+      <div class="d-none desc-body mt-2">
+        {% if r.desc %}
+          <div class="summernote-content mb-2">{{ r.desc|safe }}</div>
+        {% endif %}
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered mb-0">
+            <tbody>
+              {% for k,v in r.details %}
+                <tr>
+                  <th class="text-nowrap" style="width:180px;">{{ k }}</th>
+                  <td>{% if k == "Description" %}{{ v|safe }}{% else %}{{ v }}{% endif %}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </li>
+  {% endfor %}
+</ul>
 
-          </li>
-        {% endfor %}
-      </ul>
     {% else %}
       <p class="mb-0 text-muted">None marked Active.</p>
     {% endif %}
   </div>
+  <div class="card p-3 mt-3">
+  <h5 class="mb-3">Martial Mastery</h5>
+
+  <div class="mb-2">
+    <strong>Total Points:</strong> {{ active_passive_tab.martial_mastery_entitlement.total_points|default:0 }}
+    &nbsp;•&nbsp;
+    <strong>Known Cap:</strong> {{ active_passive_tab.martial_mastery_entitlement.total_known_cap|default:0 }}
+  </div>
+
+  {% if active_passive_tab.martial_mastery_entitlement.by_feature and active_passive_tab.martial_mastery_entitlement.by_feature|length %}
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <thead><tr><th>Feature</th><th>Class</th><th>Points</th><th>Known Cap</th></tr></thead>
+        <tbody>
+          {% for row in active_passive_tab.martial_mastery_entitlement.by_feature %}
+            <tr>
+              <td>{{ row.feature_name }}</td>
+              <td>{{ row.class_name }}</td>
+              <td>{{ row.points }}</td>
+              <td>{{ row.known_cap }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
+  {% if active_passive_tab.masteries and active_passive_tab.masteries|length %}
+    <div class="mt-2">
+      <strong>Known:</strong>
+      {% for m in active_passive_tab.masteries %}
+        <span class="badge text-bg-secondary me-1 mb-1">{{ m.mastery.name }}</span>
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>
+
 </div>
 
 <!-- PASSIVE TAB -->
@@ -697,25 +786,46 @@
 </div>
 
 <!-- ALL TAB -->
+<!-- ALL TAB -->
 <div class="tab-pane fade" id="tab-all">
   <div class="card p-3">
     <h5 class="mb-3">All Abilities</h5>
     {% if all_rows %}
       <ul class="list-group">
         {% for r in all_rows %}
-          <li class="list-group-item d-flex justify-content-between align-items-center">
-            <div>
-              {{ r.label }}
-              {% if r.meta %}<small class="text-muted">— {{ r.meta }}</small>{% endif %}
-              {% note_icon r.note_key %}
-              {% if r.active %}<span class="badge text-bg-success ms-2">Active</span>{% else %}<span class="badge text-bg-secondary ms-2">Passive</span>{% endif %}
+          <li class="list-group-item">
+            <div class="d-flex justify-content-between align-items-center">
+              <div>
+                {{ r.label }}
+                {% if r.meta %}<small class="text-muted">— {{ r.meta }}</small>{% endif %}
+                {% note_icon r.note_key %}
+                {% if r.active %}<span class="badge text-bg-success ms-2">Active</span>{% else %}<span class="badge text-bg-secondary ms-2">Passive</span>{% endif %}
+              </div>
+              <div class="d-flex align-items-center gap-2">
+                <input class="form-control form-control-sm act-note" placeholder="Note (optional)">
+                <button class="btn btn-sm btn-outline-primary toggle-activation"
+                        data-ctype="{{ r.ctype }}" data-obj="{{ r.obj_id }}" data-active="1">Set Active</button>
+                <button class="btn btn-sm btn-outline-secondary toggle-activation"
+                        data-ctype="{{ r.ctype }}" data-obj="{{ r.obj_id }}" data-active="0">Set Passive</button>
+                <button class="btn btn-sm btn-link p-0 toggle-desc" type="button">Details</button>
+              </div>
             </div>
-            <div class="d-flex align-items-center gap-2">
-              <input class="form-control form-control-sm act-note" placeholder="Note (optional)">
-              <button class="btn btn-sm btn-outline-primary toggle-activation"
-                      data-ctype="{{ r.ctype }}" data-obj="{{ r.obj_id }}" data-active="1">Set Active</button>
-              <button class="btn btn-sm btn-outline-secondary toggle-activation"
-                      data-ctype="{{ r.ctype }}" data-obj="{{ r.obj_id }}" data-active="0">Set Passive</button>
+            <div class="d-none desc-body mt-2">
+              {% if r.desc %}
+                <div class="summernote-content mb-2">{{ r.desc|safe }}</div>
+              {% endif %}
+              <div class="table-responsive">
+                <table class="table table-sm table-bordered mb-0">
+                  <tbody>
+                    {% for k,v in r.details %}
+                      <tr>
+                        <th class="text-nowrap" style="width:180px;">{{ k }}</th>
+                        <td>{% if k == "Description" %}{{ v|safe }}{% else %}{{ v }}{% endif %}</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </li>
         {% endfor %}
@@ -724,156 +834,204 @@
       <p class="mb-0 text-muted">—</p>
     {% endif %}
   </div>
-</div>
 
-<!-- SPELLCASTING TAB (single, consolidated) -->
-<div class="tab-pane fade" id="tab-spellcasting">
-  <div class="row g-3">
-    <div class="col-lg-12">
-      <div class="card h-100">
-        <div class="card-header fw-bold">Spells & Slots</div>
-        <div class="card-body">
-          {% if spellcasting_blocks %}
-            {% for b in spellcasting_blocks %}
-              <div class="mb-3">
-                <div class="fw-semibold">
-                  {{ b.klass.name }} — {{ b.list|default:"(Unknown list)" }}
-                </div>
-
-                {% if b.slots %}
-                  <div class="table-responsive mt-2">
-                    <table class="table table-sm table-bordered w-auto">
-                      <thead>
-                        <tr>
-                          <th class="text-nowrap">Rank</th>
-                          {% for _ in b.slots %}
-                            <th>{{ forloop.counter }}</th>
-                          {% endfor %}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td class="text-nowrap">Slots {% note_icon "spell:slots:"|add:b.klass.pk %}</td>
-                          {% for s in b.slots %}
-                            <td>{{ s }}</td>
-                          {% endfor %}
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                {% endif %}
-
-                <div class="small text-muted mt-1">
-                  Cantrips: {{ b.cantrips }}.
-                  {% if b.known is not None %} Spells known: {{ b.known }}.{% endif %}
-                  {% if b.prepared is not None %} Prepared: {{ b.prepared }}.{% endif %}
-                </div>
-              </div>
-            {% endfor %}
-          {% else %}
-            <p class="mb-0"><em>—</em></p>
-          {% endif %}
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- KNOWN SPELLS: Excel-like table with rank tabs -->
-  {% if spell_table_by_rank %}
-    <div class="card p-3 mt-3">
-      <h5 class="mb-3">Known Spells</h5>
-
-      <!-- Tabs per rank (0..10) -->
-      <ul class="nav nav-pills mb-3" role="tablist">
-        {% for r in spell_rank_range %}
-          <li class="nav-item" role="presentation">
-            <button class="nav-link {% if forloop.first %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#spells-r{{ r }}" type="button" role="tab">
-              {% if r == 0 %}Cantrips{% else %}Rank {{ r }}{% endif %}
-            </button>
-          </li>
-        {% endfor %}
-      </ul>
-
-      <div class="tab-content">
-        {% for r in spell_rank_range %}
-          <div class="tab-pane fade {% if forloop.first %}show active{% endif %}" id="spells-r{{ r }}">
-            <div class="d-flex gap-2 align-items-center mb-2">
-              <input id="spell-filter-{{ r }}" class="form-control form-control-sm" placeholder="Search this list…">
+  <!-- Manually Add Item (moved here) -->
+  <div class="card mt-3">
+    <div class="card-header fw-bold">Manually Add Item</div>
+    <div class="card-body">
+      {% if manual_form %}
+        <form method="post" action="{% url 'characters:character_detail' character.pk %}">
+          {% csrf_token %}
+          <div class="row g-3">
+            <div class="col-md-3">
+              {{ manual_form.kind.label_tag }} {{ manual_form.kind }}
             </div>
-
-            <div class="table-responsive">
-              <table id="spells-table-{{ r }}" class="table table-sm align-middle excel-setup">
-                <thead>
-                  <tr>
-                    <th data-sort="0">Name</th>
-                    <th data-sort="1">Origin</th>
-                    <th data-sort="2">Rank</th>
-                    <th data-sort="3">
-                      Classification
-                      <div class="dropdown d-inline ms-1" data-bs-auto-close="outside">
-                        <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown">▾</button>
-                        <div class="dropdown-menu p-3 excel-menu" data-col="3" data-split="1" style="width:260px;"></div>
-                      </div>
-                    </th>
-                    <th data-sort="4">
-                      Tags
-                      <div class="dropdown d-inline ms-1" data-bs-auto-close="outside">
-                        <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown">▾</button>
-                        <div class="dropdown-menu p-3 excel-menu" data-col="4" data-split="1" style="width:260px;"></div>
-                      </div>
-                    </th>
-                    <th data-sort="5">Prepared?</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for row in rows_for_rank %}
-                    <tr>
-                      <td class="spell-name">{{ row.name }}</td>
-                      <td class="spell-origin">{{ row.origin|title }}</td>
-                      <td class="spell-rank">{{ row.rank }}</td>
-                      <td class="spell-classification">{{ row.classification|default:"" }}</td>
-                      <td class="spell-tags">{{ row.tags|default:"" }}</td>
-                      <td class="spell-prepared">
-                        {% if row.prepared_count and row.prepared_count > 0 %}
-                          <span class="badge text-bg-success">{{ row.prepared_count }}</span>
-                        {% else %}
-                          <span class="text-muted">—</span>
-                        {% endif %}
-                      </td>
-                    </tr>
-                  {% empty %}
-                    <tr><td colspan="6" class="text-muted"><em>No spells at this rank.</em></td></tr>
-                  {% endfor %}
-                </tbody>
-              </table>
+            <div class="col-md-3" id="mf-feat">
+              {{ manual_form.feat.label_tag }} {{ manual_form.feat }}
+            </div>
+            <div class="col-md-3 d-none" id="mf-classfeature">
+              {{ manual_form.class_feature.label_tag }} {{ manual_form.class_feature }}
+            </div>
+            <div class="col-md-3 d-none" id="mf-racialfeature">
+              {{ manual_form.racial_feature.label_tag }} {{ manual_form.racial_feature }}
+            </div>
+            <div class="col-12">
+              {{ manual_form.reason.label_tag }} {{ manual_form.reason }}
             </div>
           </div>
-        {% endfor %}
-      </div>
+          <button class="btn btn-primary mt-2" name="manual_add_submit" value="1">Add</button>
+        </form>
+        {% if manual_form.errors %}
+          <div class="alert alert-danger mt-2 mb-0">
+            {{ manual_form.errors }}
+          </div>
+        {% endif %}
+      {% else %}
+        <p class="mb-0 text-muted">You don’t have permission to add items.</p>
+      {% endif %}
     </div>
-  {% endif %}
-
-  <!-- LEARN & PREPARE (tables-based) -->
-  <div class="card p-3 mt-3">
-    <h5 class="mb-3">Learn & Prepare</h5>
-    <form method="post" action="{% url 'characters:character_detail' character.pk %}">
-      {% csrf_token %}
-      {% for b in spell_selection_blocks %}
-        {% include "characters/_spellcasting_block.html" with b=b %}
-      {% empty %}
-        <div class="muted">No spellcasting features to manage.</div>
-      {% endfor %}
-      <p class="muted small">Prepared spells can be changed as your rules allow; changing them clears previous preparations.</p>
-      <button class="btn btn-primary" name="save_spells_submit" value="1">Save Spells</button>
-    </form>
   </div>
-
 </div>
 
 
+<!-- SPELLCASTING TAB (single, consolidated) -->
+{% if show_spellcasting_tab %}
+<div class="tab-pane fade" id="tab-spellcasting">
+  {% for b in spell_selection_blocks %}
+    <div class="card mb-4">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+          <strong>{{ b.class_name }}</strong>
+          <span class="text-muted">• {{ b.origin|default:"—" }}</span>
+        </div>
+        <div class="small text-muted">
+          Cantrips: {{ b.known_cantrips_current }}/{{ b.cantrips_max }} |
+          Known (≥1): {{ b.known_leveled_current }}{% if b.known_max is not None %}/{{ b.known_max }}{% endif %} |
+          Prepared: {{ b.prepared_current }}{% if b.prepared_max is not None %}/{{ b.prepared_max }}{% endif %}
+        </div>
+      </div>
+      <div class="card-body">
+
+        {# 1) SHOW PREPARED SPELLS (by rank) #}
+        <h6 class="mb-2">Prepared Spells</h6>
+      {% for r, rows in b.prepared_rows_by_rank.items %}
+        <div class="mb-3">
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <div class="fw-semibold">Rank {{ r }}</div>
+            <div class="small text-muted">
+              Slots {{ b.slots_by_rank|get_item:r|default:0 }}
+              • Remaining {{ b.prepared_remaining_by_rank|get_item:r|default:0 }}
+            </div>
+          </div>
+{% with prep_id="prep-table-"|add:b.feature_id|stringformat:"s"|add:"-r"|add:r|stringformat:"s" %}
+  {% include "characters/_spell_table.html" with table_id=prep_id rows=rows feature_id=b.feature_id action="unprepare" rank=r  %}
+{% endwith %}
+        </div>
+      {% endfor %}
 
 
-      </div> <!-- /.tab-content -->
+        {# 2) SELECT PREPARED SPELLS FROM KNOWN (by rank) #}
+        <h6 class="mt-4 mb-2">Prepare from Known</h6>
+        {% for pair in b.known_for_prepare_by_rank.items %}
+
+          {% with r=pair.0 rows=pair.1 %}
+            <div class="mb-3">
+              <div class="fw-semibold mb-1">Rank {{ r }}</div>
+{% with kp_id="knownprep-table-"|add:b.feature_id|stringformat:"s"|add:"-r"|add:r|stringformat:"s" %}
+  {% include "characters/_spell_table.html" with table_id=kp_id rows=rows feature_id=b.feature_id action="prepare" rank=r  %}
+{% endwith %}
+            </div>
+          {% endwith %}
+        {% endfor %}
+
+        {# 3) SPELL TABLE TO SELECT KNOWN SPELL (by rank > 0) #}
+        <h6 class="mt-4 mb-2">Learn New Spells (Leveled)</h6>
+        {% for pair in b.learn_spells_by_rank.items %}
+
+          {% with r=pair.0 rows=pair.1 %}
+            <div class="mb-3">
+              <div class="fw-semibold mb-1">Rank {{ r }}</div>
+{% with learn_id="learn-table-"|add:b.feature_id|stringformat:"s"|add:"-r"|add:r|stringformat:"s" %}
+  {% include "characters/_spell_table.html" with table_id=learn_id rows=rows feature_id=b.feature_id action="learn_known" rank=r  %}
+{% endwith %}
+
+            </div>
+          {% endwith %}
+        {% endfor %}
+
+        {# 4) SHOW KNOWN CANTRIPS #}
+        <h6 class="mt-4 mb-2">Known Cantrips</h6>
+{% with known_c_id="learned-cantrips-"|add:b.feature_id|stringformat:"s" %}
+  {% include "characters/_spell_table.html" with table_id=known_c_id rows=b.learned_cantrips_rows feature_id=b.feature_id action="unlearn_cantrip" is_cantrip=True  %}
+{% endwith %}
+
+
+        {# 5) SPELL TABLE TO SELECT KNOWN CANTRIP #}
+        <h6 class="mt-4 mb-2">Learn New Cantrips</h6>
+{% with can_id="cantrips-table-"|add:b.feature_id|stringformat:"s" %}
+  {% include "characters/_spell_table.html" with table_id=can_id rows=b.learn_cantrip_rows feature_id=b.feature_id action="learn_cantrip" is_cantrip=True  %}
+{% endwith %}
+
+
+        {# (Optional) quick numeric cap adjustment UI you already wired in views as 'adjust_caps' #}
+        {% if can_edit %}
+        {% if can_edit %}
+  <details class="mt-2">
+    <summary>Edit formulas (advanced)</summary>
+    <form method="post" action="{% url 'characters:character_detail' character.pk %}" class="row g-2 mt-2">
+      {% csrf_token %}
+      <input type="hidden" name="spells_op" value="adjust_formulas">
+      <input type="hidden" name="feature_id" value="{{ b.feature_id }}">
+      <div class="col-md-4">
+        <label class="form-label form-label-sm">Cantrips formula</label>
+        <input class="form-control form-control-sm" name="f_cantrips" placeholder="{{ b.cantrips_formula }}">
+        <div class="form-text">Leave blank to remove override</div>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label form-label-sm">Known formula</label>
+        <input class="form-control form-control-sm" name="f_known" placeholder="{{ b.spells_known_formula|default:'—' }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label form-label-sm">Prepared formula</label>
+        <input class="form-control form-control-sm" name="f_prepared" placeholder="{{ b.spells_prepared_formula|default:'—' }}">
+      </div>
+      <div class="col-md-9">
+        <label class="form-label form-label-sm">Reason (required)</label>
+        <input class="form-control form-control-sm" name="note" required>
+      </div>
+      <div class="col-md-3 d-flex align-items-end">
+        <button class="btn btn-sm btn-outline-primary w-100">Save</button>
+      </div>
+    </form>
+  </details>
+{% endif %}
+
+          <div class="mt-4">
+            <details>
+              <summary class="mb-2">Adjust numeric caps (admin override)</summary>
+              <form method="post" action="{% url 'characters:character_detail' character.pk %}" class="row g-2">
+                {% csrf_token %}
+                <input type="hidden" name="spells_op" value="adjust_caps">
+                <input type="hidden" name="feature_id" value="{{ b.feature_id }}">
+                <div class="col-md-2">
+                  <label class="form-label form-label-sm">Cantrips</label>
+                  <input class="form-control form-control-sm" name="cap_cantrips" type="number" placeholder="{{ b.cantrips_max }}">
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label form-label-sm">Known</label>
+                  <input class="form-control form-control-sm" name="cap_known" type="number" placeholder="{{ b.known_max|default:'—' }}">
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label form-label-sm">Prepared</label>
+                  <input class="form-control form-control-sm" name="cap_prepared" type="number" placeholder="{{ b.prepared_max|default:'—' }}">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label form-label-sm">Reason (required)</label>
+                  <input class="form-control form-control-sm" name="note" required>
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                  <button class="btn btn-sm btn-outline-primary w-100">Save</button>
+                </div>
+              </form>
+            </details>
+          </div>
+        {% endif %}
+
+      </div>
+    </div>
+
+
+
+
+
+
+
+    </div>
+  {% endfor %}
+
+</div>
+{% endif %} <!-- /.tab-content -->
+</div>
     </main>
   </div> <!-- /.row -->
 </div> <!-- /.container -->
@@ -953,7 +1111,7 @@
                           <table class="table table-sm table-bordered w-auto">
                             <thead>
                               <tr>
-                                <th class="text-nowrap">Rank</th>
+                                <th class="text-nowrap">Level</th>
                                 {% for _ in "0123456789"|make_list %}<th>{{ forloop.counter }}</th>{% endfor %}
                               </tr>
                             </thead>
@@ -1526,139 +1684,166 @@
 
   <script>
   (function(){
-    function initFeatTable(opts){
-      var table = document.getElementById(opts.tableId);
-      if (!table) return;
+window.initFeatTable = function(opts){
 
-      function cellText(row, idx){ var c=row.cells[idx]; return (c?c.textContent:"").trim().toLowerCase(); }
-      table.querySelectorAll("th[data-sort]").forEach(function(th){
-        th.style.cursor = "pointer";
-        th.addEventListener("click", function(){
-          var col = parseInt(th.getAttribute("data-sort"), 10);
-          var asc = th.getAttribute("data-order") !== "asc";
-          th.setAttribute("data-order", asc ? "asc" : "desc");
-          var rows = Array.from(table.tBodies[0].rows);
-          rows.sort(function(a,b){
-            var A = cellText(a, col), B = cellText(b, col);
-            return asc ? A.localeCompare(B, undefined, {numeric:true}) : B.localeCompare(A, undefined, {numeric:true});
-          });
-          rows.forEach(function(r){ table.tBodies[0].appendChild(r); });
-        });
+  var table = document.getElementById(opts.tableId);
+  if (!table) return;
+
+  function cellText(row, idx){ var c=row.cells[idx]; return (c?c.textContent:"").trim(); }
+  table.querySelectorAll("th[data-sort]").forEach(function(th){
+    th.style.cursor = "pointer";
+    th.addEventListener("click", function(){
+      var col = parseInt(th.getAttribute("data-sort"), 10);
+      var asc = th.getAttribute("data-order") !== "asc";
+      th.setAttribute("data-order", asc ? "asc" : "desc");
+      var rows = Array.from(table.tBodies[0].rows).filter(function(r,i){ return !r.classList.contains("desc-body"); });
+      rows.sort(function(a,b){
+        var A = cellText(a, col).toLowerCase(), B = cellText(b, col).toLowerCase();
+        return asc ? A.localeCompare(B, undefined, {numeric:true}) : B.localeCompare(A, undefined, {numeric:true});
       });
-
-      var BLANK="(Blanks)";
-      function getColText(row, colIdx){ var c=row.cells[colIdx]; return (c?c.textContent:"").trim(); }
-      function splitTokens(txt){ return txt.split(/[,;/]/).map(function(s){return s.trim();}).filter(Boolean); }
-
-      function uniqueValuesForCol(colIdx, splitByTokens){
-        var set = new Set();
-        Array.from(table.tBodies[0].rows).forEach(function(r){
-          var txt = getColText(r, colIdx);
-          if (!txt) set.add(BLANK);
-          else if (splitByTokens){ splitTokens(txt).forEach(function(tok){ set.add(tok); }); }
-          else set.add(txt);
-        });
-        return Array.from(set).sort(function(a,b){ return a.localeCompare(b, undefined, {numeric:true}); });
-      }
-
-      function applyFilters(){
-        var menus = table.querySelectorAll(".excel-menu[data-col]");
-        var active = [];
-        menus.forEach(function(menu){
-          var col   = parseInt(menu.dataset.col, 10);
-          var split = menu.dataset.split === "1";
-          var selected = Array.from(menu.querySelectorAll('input[type="checkbox"]:checked')).map(function(cb){ return cb.value; });
-          active.push({col, split, selected, enabled: menu.dataset.ready === "1"});
-        });
-
-        Array.from(table.tBodies[0].rows).forEach(function(row){
-          var show = true;
-          active.forEach(function(f){
-            if (!show || !f.enabled) return;
-            var txt = getColText(row, f.col);
-            var tokens = (!txt) ? [BLANK] : (f.split ? splitTokens(txt) : [txt]);
-            if (f.selected.length === 0) { show = false; return; }
-            show = tokens.some(function(tok){ return f.selected.indexOf(tok) !== -1; });
-          });
-          row.style.display = show ? "" : "none";
-        });
-      }
-
-      function buildFilterMenu(menuEl){
-        var col   = parseInt(menuEl.dataset.col, 10);
-        var split = menuEl.dataset.split === "1";
-        var values = uniqueValuesForCol(col, split);
-
-        menuEl.innerHTML = [
-          '<div class="d-flex justify-content-between small mb-2">',
-          '  <a href="#" class="excel-sel-all">Select all</a>',
-          '  <a href="#" class="excel-clear">Clear</a>',
-          '</div>',
-          '<input type="text" class="form-control form-control-sm mb-2 excel-search" placeholder="Search values…">',
-          '<div class="excel-list" style="max-height:220px; overflow:auto;"></div>',
-          '<div class="d-flex justify-content-end gap-2 mt-2">',
-          '  <button type="button" class="btn btn-sm btn-outline-secondary excel-cancel">Cancel</button>',
-          '  <button type="button" class="btn btn-sm btn-success excel-ok">OK</button>',
-          '</div>'
-        ].join("");
-
-        var list = menuEl.querySelector(".excel-list");
-        function renderList(filter){
-          list.innerHTML = "";
-          values.forEach(function(v){
-            if (filter && v.toLowerCase().indexOf(filter.toLowerCase()) === -1) return;
-            var id = "excel_"+opts.tableId+"_"+col+"_"+btoa(unescape(encodeURIComponent(v))).replace(/=/g,'');
-            var div = document.createElement("div");
-            div.className = "form-check";
-            div.innerHTML = '<input class="form-check-input" type="checkbox" id="'+id+'" value="'+v+'" checked>' +
-                            '<label class="form-check-label small" for="'+id+'">'+v+'</label>';
-            list.appendChild(div);
-          });
-        }
-        renderList("");
-
-        menuEl.querySelector(".excel-search").addEventListener("input", function(){ renderList(this.value.trim()); });
-        menuEl.addEventListener("click", function(e){
-          if (e.target.matches(".excel-sel-all")){ e.preventDefault(); list.querySelectorAll('input[type="checkbox"]').forEach(cb=>cb.checked=true); applyFilters(); }
-          if (e.target.matches(".excel-clear"))  { e.preventDefault(); list.querySelectorAll('input[type="checkbox"]').forEach(cb=>cb.checked=false); applyFilters(); }
-          if (e.target.matches(".excel-ok,.excel-cancel")){
-            var dd = bootstrap.Dropdown.getOrCreateInstance(menuEl.parentElement.querySelector('[data-bs-toggle="dropdown"]'));
-            dd.hide();
-          }
-        });
-        list.addEventListener("change", applyFilters);
-
-        menuEl.dataset.ready = "1";
-        applyFilters();
-      }
-
-      table.querySelectorAll(".excel-menu[data-col]").forEach(buildFilterMenu);
-
-      table.addEventListener("change", function(e){
-        if (e.target.type === "radio") {
-          table.querySelectorAll("tbody tr").forEach(tr => tr.classList.remove("is-active"));
-          e.target.closest("tr").classList.add("is-active");
-        }
+      // keep each details row just after its data row
+      rows.forEach(function(r){
+        var detail = r.nextElementSibling && r.nextElementSibling.classList.contains("desc-body") ? r.nextElementSibling : null;
+        table.tBodies[0].appendChild(r);
+        if (detail) table.tBodies[0].appendChild(detail);
       });
+    });
+  });
 
-      if (opts.searchId){
-        var input = document.getElementById(opts.searchId);
-        if (input){
-          input.addEventListener("keyup", function(){
-            var q = this.value.toLowerCase();
-            Array.from(table.tBodies[0].rows).forEach(function(row){
-              var textMatch = row.textContent.toLowerCase().includes(q);
-              var excelHidden = row.style.display === "none";
-              row.style.display = (textMatch && !excelHidden) ? "" : (textMatch ? "" : "none");
-            });
-          });
-        }
-      }
+  var BLANK="(Blanks)";
+  function splitTokens(txt){ return txt.split(/[,;/]/).map(function(s){return s.trim();}).filter(Boolean); }
+
+  // Build dropdown menu lists
+  function uniqueValuesForCol(colIdx, splitByTokens){
+    var set = new Set();
+    Array.from(table.tBodies[0].rows).forEach(function(r){
+      if (r.classList.contains("desc-body")) return;
+      var txt = cellText(r, colIdx);
+      if (!txt) set.add(BLANK);
+      else if (splitByTokens){ splitTokens(txt).forEach(function(tok){ set.add(tok); }); }
+      else set.add(txt);
+    });
+    return Array.from(set).sort(function(a,b){ return a.localeCompare(b, undefined, {numeric:true}); });
+  }
+
+  var dropdownFilters = [];  // [{col, split, selected, enabled}]
+  function buildFilterMenu(menuEl){
+    var col   = parseInt(menuEl.dataset.col, 10);
+    var split = menuEl.dataset.split === "1";
+    var values = uniqueValuesForCol(col, split);
+
+    menuEl.innerHTML = [
+      '<div class="d-flex justify-content-between small mb-2">',
+      '  <a href="#" class="excel-sel-all">Select all</a>',
+      '  <a href="#" class="excel-clear">Clear</a>',
+      '</div>',
+      '<input type="text" class="form-control form-control-sm mb-2 excel-search" placeholder="Search values…">',
+      '<div class="excel-list" style="max-height:220px; overflow:auto;"></div>',
+      '<div class="d-flex justify-content-end gap-2 mt-2">',
+      '  <button type="button" class="btn btn-sm btn-outline-secondary excel-cancel">Cancel</button>',
+      '  <button type="button" class="btn btn-sm btn-success excel-ok">OK</button>',
+      '</div>'
+    ].join("");
+
+    var list = menuEl.querySelector(".excel-list");
+    function renderList(filter){
+      list.innerHTML = "";
+      values.forEach(function(v){
+        if (filter && v.toLowerCase().indexOf(filter.toLowerCase()) === -1) return;
+        var id = "excel_"+opts.tableId+"_"+col+"_"+btoa(unescape(encodeURIComponent(v))).replace(/=/g,'');
+        var div = document.createElement("div");
+        div.className = "form-check";
+        div.innerHTML = '<input class="form-check-input" type="checkbox" id="'+id+'" value="'+v+'" checked>' +
+                        '<label class="form-check-label small" for="'+id+'">'+v+'</label>';
+        list.appendChild(div);
+      });
     }
+    renderList("");
 
-    initFeatTable({ tableId: "general-feats-table", searchId: "general-feat-filter" });
-    initFeatTable({ tableId: "class-feats-table",   searchId: "class-feat-filter"   });
-  })();
+    menuEl.querySelector(".excel-search").addEventListener("input", function(){ renderList(this.value.trim()); });
+    menuEl.addEventListener("click", function(e){
+      if (e.target.matches(".excel-sel-all")){ e.preventDefault(); list.querySelectorAll('input[type="checkbox"]').forEach(cb=>cb.checked=true); applyAllFilters(); }
+      if (e.target.matches(".excel-clear"))  { e.preventDefault(); list.querySelectorAll('input[type="checkbox"]').forEach(cb=>cb.checked=false); applyAllFilters(); }
+      if (e.target.matches(".excel-ok,.excel-cancel")){
+        var dd = bootstrap.Dropdown.getOrCreateInstance(menuEl.parentElement.querySelector('[data-bs-toggle="dropdown"]'));
+        dd.hide();
+      }
+    });
+    list.addEventListener("change", applyAllFilters);
+
+    menuEl.dataset.ready = "1";
+    dropdownFilters.push({col: col, split: split, selected: function(){
+      return Array.from(list.querySelectorAll('input[type="checkbox"]:checked')).map(function(cb){ return cb.value; });
+    }});
+  }
+
+  table.querySelectorAll(".excel-menu[data-col]").forEach(buildFilterMenu);
+
+  // Per-column text search
+  var textFilters = {}; // {col -> lowercased substring}
+  table.querySelectorAll(".col-search").forEach(function(inp){
+    var col = parseInt(inp.dataset.col, 10);
+    textFilters[col] = "";
+    inp.addEventListener("input", function(){
+      textFilters[col] = (inp.value || "").trim().toLowerCase();
+      applyAllFilters();
+    });
+  });
+
+  function matchesDropdowns(row){
+    var show = true;
+    dropdownFilters.forEach(function(f){
+      if (!show) return;
+      var txt = cellText(row, f.col);
+      var tokens = (!txt) ? [BLANK] : (f.split ? splitTokens(txt) : [txt]);
+      var selected = f.selected();
+      // if a menu exists, and nothing is selected, hide all
+      if (table.querySelector('.excel-menu[data-col="'+f.col+'"]')) {
+        if (selected.length === 0) { show = false; return; }
+        show = tokens.some(function(tok){ return selected.indexOf(tok) !== -1; });
+      }
+    });
+    return show;
+  }
+
+  function matchesText(row){
+    for (var col in textFilters){
+      var q = textFilters[col];
+      if (!q) continue;
+      var txt = cellText(row, parseInt(col,10)).toLowerCase();
+      if (txt.indexOf(q) === -1) return false;
+    }
+    return true;
+  }
+
+  function applyAllFilters(){
+    Array.from(table.tBodies[0].rows).forEach(function(row){
+      if (row.classList.contains("desc-body")) return;
+      var ok = matchesDropdowns(row) && matchesText(row);
+      row.style.display = ok ? "" : "none";
+      var detail = row.nextElementSibling;
+      if (detail && detail.classList.contains("desc-body")) {
+        // hide details row if master row hidden
+        detail.style.display = ok ? detail.style.display : "none";
+      }
+    });
+  }
+
+  // radio highlight (if any radios exist inside)
+  table.addEventListener("change", function(e){
+    if (e.target.type === "radio") {
+      table.querySelectorAll("tbody tr").forEach(tr => tr.classList.remove("is-active"));
+      e.target.closest("tr").classList.add("is-active");
+    }
+  });
+
+  // initial filter pass
+  applyAllFilters();
+}
+
+  initFeatTable({ tableId: "general-feats-table", searchId: "general-feat-filter" });
+  initFeatTable({ tableId: "class-feats-table",   searchId: "class-feat-filter"   });
+})();
   </script>
 <script>
   document.addEventListener('click', function (e) {
@@ -1739,40 +1924,7 @@
     });
   });
   </script>
-<script>
-  // Initialize all spells tables with the same Excel-like behavior
-  (function(){
-    document.querySelectorAll('table[id^="spells-table-"]').forEach(function(tbl){
-      var id = tbl.id;
-      var r  = id.replace('spells-table-','');
-      var searchId = 'spell-filter-' + r;
-      if (typeof initFeatTable === 'function') {
-        initFeatTable({ tableId: id, searchId: searchId });
-      }
-    });
-  })();
-</script>
-<script>
-  (function(){
-    // Cantrips pickers
-    document.querySelectorAll('table[id^="cantrips-table-"]').forEach(function(tbl){
-      var fid = tbl.id.replace('cantrips-table-','');
-      var searchId = 'cantrip-filter-' + fid;
-      if (typeof initFeatTable === 'function') {
-        initFeatTable({ tableId: tbl.id, searchId: searchId });
-      }
-    });
 
-    // Learn-by-level pickers
-    document.querySelectorAll('table[id^="learn-table-"]').forEach(function(tbl){
-      var suffix = tbl.id.replace('learn-table-','');           // <fid>-r<rank>
-      var searchId = 'learn-filter-' + suffix;                  // must match inputs added above
-      if (typeof initFeatTable === 'function') {
-        initFeatTable({ tableId: tbl.id, searchId: searchId });
-      }
-    });
-  })();
-</script>
 
   <script>
 (function(){
@@ -1882,6 +2034,166 @@
     updateCounts(card);
   });
 })();
+</script>
+<script>
+(function(){
+  // ── Tabs (robust if target panel is missing) ───────────────────────────────
+  document.querySelectorAll('.tabs').forEach(tabs => {
+    tabs.addEventListener('click', (e) => {
+      const btn = e.target.closest('.tab-btn');
+      if (!btn || btn.classList.contains('disabled')) return;
+      const wrap = tabs.parentElement;
+      tabs.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      const targetSel = btn.getAttribute('data-target');
+      wrap.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      if (targetSel) {
+        const panel = wrap.querySelector(targetSel);
+        if (panel) panel.classList.add('active');
+      }
+    });
+  });
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function textOfRow(row){ return row.textContent.toLowerCase(); }
+  function wireSearch(input, table){
+    if (!input || !table) return;
+    input.addEventListener('input', () => {
+      const q = input.value.trim().toLowerCase();
+      table.querySelectorAll('tbody tr').forEach(tr => {
+        tr.style.display = (q && !textOfRow(tr).includes(q)) ? 'none' : '';
+      });
+    });
+  }
+
+  // ── Per-feature card logic ────────────────────────────────────────────────
+  document.querySelectorAll('.spellcard').forEach(card => {
+    const fid = card.dataset.fid;
+
+    // --- Cantrips limit (global per feature) ---
+    const cantripBoxes   = card.querySelectorAll('input.pick-cantrip[name="learn_cantrips_'+fid+'"]');
+    const cantripMaxEl   = card.querySelector('[data-role="count-cantrips"]');
+    const cantripMax     = parseInt(cantripMaxEl?.dataset.max || '0', 10);
+    const cantripCounter = cantripMaxEl;
+
+    function enforceCantrips(){
+      if (!cantripBoxes.length || !cantripMax) {
+        if (cantripCounter) cantripCounter.textContent = '0';
+        return;
+      }
+      const picked = [...cantripBoxes].filter(b => b.checked);
+      const over = Math.max(0, picked.length - cantripMax);
+      if (over > 0) {
+        // uncheck the most recently toggled extras
+        picked.slice(-over).forEach(b => { b.checked = false; });
+      }
+      if (cantripCounter){
+        cantripCounter.textContent = Math.min(picked.length, cantripMax);
+      }
+    }
+    cantripBoxes.forEach(b => b.addEventListener('change', enforceCantrips));
+    enforceCantrips(); // init
+
+    // --- Known (leveled) limit shared across all ranks for this feature) ---
+    const knownBoxes = card.querySelectorAll('input.pick-known[name="learn_known_'+fid+'"]');
+    const knownMaxEl = card.querySelector('[data-role="count-known"]');
+    const knownMax   = parseInt(knownMaxEl?.dataset.max || '0', 10);
+
+    function enforceKnown(){
+      if (!knownBoxes.length) {
+        if (knownMaxEl) knownMaxEl.textContent = '0';
+        return;
+      }
+      const picked = [...knownBoxes].filter(b => b.checked);
+      if (knownMax > 0 && picked.length > knownMax){
+        // uncheck the one the user just turned on (fallback for older browsers)
+        let last = null;
+        try {
+          last = [...knownBoxes].findLast(b => b === document.activeElement || b === document._lastChanged);
+        } catch (_e) {
+          last = [...knownBoxes].reverse().find(b => b === document.activeElement || b === document._lastChanged);
+        }
+        (last || picked[picked.length - 1]).checked = false;
+      }
+      const count = Math.min([...knownBoxes].filter(b => b.checked).length, knownMax || 0);
+      if (knownMaxEl) knownMaxEl.textContent = count;
+    }
+    knownBoxes.forEach(b => {
+      b.addEventListener('change', (ev) => { document._lastChanged = ev.target; enforceKnown(); });
+    });
+    enforceKnown(); // init
+
+    // --- Prepared limits per rank (uses data-rank + per-rank max in data-max) ---
+    const prepBoxes = card.querySelectorAll('input.pick-prepare');
+    const countersByRank = {};
+    card.querySelectorAll('[data-role="count-prepare"]').forEach(el => {
+      countersByRank[el.dataset.rank] = { el, max: parseInt(el.dataset.max || '0', 10) };
+    });
+
+    function enforcePrepare(ev){
+      const t = ev?.target;
+      const r = t?.dataset.rank;
+      if (!r) return;
+      const group = [...prepBoxes].filter(b => b.dataset.rank === r);
+      const cap   = countersByRank[r]?.max || 0;
+      const picked = group.filter(b => b.checked);
+      if (cap > 0 && picked.length > cap){
+        (t || picked[picked.length - 1]).checked = false;
+      }
+      const cnt = Math.min(group.filter(b => b.checked).length, cap);
+      if (countersByRank[r]) countersByRank[r].el.textContent = cnt;
+    }
+    // bind + initialize counts for each rank
+    prepBoxes.forEach(b => b.addEventListener('change', enforcePrepare));
+    Object.keys(countersByRank).forEach(r => {
+      const group = [...prepBoxes].filter(b => b.dataset.rank === r);
+      const cap   = countersByRank[r]?.max || 0;
+      const cnt   = Math.min(group.filter(b => b.checked).length, cap);
+      countersByRank[r].el.textContent = cnt;
+    });
+
+    // --- Search boxes wiring ---
+    // Cantrips
+    wireSearch(
+      card.querySelector('#cantrip-filter-'+fid),
+      card.querySelector('#cantrips-table-'+fid)
+    );
+    // Per-level learn tables
+    card.querySelectorAll('[id^="learn-filter-'+fid+'-r"]').forEach(input => {
+      const tableId = input.id.replace('filter','table');
+      wireSearch(input, card.querySelector('#'+tableId));
+    });
+  });
+
+  // ── “Details” toggler (row or section) ─────────────────────────────────────
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.toggle-desc');
+    if (!btn) return;
+    const row = btn.closest('tr');
+    let details = row?.nextElementSibling;
+    if (details && details.classList.contains('desc-body')) {
+      details.classList.toggle('d-none');
+      return;
+    }
+    // fallback for card sections
+    details = btn.parentElement.parentElement.nextElementSibling;
+    if (details && details.classList.contains('desc-body')) {
+      details.classList.toggle('d-none');
+    }
+  });
+})();
+</script>
+
+
+<script>
+  // Spellcasting tab tables (new)
+(function(){
+  document.querySelectorAll('table.excel-setup[id^="prep-table-"], table.excel-setup[id^="learned-cantrips-"], table.excel-setup[id^="knownprep-table-"], table.excel-setup[id^="learn-table-"], table.excel-setup[id^="cantrips-table-"]').forEach(function(tbl){
+    if (typeof initFeatTable === 'function') initFeatTable({ tableId: tbl.id });
+  });
+})();
+
 </script>
 
 {% endblock %}

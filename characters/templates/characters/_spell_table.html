@@ -1,0 +1,131 @@
+{# characters/_spell_table.html #}
+{# required context:
+   table_id      : unique id (string)
+   rows          : list of dicts (see view, includes row.id, name, rank, origin, etc.)
+   feature_id    : int (the spell table feature id)
+   action        : one of: "prepare", "unprepare", "learn_known", "learn_cantrip", "unlearn_known", "unlearn_cantrip"
+   rank          : int (only needed when action == "prepare")
+   is_cantrip    : optional boolean to hint UI badges
+#}
+<form method="post" action="{% url 'characters:character_detail' character.pk %}" class="mb-3">
+  {% csrf_token %}
+  <input type="hidden" name="spells_op" value="{{ action }}">
+  <input type="hidden" name="feature_id" value="{{ feature_id }}">
+  {% if rank %}<input type="hidden" name="rank" value="{{ rank }}">{% endif %}
+
+  <div class="d-flex align-items-center justify-content-between mb-2">
+    <div class="small text-muted">
+      {% if is_cantrip %}<span class="badge text-bg-secondary me-1">Cantrips</span>{% endif %}
+      {% if action == "prepare" %}Tick to prepare selected known spells at Level {{ rank }}.
+      {% elif action == "unprepare" %}Tick to unprepare.
+      {% elif action == "learn_known" %}Tick to learn as Known (leveled).
+      {% elif action == "learn_cantrip" %}Tick to learn as Known (cantrip).
+      {% elif action == "unlearn_known" or action == "unlearn_cantrip" %}Tick to unlearn.
+      {% endif %}
+    </div>
+    <div class="d-flex align-items-center gap-2">
+      <input name="note" class="form-control form-control-sm" placeholder="Reason / note (required to save)" required>
+      <button class="btn btn-sm btn-primary">Save</button>
+    </div>
+  </div>
+
+  <div class="table-responsive">
+    <table id="{{ table_id }}" class="table table-sm align-middle excel-setup">
+      <thead>
+        <tr>
+          <th style="width:28px;">
+            <input type="checkbox" class="form-check-input" onclick="
+              const cbs=this.closest('table').querySelectorAll('tbody input[type=checkbox]');
+              cbs.forEach(cb=>{ if(!cb.disabled) cb.checked=this.checked; });
+            ">
+          </th>
+          <th data-sort="1">Name</th>
+          <th data-sort="2">Level</th>
+          <th data-sort="3">Origin</th>
+          <th data-sort="4">
+            Classification
+            <div class="dropdown d-inline ms-1" data-bs-auto-close="outside">
+              <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown">▾</button>
+              <div class="dropdown-menu p-3 excel-menu" data-col="4" data-split="1" style="width:260px;"></div>
+            </div>
+          </th>
+          <th data-sort="5">Save</th>
+          <th data-sort="6">Casting Time</th>
+          <th data-sort="7">Duration</th>
+          <th data-sort="8">Components</th>
+          <th data-sort="9">Range</th>
+          <th data-sort="10">Target</th>
+          <th data-sort="11">
+            Tags
+            <div class="dropdown d-inline ms-1" data-bs-auto-close="outside">
+              <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown">▾</button>
+              <div class="dropdown-menu p-3 excel-menu" data-col="11" data-split="1" style="width:260px;"></div>
+            </div>
+          </th>
+          <th data-sort="12">Last Synced</th>
+          <th>Details</th>
+        </tr>
+        {# per-column text search row (0–12) — no custom filters #}
+        <tr class="column-filters">
+          <th></th>
+          <th><input class="form-control form-control-sm col-search" data-col="1"  placeholder="Search…"></th>
+          <th><input class="form-control form-control-sm col-search" data-col="2"  placeholder="Search…"></th>
+          <th><input class="form-control form-control-sm col-search" data-col="3"  placeholder="Search…"></th>
+          <th><input class="form-control form-control-sm col-search" data-col="4"  placeholder="Search…"></th>
+          <th><input class="form-control form-control-sm col-search" data-col="5"  placeholder="Search…"></th>
+          <th><input class="form-control form-control-sm col-search" data-col="6"  placeholder="Search…"></th>
+          <th><input class="form-control form-control-sm col-search" data-col="7"  placeholder="Search…"></th>
+          <th><input class="form-control form-control-sm col-search" data-col="8"  placeholder="Search…"></th>
+          <th><input class="form-control form-control-sm col-search" data-col="9"  placeholder="Search…"></th>
+          <th><input class="form-control form-control-sm col-search" data-col="10" placeholder="Search…"></th>
+          <th><input class="form-control form-control-sm col-search" data-col="11" placeholder="Search…"></th>
+          <th><input class="form-control form-control-sm col-search" data-col="12" placeholder="Search…"></th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+          <tr>
+            <td>
+              {# value carries enough info for the POST handlers #}
+              {% if action == "prepare" %}
+                <input class="form-check-input" type="checkbox" name="pick[]" value="{{ r.id }}|{{ r.rank }}">
+              {% elif action == "unprepare" %}
+                <input class="form-check-input" type="checkbox" name="pick[]" value="{{ r.prepared_id }}">
+              {% elif action == "learn_known" %}
+                <input class="form-check-input" type="checkbox" name="pick[]" value="{{ r.id }}|{{ r.rank }}">
+              {% elif action == "learn_cantrip" %}
+                <input class="form-check-input" type="checkbox" name="pick[]" value="{{ r.id }}|0">
+              {% elif action == "unlearn_known" %}
+                <input class="form-check-input" type="checkbox" name="pick[]" value="{{ r.known_id }}">
+              {% elif action == "unlearn_cantrip" %}
+                <input class="form-check-input" type="checkbox" name="pick[]" value="{{ r.known_id }}">
+              {% endif %}
+            </td>
+            <td>{{ r.name }}</td>
+            <td>{{ r.rank }}</td>
+            <td>{{ r.origin }}</td>
+            <td>{{ r.classification }}</td>
+            <td>{{ r.saving_throw }}</td>
+            <td>{{ r.casting_time }}</td>
+            <td>{{ r.duration }}</td>
+            <td>{{ r.components }}</td>
+            <td>{{ r.range }}</td>
+            <td>{{ r.target }}</td>
+            <td>{{ r.tags }}</td>
+            <td class="text-nowrap">{{ r.last_synced|date:"Y-m-d H:i" }}</td>
+            <td><button class="btn btn-sm btn-link p-0 toggle-desc" type="button">Details</button></td>
+          </tr>
+          <tr class="desc-body d-none">
+            <td colspan="14">
+              {% if r.effect %}<div class="summernote-content mb-2">{{ r.effect|safe }}</div>{% endif %}
+              {% if r.upcast_effect %}<div class="summernote-content text-muted">{{ r.upcast_effect|safe }}</div>{% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="14" class="text-muted"><em>—</em></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</form>

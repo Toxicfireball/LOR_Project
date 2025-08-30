@@ -5,22 +5,23 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}…{% endblock %}</title>
-  <style>
-    /* styles.css */
+<style>
+  /* dropdown visibility */
+  .dropdown-menu      { display: none; position: absolute; z-index: 70; } /* above page content */
+  .dropdown-menu.show { display: block; }
 
+  .mobile-menu      { display: none; }
+  .mobile-menu.show { display: block; }
+</style>
 
-    .dropdown-menu      { display: none; }
-    .dropdown-menu.show { display: block; }
-    .mobile-menu        { display: none; }
-    .mobile-menu.show   { display: block; }
-  </style>
 <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
 
   {% block extra_css %}{% endblock %}
 </head>
 <body class="bg-gray-100 text-gray-900">
 
-  <nav class="bg-gray-800 text-white">
+<nav class="bg-gray-800 text-white sticky top-0 z-50">
+
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="flex items-center justify-between h-16">
 
@@ -187,7 +188,7 @@
     </div>
   </nav>
 
-  <div class="container mx-auto py-4">
+<div class="container mx-auto py-4 relative z-0">
     {% block content %}{% endblock %}
   </div>
 
