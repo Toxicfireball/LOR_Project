@@ -39,6 +39,8 @@ urlpatterns = [
     path("codex/races/", views.race_list, name="codex_races"),
     # 🔧 renamed so templates `{% url 'characters:race_detail' pk=... %}` work
     path("codex/races/<int:pk>/", views.race_detail, name="race_detail"),
+# urls.py
+path("<int:pk>/override/", views.set_field_override, name="set_field_override"),
 
     # Loremaster
     path("loremaster/", views.LoremasterListView.as_view(), name="loremaster_list"),

@@ -22,6 +22,8 @@ FIVE_TIERS = ["Untrained", "Trained", "Expert", "Master", "Legendary"]
 # ---- Background helpers ------------------------------------------------------
 from .models import Spell, CharacterKnownSpell, CharacterPreparedSpell
 from django.db.models import Q
+
+
 # views.py (top, after imports)
 def _nonempty(val):
     if isinstance(val, (list, dict, tuple, set)): return bool(val)
@@ -2372,6 +2374,16 @@ def character_detail(request, pk):
                 "learn_cantrip_rows": learn_cantrip_rows,
             })
 
+    def _formula_override(key: str):
+        row = CharacterFieldOverride.objects.filter(character=character, key=f"formula:{key}").first()
+        return (row.value or "").strip() if row else None
+
+    def _final_override(key: str):
+        row = CharacterFieldOverride.objects.filter(character=character, key=f"final:{key}").first()
+        try:
+            return int(row.value) if row and str(row.value).strip() != "" else None
+        except Exception:
+            return None
 
     if request.method == "POST" and request.POST.get("spells_op") == "adjust_formulas" and can_edit:
         fid = int(request.POST.get("feature_id") or 0)
@@ -3359,22 +3371,68 @@ def character_detail(request, pk):
         r = prof_by_code.get(code, {"tier_name":"—","modifier":0,"source":"—"})
         prof = int(r["modifier"])
         half = _hl(code)
-        total = base_const + prof + half + (abil_mod_val if abil_name else 0)
-        parts_f = []; parts_v = []
-        if base_const:
-            parts_f.append(str(base_const)); parts_v.append(str(base_const))
-        parts_f.append("prof");    parts_v.append(_fmt(prof))
-        parts_f.append("½ level"); parts_v.append(_fmt(half))
+
+        # default system formula
+        total_sys = base_const + prof + half + (abil_mod_val if abil_name else 0)
+        formula_h = []
+        values_h  = []
+        if base_const: formula_h.append("base"); values_h.append(str(base_const))
+        formula_h += ["prof","½ level"]
+        values_h  += [str(prof), str(half)]
         if abil_name:
-            parts_f.append(f"{abil_name[:3]} mod"); parts_v.append(_fmt(abil_mod_val))
+            formula_h.append(f"{abil_name[:3]} mod")
+            values_h.append(str(abil_mod_val))
+
+        # context for user formulas
+        ctx = {
+            "base": base_const, "prof": prof, "half": half,
+            "strength": _abil_mod(character.strength), "dexterity": _abil_mod(character.dexterity),
+            "constitution": _abil_mod(character.constitution), "intelligence": _abil_mod(character.intelligence),
+            "wisdom": _abil_mod(character.wisdom), "charisma": _abil_mod(character.charisma),
+            "str_mod": _abil_mod(character.strength), "dex_mod": _abil_mod(character.dexterity),
+            "con_mod": _abil_mod(character.constitution), "int_mod": _abil_mod(character.intelligence),
+            "wis_mod": _abil_mod(character.wisdom), "cha_mod": _abil_mod(character.charisma),
+            "level": character.level, "floor": math.floor, "ceil": math.ceil, "min": min, "max": max, "int": int, "round": round,
+        }
+
+        # (3) apply a per-stat formula override if present
+        used_formula = " + ".join(formula_h)
+        total_calc   = total_sys
+        try:
+            expr = _formula_override(f"prof:{code}")
+            if expr:
+                total_calc   = int(eval(expr, {"__builtins__": {}}, ctx))
+                used_formula = expr
+        except Exception:
+            # keep system total on any error
+            pass
+
+        # (4) allow a direct final override
+        final = _final_override(f"prof:{code}")
+        if final is not None:
+            total_calc = final
+
+        debug = {
+            "formula": used_formula,
+            "values":  " + ".join(values_h),
+            "total":   total_calc,
+            "vars": [
+                *([{"name": "base", "value": base_const, "note": "Base"}] if base_const else []),
+                {"name": "prof", "value": prof, "note": r.get("tier_name","")},
+                {"name": "½ level", "value": half, "note": "applies if trained"},
+                *([{"name": f"{(abil_name or '')[:3]} mod", "value": abil_mod_val, "note": abil_name}] if abil_name else []),
+            ],
+        }
+
         defense_rows.append({
-            "code":   code,  # <<< add this
+            "code":   code,
             "type":   label or LABELS.get(code, code).title(),
             "tier":   r["tier_name"],
-            "formula": " + ".join(parts_f),
-            "values":  " + ".join(parts_v),
-            "total_s": _fmt(total),
+            "formula": used_formula,
+            "values":  debug["values"],
+            "total_s": _fmt(total_calc),
             "source": r["source"],
+            "debug_json": json.dumps(debug),
         })
 
     add_row("armor",                      label="Armor")
@@ -3431,6 +3489,27 @@ def character_detail(request, pk):
 
     # pick a main DC for the left card (first available)
     derived["spell_dc_main"] = (spell_dc_rows[0]["total"] if spell_dc_rows else None)
+    half_dc = hl_if_trained("dc")
+    abil_name = derived.get("spell_dc_ability") or "Ability"
+    abil_mod  = _abil_mod(getattr(character, (abil_name or "").lower(), 10)) if abil_name != "—" else 0
+
+    spell_dc_rows = [{
+        "label": f"Spell/DC ({abil_name})",
+        "formula": "8 + prof + ½ level + ability mod",
+        "values":  f"8 + {_fmt(prof_by_code.get('dc', {'modifier':0})['modifier'])} + {_fmt(half_dc)} + {_fmt(abil_mod)}",
+        "total":   derived["spell_dc_main"],
+        "debug_json": json.dumps({
+            "formula": "8 + prof + ½ level + ability mod",
+            "values":  f"8 + {prof_by_code.get('dc', {'modifier':0})['modifier']} + {half_dc} + {abil_mod}",
+            "total":   derived["spell_dc_main"],
+            "vars": [
+                {"name": "base", "value": 8, "note": "DC base"},
+                {"name": "prof", "value": prof_by_code.get("dc", {"modifier":0})["modifier"], "note": prof_by_code.get("dc", {}).get("tier_name","")},
+                {"name": "½ level", "value": half_dc, "note": "applies if trained"},
+                {"name": "ability mod", "value": abil_mod, "note": abil_name},
+            ],
+        }),
+    }]
 
 
 
@@ -4165,25 +4244,40 @@ def character_detail(request, pk):
 from django.views.decorators.http import require_POST
 
 @login_required
-@require_POST
 def set_field_override(request, pk):
+    if request.method != "POST":
+        return HttpResponseBadRequest("POST only.")
     character = get_object_or_404(Character, pk=pk, user=request.user)
-    key  = (request.POST.get("key") or "").strip()
-    val  = (request.POST.get("value") or "").strip()
-    note = (request.POST.get("note") or "").strip()
 
-    if not key:
-        return HttpResponseBadRequest("Missing key")
-    if not note:
-        return HttpResponseBadRequest("Reason is required")
+    base_key = (request.POST.get("key") or "").strip()       # e.g. "prof:armor"
+    if not base_key:
+        return HttpResponseBadRequest("Missing key.")
 
-    CharacterFieldOverride.objects.update_or_create(
-        character=character, key=key, defaults={"value": val}
-    )
-    CharacterFieldNote.objects.update_or_create(
-        character=character, key=key, defaults={"note": note}
-    )
-    return JsonResponse({"ok": True})
+    formula = (request.POST.get("formula") or "").strip()    # e.g. "base + prof + half + dex_mod"
+    value   = (request.POST.get("value") or "").strip()      # final override (int) or blank
+
+    # store/remove formula override
+    fkey = f"formula:{base_key}"
+    if formula:
+        CharacterFieldOverride.objects.update_or_create(
+            character=character, key=fkey, defaults={"value": formula}
+        )
+    else:
+        CharacterFieldOverride.objects.filter(character=character, key=fkey).delete()
+
+    # store/remove final number override
+    vkey = f"final:{base_key}"
+    if value != "":
+        CharacterFieldOverride.objects.update_or_create(
+            character=character, key=vkey, defaults={"value": value}
+        )
+    else:
+        CharacterFieldOverride.objects.filter(character=character, key=vkey).delete()
+
+    # return 204 for AJAX, or redirect if you prefer full post/redirect/get
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return JsonResponse({"ok": True})
+    return redirect("characters:character_detail", pk=pk)
 
 
 
