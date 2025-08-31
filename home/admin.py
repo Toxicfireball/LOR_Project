@@ -861,14 +861,17 @@ class ArmorAdmin(admin.ModelAdmin):
     inlines      = [ArmorTraitInline]
     
 
-# characters/admin.py
 class SpellSlotRowForm(forms.ModelForm):
-    level = forms.IntegerField(disabled=True)
-
     class Meta:
         model  = SpellSlotRow
         fields = "__all__"
         labels = {f"slot{i}": f"Level {i}" for i in range(1, 11)}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Submit the value but make it visually read-only
+        self.fields["level"].widget.attrs["readonly"] = True   # not 'disabled'
+
 
 # admin.py (SpellSlotRowInline)
 class SpellSlotRowInline(admin.TabularInline):
@@ -876,9 +879,8 @@ class SpellSlotRowInline(admin.TabularInline):
     model      = SpellSlotRow
     fields     = ["level"] + [f"slot{i}" for i in range(1, 11)]
     can_delete = False
-    min_num    = 20
-    max_num    = 20
-    extra      = 0
+    min_num    = 0           # ← was 20
+    extra      = 0           # ← let us control rows programmatically
     classes    = ["spell-slot-inline"]
     verbose_name        = "Spell Slots for Level"
     verbose_name_plural = "Spell Slots Table"
@@ -886,11 +888,6 @@ class SpellSlotRowInline(admin.TabularInline):
     def has_delete_permission(self, request, obj=None):
         return False
 
-    def get_extra(self, request, obj=None, **kwargs):
-        # Only prefill the 20 rows if this feature is a spell table
-        if obj is None or getattr(obj, "kind", None) == "spell_table":
-            return 20
-        return 0
 
 
 @admin.register(ResourceType)
@@ -905,7 +902,7 @@ class ClassFeatureAdmin(admin.ModelAdmin):
     prepopulated_fields = {"code": ("name",)}
     search_fields = ("name", "code")
     form         = ClassFeatureForm
-    inlines = [FeatureOptionInline, SpellSlotRowInline]    
+    inlines = [FeatureOptionInline]    
     list_display = (
         'character_class','scope','kind','subclass_group',
         'code','name','formula_target','has_options',
@@ -1021,6 +1018,14 @@ class ClassFeatureAdmin(admin.ModelAdmin):
 
         return super().formfield_for_dbfield(db_field, request, **kwargs)
 
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+
+        # If this is a spell table and it has no rows yet, seed levels 1..20
+        if obj.kind == "spell_table" and not obj.spell_slot_rows.exists():
+            SpellSlotRow.objects.bulk_create(
+                [SpellSlotRow(feature=obj, level=i) for i in range(1, 21)]
+            )
 
 
 
@@ -1034,22 +1039,30 @@ class ClassFeatureAdmin(admin.ModelAdmin):
             initial["subclass_group"] = request.GET["subclass_group"]
         return initial
 
+# in ClassFeatureAdmin
+
+ # ← remove SpellSlotRowInline here
+
     def get_inline_instances(self, request, obj=None):
         inlines = super().get_inline_instances(request, obj)
-        # If the user has not checked “has_options,” remove the FeatureOptionInline entirely:
+
+        # FeatureOptionInline: keep your existing logic
         if request.method == "POST":
             want = request.POST.get("has_options") in ("1", "true", "on")
-            kind = request.POST.get("kind")
             if not want:
                 inlines = [i for i in inlines if not isinstance(i, FeatureOptionInline)]
-            
-        else:
-            kind = getattr(obj, "kind", None)
 
+        # Inherent spell: keep your existing logic
+        kind = (request.POST.get("kind") if request.method == "POST" else getattr(obj, "kind", None))
         if kind == "inherent_spell":
             inlines.append(SpellInline(self.model, self.admin_site))
 
+        # ✅ Spell slots inline ONLY for spell tables
+        if kind == "spell_table":
+            inlines.append(SpellSlotRowInline(self.model, self.admin_site))
+
         return inlines
+
     def get_form(self, request, obj=None, **kwargs):
         BaseForm = super().get_form(request, obj, **kwargs)
 

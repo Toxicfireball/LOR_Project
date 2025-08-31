@@ -2033,9 +2033,7 @@ def character_detail(request, pk):
     for cp in class_progress:
         owned_tables = (
             ClassFeature.objects
-            .filter(kind="spell_table",
-                    character_class=cp.character_class,
-                    character_features__character=character)
+            .filter(kind="spell_table", character_class=cp.character_class)
             .distinct()
         )
         # Build a dict like {"cleric_level": 5, "wizard_level": 2, ...}
