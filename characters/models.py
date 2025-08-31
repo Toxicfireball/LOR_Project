@@ -1491,7 +1491,7 @@ class ClassFeature(models.Model):
         master  = self.mastery_rank
 
         # Enforce level_required for subclass features
-        if scope == "subclass_feat":
+        if scope == "subclass_feat" and grp.system_type == SubclassGroup.SYSTEM_MODULAR_LINEAR:
             if lvl_req is None or lvl_req < 1:
                 errors["level_required"] = "Subclass features must set level_required ≥ 1."
 
