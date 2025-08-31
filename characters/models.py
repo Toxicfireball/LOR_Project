@@ -1481,7 +1481,26 @@ class ClassFeature(models.Model):
         help_text="What kind of roll this formula is used for (optional)"
     )
     # … all your fields …
+    def __str__(self):
+        # keep it compact but informative
+        left = []
+        if self.character_class_id:
+            left.append(self.character_class.name)
+        if self.subclass_group_id:
+            left.append(self.subclass_group.name)
 
+        right = self.name or self.code or f"Feature #{self.pk}"
+        # optional helpful bits:
+        if self.tier:
+            right += f" (Tier {self.tier})"
+        if self.mastery_rank is not None:
+            right += f" (Rank {self.mastery_rank})"
+        if self.level_required:
+            right += f" @L{self.level_required}"
+        if self.code:
+            right += f" [{self.code}]"
+
+        return " – ".join(left + [right]) if left else right
     def clean(self):
         errors = {}
         grp     = self.subclass_group
@@ -1490,13 +1509,17 @@ class ClassFeature(models.Model):
         tier    = self.tier
         master  = self.mastery_rank
 
-        # Enforce level_required for subclass features
-        if scope == "subclass_feat" and grp.system_type == SubclassGroup.SYSTEM_MODULAR_LINEAR:
+        # If this feature *needs* an umbrella but none is chosen, flag the field first.
+        if scope in ("subclass_choice", "subclass_feat", "gain_subclass_feat") and not grp:
+            errors["subclass_group"] = "Pick an umbrella (SubclassGroup) for this scope."
+
+        # Only check level_required if grp exists *and* is modular_linear
+        if scope == "subclass_feat" and grp and grp.system_type == SubclassGroup.SYSTEM_MODULAR_LINEAR:
             if lvl_req is None or lvl_req < 1:
                 errors["level_required"] = "Subclass features must set level_required ≥ 1."
 
         # Only run tier/mastery gating when a group is present
-        if scope in ("subclass_feat", "gain_subclass_feat") and grp:
+        if grp and scope in ("subclass_feat", "gain_subclass_feat"):
             if grp.system_type == SubclassGroup.SYSTEM_LINEAR:
                 if tier is not None:
                     errors["tier"] = "Only modular_linear features may have a Tier."
@@ -1515,7 +1538,9 @@ class ClassFeature(models.Model):
 
         if errors:
             raise ValidationError(errors)
+
         return super().clean()
+
 
 class ResourceType(models.Model):
     """

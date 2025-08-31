@@ -316,7 +316,8 @@
           </tr>
         {% endfor %}
       </tbody>
-    </table>
+      </table>
+    </div>
   </div>
 </div>
 
@@ -1055,15 +1056,13 @@
           </div>
         {% endif %}
 
-      </div>
-</div>
-
-</div>
+      </div> <!-- /.card-body -->
+    </div> <!-- /.card -->
   {% endfor %}
+</div> <!-- /#tab-spellcasting -->
+{% endif %}
+</div> <!-- /.tab-content -->
 
-</div>
-{% endif %} <!-- /.tab-content -->
-</div>
     </main>
   </div> <!-- /.row -->
 </div> <!-- /.container -->
@@ -1072,110 +1071,109 @@
 
 <!-- LEVEL UP MODAL -->
 <div class="modal fade" id="levelUpModal" tabindex="-1" aria-labelledby="levelUpModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
         <h5 id="levelUpModalLabel" class="modal-title">Level Up to {{ total_level|add:"1" }}</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
 
-      <div class="modal-body">
-        <div class="modal-body p-0">
-          <div class="row g-0">
-            <!-- LEFT column: class info / preview -->
-            <div class="col-12 col-xl-5 p-4 border-end">
-              <form method="get"
-                    action="{% url 'characters:character_detail' character.pk %}#levelUpModal"
-                    class="mb-4">
-                {{ form.base_class }}
-              </form>
+      <div class="modal-body p-0">
+        <div class="row g-0">
+          <!-- LEFT column: class info / preview -->
+          <div class="col-12 col-xl-5 p-4 border-end">
+            <form method="get"
+                  action="{% url 'characters:character_detail' character.pk %}#levelUpModal"
+                  class="mb-4">
+              {{ form.base_class }}
+            </form>
 
-              <div class="mb-3">
-                <h6 class="mb-2">Description</h6>
-                {% if preview_class.description %}
-                  <div class="text-muted summernote-content">{{ preview_class.description|safe }}</div>
-                {% else %}
-                  <div class="text-muted"><em>—</em></div>
-                {% endif %}
+            <div class="mb-3">
+              <h6 class="mb-2">Description</h6>
+              {% if preview_class.description %}
+                <div class="text-muted summernote-content">{{ preview_class.description|safe }}</div>
+              {% else %}
+                <div class="text-muted"><em>—</em></div>
+              {% endif %}
+            </div>
+
+            <div class="mb-3 small text-muted">
+              <div><strong>Hit Die:</strong> d{{ preview_class.hit_die }}</div>
+              <div>
+                <strong>Key Abilities:</strong>
+                {% for a in preview_class.key_abilities.all %}
+                  {{ a.name }}{% if not forloop.last %}, {% endif %}
+                {% endfor %}
               </div>
+            </div>
 
-              <div class="mb-3 small text-muted">
-                <div><strong>Hit Die:</strong> d{{ preview_class.hit_die }}</div>
-                <div>
-                  <strong>Key Abilities:</strong>
-                  {% for a in preview_class.key_abilities.all %}
-                    {{ a.name }}{% if not forloop.last %}, {% endif %}
-                  {% endfor %}
-                </div>
-              </div>
-
-              <div class="mb-3">
-                <h6 class="mb-2">Proficiencies</h6>
-                <div class="table-responsive">
-                  <table class="table table-sm">
-                    <thead>
+            <div class="mb-3">
+              <h6 class="mb-2">Proficiencies</h6>
+              <div class="table-responsive">
+                <table class="table table-sm">
+                  <thead>
+                    <tr>
+                      <th>Type</th>
+                      {% for tn in tier_names %}<th>{{ tn }}</th>{% endfor %}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for row in proficiency_rows %}
                       <tr>
-                        <th>Type</th>
-                        {% for tn in tier_names %}<th>{{ tn }}</th>{% endfor %}
+                        <td>{{ row.type }}</td>
+                        {% for lvl in row.levels %}
+                          <td>{{ lvl }}</td>
+                        {% endfor %}
                       </tr>
-                    </thead>
-                    <tbody>
-                      {% for row in proficiency_rows %}
-                        <tr>
-                          <td>{{ row.type }}</td>
-                          {% for lvl in row.levels %}
-                            <td>{{ lvl }}</td>
-                          {% endfor %}
-                        </tr>
-                      {% endfor %}
-                    </tbody>
-                  </table>
-                </div>
+                    {% endfor %}
+                  </tbody>
+                </table>
               </div>
+            </div>
 
-              <div class="mb-3">
-                <h6 class="mb-2">Features at L{{ total_level|add:"1" }}</h6>
-                <ul class="mb-0 ps-3">
-                  {% for f in auto_feats %}
-                    <li class="mb-2">
-                      {% if f.kind == "spell_table" and f.spell_row_next %}
-                        <div class="table-responsive mt-2">
-                          <table class="table table-sm table-bordered w-auto">
-                            <thead>
-                              <tr>
-                                <th class="text-nowrap">Level</th>
-                                {% for _ in "0123456789"|make_list %}<th>{{ forloop.counter }}</th>{% endfor %}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              <tr>
-                                <td class="text-nowrap">Slots</td>
-                                <td>{{ f.spell_row_next.slot1 }}</td>
-                                <td>{{ f.spell_row_next.slot2 }}</td>
-                                <td>{{ f.spell_row_next.slot3 }}</td>
-                                <td>{{ f.spell_row_next.slot4 }}</td>
-                                <td>{{ f.spell_row_next.slot5 }}</td>
-                                <td>{{ f.spell_row_next.slot6 }}</td>
-                                <td>{{ f.spell_row_next.slot7 }}</td>
-                                <td>{{ f.spell_row_next.slot8 }}</td>
-                                <td>{{ f.spell_row_next.slot9 }}</td>
-                                <td>{{ f.spell_row_next.slot10 }}</td>
-                              </tr>
-                            </tbody>
-                          </table>
-                        </div>
-                      {% endif %}
-
-                      <div class="mt-2">
-                        {% include "partials/_feature_detail.html" with f=f %}
+            <div class="mb-3">
+              <h6 class="mb-2">Features at L{{ total_level|add:"1" }}</h6>
+              <ul class="mb-0 ps-3">
+                {% for f in auto_feats %}
+                  <li class="mb-2">
+                    {% if f.kind == "spell_table" and f.spell_row_next %}
+                      <div class="table-responsive mt-2">
+                        <table class="table table-sm table-bordered w-auto">
+                          <thead>
+                            <tr>
+                              <th class="text-nowrap">Level</th>
+                              {% for _ in "0123456789"|make_list %}<th>{{ forloop.counter }}</th>{% endfor %}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr>
+                              <td class="text-nowrap">Slots</td>
+                              <td>{{ f.spell_row_next.slot1 }}</td>
+                              <td>{{ f.spell_row_next.slot2 }}</td>
+                              <td>{{ f.spell_row_next.slot3 }}</td>
+                              <td>{{ f.spell_row_next.slot4 }}</td>
+                              <td>{{ f.spell_row_next.slot5 }}</td>
+                              <td>{{ f.spell_row_next.slot6 }}</td>
+                              <td>{{ f.spell_row_next.slot7 }}</td>
+                              <td>{{ f.spell_row_next.slot8 }}</td>
+                              <td>{{ f.spell_row_next.slot9 }}</td>
+                              <td>{{ f.spell_row_next.slot10 }}</td>
+                            </tr>
+                          </tbody>
+                        </table>
                       </div>
-                    </li>
-                  {% empty %}
-                    <li><em>None</em></li>
-                  {% endfor %}
-                </ul>
-              </div>
-            </div> <!-- /LEFT -->
+                    {% endif %}
+
+                    <div class="mt-2">
+                      {% include "partials/_feature_detail.html" with f=f %}
+                    </div>
+                  </li>
+                {% empty %}
+                  <li><em>None</em></li>
+                {% endfor %}
+              </ul>
+            </div>
+          </div> <!-- /LEFT -->
 
             <div class="col-12 col-xl-7 p-4"><!-- RIGHT: form -->
               <form method="post" action="{% url 'characters:character_detail' character.pk %}">
@@ -1502,14 +1500,12 @@
                 <button type="submit" name="level_up_submit" class="btn btn-primary">
                   Confirm Level Up
                 </button>
-              </form>
-            </div> <!-- /RIGHT form -->
-          </div>
-        </div>
-      </div> <!-- /modal-body inner -->
-    </div> <!-- /modal-body -->
-  </div>
-</div>
+            </form>
+          </div> <!-- /RIGHT form -->
+        </div> <!-- /.row -->
+      </div> <!-- /.modal-body -->
+    </div> <!-- /.modal-content -->
+  </div> <!-- /.modal-dialog -->
 </div> <!-- /LEVEL UP MODAL -->
 
 <!-- EDIT CHARACTER MODAL (unchanged) -->
