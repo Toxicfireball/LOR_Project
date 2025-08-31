@@ -26,7 +26,12 @@ from django.db.models import Q
 def _nonempty(val):
     if isinstance(val, (list, dict, tuple, set)): return bool(val)
     return val not in (None, "")
-
+def _eval_formula(expr, ctx):
+    if not expr: return None
+    try:
+        return int(eval(expr, {"__builtins__": {}}, ctx))
+    except Exception:
+        return None
 def _feature_details_map(f):
     """
     Return a dict of human-friendly, non-empty detail fields for ClassFeature.
@@ -778,50 +783,97 @@ def _prepared_counts(char: Character) -> Dict[str, Counter]:
             out[ps.origin][ps.rank] += 1
     return out
 
-def _known_sets(char: Character):
-    """
-    Sets of known spells by origin and list of cantrips by origin.
-    """
-    known_by_origin = {o: [] for o in ORIGINS}
-    cantrips_by_origin = {o: [] for o in ORIGINS}
-    for ks in char.known_spells.select_related("spell"):
-        (cantrips_by_origin if ks.rank == 0 else known_by_origin)[ks.origin].append(ks)
-    return known_by_origin, cantrips_by_origin
+def _norm_origin(v: str) -> str:
+    v = (v or "").strip().lower()
+    return v or "—"
 
-def _spellcasting_context(char: Character) -> Dict[str, Any]:
-    slots = _slot_totals_by_origin_and_rank(char)
-    totals = _formula_totals(char)
-    prepared = _prepared_counts(char)
-    known_by_origin, cantrips_by_origin = _known_sets(char)
+def _known_sets(char):
+    known_by_origin    = defaultdict(list)
+    cantrips_by_origin = defaultdict(list)
 
-    # Remaining slots per rank
-    remaining = {o: {} for o in ORIGINS}
-    for origin in ORIGINS:
-        for r in range(1, 11):
-            remaining[origin][r] = max(0, (slots[origin][r] or 0) - (prepared[origin][r] or 0))
-
-    # simple counts
-    counts = {
-        o: dict(
-            cantrips_known=totals[o]["cantrips_known"],
-            spells_known_cap=totals[o]["spells_known"],
-            spells_prepared_cap=totals[o]["spells_prepared_cap"],  # optional, if you use it
-            currently_known=len(known_by_origin[o]),
-            currently_known_cantrips=len(cantrips_by_origin[o]),
+    qs = char.known_spells.select_related("spell")
+    for ks in qs:
+        sp = ks.spell
+        rank   = getattr(ks, "rank", getattr(sp, "level", 0)) or 0
+        origin = _norm_origin(
+            getattr(ks, "origin", None) or getattr(sp, "origin", None) or getattr(sp, "sub_origin", None)
         )
-        for o in ORIGINS
+        (cantrips_by_origin if rank == 0 else known_by_origin)[origin].append(ks)
+
+    # if callers expect plain dicts:
+    return dict(known_by_origin), dict(cantrips_by_origin)
+# --- at top of the helper (or right before you use any origins) ---
+from collections import defaultdict
+
+def _okey(v: str) -> str:
+    """Normalize any origin/list label into a stable dict key."""
+    v = (v or "").strip().lower()
+    return v or "—"   # match your view/template fallback
+
+def _spellcasting_context(char):
+    # 1) Build prepared counts by normalized (origin, rank)
+    prepared_counts = defaultdict(lambda: defaultdict(int))
+    max_rank_seen = 0
+    for ps in char.prepared_spells.select_related("spell"):
+        # prefer row.origin, but fall back to spell-origin if row is blank
+        o = _okey(getattr(ps, "origin", None)
+                  or getattr(ps.spell, "origin", None)
+                  or getattr(ps.spell, "sub_origin", None))
+        r = int(getattr(ps, "rank", getattr(ps.spell, "level", 0)) or 0)
+        if r > 0:
+            prepared_counts[o][r] += 1
+            max_rank_seen = max(max_rank_seen, r)
+
+    # 2) Known spells by origin (you only need this if you expose it in scx)
+    known_by_origin    = defaultdict(list)
+    cantrips_by_origin = defaultdict(list)
+    for ks in char.known_spells.select_related("spell"):
+        sp = ks.spell
+        o = _okey(getattr(ks, "origin", None) or sp.origin or sp.sub_origin)
+        r = int(getattr(ks, "rank", getattr(sp, "level", 0)) or 0)
+        (cantrips_by_origin if r == 0 else known_by_origin)[o].append(ks)
+        max_rank_seen = max(max_rank_seen, r)
+
+    # 3) Slots by origin/rank from your active spell tables (if you have them)
+    slots_by_origin_rank = defaultdict(dict)
+    for feature, cls, _cls_level in _active_spell_tables(char):  # keep your existing helper
+        token = _okey(getattr(feature, "get_spell_list_display", lambda: None)() or feature.spell_list)
+        row = feature.spell_slot_rows.filter(level=_cls_level).first()
+        if not row:
+            continue
+        slots = [row.slot1,row.slot2,row.slot3,row.slot4,row.slot5,
+                 row.slot6,row.slot7,row.slot8,row.slot9,row.slot10]
+        for i, s in enumerate(slots, start=1):
+            if s:
+                slots_by_origin_rank[token][i] = int(s)
+                max_rank_seen = max(max_rank_seen, i)
+
+    # 4) Build the canonical origin set (normalized) so comprehensions can’t KeyError
+    all_origins = set(prepared_counts.keys()) | set(known_by_origin.keys()) \
+                  | set(cantrips_by_origin.keys()) | set(slots_by_origin_rank.keys())
+    if not all_origins:
+        all_origins = {"—"}  # at least one key so templates don’t explode
+
+    rank_range = list(range(0, max(1, max_rank_seen) + 1))  # include 0 for cantrips
+
+    # 5) Safely project nested dicts (use .get(...) everywhere)
+    prepared_counts_safe = {
+        o: {r: int(prepared_counts.get(o, {}).get(r, 0)) for r in rank_range}
+        for o in all_origins
+    }
+    slots_safe = {
+        o: {r: int(slots_by_origin_rank.get(o, {}).get(r, 0)) for r in rank_range if r > 0}
+        for o in all_origins
     }
 
-    return dict(
-        origins=ORIGINS,
-        rank_range=RANKS,
-        slot_totals=slots,
-        remaining_slots=remaining,
-        prepared_counts={o: dict(prepared[o]) for o in ORIGINS},
-        known_by_origin=known_by_origin,
-        cantrips_by_origin=cantrips_by_origin,
-        totals=counts,
-    )
+    return {
+        "rank_range": rank_range,
+        "prepared_counts": prepared_counts_safe,
+        "known_by_origin": dict(known_by_origin),
+        "cantrips_by_origin": dict(cantrips_by_origin),
+        "slots_by_origin_rank": slots_safe,
+        "origins": sorted(all_origins),
+    }
 
 # ----------------------------- page views --------------------------------
 # characters/views.py
@@ -1069,7 +1121,11 @@ def set_armor_choice(request, pk):
     if request.headers.get("x-requested-with") == "XMLHttpRequest":
         return JsonResponse({"ok": True})
     return redirect('characters:character_detail', pk=pk)
-
+def _fmt(n) -> str:
+    try:
+        return f"{int(n):+d}"
+    except Exception:
+        return "0"
 def _abil_mod(score: int) -> int:
     # 5e style
     return (score - 10) // 2
@@ -1967,8 +2023,7 @@ def character_detail(request, pk):
         for f in base_feats
     )
 
-    def _mod(score: int) -> int:
-        return (score - 10) // 2
+
 
     # --- spellcasting entitlements + selections ---
     spellcasting_blocks = []
@@ -2043,7 +2098,10 @@ def character_detail(request, pk):
                          row.slot6,row.slot7,row.slot8,row.slot9,row.slot10]
             max_rank = max((i+1 for i, s in enumerate(slots) if (s or 0) > 0), default=0)
 
-            origin = (getattr(ft, "get_spell_list_display", lambda: None)() or ft.spell_list or "").strip()
+            origin_label = (getattr(ft, "get_spell_list_display", lambda: None)() or ft.spell_list or "").strip()
+            origin_key   = (ft.spell_list or origin_label or "—").strip().lower()  # normalized key
+            origin       = origin_label  # pretty label for UI
+       
             cantrips_max  = _eval(getattr(ft, "cantrips_formula", None)) or 0
             known_max     = _eval(getattr(ft, "spells_known_formula", None))  # may be None for prepared casters
             prepared_max  = _eval(getattr(ft, "spells_prepared_formula", None))  # may be None for spontaneous casters
@@ -2115,9 +2173,7 @@ def character_detail(request, pk):
             # 0) Base queryset for this origin (define first!)
             avail_base = Spell.objects.all()
 
-            origin_label = (ft.get_spell_list_display() or ft.spell_list or "").strip()
-            origin_code  = (ft.spell_list or "").strip()
-
+            origin_code  = origin_key
             # compute slots[] and max_rank as you already do
             max_rank_from_slots = max((i+1 for i, s in enumerate(slots) if (s or 0) > 0), default=0)
 
@@ -2190,12 +2246,13 @@ def character_detail(request, pk):
                     sp = s.spell
                     rows.append({
                         "id": sp.id,
-                        "known_id": getattr(s, "id", None) if s.__class__.__name__.lower().startswith("known") else None,
-                        "prepared_id": getattr(s, "id", None) if s.__class__.__name__.lower().startswith("prepared") else None,
+                        "known_id": getattr(s, "id", None),
+                        "prepared_id": getattr(s, "id", None),
                         "name": sp.name,
                         "origin": add_origin if add_origin is not None else (sp.origin or ""),
                         "sub_origin": sp.sub_origin or "",
-                        "rank": getattr(s, "rank", sp.level),
+                        "level": sp.level,                             # ← NEW
+                        "rank": getattr(s, "rank", sp.level),          # keep for prepare tables
                         "classification": sp.classification or "",
                         "saving_throw": sp.saving_throw or "",
                         "casting_time": sp.casting_time or "",
@@ -2211,6 +2268,8 @@ def character_detail(request, pk):
                 return rows
 
 
+
+
             def _spell_rows_from_values(values_list, add_origin=None):
                 # values_list is what you already have in cantrip_choices / spell_choices_by_rank
                 out = []
@@ -2220,6 +2279,7 @@ def character_detail(request, pk):
                         "name": v["name"],
                         "origin": add_origin if add_origin is not None else (v.get("origin") or ""),
                         "sub_origin": v.get("sub_origin") or "",
+                        "level": v["level"],   
                         "rank": v["level"],
                         "classification": v.get("classification") or "",
                         "saving_throw": v.get("saving_throw") or "",
@@ -2242,11 +2302,11 @@ def character_detail(request, pk):
                 prep_full = prep_qs_base.select_related("spell").order_by("rank", "spell__name")
                 for r in range(1, max_rank + 1):
                     prepared_rows_by_rank[r] = _spell_rows_from_qs(
-                        prep_full.filter(rank=r), add_origin=(origin or "")
+                        prep_full.filter(rank=r), add_origin=origin_key
                     )
 
             # 2) Learned cantrips (rank 0, from known)
-            learned_cantrips_rows = _spell_rows_from_qs(known_cantrips_qs, add_origin=(origin or ""))
+            learned_cantrips_rows = _spell_rows_from_qs(known_cantrips_qs, add_origin=origin_key)
 
             # 3) From KNOWN (rank > 0) → available to PREPARE (exclude ones already prepared)
             prepared_ids = set(prep_qs_base.values_list("spell_id", flat=True))
@@ -2255,7 +2315,8 @@ def character_detail(request, pk):
                 known_full = known_leveled_qs.select_related("spell").order_by("spell__level", "spell__name")
                 for r in range(1, max_rank + 1):
                     subset = known_full.filter(spell__level=r).exclude(spell_id__in=prepared_ids)
-                    known_for_prepare_by_rank[r] = _spell_rows_from_qs(subset, add_origin=(origin or ""))
+                    known_for_prepare_by_rank[r] = _spell_rows_from_qs(subset, add_origin=origin_key)
+
 
             # 4) From full LIST → available to KNOW (rank > 0)  (already computed in spell_choices_by_rank)
             learn_spells_by_rank = {
@@ -2264,16 +2325,27 @@ def character_detail(request, pk):
             }
 
             # 5) From full LIST → available to LEARN (cantrips)
-            learn_cantrip_rows = _spell_rows_from_values(cantrip_choices, add_origin=(origin or ""))
-
+            learn_cantrip_rows = _spell_rows_from_values(cantrip_choices, add_origin=origin_key)
+            has_any_override = CharacterFieldOverride.objects.filter(
+                character=character,
+                key__in=[
+                    f"spellcap_formula:{ft.id}:cantrips",
+                    f"spellcap_formula:{ft.id}:known",
+                    f"spellcap_formula:{ft.id}:prepared",
+                    f"spellcap:{ft.id}:cantrips",
+                    f"spellcap:{ft.id}:known",
+                    f"spellcap:{ft.id}:prepared",
+                ]
+            ).exists()
             spell_selection_blocks.append({
             "cantrips_formula": getattr(ft, "cantrips_formula", "") or "",
               "spells_known_formula": getattr(ft, "spells_known_formula", "") or "",
                "spells_prepared_formula": getattr(ft, "spells_prepared_formula", "") or "",
                 # ── unchanged context you already had ───────────────────────────────────
                 "feature_id": ft.id,
+                "has_any_override": has_any_override,
                 "class_name": cp.character_class.name,
-                "origin": origin or "—",
+                "origin": origin_key,
                 "origin_code": (ft.spell_list or "").lower(),
                 "max_rank": max_rank,
                 "cantrips_max": int(cantrips_max or 0),
@@ -2283,7 +2355,8 @@ def character_detail(request, pk):
                 "known_leveled_current":  known_leveled_current,
                 "prepared_current":       prepared_current,
                 "needs_cantrips": max(0, int(cantrips_max) - known_cantrips_current),
-                "needs_known":    max(0, int(known_max or 0) - known_leveled_current),
+                "needs_known":    (max(0, int(known_max) - known_leveled_current) if known_max is not None else None),
+
                 "needs_prepared": max(0, int(prepared_max or 0) - prepared_current) if prepared_max is not None else None,
                 "prepared_remaining_by_rank": remaining_by_rank,
                 "slots_by_rank": slots_by_rank,
@@ -2329,6 +2402,18 @@ def character_detail(request, pk):
 
         return redirect('characters:character_detail', pk=pk)
 
+    if request.method == "POST" and request.POST.get("spells_op") == "reset_caps" and can_edit:
+        fid = int(request.POST.get("feature_id") or 0)
+        CharacterFieldOverride.objects.filter(
+            character=character,
+            key__regex=rf'^spellcap(_formula)?:{fid}:(cantrips|known|prepared)$'
+        ).delete()
+        CharacterFieldNote.objects.filter(
+            character=character,
+            key__regex=rf'^spellcap(_formula)?:{fid}:(cantrips|known|prepared)$'
+        ).delete()
+        messages.success(request, "Personal caps/formulas reset to defaults.")
+        return redirect('characters:character_detail', pk=pk)
 
 
     # which feature‐objects are auto‐granted
@@ -3224,13 +3309,7 @@ def character_detail(request, pk):
         key_abil_names = list(primary_cp.character_class.key_abilities.values_list("name", flat=True))
 
     # per-type proficiency bonuses (after override above)
-    prof_armor     = prof_by_code.get("armor",     {"modifier": 0})["modifier"]
-    prof_dodge     = prof_by_code.get("dodge",     {"modifier": 0})["modifier"]
-    prof_dc        = prof_by_code.get("dc",        {"modifier": 0})["modifier"]
-    prof_reflex    = prof_by_code.get("reflex",    {"modifier": 0})["modifier"]
-    prof_fort      = prof_by_code.get("fortitude", {"modifier": 0})["modifier"]
-    prof_will      = prof_by_code.get("will",      {"modifier": 0})["modifier"]
-    prof_weapon    = prof_by_code.get("weapon",    {"modifier": 0})["modifier"]
+
     # perception/prof
     prof_perception = prof_by_code.get("perception", {"modifier": 0})["modifier"]
     prof_armor      = prof_by_code.get("armor",     {"modifier": 0})["modifier"]
@@ -3263,7 +3342,7 @@ def character_detail(request, pk):
     derived = {
         "half_level":      half_lvl,
         "armor_total":     (int(overrides.get("armor_value") or 0)) + prof_armor + hl_if_trained("armor"),
-        "dodge_total":     10 + dex_mod + prof_dodge + hl_if_trained("dodge"),
+        "dodge_total":     10 + dex_for_dodge + prof_dodge + hl_if_trained("dodge"),
         "reflex_total":    dex_mod + prof_reflex + hl_if_trained("reflex"),
         "fortitude_total": con_mod + prof_fort   + hl_if_trained("fortitude"),
         "will_total":      wis_mod + prof_will   + hl_if_trained("will"),
@@ -3335,18 +3414,7 @@ def character_detail(request, pk):
         })
     # Build DC rows from the actual spellcasting features we just computed
     spell_dc_rows = []
-    for b in spellcasting_blocks:
-        if b.get("dc_total") is None:
-            continue
-        label = f"Spell/DC ({b['klass'].name} • {b.get('list') or '—'})"
-        # values/formula may be None if feature had no ability/formula; handle gracefully
-        spell_dc_rows.append({
-            "label":   label,
-            "total":   b["dc_total"],
-            "formula": b.get("dc_formula_h") or "8 + ability mod + prof + ½ level",
-            "values":  b.get("dc_values_h") or "",
-        })
-        # --- inject cantrip totals into header blocks ---
+
     totals = _formula_totals(character)
     for b in spellcasting_blocks:
         # your blocks use either ".list" or ".origin" for the spell list label
@@ -3512,102 +3580,6 @@ def character_detail(request, pk):
                 )
             return redirect("characters:character_detail", pk=pk)
 
-    # ---- SPELLS: learn/prepare based on entitlements ----
-    if request.method == "POST" and "save_spells_submit" in request.POST and can_edit:
-        # Build a quick lookup for entitlements by feature id
-        ent_by_fid = {b["feature_id"]: b for b in spell_selection_blocks}
-
-        # Utilities
-        def _cap(n, cap): return max(0, min(int(n), int(cap)))
-
-        # Iterate over posted fields like: learn_cantrips_<fid>, learn_known_<fid>, prepare_<fid>
-        ent_by_fid = {b["feature_id"]: b for b in spell_selection_blocks}
-
-        def _cap(n, cap):
-            try:
-                return max(0, min(int(n), int(cap)))
-            except Exception:
-                return 0
-
-        for key, values in request.POST.lists():
-            # ---------- CANTRIPS (learn) ----------
-            if key.startswith("learn_cantrips_"):
-                fid = int(key.split("_")[-1])
-                ent = ent_by_fid.get(fid)
-                if not ent:
-                    continue
-                limit = int(ent.get("needs_cantrips") or 0)
-                if limit <= 0:
-                    continue
-                picked = [int(v) for v in values][: _cap(len(values), limit)]
-                for sid in picked:
-                    # safety: must be level 0
-                    if not Spell.objects.filter(pk=sid, level=0).exists():
-                        continue
-                    CharacterKnownSpell.objects.get_or_create(character=character, spell_id=sid)
-
-            # ---------- LEARNED (non-cantrip) ----------
-            elif key.startswith("learn_known_"):
-                fid = int(key.split("_")[-1])
-                ent = ent_by_fid.get(fid)
-                if not ent or ent.get("known_max") is None:
-                    continue
-                limit = int(ent.get("needs_known") or 0)
-                if limit <= 0:
-                    continue
-                picked = [int(v) for v in values][: _cap(len(values), limit)]
-                for sid in picked:
-                    # must be level > 0
-                    sp = Spell.objects.filter(pk=sid, level__gt=0).first()
-                    if not sp:
-                        continue
-                    CharacterKnownSpell.objects.get_or_create(character=character, spell_id=sp.id)
-
-            # ---------- PREPARED (by rank; only from learned) ----------
-            # Expect keys like: prepare_<fid>_r1, prepare_<fid>_r2, ...
-            elif key.startswith("prepare_") and "_r" in key:
-                parts = key.split("_")
-                # supports both "prepare_<fid>_rX" and "prepare_rX_<fid>" (be lenient)
-                try:
-                    fid = int(next(p for p in parts if p.isdigit()))
-                    rstr = next(p for p in parts if p.startswith("r") and p[1:].isdigit())
-                    rank = int(rstr[1:])
-                except StopIteration:
-                    continue
-
-                ent = ent_by_fid.get(fid)
-                if not ent:
-                    continue
-
-                remaining_map = dict(ent.get("prepared_remaining_by_rank") or {})
-                remaining = int(remaining_map.get(rank, 0))
-                if remaining <= 0:
-                    continue
-
-                origin_code = (ent.get("origin_code") or "").lower()
-
-                # Filter to KNOWN spells of this rank only
-                picked_ids = [int(v) for v in values]
-                known_ids  = set(
-                    CharacterKnownSpell.objects
-                        .filter(character=character, spell_id__in=picked_ids, spell__level=rank)
-                        .values_list("spell_id", flat=True)
-                )
-
-                for sid in picked_ids:
-                    if remaining <= 0:
-                        break
-                    if sid not in known_ids:
-                        continue
-                    CharacterPreparedSpell.objects.get_or_create(
-                        character=character,
-                        spell_id=sid,
-                        origin=origin_code,
-                        rank=rank,
-                    )
-                    remaining -= 1
-
-        return redirect('characters:character_detail', pk=pk)
 
 
     # ---- FEATS & FEATURES (owned) ----
@@ -4003,93 +3975,121 @@ def character_detail(request, pk):
         return redirect('characters:character_detail', pk=pk)
 
     # --- Learn / Unlearn / Prepare / Unprepare -----------------------------------
-    if request.method == "POST" and request.POST.get("spells_op") in {"learn_known","learn_cantrip","unlearn_known","unlearn_cantrip","prepare","unprepare"} and can_edit:
-        op   = request.POST["spells_op"]
+    # ── Spell learn/prepare ops (table-driven; supports bulk via pick[]) ───────────
+
+
+# ...
+
+    if request.method == "POST" and request.POST.get("spells_op") in {
+        "prepare","unprepare","learn_known","learn_cantrip","unlearn_known","unlearn_cantrip"
+    }:
+        if not can_edit:
+            return HttpResponseBadRequest("Not allowed.")
+
+        op   = request.POST.get("spells_op")
         fid  = int(request.POST.get("feature_id") or 0)
-        note = (request.POST.get("note") or "").strip()
-        if not note:
-            messages.error(request, "Reason is required.")
+        picks = request.POST.getlist("pick[]")  # values from the table
+        blk = next((b for b in spell_selection_blocks if int(b["feature_id"]) == fid), None)
+        if not blk:
+            messages.error(request, "Invalid spell table selection.")
             return redirect('characters:character_detail', pk=pk)
 
-        picks = request.POST.getlist("pick[]")  # see values emitted by the partial
-        if not picks:
-            messages.info(request, "No selections made.")
-            return redirect('characters:character_detail', pk=pk)
+        if op == "learn_cantrip":
+            remaining = max(0, int(blk["cantrips_max"]) - int(blk["known_cantrips_current"]))
+            if remaining <= 0:
+                messages.error(request, "No cantrip slots remaining.")
+                return redirect('characters:character_detail', pk=pk)
+            if len(picks) > remaining:
+                messages.error(request, f"Selected {len(picks)} cantrips, but only {remaining} slot(s) remain.")
+                return redirect('characters:character_detail', pk=pk)
 
-        if op in {"learn_known","learn_cantrip"}:
-            # values: "<spell_id>|<rank>"
-            for val in picks:
-                try:
-                    sid, r = val.split("|")
-                    sid = int(sid); r = int(r)
-                except Exception: 
-                    continue
-                sp = Spell.objects.filter(pk=sid).first()
-                if not sp: 
-                    continue
-                CharacterKnownSpell.objects.get_or_create(character=character, spell=sp)
-                CharacterManualGrant.objects.create(
-                    character=character,
-                    content_type=ContentType.objects.get_for_model(Spell),
-                    object_id=sp.pk,
-                    reason=f"Learned {'cantrip' if r==0 else f'Level {r}'} via feature {fid}. {note}"
-                )
-
-        elif op in {"unlearn_known","unlearn_cantrip"}:
-            # values: known row ids
-            for kid in picks:
-                qs = CharacterKnownSpell.objects.filter(pk=kid, character=character)
-                if not qs.exists(): 
-                    continue
-                sp = qs.first().spell
-                qs.delete()
-                CharacterManualGrant.objects.create(
-                    character=character,
-                    content_type=ContentType.objects.get_for_model(Spell),
-                    object_id=sp.pk,
-                    reason=f"Unlearned spell via feature {fid}. {note}"
-                )
+        elif op == "learn_known":
+            if blk["known_max"] is None:
+                messages.error(request, "This casting style doesn’t use a known-spells cap.")
+                return redirect('characters:character_detail', pk=pk)
+            remaining = max(0, int(blk["known_max"]) - int(blk["known_leveled_current"]))
+            if remaining <= 0:
+                messages.error(request, "No leveled spell slots remaining to learn.")
+                return redirect('characters:character_detail', pk=pk)
+            if len(picks) > remaining:
+                messages.error(request, f"Selected {len(picks)} spells, but only {remaining} slot(s) remain.")
+                return redirect('characters:character_detail', pk=pk)
 
         elif op == "prepare":
-            # value: "<spell_id>|<rank>"
-            origin = request.POST.get("origin")  # not required; will infer below
+            # picks look like "spell_id|rank" – enforce per-rank remaining
+            by_rank = {}
             for val in picks:
-                try:
-                    sid, r = val.split("|")
-                    sid = int(sid); r = int(r)
-                except Exception:
-                    continue
-                sp = Spell.objects.filter(pk=sid).first()
-                if not sp: 
-                    continue
-                CharacterPreparedSpell.objects.get_or_create(
-                    character=character, spell=sp, rank=r,
-                    defaults={"origin": sp.origin or ""}
-                )
-                CharacterManualGrant.objects.create(
-                    character=character,
-                    content_type=ContentType.objects.get_for_model(Spell),
-                    object_id=sp.pk,
-                    reason=f"Prepared at Level {r} via feature {fid}. {note}"
-                )
+                sid, rk = (val.split("|", 1) + ["", ""])[:2]
+                r = int(rk or 0)
+                by_rank[r] = by_rank.get(r, 0) + 1
+            for r, cnt in by_rank.items():
+                left = int(blk["prepared_remaining_by_rank"].get(r, 0))
+                if left <= 0:
+                    messages.error(request, f"No preparation slots left at rank {r}.")
+                    return redirect('characters:character_detail', pk=pk)
+                if cnt > left:
+                    messages.error(request, f"Selected {cnt} spell(s) at rank {r}, but only {left} slot(s) remain.")
+                    return redirect('characters:character_detail', pk=pk)
+        # unprepare/unlearn need no caps
 
-        elif op == "unprepare":
-            # values: prepared row ids
-            for pid in picks:
-                qs = CharacterPreparedSpell.objects.filter(pk=pid, character=character)
-                if not qs.exists(): 
-                    continue
-                sp = qs.first().spell
-                r  = qs.first().rank
-                qs.delete()
-                CharacterManualGrant.objects.create(
-                    character=character,
-                    content_type=ContentType.objects.get_for_model(Spell),
-                    object_id=sp.pk,
-                    reason=f"Unprepared Level {r} via feature {fid}. {note}"
-                )
+        if not picks:
+            messages.error(request, "Select at least one spell.")
+            return redirect('characters:character_detail', pk=pk)
+
+        ft = get_object_or_404(ClassFeature, pk=fid, kind="spell_table")
+        origin_label = (getattr(ft, "get_spell_list_display", lambda: None)() or ft.spell_list or "").strip()
+
+        def _okey(v: str) -> str:
+            v = (v or "").strip().lower()
+            return v or "—"
+
+        origin_key = _okey(origin_label)
+
+        Known    = character.known_spells.model
+        Prepared = character.prepared_spells.model
+
+        try:
+            with transaction.atomic():
+                if op == "learn_cantrip":
+                    for val in picks:     # "spell_id|0"
+                        sid, _ = (val.split("|", 1) + ["", ""])[:2]
+                        Known.objects.get_or_create(
+                            character=character, spell_id=int(sid),
+                            defaults={"origin": origin_key, "rank": 0}
+                        )
+
+                elif op == "learn_known":
+                    for val in picks:     # "spell_id|rank"
+                        sid, rk = (val.split("|", 1) + ["", ""])[:2]
+                        Known.objects.get_or_create(
+                            character=character, spell_id=int(sid),
+                            defaults={"origin": origin_key, "rank": int(rk or 0)}
+                        )
+
+                elif op == "unlearn_cantrip" or op == "unlearn_known":
+                    for kid in picks:     # values are Known rows' ids
+                        Known.objects.filter(character=character, id=int(kid)).delete()
+
+                elif op == "prepare":
+                    for val in picks:     # "spell_id|rank"
+                        sid, rk = (val.split("|", 1) + ["", ""])[:2]
+                        Prepared.objects.get_or_create(
+                            character=character, spell_id=int(sid), rank=int(rk or 0),
+                            defaults={"origin": origin_key}
+                        )
+
+                elif op == "unprepare":
+                    for pid in picks:     # values are Prepared rows' ids
+                        Prepared.objects.filter(character=character, id=int(pid)).delete()
+
+        except Exception as e:
+            # Keep this simple; if you want, log e for diagnostics.
+            messages.error(request, "Could not update spells.")
+            return redirect('characters:character_detail', pk=pk)
 
         return redirect('characters:character_detail', pk=pk)
+
+
 
 
     # ── 6) RENDER character_detail.html ───────────────────────────────────

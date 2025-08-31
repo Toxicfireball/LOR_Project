@@ -879,17 +879,50 @@
 <div class="tab-pane fade" id="tab-spellcasting">
   {% for b in spell_selection_blocks %}
     <div class="card mb-4">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <div>
-          <strong>{{ b.class_name }}</strong>
-          <span class="text-muted">• {{ b.origin|default:"—" }}</span>
-        </div>
-        <div class="small text-muted">
-          Cantrips: {{ b.known_cantrips_current }}/{{ b.cantrips_max }} |
-          Known (≥1): {{ b.known_leveled_current }}{% if b.known_max is not None %}/{{ b.known_max }}{% endif %} |
-          Prepared: {{ b.prepared_current }}{% if b.prepared_max is not None %}/{{ b.prepared_max }}{% endif %}
-        </div>
-      </div>
+<div class="card-header d-flex justify-content-between align-items-center">
+  <div class="d-flex align-items-center gap-2">
+    <strong>{{ b.class_name }}</strong>
+    <span class="text-muted">• {{ b.origin|default:"—" }}</span>
+
+    {% if b.has_any_override %}
+      <span class="badge text-bg-info ms-2" title="This character uses personalized caps/formulas for this list">
+        Personal override
+      </span>
+    {% endif %}
+  </div>
+
+  <div class="d-flex align-items-center gap-2 small">
+    <span class="badge text-bg-secondary">
+      Cantrips: {{ b.known_cantrips_current }}/{{ b.cantrips_max }}
+    </span>
+    <span class="badge {% if b.known_max and b.known_leveled_current >= b.known_max %}text-bg-danger{% else %}text-bg-secondary{% endif %}">
+      Known ≥1: {{ b.known_leveled_current }}{% if b.known_max is not None %}/{{ b.known_max }}{% endif %}
+    </span>
+    <span class="badge {% if b.prepared_max and b.prepared_current >= b.prepared_max %}text-bg-danger{% else %}text-bg-secondary{% endif %}">
+      Prepared: {{ b.prepared_current }}{% if b.prepared_max is not None %}/{{ b.prepared_max }}{% endif %}
+    </span>
+
+    {% if b.prepared_remaining_by_rank %}
+      <span class="ms-2 text-muted">
+        {% for r,v in b.prepared_remaining_by_rank.items %}
+          <span class="badge rounded-pill {% if v == 0 %}text-bg-warning{% else %}text-bg-light{% endif %}">
+            R{{ r }}: {{ v }} left
+          </span>
+        {% endfor %}
+      </span>
+    {% endif %}
+
+    {% if can_edit and b.has_any_override %}
+      <form method="post" action="{% url 'characters:character_detail' character.pk %}" class="ms-2">
+        {% csrf_token %}
+        <input type="hidden" name="spells_op" value="reset_caps">
+        <input type="hidden" name="feature_id" value="{{ b.feature_id }}">
+        <button class="btn btn-xs btn-outline-secondary">Reset</button>
+      </form>
+    {% endif %}
+  </div>
+</div>
+
       <div class="card-body">
 
         {# 1) SHOW PREPARED SPELLS (by rank) #}
@@ -897,7 +930,7 @@
       {% for r, rows in b.prepared_rows_by_rank.items %}
         <div class="mb-3">
           <div class="d-flex justify-content-between align-items-center mb-1">
-            <div class="fw-semibold">Rank {{ r }}</div>
+            <div class="fw-semibold">Level {{ r }}</div>
             <div class="small text-muted">
               Slots {{ b.slots_by_rank|get_item:r|default:0 }}
               • Remaining {{ b.prepared_remaining_by_rank|get_item:r|default:0 }}
@@ -916,10 +949,12 @@
 
           {% with r=pair.0 rows=pair.1 %}
             <div class="mb-3">
-              <div class="fw-semibold mb-1">Rank {{ r }}</div>
+              <div class="fw-semibold mb-1">Level {{ r }}</div>
 {% with kp_id="knownprep-table-"|add:b.feature_id|stringformat:"s"|add:"-r"|add:r|stringformat:"s" %}
-  {% include "characters/_spell_table.html" with table_id=kp_id rows=rows feature_id=b.feature_id action="prepare" rank=r  %}
+  {% include "characters/_spell_table.html" with table_id=kp_id rows=rows feature_id=b.feature_id action="prepare" rank=r limit_prepare=b.prepared_remaining_by_rank|get_item:r %}
 {% endwith %}
+
+
             </div>
           {% endwith %}
         {% endfor %}
@@ -932,8 +967,10 @@
             <div class="mb-3">
               <div class="fw-semibold mb-1">Rank {{ r }}</div>
 {% with learn_id="learn-table-"|add:b.feature_id|stringformat:"s"|add:"-r"|add:r|stringformat:"s" %}
-  {% include "characters/_spell_table.html" with table_id=learn_id rows=rows feature_id=b.feature_id action="learn_known" rank=r  %}
+  {% include "characters/_spell_table.html" with table_id=learn_id rows=rows feature_id=b.feature_id action="learn_known" rank=r limit_known=b.needs_known %}
 {% endwith %}
+
+
 
             </div>
           {% endwith %}
@@ -949,8 +986,9 @@
         {# 5) SPELL TABLE TO SELECT KNOWN CANTRIP #}
         <h6 class="mt-4 mb-2">Learn New Cantrips</h6>
 {% with can_id="cantrips-table-"|add:b.feature_id|stringformat:"s" %}
-  {% include "characters/_spell_table.html" with table_id=can_id rows=b.learn_cantrip_rows feature_id=b.feature_id action="learn_cantrip" is_cantrip=True  %}
+  {% include "characters/_spell_table.html" with table_id=can_id rows=b.learn_cantrip_rows feature_id=b.feature_id action="learn_cantrip" is_cantrip=True limit_cantrips=b.needs_cantrips %}
 {% endwith %}
+
 
 
         {# (Optional) quick numeric cap adjustment UI you already wired in views as 'adjust_caps' #}
@@ -1018,15 +1056,9 @@
         {% endif %}
 
       </div>
-    </div>
+</div>
 
-
-
-
-
-
-
-    </div>
+</div>
   {% endfor %}
 
 </div>
@@ -2194,6 +2226,46 @@ window.initFeatTable = function(opts){
   });
 })();
 
+</script>
+
+<script>
+(function(){
+  function updateFormLimits(form){
+    // Cantrips
+    const canLbl = form.querySelector('[data-role="count-cantrips"]');
+    if (canLbl){
+      const max = +canLbl.dataset.max || 0;
+      const picked = form.querySelectorAll('.pick-cantrip:checked').length;
+      canLbl.textContent = Math.min(picked, max);
+      form.querySelectorAll('.pick-cantrip:not(:checked)').forEach(cb => cb.disabled = (max > 0 && picked >= max));
+    }
+    // Known (leveled)
+    const knLbl = form.querySelector('[data-role="count-known"]');
+    if (knLbl){
+      const max = +knLbl.dataset.max || 0;
+      const picked = form.querySelectorAll('.pick-known:checked').length;
+      knLbl.textContent = Math.min(picked, max);
+      form.querySelectorAll('.pick-known:not(:checked)').forEach(cb => cb.disabled = (max > 0 && picked >= max));
+    }
+    // Prepare per-rank
+    form.querySelectorAll('[data-role="count-prepare"]').forEach(lbl => {
+      const r = lbl.dataset.rank;
+      const max = +lbl.dataset.max || 0;
+      const picked = form.querySelectorAll('.pick-prepare[data-rank="'+r+'"]:checked').length;
+      lbl.textContent = Math.min(picked, max);
+      form.querySelectorAll('.pick-prepare[data-rank="'+r+'"]:not(:checked)').forEach(cb => cb.disabled = (max > 0 && picked >= max));
+    });
+  }
+
+  document.querySelectorAll('#tab-spellcasting form').forEach(form => {
+    form.addEventListener('change', e => {
+      if (!e.target.matches('.pick-cantrip,.pick-known,.pick-prepare')) return;
+      updateFormLimits(form);
+    });
+    // initialize
+    updateFormLimits(form);
+  });
+})();
 </script>
 
 {% endblock %}
