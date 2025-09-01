@@ -30,6 +30,21 @@ ABILITY_CHOICES = [
     ("wisdom",       "Wisdom"),
     ("charisma",     "Charisma"),
 ]
+# ── add near your other constants ──────────────────────────────────────────────
+ARMOR_GROUPS = [
+    ("unarmored", "Unarmored"),   # maps to Clothing / no armor
+    ("light",     "Light"),
+    ("medium",    "Medium"),
+    ("heavy",     "Heavy"),
+    ("shield",    "Shield"),
+]
+
+WEAPON_GROUPS = [
+    ("unarmed", "Unarmed"),
+    ("simple",  "Simple"),
+    ("martial", "Martial"),
+    ("special", "Special"),
+]
 
 
 HIT_DIE_CHOICES = [
@@ -826,19 +841,45 @@ class ProficiencyTier(models.Model):
 class ClassProficiencyProgress(models.Model):
     """
     For each (class, proficiency_type), at what level you bump up to a given tier.
+    Add an optional subgroup for armor/weapon.
     """
     character_class  = models.ForeignKey(CharacterClass, on_delete=models.CASCADE, related_name="prof_progress")
     proficiency_type = models.CharField(max_length=20, choices=PROFICIENCY_TYPES)
+    # NEW: which group (only used when type is armor/weapon)
+    armor_group  = models.CharField(max_length=10, choices=ARMOR_GROUPS, blank=True, null=True)
+    weapon_group = models.CharField(max_length=10, choices=WEAPON_GROUPS, blank=True, null=True)
+
     at_level         = models.PositiveIntegerField(help_text="Level at which this tier becomes active")
     tier             = models.ForeignKey(ProficiencyTier, on_delete=models.PROTECT)
 
     class Meta:
-        unique_together = ("character_class", "proficiency_type", "at_level")
-        ordering        = ["character_class", "proficiency_type", "at_level"]
+        ordering = ["character_class", "proficiency_type", "at_level"]
+        # keep a simple uniqueness constraint; we enforce validity in clean()
+        unique_together = ("character_class", "proficiency_type", "at_level", "armor_group", "weapon_group")
+
+    def clean(self):
+        super().clean()
+        if self.proficiency_type == "armor":
+            if not self.armor_group or self.weapon_group:
+                from django.core.exceptions import ValidationError
+                raise ValidationError({"armor_group": "Pick an armor group (unarmored/light/medium/heavy/shield)."})
+        elif self.proficiency_type == "weapon":
+            if not self.weapon_group or self.armor_group:
+                from django.core.exceptions import ValidationError
+                raise ValidationError({"weapon_group": "Pick a weapon group (unarmed/simple/martial/special)."})
+        else:
+            # non-armor/weapon proficiencies must NOT set sub-groups
+            if self.armor_group or self.weapon_group:
+                from django.core.exceptions import ValidationError
+                raise ValidationError("Only armor/weapon proficiencies can set a group.")
 
     def __str__(self):
-        return f"{self.character_class.name} {self.proficiency_type}@L{self.at_level} → {self.tier.name}"
-
+        grp = ""
+        if self.proficiency_type == "armor" and self.armor_group:
+            grp = f" ({self.armor_group})"
+        if self.proficiency_type == "weapon" and self.weapon_group:
+            grp = f" ({self.weapon_group})"
+        return f"{self.character_class.name} {self.proficiency_type}{grp}@L{self.at_level} → {self.tier.name}"
 
 class CharacterClassProgress(models.Model):
     """
@@ -951,7 +992,8 @@ class Armor(models.Model):
     dex_cap = models.IntegerField(help_text="10 + dex cap for dodge", blank=True, null=True)
     def __str__(self):
         return f"{self.name} ({self.get_type_display()})"
-
+    def group_code(self) -> str:
+            return "unarmored" if self.type == self.TYPE_CLOTHING else self.type
 
 class WearableSlot(models.Model):
 
@@ -1565,6 +1607,21 @@ class MartialMastery(models.Model):
     level_required = models.PositiveSmallIntegerField()
     description    = SummernoteTextField(blank=True)
     points_cost    = models.PositiveIntegerField()
+    restrict_by_ability     = models.BooleanField(
+        default=False,
+        help_text="If checked, a character must meet the minimum score below."
+    )
+    required_ability        = models.CharField(
+        max_length=12,
+        choices=ABILITY_CHOICES,
+        blank=True, null=True,
+        help_text="Which ability this requirement targets."
+    )
+    required_ability_score  = models.PositiveSmallIntegerField(
+        blank=True, null=True,
+        help_text="Minimum ability score needed (e.g., 13)."
+    )
+
     ACTION_TYPES = (
         ('action_1', "One Action"),
         ('action_2', "Two Actions"),

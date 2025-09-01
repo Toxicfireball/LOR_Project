@@ -3432,7 +3432,16 @@ def character_detail(request, pk):
             "values":  debug["values"],
             "total_s": _fmt(total_calc),
             "source": r["source"],
-            "debug_json": json.dumps(debug),
+            "calc": {
+                "formula": used_formula,
+                "parts": [
+                    *([{"key": "base", "label": "Base", "value": base_const}] if base_const else []),
+                    {"key": "prof", "label": "Proficiency", "value": prof, "note": r.get("tier_name","")},
+                    {"key": "half", "label": "½ level", "value": half},
+                    *([{"key": "abil", "label": f"{(abil_name or '')[:3]} mod", "value": abil_mod_val, "note": abil_name}] if abil_name else []),
+                ],
+                "total": total_calc,
+            },
         })
 
     add_row("armor",                      label="Armor")
@@ -3444,19 +3453,61 @@ def character_detail(request, pk):
     add_row("initiative",               label="Initiative")  # (no ability in your model)
     add_row("weapon",                   label="Weapon (base)")
 
+    # earlier you computed armor_value already
+    add_row("armor", label="Armor", base_const=armor_value)
 
 
     # Weapon w/ abilities (for quick display)
     attack_rows = [
-        {"label": "Weapon (base)", "total_s": _fmt(derived["weapon_base"]),
-        "formula": "prof + ½ level", "values": f"{_fmt(prof_weapon)} + {_fmt(_hl('weapon'))}"},
-        {"label": "Weapon (STR)",  "total_s": _fmt(derived["weapon_with_str"]),
-        "formula": "prof + ½ level + STR mod",
-        "values": f"{_fmt(prof_weapon)} + {_fmt(_hl('weapon'))} + {_fmt(str_mod)}"},
-        {"label": "Weapon (DEX)",  "total_s": _fmt(derived["weapon_with_dex"]),
-        "formula": "prof + ½ level + DEX mod",
-        "values": f"{_fmt(prof_weapon)} + {_fmt(_hl('weapon'))} + {_fmt(dex_mod)}"},
+        {
+            "label": "Weapon (base)",
+            "total_s": _fmt(derived["weapon_base"]),
+            "formula": "prof + ½ level",
+            "values": f"{_fmt(prof_weapon)} + {_fmt(_hl('weapon'))}",
+            "calc": {
+                "formula": "prof + half",
+                "parts": [
+                    {"key": "prof", "label": "Proficiency", "value": prof_weapon,
+                    "note": prof_by_code.get('weapon', {}).get('tier_name', '')},
+                    {"key": "half", "label": "½ level", "value": _hl('weapon')},
+                ],
+                "total": derived["weapon_base"],
+            },
+        },
+        {
+            "label": "Weapon (STR)",
+            "total_s": _fmt(derived["weapon_with_str"]),
+            "formula": "prof + ½ level + STR mod",
+            "values": f"{_fmt(prof_weapon)} + {_fmt(_hl('weapon'))} + {_fmt(str_mod)}",
+            "calc": {
+                "formula": "prof + half + abil",
+                "parts": [
+                    {"key": "prof", "label": "Proficiency", "value": prof_weapon,
+                    "note": prof_by_code.get('weapon', {}).get('tier_name', '')},
+                    {"key": "half", "label": "½ level", "value": _hl('weapon')},
+                    {"key": "abil", "label": "STR mod", "value": str_mod},
+                ],
+                "total": derived["weapon_with_str"],
+            },
+        },
+        {
+            "label": "Weapon (DEX)",
+            "total_s": _fmt(derived["weapon_with_dex"]),
+            "formula": "prof + ½ level + DEX mod",
+            "values": f"{_fmt(prof_weapon)} + {_fmt(_hl('weapon'))} + {_fmt(dex_mod)}",
+            "calc": {
+                "formula": "prof + half + abil",
+                "parts": [
+                    {"key": "prof", "label": "Proficiency", "value": prof_weapon,
+                    "note": prof_by_code.get('weapon', {}).get('tier_name', '')},
+                    {"key": "half", "label": "½ level", "value": _hl('weapon')},
+                    {"key": "abil", "label": "DEX mod", "value": dex_mod},
+                ],
+                "total": derived["weapon_with_dex"],
+            },
+        },
     ]
+
 
     # Spell/DC rows (one per key ability)
     # Build Spell/DC values from key abilities, then produce rows for the template
@@ -3488,28 +3539,7 @@ def character_detail(request, pk):
 
 
     # pick a main DC for the left card (first available)
-    derived["spell_dc_main"] = (spell_dc_rows[0]["total"] if spell_dc_rows else None)
-    half_dc = hl_if_trained("dc")
-    abil_name = derived.get("spell_dc_ability") or "Ability"
-    abil_mod  = _abil_mod(getattr(character, (abil_name or "").lower(), 10)) if abil_name != "—" else 0
 
-    spell_dc_rows = [{
-        "label": f"Spell/DC ({abil_name})",
-        "formula": "8 + prof + ½ level + ability mod",
-        "values":  f"8 + {_fmt(prof_by_code.get('dc', {'modifier':0})['modifier'])} + {_fmt(half_dc)} + {_fmt(abil_mod)}",
-        "total":   derived["spell_dc_main"],
-        "debug_json": json.dumps({
-            "formula": "8 + prof + ½ level + ability mod",
-            "values":  f"8 + {prof_by_code.get('dc', {'modifier':0})['modifier']} + {half_dc} + {abil_mod}",
-            "total":   derived["spell_dc_main"],
-            "vars": [
-                {"name": "base", "value": 8, "note": "DC base"},
-                {"name": "prof", "value": prof_by_code.get("dc", {"modifier":0})["modifier"], "note": prof_by_code.get("dc", {}).get("tier_name","")},
-                {"name": "½ level", "value": half_dc, "note": "applies if trained"},
-                {"name": "ability mod", "value": abil_mod, "note": abil_name},
-            ],
-        }),
-    }]
 
 
 
@@ -3743,6 +3773,28 @@ def character_detail(request, pk):
     else:
         derived["spell_dc_main"] = 8 + prof_by_code.get("dc", {"modifier":0})["modifier"] + hl_if_trained("dc")
         derived["spell_dc_ability"] = "—"
+    # keep what you already have that sets derived["spell_dc_main"] and derived["spell_dc_ability"]
+    half_dc   = hl_if_trained("dc")
+    abil_name = derived.get("spell_dc_ability") or "Ability"
+    abil_mod  = _abil_mod(getattr(character, (abil_name or "").lower(), 10)) if abil_name != "—" else 0
+    prof_dc   = prof_by_code.get("dc", {"modifier": 0})["modifier"]
+
+    spell_dc_rows = [{
+        "label":   f"Spell/DC ({abil_name})",
+        "formula": "8 + prof + ½ level + ability mod",
+        "values":  f"8 + {_fmt(prof_dc)} + {_fmt(half_dc)} + {_fmt(abil_mod)}",
+        "total":   derived["spell_dc_main"],
+        "calc": {
+            "formula": "8 + prof + half + abil",
+            "parts": [
+                {"key":"base","label":"Base","value":8},
+                {"key":"prof","label":"Proficiency","value":prof_dc,"note":prof_by_code.get("dc",{}).get("tier_name","")},
+                {"key":"half","label":"½ level","value":half_dc},
+                {"key":"abil","label":"Ability mod","value":abil_mod,"note":abil_name},
+            ],
+            "total": derived["spell_dc_main"],
+        },
+    }]
 
     # --- Equip pickers (Combat tab) ---
     weapons_list = list(

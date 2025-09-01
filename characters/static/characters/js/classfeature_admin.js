@@ -264,3 +264,71 @@ if (resModeEl) resModeEl.addEventListener("change", toggleAll);
 
 
 
+(function () {
+  function rowOf(input) {
+    return input && (input.closest('.form-row') || input.closest('div.fieldBox') || input.parentElement);
+  }
+  function show(inputId, on) {
+    var el = document.getElementById(inputId);
+    var row = rowOf(el);
+    if (row) row.style.display = on ? '' : 'none';
+  }
+  function val(name) {
+    var el = document.querySelector('[name="' + name + '"]');
+    return el ? el.value : '';
+  }
+  function modeValue() {
+    var radios = document.querySelectorAll('input[name="prof_change_mode"]');
+    var r = Array.from(radios).find(function (x) { return x.checked; });
+    return r ? r.value : '';
+  }
+
+  var kind = document.getElementById('id_prof_target_kind');
+  var gainAmt = document.getElementById('id_gain_proficiency_amount');
+  var modAmt  = document.getElementById('id_modify_proficiency_amount');
+  var modTgt  = document.getElementById('id_modify_proficiency_target');
+
+  function update() {
+    var k = kind ? kind.value : '';
+    var m = modeValue();
+
+    // Show one picker depending on target kind
+    show('id_armor_group_choice', k === 'armor_group');
+    show('id_weapon_group_choice', k === 'weapon_group');
+    show('id_armor_item_choice',  k === 'armor_item');
+    show('id_weapon_item_choice', k === 'weapon_item');
+
+    // Progress requires a GROUP; if an item is selected switch to SET
+    var isItem = (k === 'armor_item' || k === 'weapon_item');
+    if (m === 'progress' && isItem) {
+      var setRadio = document.querySelector('input[name="prof_change_mode"][value="set"]');
+      if (setRadio) setRadio.checked = true;
+      m = 'set';
+    }
+
+    // Amount pickers
+    show('id_gain_proficiency_amount', m === 'progress');
+    show('id_modify_proficiency_amount', m === 'set');
+
+    // Old dropdown is irrelevant for progress; hide/disable accordingly
+    if (modTgt) {
+      var row = rowOf(modTgt);
+      if (row) row.style.display = (m === 'set') ? '' : 'none';
+      modTgt.disabled = (m !== 'set');
+    }
+  }
+
+  function bind() {
+    if (kind) kind.addEventListener('change', update);
+    document.querySelectorAll('input[name="prof_change_mode"]').forEach(function (r) {
+      r.addEventListener('change', update);
+    });
+    update();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bind);
+  } else {
+    bind();
+  }
+})();

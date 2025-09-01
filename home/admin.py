@@ -16,8 +16,9 @@ from characters.models import (
     SubclassGroup,
     MartialMastery,
     SpellSlotRow , 
-    ResourceType, ClassResource, CharacterResource, Spell, SubclassMasteryUnlock, 
+    ResourceType, ClassResource, CharacterResource, Spell, SubclassMasteryUnlock, ARMOR_GROUPS, WEAPON_GROUPS
 )
+from django.db import transaction
 from django.contrib.contenttypes.models import ContentType
 from django.urls import resolve
 from django.contrib.admin.widgets import FilteredSelectMultiple
@@ -58,8 +59,92 @@ class SpecialItemForm(forms.ModelForm):
     class Meta:
         model  = SpecialItem
         fields = "__all__"   # or list exactly the fields you show in your fieldsets
+class ProficiencyTargetUIMixin(forms.Form):
+    PROF_TARGET_KIND = (
+        ("armor_group",  "Armor group"),
+        ("weapon_group", "Weapon group"),
+        ("armor_item",   "Specific armor"),
+        ("weapon_item",  "Specific weapon"),
+    )
+    prof_target_kind = forms.ChoiceField(
+        choices=PROF_TARGET_KIND, required=False, label="Proficiency target type"
+    )
+    armor_group_choice  = forms.ChoiceField(choices=ARMOR_GROUPS,  required=False, label="Armor group")
+    weapon_group_choice = forms.ChoiceField(choices=WEAPON_GROUPS, required=False, label="Weapon group")
+    armor_item_choice   = forms.ModelChoiceField(queryset=Armor.objects.all(),   required=False, label="Armor item")
+    weapon_item_choice  = forms.ModelChoiceField(queryset=Weapon.objects.all(),  required=False, label="Weapon item")
+
+    PROF_CHANGE_MODE = (("progress","Add to class progression"),
+                        ("set","Set / override on the character"))
+    prof_change_mode = forms.ChoiceField(
+        choices=PROF_CHANGE_MODE, required=False, widget=forms.RadioSelect, label="How to apply"
+    )
+
+    def _normalize_prof_target(self):
+        """
+        Returns one of:
+          • armor:<group>    e.g. armor:light
+          • weapon:<group>   e.g. weapon:martial
+          • armor#<id>       (specific Armor pk)
+          • weapon#<id>      (specific Weapon pk)
+        """
+        kind = self.cleaned_data.get("prof_target_kind")
+        if kind == "armor_group":
+            grp = self.cleaned_data.get("armor_group_choice")
+            if not grp:
+                self.add_error("armor_group_choice", "Pick an armor group.")
+                return ""
+            return f"armor:{grp}"
+        if kind == "weapon_group":
+            grp = self.cleaned_data.get("weapon_group_choice")
+            if not grp:
+                self.add_error("weapon_group_choice", "Pick a weapon group.")
+                return ""
+            return f"weapon:{grp}"
+        if kind == "armor_item":
+            itm = self.cleaned_data.get("armor_item_choice")
+            if not itm:
+                self.add_error("armor_item_choice", "Pick an armor item.")
+                return ""
+            return f"armor#{itm.pk}"
+        if kind == "weapon_item":
+            itm = self.cleaned_data.get("weapon_item_choice")
+            if not itm:
+                self.add_error("weapon_item_choice", "Pick a weapon item.")
+                return ""
+            return f"weapon#{itm.pk}"
+        return ""
+# home/admin.py
+def build_proficiency_target_choices():
+    from characters.models import Skill, PROFICIENCY_TYPES
+    base   = list(PROFICIENCY_TYPES)       # armor, weapon, dodge, etc. (no group expansion)
+    skills = [(f"skill_{s.pk}", s.name) for s in Skill.objects.all()]
+    return [("", "---------")] + base + skills
 
 
+# home/admin.py
+class ClassProficiencyProgressForm(forms.ModelForm):
+    class Meta:
+        model  = ClassProficiencyProgress
+        fields = "__all__"
+
+    def clean(self):
+        cd  = super().clean()
+        typ = cd.get("proficiency_type")
+
+        if typ == "armor":
+            if not cd.get("armor_group"):
+                self.add_error("armor_group", "Pick an armor type.")
+            cd["weapon_group"] = None
+        elif typ == "weapon":
+            if not cd.get("weapon_group"):
+                self.add_error("weapon_group", "Pick a weapon type.")
+            cd["armor_group"] = None
+        else:
+            # for dodge/perception/etc. clear both
+            cd["armor_group"]  = None
+            cd["weapon_group"] = None
+        return cd
 
 
 @admin.register(LoremasterImage)
@@ -328,12 +413,104 @@ class SubclassGroupAdmin(admin.ModelAdmin):
         ClassSubclass.objects.filter(pk__in=chosen_ids).update(group=grp)
         # Unlink any other that used to be in this group
         ClassSubclass.objects.filter(group=grp).exclude(pk__in=chosen_ids).update(group=None)
+
+
 class ClassProficiencyProgressInline(admin.TabularInline):
     model  = ClassProficiencyProgress
+    form   = ClassProficiencyProgressForm   # ← add this
     extra  = 1
-    fields = ('proficiency_type', 'at_level', 'tier')
+    fields = ('proficiency_type', 'armor_group', 'weapon_group', 'at_level', 'tier')
+
+    class Media:
+        js = ("characters/js/class_proficiency_progress.js",)
 
 
+
+
+class CharacterClassBaseProfForm(CharacterClassForm):
+    armor_proficiencies = forms.MultipleChoiceField(
+        choices=ARMOR_GROUPS,
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        label="Armor proficiencies (baseline)",
+        help_text="Armor groups this class starts proficient with at level 1."
+    )
+    weapon_proficiencies = forms.MultipleChoiceField(
+        choices=WEAPON_GROUPS,
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        label="Weapon proficiencies (baseline)",
+        help_text="Weapon groups this class starts proficient with at level 1."
+    )
+
+    class Meta(CharacterClassForm.Meta):
+        model  = CharacterClass
+        fields = getattr(CharacterClassForm.Meta, "fields", "__all__")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        cls = getattr(self, "instance", None)
+        if cls and cls.pk:
+            self.initial["armor_proficiencies"] = list(
+                ClassProficiencyProgress.objects
+                .filter(character_class=cls, proficiency_type="armor", at_level=1)
+                .values_list("armor_group", flat=True)
+            )
+            self.initial["weapon_proficiencies"] = list(
+                ClassProficiencyProgress.objects
+                .filter(character_class=cls, proficiency_type="weapon", at_level=1)
+                .values_list("weapon_group", flat=True)
+            )
+
+    def save(self, commit=True):
+        inst = super().save(commit=commit)
+
+        # Read the selected baseline groups
+        armor_sel = set(self.cleaned_data.get("armor_proficiencies") or [])
+        weapon_sel = set(self.cleaned_data.get("weapon_proficiencies") or [])
+
+        # Choose a default tier (lowest bonus or lowest pk)
+        default_tier = (
+            ProficiencyTier.objects.order_by("bonus").first()
+            or ProficiencyTier.objects.order_by("pk").first()
+        )
+
+        # If no tiers exist yet, just return; admin can add tiers later.
+        if not default_tier:
+            return inst
+
+        with transaction.atomic():
+            # Armor: keep only selected groups at level 1; create missing ones
+            ClassProficiencyProgress.objects.filter(
+                character_class=inst, proficiency_type="armor", at_level=1
+            ).exclude(armor_group__in=armor_sel).delete()
+
+            for grp in armor_sel:
+                ClassProficiencyProgress.objects.get_or_create(
+                    character_class=inst,
+                    proficiency_type="armor",
+                    at_level=1,
+                    armor_group=grp,
+                    weapon_group=None,
+                    defaults={"tier": default_tier},
+                )
+
+            # Weapon: same pattern
+            ClassProficiencyProgress.objects.filter(
+                character_class=inst, proficiency_type="weapon", at_level=1
+            ).exclude(weapon_group__in=weapon_sel).delete()
+
+            for grp in weapon_sel:
+                ClassProficiencyProgress.objects.get_or_create(
+                    character_class=inst,
+                    proficiency_type="weapon",
+                    at_level=1,
+                    armor_group=None,
+                    weapon_group=grp,
+                    defaults={"tier": default_tier},
+                )
+
+        return inst
 
 class MartialMasteryForm(forms.ModelForm):
     # ==== existing ====
@@ -395,6 +572,12 @@ class MartialMasteryForm(forms.ModelForm):
         # class restriction: if on, require classes
         if cleaned.get("restrict_to_classes") and not cleaned.get("classes"):
             self.add_error("classes", "Select at least one class or uncheck ‘Class restriction’.")
+        if cleaned.get("restrict_by_ability"):
+            if not cleaned.get("required_ability"):
+                self.add_error("required_ability", "Pick an ability or uncheck ‘Ability restriction’.")
+            if not cleaned.get("required_ability_score"):
+                self.add_error("required_ability_score", "Enter a minimum score or uncheck ‘Ability restriction’.")
+
         return cleaned
 
     def save(self, commit=True):
@@ -418,12 +601,12 @@ class MartialMasteryAdmin(SummernoteModelAdmin):
     list_display = (
         'name', 'level_required', 'points_cost', 'action_cost',
         'is_rare',
-        'all_classes', 'restrict_to_weapons', 'restrict_to_damage', 'restrict_to_traits',
-        'restriction_summary'
+        'all_classes', 'restrict_to_weapons', 'restrict_to_damage', 'restrict_to_traits','restrict_by_ability',
+        'restriction_summary', 
     )
     list_filter  = (
         'is_rare',
-        'all_classes', 'restrict_to_weapons', 'restrict_to_damage', 'restrict_to_traits'
+        'all_classes', 'restrict_to_weapons', 'restrict_to_damage', 'restrict_to_traits','restrict_by_ability'
     )
 
     fieldsets = [
@@ -442,6 +625,7 @@ class MartialMasteryAdmin(SummernoteModelAdmin):
                 "restrict_to_weapons", "allowed_weapons",
                 "restrict_to_damage",  "allowed_damage_types",
                 "restrict_to_traits",  "allowed_traits",
+                 "restrict_by_ability", "required_ability", "required_ability_score",
                 "all_classes",  # hidden by form; kept here so admin saves it
             ),
         }),
@@ -455,6 +639,8 @@ class MartialMasteryAdmin(SummernoteModelAdmin):
             parts.append(f"Damage({len(obj.allowed_damage_types or [])})")
         if obj.restrict_to_traits:
             parts.append(f"Traits({obj.allowed_traits.count()})")
+        if getattr(obj, "restrict_by_ability", False):
+            parts.append(f"{getattr(obj, 'get_required_ability_display', lambda: 'Ability')()}≥{obj.required_ability_score or '?'}")            
         if not obj.all_classes:
             parts.append(f"Classes({obj.classes.count()})")
         return ", ".join(parts) or "—"
@@ -634,7 +820,7 @@ class ClassResourceForm(forms.ModelForm):
         )
 
 
-class ClassFeatureForm(forms.ModelForm):
+class ClassFeatureForm(ProficiencyTargetUIMixin, forms.ModelForm):
 
     gain_resistance_types = forms.MultipleChoiceField(
         choices=ClassFeature.DAMAGE_TYPE_CHOICES,     # same tuple of (value, label)
@@ -644,12 +830,10 @@ class ClassFeatureForm(forms.ModelForm):
     )
 
     gain_proficiency_target = forms.ChoiceField(
-        choices=[("", "---------")]
-                + list(PROFICIENCY_TYPES)
-                + [(f"skill_{s.pk}", s.name) for s in Skill.objects.all()],
+        choices=build_proficiency_target_choices(),
         required=False,
         label="Gain Proficiency Target",
-        help_text="Which proficiency (or skill) does this feature grant?"
+        help_text="Pick a specific armor/weapon group or any base type, or a Skill."
     )
     gain_proficiency_amount = forms.ModelChoiceField(
         queryset=ProficiencyTier.objects.all(),
@@ -722,24 +906,12 @@ class ClassFeatureForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # ─────────────────────────────────────────────────────────────────
-        # 1) **DO NOT** hide tier or mastery_rank in Python.  The JS will do that.
-        #
-        #    In other words, do NOT include lines like:
-        #
-        #        self.fields["tier"].widget = forms.HiddenInput()
-        #        self.fields["mastery_rank"].widget = forms.HiddenInput()
-        #
-        #    Those lines must be removed (or commented out). Otherwise Django
-        #    never renders the “.field-tier” wrapper.
-        # ─────────────────────────────────────────────────────────────────
 
-        #
-        # 2) Figure out which umbrella was “pre‐selected”:
-        #    - raw_data (POST) or initial (GET) or from instance
-        #
+        for f in ("gain_proficiency_target", "gain_proficiency_amount"):
+            if f in self.fields:
+                self.fields[f].widget = forms.HiddenInput()
 
-          # ───────────────────────────────────────────────────────────────
+         
         if getattr(self.instance, "pk", None):
             self.fields["code"].initial = self.instance.code      
         raw_data = self.data or {}
@@ -764,7 +936,28 @@ class ClassFeatureForm(forms.ModelForm):
         #    “modular_mastery”, or “linear”.
         #
         self.fields["subclass_group"].widget.attrs["data-system-type"] = system_t
-
+    def _resolve_prof_target(self, target_field):
+        """
+        If the target is 'armor' or 'weapon', require the matching group and
+        rewrite the value to 'armor:<group>' or 'weapon:<group>'.
+        Otherwise pass-through (skill_*, dc, perception, etc., or already armor:*)
+        """
+        val = (self.cleaned_data.get(target_field) or "").strip()
+        if not val:
+            return val
+        if ":" in val or val.startswith("skill_"):
+            return val  # already specific (e.g., armor:light, weapon:martial) or a skill
+        if val == "armor":
+            grp = self.cleaned_data.get("armor_group_choice")
+            if not grp:
+                self.add_error("armor_group_choice", "Pick an armor type.")
+            return f"armor:{grp}" if grp else val
+        if val == "weapon":
+            grp = self.cleaned_data.get("weapon_group_choice")
+            if not grp:
+                self.add_error("weapon_group_choice", "Pick a weapon type.")
+            return f"weapon:{grp}" if grp else val
+        return val
     def clean(self):
         cleaned = super().clean()
         scope_val  = cleaned.get("scope")
@@ -772,6 +965,8 @@ class ClassFeatureForm(forms.ModelForm):
         tier_val   = cleaned.get("tier")
         master_val = cleaned.get("mastery_rank")
 
+
+        
         # 1) If scope is some subclass‐flow, force them to pick a group
         if scope_val in ("subclass_choice", "subclass_feat", "gain_subclass_feat") and grp is None:
             self.add_error("subclass_group", "Pick an umbrella …")
@@ -800,6 +995,40 @@ class ClassFeatureForm(forms.ModelForm):
                         self.add_error("mastery_rank", "This modular_mastery feature must have a Mastery Rank (0…4).")
                     if tier_val is not None:
                         self.add_error("tier", "Modular_mastery features may not have a Tier.")
+        
+        
+        # ADD THIS block near the end of ClassFeatureForm.clean()
+        # Normalize proficiency UI → stored fields
+        target_token = self._normalize_prof_target()  # from mixin
+        mode         = self.cleaned_data.get("prof_change_mode") or ""
+
+        # Clear both; then set the correct side based on mode
+        self.cleaned_data["gain_proficiency_target"]   = ""
+        self.cleaned_data["gain_proficiency_amount"]   = None
+        self.cleaned_data["modify_proficiency_target"] = (self.cleaned_data.get("modify_proficiency_target") or "")
+        # NOTE: modify_proficiency_amount is already present on the model
+
+        if mode == "progress":
+            # Only allowed for GROUP targets
+            if target_token.startswith("armor#") or target_token.startswith("weapon#"):
+                self.add_error("prof_target_kind", "‘Add to class progression’ requires an armor/weapon GROUP, not a specific item.")
+            if not self.cleaned_data.get("gain_proficiency_amount"):
+                self.add_error("gain_proficiency_amount", "Pick a proficiency tier to grant at that level.")
+            self.cleaned_data["gain_proficiency_target"] = target_token
+
+        elif mode == "set":
+            # Write override directly to the model fields
+            if not target_token:
+                # if user used the old dropdown, keep that; otherwise require
+                if not self.cleaned_data.get("modify_proficiency_target"):
+                    self.add_error("prof_target_kind", "Pick what you want to set/override.")
+            else:
+                self.cleaned_data["modify_proficiency_target"] = target_token
+            if not self.cleaned_data.get("modify_proficiency_amount"):
+                self.add_error("modify_proficiency_amount", "Pick a proficiency tier to set/override.")
+                
+        
+        
         return cleaned
 
 
@@ -951,19 +1180,16 @@ class ClassFeatureAdmin(admin.ModelAdmin):
     # in home/admin.py  (inside ClassFeatureAdmin)
     def get_fieldsets(self, request, obj=None):
         base = [
-            (None, {
-                "fields": [
-                    "character_class","scope","kind","gain_subskills","activity_type",
-                    "action_type","subclass_group","subclasses",
-                    "code","name","description","has_options",
-                    # ↓↓↓ add level_required to the admin form ↓↓↓
-                    "tier","mastery_rank","level_required",
-                    "formula_target","formula","uses",
-                    "spell_list",
-                    "modify_proficiency_target","modify_proficiency_amount",
-                    "cantrips_formula","spells_known_formula","spells_prepared_formula",
-                ],
-            }),
+            (None, {"fields": [
+                "character_class","scope","kind","gain_subskills","activity_type",
+                "action_type","subclass_group","subclasses",
+                "code","name","description","has_options",
+                "tier","mastery_rank","level_required",
+                "formula_target","formula","uses",
+                "spell_list",
+                "modify_proficiency_target","modify_proficiency_amount",
+                "cantrips_formula","spells_known_formula","spells_prepared_formula",
+            ]}),
             ("Saving Throw (optional)", { "fields": [
                 "saving_throw_required","saving_throw_type","saving_throw_granularity",
                 "saving_throw_basic_success","saving_throw_basic_failure",
@@ -975,11 +1201,25 @@ class ClassFeatureAdmin(admin.ModelAdmin):
                 "gain_resistance_mode","gain_resistance_types","gain_resistance_amount",
             ]}),
         ]
+
+        # NEW — show the proficiency UI and the tier to grant when in “progress” mode
         base.append((
-            "Martial Mastery (optional)",
-            { "fields": ["martial_points_formula", "available_masteries_formula"] }
+            "Proficiency (optional)",
+            {"fields": [
+                "prof_target_kind",
+                "armor_group_choice", "weapon_group_choice",
+                "armor_item_choice",  "weapon_item_choice",
+                "prof_change_mode",
+                "gain_proficiency_amount",           # used only when mode=progress
+                "modify_proficiency_target", "modify_proficiency_amount",  # used when mode=set
+            ]},
         ))
+
+        base.append(("Martial Mastery (optional)", {
+            "fields": ["martial_points_formula", "available_masteries_formula"]
+        }))
         return base
+
 
 
     def formfield_for_dbfield(self, db_field, request, **kwargs):
@@ -1253,7 +1493,7 @@ class ClassResourceInline(admin.TabularInline):
     # no more max_points here!
 @admin.register(CharacterClass)
 class CharacterClassAdmin(admin.ModelAdmin):
-    form = CharacterClassForm
+    form = CharacterClassBaseProfForm
     list_display      = (
         "name", "hit_die", "class_ID", "display_key_abilities",
         "secondary_thumbnail", "tertiary_thumbnail"
@@ -1279,6 +1519,7 @@ class CharacterClassAdmin(admin.ModelAdmin):
         "primary_image",   "primary_preview",
         "secondary_image", "secondary_preview",
         "tertiary_image",  "tertiary_preview",
+         "armor_proficiencies", "weapon_proficiencies",
         # … any other existing CharacterClass fields …
     )
     readonly_fields = ("primary_preview", "secondary_preview", "tertiary_preview")
@@ -1512,9 +1753,21 @@ class RaceFeatureForm(ClassFeatureForm):
             self.fields["code"].initial = self.instance.code
 
     def clean(self):
-        cleaned = super(ClassFeatureForm, self).clean()  # intentionally skip CFForm.clean
+        cleaned = super(ClassFeatureForm, self).clean()  # keep your current line (skip CFForm.clean)
         if cleaned.get("scope") == "subclass_feat" and not cleaned.get("subrace"):
             self.add_error("subrace", "Please select a Subrace for a Subrace Feature.")
+
+        # NEW: apply the proficiency UI to racial features (SET/override only)
+        target_token = self._normalize_prof_target()  # from ProficiencyTargetUIMixin
+        # Always treat races as 'set'
+        self.cleaned_data["gain_proficiency_target"] = ""
+        self.cleaned_data["gain_proficiency_amount"] = None
+
+        if target_token:  # group or specific item (armor#id / weapon#id)
+            self.cleaned_data["modify_proficiency_target"] = target_token
+        # Require a tier when we set/override
+        if not self.cleaned_data.get("modify_proficiency_amount"):
+            self.add_error("modify_proficiency_amount", "Pick a proficiency tier to set/override.")
         return cleaned
 
 @admin.register(RacialFeature)
@@ -1528,7 +1781,6 @@ class RacialFeatureAdmin(ClassFeatureAdmin):
             "fields": [
                 "race","subrace","scope","kind","gain_subskills",
                 "code","name","description","has_options",
-                "modify_proficiency_target","modify_proficiency_amount",
                 "cantrips_formula","spells_known_formula","spells_prepared_formula",
             ],
         }),
@@ -1552,6 +1804,17 @@ class RacialFeatureAdmin(ClassFeatureAdmin):
                    "gain_resistance_amount",
                ],
            }),
+
+           ("Proficiency (optional)", {
+    "fields": [
+        "prof_target_kind",
+        "armor_group_choice", "weapon_group_choice",
+        "armor_item_choice",  "weapon_item_choice",
+        "prof_change_mode",   # disabled by form
+        "modify_proficiency_target", "modify_proficiency_amount",
+    ],
+}),
+
     ]
 
     def get_fieldsets(self, request, obj=None):
@@ -1568,7 +1831,30 @@ class RacialFeatureAdmin(ClassFeatureAdmin):
             )
         return field
     
+    def get_form(self, request, obj=None, **kwargs):
+        BaseForm = super().get_form(request, obj, **kwargs)
 
+        # figure out which Race is currently in play
+        race_pk = (
+            request.POST.get("race")
+            or request.GET.get("race")
+            or (getattr(obj, "race_id", None) if obj else None)
+        )
+
+        class WrappedForm(BaseForm):
+            def __init__(self, *a, **kw):
+                super().__init__(*a, **kw)
+                if "subrace" in self.fields:
+                    if race_pk:
+                        self.fields["subrace"].queryset = Subrace.objects.filter(race_id=race_pk)
+                        # ensure it's enabled if we previously disabled it
+                        self.fields["subrace"].widget.attrs.pop("disabled", None)
+                    else:
+                        self.fields["subrace"].queryset = Subrace.objects.none()
+                        self.fields["subrace"].widget.attrs["disabled"] = "disabled"
+                        self.fields["subrace"].help_text = "Select a Race first."
+
+        return WrappedForm
     
     def formfield_for_dbfield(self, db_field, request, **kwargs):
         # Force a <select> for modify_proficiency_target even though the model is CharField
@@ -1589,19 +1875,7 @@ class RacialFeatureAdmin(ClassFeatureAdmin):
                 label=db_field.verbose_name,
                 help_text=db_field.help_text,
             )
-        if db_field.name == "gain_proficiency_target":
-            from django import forms
-            from characters.models import PROFICIENCY_TYPES, Skill
-            base = list(PROFICIENCY_TYPES)
-            skill_choices = [(f"skill_{s.pk}", s.name) for s in Skill.objects.all()]
-            all_choices = [("", "---------")] + base + skill_choices
-            return forms.ChoiceField(
-                choices=all_choices,
-                required=not db_field.blank,
-                widget=forms.Select,
-                label=db_field.verbose_name,
-                help_text=db_field.help_text,
-            )        
+
 
 
 
@@ -1619,7 +1893,7 @@ class RacialFeatureAdmin(ClassFeatureAdmin):
     @property
     def media(self):
         return forms.Media(
-            js = ["characters/js/formula_builder.js"],
+            js = ["characters/js/formula_builder.js", "characters/js/racialfeature_admin.js",  ],
             css= {"all": ["characters/css/formula_builder.css"]}
         )
 
