@@ -1,334 +1,204 @@
-// characters/static/characters/js/classfeature_admin.js
-// ----------------------------------------------------------------
-// This script hides/shows the “tier” and “mastery_rank” rows based
-// on the current “scope” + “data-system-type” of the selected umbrella.
-// It no longer relies on the form to have hidden those fields.
-// ----------------------------------------------------------------
-
-(function(){
-  window.addEventListener("DOMContentLoaded", function(){
-    //
-    // ─── 1) Grab all the inputs we care about ───────────────────────────────────────
-    //
+(function () {
+  window.addEventListener("DOMContentLoaded", function () {
+    // ── Inputs ─────────────────────────────────────────────────────────────────────
     const scopeEl    = document.getElementById("id_scope");
     const kindEl     = document.getElementById("id_kind");
     const grpSelect  = document.getElementById("id_subclass_group");
     const optsEl     = document.getElementById("id_has_options");
     const activityEl = document.getElementById("id_activity_type");
 
-    //
-    // ─── 2) Helper function: find a “.form-row.field-<fieldName>” wrapper ───────────
-    //
-    function row(fieldName){
-      return document.querySelector(".form-row.field-" + fieldName);
+    // ── Helpers ────────────────────────────────────────────────────────────────────
+    function row(name) { return document.querySelector(".form-row.field-" + name); }
+    function show(el, on) { if (el) el.style.display = on ? "" : "none"; }
+    function currentGmpMode() {
+      const r = document.querySelector('input[name="gmp_mode"]:checked');
+      return r ? r.value : "";
+    }
+    function getInherentSpellInline() {
+      const el = document.querySelector(".spell-inline");
+      return el && (el.classList.contains("inline-group") ? el : (el.closest(".inline-group") || el));
+    }
+    function getSpellTableInline() {
+      return document.querySelector(
+        ".spell-slot-inline, " +                 // custom class on Inline group
+        "[id$='-spellslotrow_set-group'], " +    // common id pattern for tabular inline
+        "#spellslotrow_set-group"                // fallback id
+      );
     }
 
-    //
-    // ─── 3) Helper to grab the spell-table inline (if kind = "spell_table") ──────────
-    //
-    function inlineSpellTable(){
-      return document.querySelector(".spell-slot-inline");
-    }
-
-    //
-    // ─── 4) Cache _every_ row we might show/hide ──────────────────────────────────
-    //
-
-        const spellInline = (() => {
-      const fs = document.querySelector("fieldset.spell-inline");
-      return fs && fs.closest(".inline-group");
-    })();
+    // Rows we toggle
     const rows = {
       subgroup:       row("subclass_group"),
       subclasses:     row("subclasses"),
-
       tier:           row("tier"),
       masteryRank:    row("mastery_rank"),
-
       activity:       row("activity_type"),
       formulaTarget:  row("formula_target"),
       formula:        row("formula"),
       uses:           row("uses"),
       action:         row("action_type"),
       damage:         row("damage_type"),
-      optionsInline: document.getElementById("options-group"),
-      savingReq:          row("saving_throw_required"),
-      savingType:         row("saving_throw_type"),
-      savingGran:         row("saving_throw_granularity"),
-      basicSuccess:       row("saving_throw_basic_success"),
-      basicFailure:       row("saving_throw_basic_failure"),
-      normalCritSuccess:  row("saving_throw_critical_success"),
-      normalSuccess:      row("saving_throw_success"),
-      normalFailure:      row("saving_throw_failure"),
-      normalCritFailure:  row("saving_throw_critical_failure"),
-  mmPoints:    row("martial_points_formula"),
-  mmAvailable: row("available_masteries_formula"),
-      profTarget:   row("modify_proficiency_target"),
-      profAmount:   row("modify_proficiency_amount"),
+      savingReq:      row("saving_throw_required"),
+      savingType:     row("saving_throw_type"),
+      savingGran:     row("saving_throw_granularity"),
+      basicSuccess:   row("saving_throw_basic_success"),
+      basicFailure:   row("saving_throw_basic_failure"),
+      normalCritSuccess: row("saving_throw_critical_success"),
+      normalSuccess:     row("saving_throw_success"),
+      normalFailure:     row("saving_throw_failure"),
+      normalCritFailure: row("saving_throw_critical_failure"),
+      mmPoints:       row("martial_points_formula"),
+      mmAvailable:    row("available_masteries_formula"),
+      gmpMode:        row("gmp_mode"),
+      profTarget:     row("modify_proficiency_target"),
+      profAmount:     row("modify_proficiency_amount"),
+      spellList:      row("spell_list"),
+      cantrips:       row("cantrips_formula"),
+      known:          row("spells_known_formula"),
+      prepared:       row("spells_prepared_formula"),
+      optionsInline:  document.getElementById("options-group"),
+      gainSubskills:  row("gain_subskills"),
+      gainResMode:    row("gain_resistance_mode"),
+      gainResTypes:   row("gain_resistance_types"),
+      gainResAmt:     row("gain_resistance_amount"),
+    };
 
-      cantrips:     row("cantrips_formula"),
-      known:        row("spells_known_formula"),
-      prepared:     row("spells_prepared_formula"),
-      slots:        inlineSpellTable(),
-      spellList:    row("spell_list"),
-      gainSubskills: row("gain_subskills"),
-      gainResMode:  row("gain_resistance_mode"),
-      gainResTypes: row("gain_resistance_types"),
-      gainResAmt:   row("gain_resistance_amount"),
-  };
-
-    //
-    // ─── 5) The main show/hide function ──────────────────────────────────────────────
-    //
-    function toggleAll(){
-
+    function toggleAll() {
       const scopeVal = scopeEl ? scopeEl.value : "";
       const kindVal  = kindEl  ? kindEl.value  : "";
       const actVal   = activityEl ? activityEl.value : "";
-        //
-  // 5i) Show/hide the SpellInline when kind="inherent_spell"
-   Object.values(rows).forEach(el => el && (el.style.display = "none"));
-  //
 
+      // Always re-resolve inline containers (they may or may not be present)
+      const inherentInline = getInherentSpellInline();
+      const slotsInline    = getSpellTableInline();
 
-if (kindVal === "gain_resistance") {
-  // always show mode selector + type checkboxes
-  if (rows.gainResMode)  rows.gainResMode.style.display  = "";
-  if (rows.gainResTypes) rows.gainResTypes.style.display = "";
+      // Hide everything we control
+      Object.values(rows).forEach(el => el && (el.style.display = "none"));
+      if (inherentInline) inherentInline.style.display = "none";
+      if (slotsInline)    slotsInline.style.display    = "none";
 
-  // only show “amount” when in flat‐reduction mode
-  const mode = document.getElementById("id_gain_resistance_mode").value;
-  if (rows.gainResAmt) {
-    rows.gainResAmt.style.display = (mode === "reduction" ? "" : "none");
-  }
-}
-if (rows.spellInline) rows.spellInline.style.display = "none";
-
-
-  
-  if (spellInline) {
-    spellInline.style.display = kindVal === "inherent_spell" ? "" : "none";
-  }
-
-  if (kindVal === "martial_mastery") {
-    if (rows.mmPoints)    rows.mmPoints.style.display = "";
-    if (rows.mmAvailable) rows.mmAvailable.style.display = "";
-    // If you also want the generic Formula/Uses to show for martial mastery, un-comment:
-    // if (rows.formula) rows.formula.style.display = "";
-    // if (rows.uses)    rows.uses.style.display    = "";
-    return; // stop here so no other sections open
-  }
-
-
-
-      // ─── 5a) Special short-circuit: if “Gain Subclass Feature” is selected,
-      //            hide every row _except_ “tier” (and leave Code/Name/Description visible).
-     if (scopeVal === "gain_subclass_feat") {
-       // Hide all cached rows:
-       Object.values(rows).forEach(el => {
-         if (el) { el.style.display = "none"; }
-       });
-       // Also explicitly hide the “kind” row wrapper:
-       const kindRow = document.querySelector(".form-row.field-kind");
-       if (kindRow) { kindRow.style.display = "none"; }
-       // Un-hide only the “tier” row:
-       if (rows.tier) { rows.tier.style.display = ""; }
-       // Done—skip all other logic
-       return;
-     }
-
-  if (kindVal === "gain_proficiency") {
-    if (rows.gainSubskills) rows.gainSubskills.style.display = "";
-    if (rows.profTarget)   rows.profTarget.style.display   = "";
-    if (rows.profAmount)   rows.profAmount.style.display   = "";
-  }
-      if (
-        scopeVal === "subclass_feat" ||
-        scopeVal === "subclass_choice"
-      ) {
-        if (rows.subgroup)   rows.subgroup.style.display   = "";
-        if (rows.subclasses) rows.subclasses.style.display = "";
+      // Gain Subclass Feature ⇒ only Tier, also hide the Kind row itself
+      if (scopeVal === "gain_subclass_feat") {
+        show(rows.tier, true);
+        const kindRow = document.querySelector(".form-row.field-kind");
+        if (kindRow) kindRow.style.display = "none";
+        return;
       }
 
-      //
-      // ─── 5d) If scope is “subclass_feat” AND an umbrella is chosen, decide Tier vs. Mastery ─
-      //
-      if (
-        scopeVal === "subclass_feat" &&
-        grpSelect && grpSelect.value
-      ) {
-        const systemType = grpSelect.getAttribute("data-system-type") || "";
-        if (systemType === "modular_linear") {
-          if (rows.tier)        rows.tier.style.display        = "";
-          if (rows.masteryRank) rows.masteryRank.style.display = "none";
-        }
-        else if (systemType === "modular_mastery") {
-          if (rows.masteryRank) rows.masteryRank.style.display = "";
-          if (rows.tier)        rows.tier.style.display        = "none";
-        }
-        else {
-          if (rows.tier)        rows.tier.style.display        = "none";
-          if (rows.masteryRank) rows.masteryRank.style.display = "none";
-        }
+      // Subclass scaffolding
+      if (scopeVal === "subclass_feat" || scopeVal === "subclass_choice") {
+        show(rows.subgroup, true);
+        show(rows.subclasses, true);
       }
 
-      //
-      // ─── 5e) If kind = “class_trait”, show the formula/uses/action/damage/saving-throw fields ─
-      //
+      // Tier vs Mastery (only for subclass_feat)
+      if (scopeVal === "subclass_feat" && grpSelect && grpSelect.value) {
+        const st = grpSelect.getAttribute("data-system-type") || "";
+        show(rows.tier,        st === "modular_linear");
+        show(rows.masteryRank, st === "modular_mastery");
+      }
+
+      // Class trait block
       if (kindVal === "class_trait") {
-        if (rows.activity)      rows.activity.style.display      = "";
-        if (rows.formulaTarget) rows.formulaTarget.style.display = "";
-        if (rows.formula)       rows.formula.style.display       = "";
-
+        show(rows.activity, true);
+        show(rows.formulaTarget, true);
+        show(rows.formula, true);
         if (actVal === "active") {
-          if (rows.uses)      rows.uses.style.display      = "";
-          if (rows.action)    rows.action.style.display    = "";
-          if (rows.damage)    rows.damage.style.display    = "";
-          if (rows.savingReq) rows.savingReq.style.display = "";
-
+          show(rows.uses, true);
+          show(rows.action, true);
+          show(rows.damage, true);
+          show(rows.savingReq, true);
           const saveChk = document.getElementById("id_saving_throw_required");
           if (saveChk && saveChk.checked) {
-            if (rows.savingType)       rows.savingType.style.display       = "";
-            if (rows.savingGran)       rows.savingGran.style.display        = "";
-            const gran = document.getElementById("id_saving_throw_granularity").value;
+            show(rows.savingType, true);
+            show(rows.savingGran, true);
+            const granEl = document.getElementById("id_saving_throw_granularity");
+            const gran   = granEl ? granEl.value : "";
             if (gran === "basic") {
-              if (rows.basicSuccess)  rows.basicSuccess.style.display  = "";
-              if (rows.basicFailure)  rows.basicFailure.style.display  = "";
+              show(rows.basicSuccess, true);
+              show(rows.basicFailure, true);
             } else if (gran === "normal") {
-              if (rows.normalCritSuccess) rows.normalCritSuccess.style.display = "";
-              if (rows.normalSuccess)     rows.normalSuccess.style.display     = "";
-              if (rows.normalFailure)     rows.normalFailure.style.display     = "";
-              if (rows.normalCritFailure) rows.normalCritFailure.style.display = "";
+              show(rows.normalCritSuccess, true);
+              show(rows.normalSuccess, true);
+              show(rows.normalFailure, true);
+              show(rows.normalCritFailure, true);
             }
           }
         }
       }
 
-      //
-      // ─── 5f) If kind = “modify_proficiency”, show those two rows ─────────────────
-      //
+      // Gain Resistance
+      if (kindVal === "gain_resistance") {
+        show(rows.gainResMode,  true);
+        show(rows.gainResTypes, true);
+        const modeEl = document.getElementById("id_gain_resistance_mode");
+        const mode   = modeEl ? modeEl.value : "";
+        show(rows.gainResAmt, mode === "reduction");
+      }
+
+      // Martial Mastery
+      if (kindVal === "martial_mastery") {
+        show(rows.mmPoints, true);
+        show(rows.mmAvailable, true);
+      }
+
+      // Generic Gain/Modify Proficiency
       if (kindVal === "modify_proficiency") {
-        if (rows.profTarget) rows.profTarget.style.display = "";
-        if (rows.profAmount) rows.profAmount.style.display = "";
+        show(rows.gmpMode,    true);
+        show(rows.profTarget, true);
+        const gm = currentGmpMode();
+        show(rows.profAmount, gm === "set");
       }
 
-      //
-      // ─── 5g) If kind = “spell_table”, show the spell-table rows ───────────────────
-      //
+      // Core Proficiency section (only when kind is core_proficiency)
+      const coreIds = [
+        "id_prof_target_kind",
+        "id_armor_group_choice","id_weapon_group_choice",
+        "id_armor_item_choice","id_weapon_item_choice",
+        "id_gain_proficiency_amount","id_modify_proficiency_amount",
+      ];
+      coreIds.forEach(id => {
+        const el = document.getElementById(id);
+        const r  = el && (el.closest(".form-row") || el.closest("div.fieldBox"));
+        if (r) r.style.display = (kindVal === "core_proficiency" ? "" : "none");
+      });
+
+      // Spell systems
+      if (kindVal === "inherent_spell" && inherentInline) {
+        inherentInline.style.display = "";
+      }
       if (kindVal === "spell_table") {
-        if (rows.spellList) rows.spellList.style.display = "";
-        if (rows.cantrips)  rows.cantrips.style.display  = "";
-        if (rows.known)     rows.known.style.display     = "";
-        if (rows.prepared)  rows.prepared.style.display  = "";
-        if (rows.slots)     rows.slots.style.display     = "";
+        show(rows.spellList, true);
+        show(rows.cantrips,  true);
+        show(rows.known,     true);
+        show(rows.prepared,  true);
+        if (slotsInline) slotsInline.style.display = "";
       }
 
-      //
-      // ─── 5h) If “Has Options?” is checked, show the options inline ──────────────────
-      //
-      if (optsEl && optsEl.checked) {
-        if (rows.optionsInline) rows.optionsInline.style.display = "";
+      // Options inline
+      if (optsEl && optsEl.checked && rows.optionsInline) {
+        rows.optionsInline.style.display = "";
       }
-    } // end of toggleAll()
+    }
 
-    //
-    // ─── 6) Wire up change-listeners for any field that can affect visibility ──────
-    //
-    [ scopeEl, kindEl, activityEl, optsEl ].forEach(el => {
-      if (el) el.addEventListener("change", toggleAll);
-    });
+    // Listeners
+    [scopeEl, kindEl, activityEl, optsEl].forEach(el => el && el.addEventListener("change", toggleAll));
     const saveReqEl  = document.getElementById("id_saving_throw_required");
     const saveGranEl = document.getElementById("id_saving_throw_granularity");
     if (saveReqEl)  saveReqEl.addEventListener("change", toggleAll);
     if (saveGranEl) saveGranEl.addEventListener("change", toggleAll);
-// ─── Also re-run when user flips Resistance vs Reduction ────────────────
-const resModeEl = document.getElementById("id_gain_resistance_mode");
-if (resModeEl) resModeEl.addEventListener("change", toggleAll);
+    const resModeEl = document.getElementById("id_gain_resistance_mode");
+    if (resModeEl) resModeEl.addEventListener("change", toggleAll);
 
-  if (grpSelect) {
-    grpSelect.addEventListener("change", function(){    
-      const jsonMap = this.getAttribute("data-group-types") || "{}";
-      let map;
-      try { map = JSON.parse(jsonMap); } catch(e){ map = {}; }
-
-      this.setAttribute("data-system-type", map[this.value] || "");
-      toggleAll();
-    });
-  }
-
-  // ─── 8) Run toggleAll() once on initial page load ────────────────────────────────
-  toggleAll();
-
-  });  // ← closes window.addEventListener("DOMContentLoaded", …
-})(); // ← closes the outer (function(){ … })()
-
-
-
-(function () {
-  function rowOf(input) {
-    return input && (input.closest('.form-row') || input.closest('div.fieldBox') || input.parentElement);
-  }
-  function show(inputId, on) {
-    var el = document.getElementById(inputId);
-    var row = rowOf(el);
-    if (row) row.style.display = on ? '' : 'none';
-  }
-  function val(name) {
-    var el = document.querySelector('[name="' + name + '"]');
-    return el ? el.value : '';
-  }
-  function modeValue() {
-    var radios = document.querySelectorAll('input[name="prof_change_mode"]');
-    var r = Array.from(radios).find(function (x) { return x.checked; });
-    return r ? r.value : '';
-  }
-
-  var kind = document.getElementById('id_prof_target_kind');
-  var gainAmt = document.getElementById('id_gain_proficiency_amount');
-  var modAmt  = document.getElementById('id_modify_proficiency_amount');
-  var modTgt  = document.getElementById('id_modify_proficiency_target');
-
-  function update() {
-    var k = kind ? kind.value : '';
-    var m = modeValue();
-
-    // Show one picker depending on target kind
-    show('id_armor_group_choice', k === 'armor_group');
-    show('id_weapon_group_choice', k === 'weapon_group');
-    show('id_armor_item_choice',  k === 'armor_item');
-    show('id_weapon_item_choice', k === 'weapon_item');
-
-    // Progress requires a GROUP; if an item is selected switch to SET
-    var isItem = (k === 'armor_item' || k === 'weapon_item');
-    if (m === 'progress' && isItem) {
-      var setRadio = document.querySelector('input[name="prof_change_mode"][value="set"]');
-      if (setRadio) setRadio.checked = true;
-      m = 'set';
+    if (grpSelect) {
+      grpSelect.addEventListener("change", function () {
+        const map = JSON.parse(this.getAttribute("data-group-types") || "{}");
+        this.setAttribute("data-system-type", map[this.value] || "");
+        toggleAll();
+      });
     }
 
-    // Amount pickers
-    show('id_gain_proficiency_amount', m === 'progress');
-    show('id_modify_proficiency_amount', m === 'set');
-
-    // Old dropdown is irrelevant for progress; hide/disable accordingly
-    if (modTgt) {
-      var row = rowOf(modTgt);
-      if (row) row.style.display = (m === 'set') ? '' : 'none';
-      modTgt.disabled = (m !== 'set');
-    }
-  }
-
-  function bind() {
-    if (kind) kind.addEventListener('change', update);
-    document.querySelectorAll('input[name="prof_change_mode"]').forEach(function (r) {
-      r.addEventListener('change', update);
-    });
-    update();
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', bind);
-  } else {
-    bind();
-  }
+    // Initial paint
+    toggleAll();
+  });
 })();

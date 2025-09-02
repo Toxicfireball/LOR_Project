@@ -1108,6 +1108,14 @@ class SpecialItemTraitValue(models.Model):
         blank=True,
         help_text="Resistance vs. Damage Reduction?",
     )
+    gain_resistance_types = models.JSONField(
+        default=list, blank=True,
+        help_text="List of damage types this trait applies to.",
+    )
+    gain_resistance_amount = models.PositiveSmallIntegerField(
+        blank=True, null=True,
+        help_text="Flat reduction (only when mode = reduction).",
+    )
     description = models.TextField("Trait description", blank=True)
 
     class Meta:
@@ -1340,7 +1348,7 @@ class ClassFeature(models.Model):
         ("modify_proficiency", "Modify Proficiency"),
         ("spell_table",        "Spell Slot Table"),
         ("inherent_spell",     "Inherent Spell"),
-        ("gain_proficiency",   "Gain Proficiency"),
+        ("core_proficiency",   "Add Core Proficiency (Armor/Weapon)"),
         ("gain_resistance",    "Gain Resistance"),
     ]
     gain_subskills = models.ManyToManyField(
@@ -1620,6 +1628,18 @@ class MartialMastery(models.Model):
     required_ability_score  = models.PositiveSmallIntegerField(
         blank=True, null=True,
         help_text="Minimum ability score needed (e.g., 13)."
+    )
+    # characters/models.py  (inside class MartialMastery)
+    TRAIT_MATCH_CHOICES = [
+        ("any", "Match ANY of the selected traits"),
+        ("all", "Match ALL of the selected traits"),
+    ]
+
+    trait_match_mode = models.CharField(
+        max_length=3,
+        choices=TRAIT_MATCH_CHOICES,
+        default="any",
+        help_text="When restricting to traits, require the weapon to match ANY vs ALL selected traits."
     )
 
     ACTION_TYPES = (

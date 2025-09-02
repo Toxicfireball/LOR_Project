@@ -113,3 +113,21 @@
     toggleAll();
   });
 })();
+
+(function () {
+  function rowOf(el){ return el && (el.closest('.form-row') || el.closest('div.fieldBox')); }
+  function show(id, on){ var el=document.getElementById(id); var r=rowOf(el); if(r) r.style.display = on ? "" : "none"; }
+
+  function update(){
+    var modeEl = document.getElementById("id_gain_resistance_mode");
+    var mode = modeEl ? modeEl.value : "";
+    show("id_gain_resistance_types", !!mode);
+    show("id_gain_resistance_amount", mode === "reduction");
+  }
+
+  document.addEventListener("DOMContentLoaded", function(){
+    var modeEl = document.getElementById("id_gain_resistance_mode");
+    if (modeEl) modeEl.addEventListener("change", update);
+    update();
+  });
+})();
