@@ -1035,15 +1035,16 @@ class ClassFeatureForm(ProficiencyTargetUIMixin, forms.ModelForm):
 
         
         # 1) If scope is some subclass‐flow, force them to pick a group
+        # 1) require group for subclass flows
         if scope_val in ("subclass_choice", "subclass_feat", "gain_subclass_feat") and grp is None:
-            self.add_error("subclass_group", "Pick an umbrella …")
-                # Hide/clear MM formulas at the server if not a martial mastery feature
+            if "subclass_group" in self.fields:
+                self.add_error("subclass_group", "Pick an umbrella …")
         if cleaned.get("kind") != "martial_mastery":
             cleaned["martial_points_formula"] = ""
             cleaned["available_masteries_formula"] = ""
         if grp and scope_val not in ("subclass_choice", "subclass_feat", "gain_subclass_feat"):
-            self.add_error("subclass_group", "Only subclass_feats (or subclass_choices) may set a subclass_group.")
-
+            if "subclass_group" in self.fields:
+                self.add_error("subclass_group", "Only subclass_feats (or subclass_choices) may set a subclass_group.")
         # 2) If they are in subclass_feat/gain_subclass_feat, enforce tier/mastery rules:
         if scope_val in ("subclass_feat", "gain_subclass_feat"):
             if grp:
@@ -1096,9 +1097,10 @@ class ClassFeatureForm(ProficiencyTargetUIMixin, forms.ModelForm):
                 self.add_error("modify_proficiency_target", "Pick a target to change.")
 
             if gmp_mode == "set":
-                if not self.cleaned_data.get("modify_proficiency_amount"):
-                    self.add_error("modify_proficiency_amount", "Pick a tier when using Set.")
-                # amount stays; runtime interprets as hard set
+                tgt = self.cleaned_data.get("modify_proficiency_target")
+                if not tgt:
+                    # no target → ignore generic section
+                    cleaned["gmp_mode"] = ""
             elif gmp_mode == "uptier":
                 # uptier ⇒ clear amount (runtime = +1 tier)
                 self.cleaned_data["modify_proficiency_amount"] = None
@@ -1118,13 +1120,15 @@ class ClassFeatureForm(ProficiencyTargetUIMixin, forms.ModelForm):
                 self.cleaned_data["gain_proficiency_amount"] = None
                 self.cleaned_data["gain_proficiency_target"] = ",".join(target_tokens)
 
-
             elif mode_core == "set":
-                # SET can be group(s) or item(s); funnel to modify_* fields
-                if not self.cleaned_data.get("modify_proficiency_amount"):
-                    self.add_error("modify_proficiency_amount", "Pick a proficiency tier to set/override.")
                 if target_tokens:
                     self.cleaned_data["modify_proficiency_target"] = ",".join(target_tokens)
+                    # remove the requirement for a tier:
+                    # if not self.cleaned_data.get("modify_proficiency_amount"):
+                    #     self.add_error("modify_proficiency_amount", "Pick a proficiency tier to set/override.")
+                else:
+                    self.cleaned_data["modify_proficiency_target"] = ""
+
 
         return cleaned
 
@@ -1928,20 +1932,21 @@ class RaceFeatureForm(ClassFeatureForm):
     )
 
     def __init__(self, *args, **kwargs):
-        # bypass ClassFeatureForm.__init__ (as you intended)
+        # bypass ClassFeatureForm.__init__
         forms.ModelForm.__init__(self, *args, **kwargs)
 
-        # drop class-only fields
+        # remove class-only fields (keep your existing pops)
         for f in ("character_class", "subclass_group", "subclasses", "tier", "mastery_rank"):
             self.fields.pop(f, None)
 
-        # tweak scope labels
-        self.fields["scope"].choices = [
-            ("class_feat",   "Race Feature"),
-            ("subclass_feat","Subrace Feature"),
-        ]
+        # ⬅️ NEW: inert placeholder so add_error('subclass_group', ...) never ValueErrors
+        self.fields["subclass_group"] = forms.CharField(
+            required=False,
+            widget=forms.HiddenInput(),
+            label="(unused placeholder)",
+        )
 
-        # limit subrace list to chosen race
+        # limit subrace to selected race (keep your existing code)
         race_val = (
             self.data.get("race")
             or self.initial.get("race")
@@ -1952,35 +1957,53 @@ class RaceFeatureForm(ClassFeatureForm):
                 Subrace.objects.filter(race_id=race_val) if race_val else Subrace.objects.none()
             )
 
-        # preserve code when editing
         if getattr(self.instance, "pk", None):
             self.fields["code"].initial = self.instance.code
 
     def clean(self):
-        # Intentionally skip ClassFeatureForm.clean()
         cleaned = forms.ModelForm.clean(self)
 
         if cleaned.get("scope") == "subclass_feat" and not cleaned.get("subrace"):
             self.add_error("subrace", "Please select a Subrace for a Subrace Feature.")
 
-        # Apply the proficiency UI to racial features (SET/override only)
-        target_tokens = self._normalize_prof_targets()  # ← plural; returns a list (may be empty)
+        # ---- silent parse of proficiency target (no add_error calls) ----
+        kind = (self.cleaned_data.get("prof_target_kind") or "").strip()
+        targets = []
 
-        # Races: treat as "set" only, never "progress"
-        self.cleaned_data["gain_proficiency_target"] = ""
-        self.cleaned_data["gain_proficiency_amount"] = None
+        if kind == "armor_group":
+            grp = self.cleaned_data.get("armor_group_choice")
+            if grp:
+                targets = [f"armor:{grp}"]
+        elif kind == "weapon_group":
+            grp = self.cleaned_data.get("weapon_group_choice")
+            if grp:
+                targets = [f"weapon:{grp}"]
+        elif kind == "armor_item":
+            items = list(self.cleaned_data.get("armor_item_choice") or [])
+            if items:
+                targets = [f"armor#{i.pk}" for i in items]
+        elif kind == "weapon_item":
+            items = list(self.cleaned_data.get("weapon_item_choice") or [])
+            if items:
+                targets = [f"weapon#{i.pk}" for i in items]
+        # else: leave empty → ignore picker
 
-        if target_tokens:
-            # store as CSV in the CharField; runtime can split if needed
-            self.cleaned_data["modify_proficiency_target"] = ",".join(target_tokens)
-            if not self.cleaned_data.get("modify_proficiency_amount"):
-                self.add_error("modify_proficiency_amount", "Pick a proficiency tier to set/override.")
-        else:
-            # no target picked ⇒ clear any stale value
-            self.cleaned_data["modify_proficiency_target"] = ""
+        # Never block on amount; empty = “no override / clear”
+        self.cleaned_data["gain_proficiency_target"]  = ""
+        self.cleaned_data["gain_proficiency_amount"]  = None
+        self.cleaned_data["modify_proficiency_target"] = ",".join(targets) if targets else ""
+        # leave modify_proficiency_amount as-is (possibly blank)
 
         return cleaned
 
+
+    def add_error(self, field, error):
+        if field == "subclass_group":
+            scope = (self.data.get("scope") or self.cleaned_data.get("scope") or "").strip()
+            if scope == "subclass_feat" and "subrace" in self.fields:
+                return super().add_error("subrace", "Please select a Subrace for a Subrace Feature.")
+            return super().add_error(None, error)
+        return super().add_error(field, error)
 
 @admin.register(RacialFeature)
 class RacialFeatureAdmin(SummernoteModelAdmin):
@@ -2048,8 +2071,6 @@ class RacialFeatureAdmin(SummernoteModelAdmin):
     
     def get_form(self, request, obj=None, **kwargs):
         BaseForm = super().get_form(request, obj, **kwargs)
-
-        # figure out which Race is currently in play
         race_pk = (
             request.POST.get("race")
             or request.GET.get("race")
@@ -2062,15 +2083,23 @@ class RacialFeatureAdmin(SummernoteModelAdmin):
                 if "subrace" in self.fields:
                     if race_pk:
                         self.fields["subrace"].queryset = Subrace.objects.filter(race_id=race_pk)
-                        # ensure it's enabled if we previously disabled it
                         self.fields["subrace"].widget.attrs.pop("disabled", None)
                     else:
                         self.fields["subrace"].queryset = Subrace.objects.none()
-                        # leave it enabled; we will refresh after you pick a Race
                         self.fields["subrace"].help_text = "Pick a Race; the page will refresh to load subraces."
 
+            # ⬅️ make remap unconditional
+            def add_error(self, field, error):
+                if field == "subclass_group":
+                    scope = (self.data.get("scope") or getattr(self, "cleaned_data", {}).get("scope") or "").strip()
+                    if scope == "subclass_feat" and "subrace" in self.fields:
+                        return super().add_error("subrace", "Please select a Subrace for a Subrace Feature.")
+                    return super().add_error(None, error)
+                return super().add_error(field, error)
+
         return WrappedForm
-    
+
+
     def formfield_for_dbfield(self, db_field, request, **kwargs):
         # Force a <select> for modify_proficiency_target even though the model is CharField
         if db_field.name == "modify_proficiency_target":
