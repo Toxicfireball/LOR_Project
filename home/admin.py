@@ -2066,8 +2066,8 @@ class RacialFeatureAdmin(SummernoteModelAdmin):
                         self.fields["subrace"].widget.attrs.pop("disabled", None)
                     else:
                         self.fields["subrace"].queryset = Subrace.objects.none()
-                        self.fields["subrace"].widget.attrs["disabled"] = "disabled"
-                        self.fields["subrace"].help_text = "Select a Race first."
+                        # leave it enabled; we will refresh after you pick a Race
+                        self.fields["subrace"].help_text = "Pick a Race; the page will refresh to load subraces."
 
         return WrappedForm
     
