@@ -62,41 +62,21 @@ class SpecialItemForm(forms.ModelForm):
 
 
 # in home/admin.py
-
-class ProficiencyTargetUIMixin(forms.Form):
+from django.forms.forms import DeclarativeFieldsMetaclass
+class ProficiencyTargetUIMixin(metaclass=DeclarativeFieldsMetaclass):
     PROF_TARGET_KIND = (
         ("armor_group",  "Armor group"),
         ("weapon_group", "Weapon group"),
         ("armor_item",   "Specific armor"),
         ("weapon_item",  "Specific weapon"),
     )
-    prof_target_kind = forms.ChoiceField(
-        choices=PROF_TARGET_KIND, required=False, label="Proficiency target type"
-    )
-    armor_group_choice  = forms.ChoiceField(choices=ARMOR_GROUPS,  required=False, label="Armor group")
-    weapon_group_choice = forms.ChoiceField(choices=WEAPON_GROUPS, required=False, label="Weapon group")
-
-    # ✅ change to multi with checkboxes
-    armor_item_choice  = forms.ModelMultipleChoiceField(
-        queryset=Armor.objects.all(),
-        required=False,
-        widget=forms.CheckboxSelectMultiple,
-        label="Armor items"
-    )
-    weapon_item_choice = forms.ModelMultipleChoiceField(
-        queryset=Weapon.objects.all(),
-        required=False,
-        widget=forms.CheckboxSelectMultiple,
-        label="Weapon items"
-    )
-
-    PROF_CHANGE_MODE = (
-        ("progress","Add to class progression"),
-        ("set","Set / override on the character"),
-    )
-    prof_change_mode = forms.ChoiceField(
-        choices=PROF_CHANGE_MODE, required=False, widget=forms.RadioSelect, label="How to apply"
-    )
+    prof_target_kind     = forms.ChoiceField(choices=PROF_TARGET_KIND, required=False, label="Proficiency target type")
+    armor_group_choice   = forms.ChoiceField(choices=ARMOR_GROUPS,  required=False, label="Armor group")
+    weapon_group_choice  = forms.ChoiceField(choices=WEAPON_GROUPS, required=False, label="Weapon group")
+    armor_item_choice    = forms.ModelMultipleChoiceField(queryset=Armor.objects.all(),  required=False, widget=forms.CheckboxSelectMultiple, label="Armor items")
+    weapon_item_choice   = forms.ModelMultipleChoiceField(queryset=Weapon.objects.all(), required=False, widget=forms.CheckboxSelectMultiple, label="Weapon items")
+    PROF_CHANGE_MODE     = (("progress","Add to class progression"), ("set","Set / override on the character"))
+    prof_change_mode     = forms.ChoiceField(choices=PROF_CHANGE_MODE, required=False, widget=forms.RadioSelect, label="How to apply")
 
     def _normalize_prof_targets(self):
         """
@@ -246,7 +226,12 @@ class ModularLinearFeatureFormSet(BaseInlineFormSet):
             # Extract tier from the code suffix
             # (Assumes code always ends in "_<integer>".)
             try:
-                tier = int(feature.code.rsplit("_", 1)[1])
+                tier = getattr(feature, "tier", None)
+                if tier is None:
+                    raise ValidationError(
+                        f"{feature} is modular-linear but has no Tier set. "
+                        "Open the feature and set its integer Tier."
+                    )            
             except (ValueError, IndexError):
                 raise ValidationError(
                     f"Feature code {feature.code!r} does not end in _<tier>."
@@ -420,31 +405,49 @@ class SubclassGroupForm(forms.ModelForm):
 
 
 
-# characters/admin.py
 class SubclassMasteryUnlockInline(admin.TabularInline):
     model = SubclassMasteryUnlock
     extra = 1
     fields = ("rank", "unlock_level", "modules_required")
+    ordering = ("unlock_level", "id")
     verbose_name = "Mastery Rank Gate"
     verbose_name_plural = "Mastery Rank Gates"
 
+# home/admin.py
 @admin.register(SubclassGroup)
 class SubclassGroupAdmin(admin.ModelAdmin):
-    form = SubclassGroupForm  
+    form = SubclassGroupForm
     list_display = ("character_class", "name", "code", "system_type")
     list_filter  = ("character_class", "system_type")
-    inlines      = (SubclassTierLevelInline, SubclassMasteryUnlockInline)  # ← add here
-    fields       = ("character_class", "name", "code", "system_type", "modules_per_mastery", "modular_rules")
+    fields = ("character_class", "name", "code", "system_type")
 
+    # ▾ only show the inline(s) that make sense for the selected system_type
+    def get_inline_instances(self, request, obj=None):
+        sys = (
+            (request.POST.get("system_type") if request.method == "POST" else None)
+            or request.GET.get("system_type")
+            or (obj.system_type if obj else None)
+        )
+        inlines = []
+        if sys == SubclassGroup.SYSTEM_MODULAR_LINEAR:
+            inlines.append(SubclassTierLevelInline(self.model, self.admin_site))
+        elif sys == SubclassGroup.SYSTEM_MODULAR_MASTERY:
+            inlines.append(SubclassMasteryUnlockInline(self.model, self.admin_site))
+        # linear: no inlines
+        return inlines
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
+
         grp = form.instance
-        chosen = form.cleaned_data.get("subclasses", [])
-        chosen_ids = [s.pk for s in chosen]
-        # Link selected subclasses to this group
-        ClassSubclass.objects.filter(pk__in=chosen_ids).update(group=grp)
-        # Unlink any other that used to be in this group
-        ClassSubclass.objects.filter(group=grp).exclude(pk__in=chosen_ids).update(group=None)
+        # Only re-number for modular_mastery
+        if grp.system_type == SubclassGroup.SYSTEM_MODULAR_MASTERY:
+            gates = list(SubclassMasteryUnlock.objects.filter(group=grp))
+            # Assign ranks only if any row has rank is None
+            if any(g.rank is None for g in gates):
+                for idx, gate in enumerate(sorted(gates, key=lambda g: (g.rank is None, g.rank, g.unlock_level, g.pk))):
+                    if gate.rank is None:
+                        gate.rank = idx
+                SubclassMasteryUnlock.objects.bulk_update(gates, ["rank"])
 
 
 class ClassProficiencyProgressInline(admin.TabularInline):
@@ -875,7 +878,7 @@ class ClassResourceForm(forms.ModelForm):
         )
 
 
-class ClassFeatureForm(ProficiencyTargetUIMixin, forms.ModelForm):
+class ClassFeatureForm( ProficiencyTargetUIMixin,forms.ModelForm):
 
     gain_resistance_types = forms.MultipleChoiceField(
         choices=ClassFeature.DAMAGE_TYPE_CHOICES,     # same tuple of (value, label)
@@ -1002,7 +1005,17 @@ class ClassFeatureForm(ProficiencyTargetUIMixin, forms.ModelForm):
         #    This is how JS will know whether the chosen Umbrella is “modular_linear”,
         #    “modular_mastery”, or “linear”.
         #
+        import json as _json
         self.fields["subclass_group"].widget.attrs["data-system-type"] = system_t
+        widget = self.fields["subclass_group"].widget
+        # 1) keep current system on the element
+        widget.attrs["data-system-type"] = system_t or ""
+
+        # 2) attach a full id->system_type map so JS can switch instantly on change
+        #    (do it here as well so it's *always* present, even if ModelAdmin.get_form
+        #     wasn’t the thing that set it)
+        mapping = {str(g.pk): g.system_type for g in SubclassGroup.objects.all()}
+        widget.attrs["data-group-types"] = _json.dumps(mapping)
     def _resolve_prof_target(self, target_field):
         """
         If the target is 'armor' or 'weapon', require the matching group and
@@ -1031,6 +1044,8 @@ class ClassFeatureForm(ProficiencyTargetUIMixin, forms.ModelForm):
         grp        = cleaned.get("subclass_group")
         tier_val   = cleaned.get("tier")
         master_val = cleaned.get("mastery_rank")
+        if scope_val in ("subclass_feat", "subclass_choice", "gain_subclass_feat"):
+            cleaned["level_required"] = None
 
 
         
@@ -1046,24 +1061,27 @@ class ClassFeatureForm(ProficiencyTargetUIMixin, forms.ModelForm):
             if "subclass_group" in self.fields:
                 self.add_error("subclass_group", "Only subclass_feats (or subclass_choices) may set a subclass_group.")
         # 2) If they are in subclass_feat/gain_subclass_feat, enforce tier/mastery rules:
-        if scope_val in ("subclass_feat", "gain_subclass_feat"):
-            if grp:
-                if grp.system_type == SubclassGroup.SYSTEM_LINEAR:
-                    if tier_val is not None:
-                        self.add_error("tier", "Only modular_linear features may have a Tier.")
-                    if master_val is not None:
-                        self.add_error("mastery_rank", "Only modular_mastery features may have a Mastery Rank.")
-                elif grp.system_type == SubclassGroup.SYSTEM_MODULAR_LINEAR:
-                    if tier_val is None:
-                        self.add_error("tier", "This modular_linear feature must have a Tier (1,2,3… ).")
-                    if master_val is not None:
-                        self.add_error("mastery_rank", "Modular_linear features may not have a Mastery Rank.")
-                elif grp.system_type == SubclassGroup.SYSTEM_MODULAR_MASTERY:
-                    if master_val is None:
-                        self.add_error("mastery_rank", "This modular_mastery feature must have a Mastery Rank (0…4).")
-                    if tier_val is not None:
-                        self.add_error("tier", "Modular_mastery features may not have a Tier.")
-        
+
+        if scope_val in ("subclass_feat", "gain_subclass_feat") and grp:
+            if grp.system_type == SubclassGroup.SYSTEM_LINEAR:
+                # linear subclass-feats shouldn't use tier/mast rank either
+                if tier_val is not None:
+                    self.add_error("tier", "Only modular_linear features may have a Tier.")
+                if master_val is not None:
+                    self.add_error("mastery_rank", "Only modular_mastery features may have a Mastery Rank.")
+            elif grp.system_type == SubclassGroup.SYSTEM_MODULAR_LINEAR:
+                if tier_val is None:
+                    self.add_error("tier", "This modular_linear feature must have a Tier (1,2,3…).")
+                if master_val is not None:
+                    self.add_error("mastery_rank", "Modular_linear features may not have a Mastery Rank.")
+            elif grp.system_type == SubclassGroup.SYSTEM_MODULAR_MASTERY:
+                if master_val is None:
+                    self.add_error("mastery_rank", "This modular_mastery feature must have a Mastery Rank (0…4).")
+                if tier_val is not None:
+                    self.add_error("tier", "Modular_mastery features may not have a Tier.")
+
+
+
         
         target_tokens = self._normalize_prof_targets()  # LIST, may be empty
         mode_core     = (self.cleaned_data.get("prof_change_mode") or "").strip()
@@ -1143,15 +1161,16 @@ class MasteryChoiceFormSet(BaseInlineFormSet):
             if not feat:
                 continue
             if (
-                feat.scope == "subclass_choice"
-                and feat.subclass_group
+                feat.subclass_group
                 and feat.subclass_group.system_type == SubclassGroup.SYSTEM_MODULAR_MASTERY
+                and feat.scope in ("subclass_choice", "gain_subclass_feat")  # ← add gain_subclass_feat
             ):
                 picks = form.cleaned_data.get("num_picks") or 0
                 if picks < 1:
                     raise ValidationError(
-                        f"‘{feat.name}’ is a modular-mastery choice; set num_picks ≥ 1."
+                        f"‘{feat.name}’ is a modular-mastery chooser; set num_picks ≥ 1."
                     )
+
 
 
 from characters.models import ClassLevelFeature
@@ -1188,7 +1207,11 @@ class CombinedCLFFormSet(MasteryChoiceFormSet):
 
             # derive tier from code suffix "_<int>"
             try:
-                tier = int(feature.code.rsplit("_", 1)[1])
+                tier = getattr(feature, "tier", None)
+                if tier is None:
+                    raise ValidationError(
+                        f"{feature} is modular-linear but has no Tier set."
+                    )            
             except (ValueError, IndexError):
                 raise ValidationError(
                     f"Feature code {feature.code!r} does not end in _<tier> "
@@ -1219,22 +1242,79 @@ class CombinedCLFFormSet(MasteryChoiceFormSet):
                     f"You assigned Tier {tier} ({feature.code}) at level {this_level}, "
                     f"but no Tier {tier - 1} from {grp.name!r} exists at a lower level."
                 )
+class CLFForm(forms.ModelForm):
+    class Meta:
+        model  = ClassLevelFeature
+        fields = ("feature", "num_picks")
+        labels = {
+            "num_picks": "Choices granted at this level",
+        }
+        help_texts = {
+            "num_picks": "For ‘Gain Subclass Feature’ choosers, how many picks the player gets now.",
+        }
 
-# characters/admin.py
 class ClassLevelFeatureInline(admin.TabularInline):
     model  = ClassLevelFeature
     extra  = 1
-    fields = ("feature", "num_picks")   # ← show it
-    formset = CombinedCLFFormSet          # ← validate it
+    form   = CLFForm
+    fields = ("feature", "num_picks")
+    formset = CombinedCLFFormSet
 
-    verbose_name = "Feature granted at this level"
-    verbose_name_plural = "Features granted at this level"
+    # stash the parent ClassLevel so we can see its class/level
+    def get_formset(self, request, obj=None, **kwargs):
+        self._parent_level = obj
+        return super().get_formset(request, obj, **kwargs)
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "feature":
-            kwargs["queryset"] = ClassFeature.objects.all()
-        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+            qs = ClassFeature.objects.filter(racialfeature__isnull=True)
 
+            parent = getattr(self, "_parent_level", None)
+            if parent:
+                cls = parent.character_class
+                L   = parent.level
+                qs = qs.filter(character_class=cls)
+
+                # ── modular_mastery: allow only features whose (group, rank) is unlocked at L
+                allowed_mm = set(
+                    SubclassMasteryUnlock.objects
+                    .filter(group__character_class=cls, unlock_level__lte=L)
+                    .values_list("group_id", "rank")
+                )
+                mm_q = Q()  # OR bucket of allowed (group, rank) pairs
+                for g_id, r in allowed_mm:
+                    mm_q |= Q(subclass_group_id=g_id, mastery_rank=r)
+
+                # ── modular_linear: allow only features whose (group, tier) is unlocked at L
+                allowed_ml = set(
+                    SubclassTierLevel.objects
+                    .filter(group__character_class=cls, unlock_level__lte=L)
+                    .values_list("group_id", "tier")
+                )
+                ml_q = Q()
+                for g_id, t in allowed_ml:
+                    ml_q |= Q(subclass_group_id=g_id, tier=t)
+
+                # Build final filter:
+                qs = qs.filter(
+                    # keep anything that is NOT a subclass feature
+                    ~Q(scope="subclass_feat")
+                    |
+                    # allow subclass_feats that are NOT modular systems
+                    ~Q(subclass_group__system_type__in=[
+                        SubclassGroup.SYSTEM_MODULAR_MASTERY,
+                        SubclassGroup.SYSTEM_MODULAR_LINEAR,
+                    ])
+                    |
+                    # allow modular_mastery subclass_feats unlocked at this level
+                    (Q(subclass_group__system_type=SubclassGroup.SYSTEM_MODULAR_MASTERY) & mm_q)
+                    |
+                    # allow modular_linear subclass_feats for the tier unlocked at this level
+                    (Q(subclass_group__system_type=SubclassGroup.SYSTEM_MODULAR_LINEAR) & ml_q)
+                ).distinct()
+
+            kwargs["queryset"] = qs
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 
 @admin.register(ArmorTrait)
@@ -1406,7 +1486,9 @@ class ClassFeatureAdmin(admin.ModelAdmin):
 
         # NEW — show the proficiency UI and the tier to grant when in “progress” mode
 
-
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs.filter(racialfeature__isnull=True)
 
 
     def formfield_for_dbfield(self, db_field, request, **kwargs):
@@ -1561,67 +1643,43 @@ class ClassFeatureAdmin(admin.ModelAdmin):
             skill_choices = [(f"skill_{s.pk}", s.name) for s in Skill.objects.all()]
             kwargs["choices"] = base_choices + skill_choices
         return super().formfield_for_choice_field(db_field, request, **kwargs)  
+    # in ClassFeatureAdmin
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        """
-        Whenever Django is about to render the ForeignKey “subclass_group” field,
-        this method will be called.  We can intercept it, figure out which SubclassGroup
-        is “pre-selected,” look up its .system_type, and then attach it as
-        `data-system-type="..."` on the HTML <select> widget.
-        """
         field = super().formfield_for_foreignkey(db_field, request, **kwargs)
 
-        # Only do this injection when rendering the `subclass_group` dropdown:
         if db_field.name == "subclass_group":
-            # 1) Find the “currently selected” SubclassGroup ID.  
-            #    - If we’re editing, the URL is something like /admin/…/classfeature/123/change/,
-            #      so we can pull obj_id from request.resolver_match.kwargs.
-            #    - If we’re on an “Add” page with a GET param ?subclass_group=XYZ, pick that.
-            #    - If the form has already been POSTed, `request.POST["subclass_group"]` will be the new value.
-            #
-            #    Note:  you might not need all three of these steps at once.  Typically:
-            #    • On “Add” (no instance yet), you read request.GET.get("subclass_group").
-            #    • On “Change” (instance exists), you read obj.subclass_group_id.
-            #    • On a POST (validation errors), you read request.POST["subclass_group"].
-            #
+            # figure out the selected id (POST → GET → existing obj)
             selected_id = None
-
-            #  A) If this is a POST submission with an error (re-rendering the form),
-            #     read the posted value:
             if request.method == "POST" and "subclass_group" in request.POST:
                 selected_id = request.POST.get("subclass_group")
-
-            #  B) Otherwise, if they passed ?subclass_group=… in the URL (e.g. after picking “scope”):
             if not selected_id:
                 selected_id = request.GET.get("subclass_group")
-
-            #  C) If we’re editing an existing ClassFeature (URL = …/classfeature/123/change/),
-            #     fetch the object from the DB to see which SubclassGroup is already set:
             if not selected_id:
-                # Extract the “object_id” from the URL resolver (if present):
-                match = resolve(request.path_info)
-                obj_id = match.kwargs.get("object_id")
-                if obj_id:
-                    try:
+                try:
+                    match = resolve(request.path_info)
+                    obj_id = match.kwargs.get("object_id")
+                    if obj_id:
                         cf = ClassFeature.objects.get(pk=obj_id)
                         selected_id = cf.subclass_group_id
-                    except ClassFeature.DoesNotExist:
-                        selected_id = None
+                except Exception:
+                    selected_id = None
 
-            # Now, if we found a valid ID, look it up in SubclassGroup and read .system_type:
+            # always attach the full id → system_type map
+            mapping = {str(g.pk): g.system_type for g in SubclassGroup.objects.all()}
+            field.widget.attrs["data-group-types"] = json.dumps(mapping)
+
+            # set current system_type (empty ok)
             system_t = ""
             if selected_id:
                 try:
                     sg = SubclassGroup.objects.get(pk=selected_id)
-                    # sg.system_type is one of: "linear", "modular_linear", "modular_mastery"
                     system_t = sg.system_type or ""
                 except SubclassGroup.DoesNotExist:
-                    system_t = ""
-
-            # Finally: attach the exact ASCII-hyphen key "data-system-type" to the <select>:
+                    pass
             field.widget.attrs["data-system-type"] = system_t
 
-        return field    
-    
+        return field
+
 
 
     class Media:

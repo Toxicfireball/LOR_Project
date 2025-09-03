@@ -546,13 +546,51 @@ class Character(models.Model):
 
         # final rank is the min of “earned by modules” and “allowed by level”
         return min(count_rank, gate_rank)
+    def _cap_from_gainers(self, base_class: "CharacterClass", group: "SubclassGroup", lvl: int) -> int:
+        """
+        Look at the ClassLevelFeatures for THIS exact class level that point to
+        features with scope='gain_subclass_feat' in the same modular_mastery group,
+        and use the highest mastery_rank among them as the cap for this level.
+        """
+        from .models import ClassLevelFeature, ClassFeature
+        return (
+            ClassLevelFeature.objects
+            .filter(
+                class_level__character_class=base_class,
+                class_level__level=lvl,
+                feature__scope="gain_subclass_feat",
+                feature__subclass_group=group,
+            )
+            .aggregate(models.Max("feature__mastery_rank"))["feature__mastery_rank__max"]
+            or 0
+        )
+
+    def _cap_from_rank_gates(self, group: "SubclassGroup", base_class: "CharacterClass") -> int:
+        """
+        Respect SubclassMasteryUnlock level gates (if you use them).
+        """
+        cls_lvl = self.class_level_for(base_class)
+        from .models import SubclassMasteryUnlock
+        return (
+            SubclassMasteryUnlock.objects
+            .filter(subclass_group=group, unlock_level__lte=cls_lvl)
+            .aggregate(models.Max("rank"))["rank__max"]
+            or 0
+        )
 
 
     def mastery_pick_options(self, subclass: "ClassSubclass"):
         """
-        WHAT the player can pick this level (count and options), for modular mastery.
-        Returns: (num_picks_now, queryset_of_eligible_features)
+        Modular-mastery picking logic driven by GAINERS.
+
+        • The ONLY level-wired rows are ClassLevelFeature → ClassFeature(scope='gain_subclass_feat').
+        • Each gainer carries mastery_rank = the maximum rank you may pick UP TO at this level.
+        • ClassLevelFeature.num_picks = how many modules you may take this level.
+
+        Returns: (num_picks_now, queryset_of_eligible_subclass_modules)
         """
+        from .models import ClassFeature, ClassLevelFeature, CharacterFeature
+
         group = subclass.group
         base_class = subclass.base_class
         if not group or group.system_type != SubclassGroup.SYSTEM_MODULAR_MASTERY:
@@ -560,39 +598,50 @@ class Character(models.Model):
 
         lvl = self.class_level_for(base_class)
 
-        # how many picks at THIS level? (sum of num_picks across matching choice placeholders)
+        # 1) How many picks at THIS level? (use only the GAINERS)
         picks_now = (
             ClassLevelFeature.objects
             .filter(
                 class_level__character_class=base_class,
                 class_level__level=lvl,
-                feature__scope="subclass_choice",
+                feature__scope="gain_subclass_feat",
                 feature__subclass_group=group,
             )
-            .aggregate(total=Sum("num_picks"))["total"] or 0
+            .aggregate(total=models.Sum("num_picks"))["total"] or 0
         )
 
-        # current mastery rank this character has in THIS subclass
-        current_rank = self.mastery_for(subclass)
+        # 2) What rank CAP applies at THIS level?
+        cap_from_gainer = self._cap_from_gainers(base_class, group, lvl)
+        # Also respect your global rank gates, if present:
+        cap_from_gates  = self._cap_from_rank_gates(group, base_class)
+        allowed_cap     = min(cap_from_gainer, cap_from_gates)
 
-        # eligible features for THIS subclass at current level & mastery
+        # 3) Eligible modules (scope=subclass_feat) for THIS subclass up to the cap, and not already taken
+        already_have_ids = set(
+            CharacterFeature.objects
+            .filter(character=self, subclass=subclass, feature__scope="subclass_feat")
+            .values_list("feature_id", flat=True)
+        )
+
         options = (
             ClassFeature.objects
             .filter(
                 scope="subclass_feat",
                 subclass_group=group,
-                subclasses=subclass,  # tied to this specific subclass
+                subclasses=subclass,
             )
             .filter(
-                Q(mastery_rank__isnull=True) | Q(mastery_rank__lte=current_rank)
+                models.Q(mastery_rank__isnull=True) | models.Q(mastery_rank__lte=allowed_cap)
             )
             .filter(
-                Q(min_level__isnull=True) | Q(min_level__lte=lvl)
+                models.Q(min_level__isnull=True) | models.Q(min_level__lte=lvl)
             )
+            .exclude(pk__in=already_have_ids)
             .order_by("mastery_rank", "name")
         )
 
         return picks_now, options
+
 
 
     def __str__(self):
@@ -768,10 +817,14 @@ class SubclassGroup(models.Model):
         (SYSTEM_MODULAR_LINEAR,  "Modular Linear (tiered)"),
         (SYSTEM_MODULAR_MASTERY, "Modular Mastery (pick & master)"),
     ]
-    system_type   = models.CharField(max_length=20, choices=SYSTEM_CHOICES, default=SYSTEM_LINEAR)
+    system_type   = models.CharField(max_length=32, choices=SYSTEM_CHOICES, default=SYSTEM_LINEAR)
     name          = models.CharField(max_length=100, help_text="Umbrella/Order name (e.g. 'Moon Circle')")
     code          = models.CharField(max_length=20, blank=True, help_text="Optional shorthand code")
-    modular_rules = models.JSONField(blank=True, null=True)  # you can still use this, but not required for modular-linear
+    modular_rules = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Example: {"modules_per_mastery":2, "picks_per_trigger":1, "max_mastery_rank":3}'
+    )
     modules_per_mastery = models.PositiveSmallIntegerField(
         default=2,
         help_text="Default modules needed to earn +1 mastery rank (used by modular_mastery groups)."
@@ -1203,7 +1256,7 @@ class ClassFeature(models.Model):
         max_length=100, blank=True, null=True, default=None,
         help_text="(Only for kind='martial_mastery') Formula for how many masteries are available at this class level."
     )
-
+    mastery_rank = models.PositiveIntegerField(null=True, blank=True)
     # (2) If this feature belongs to a modular_linear SubclassGroup, we store the "tier":  
     tier = models.PositiveIntegerField(
         blank=True,
@@ -1222,7 +1275,10 @@ class ClassFeature(models.Model):
         choices=MASTER_RANK_CHOICES,
         blank=True,
         null=True,
-        help_text="(Only for modular_mastery subclass_feat) Mastery Rank (0…4).",
+        help_text=(
+            "(modular_mastery) For scope='subclass_feat': the module's rank (0–4). "
+            "For scope='gain_subclass_feat': the MAX rank this level allows you to pick up to."
+        ),
     )
     # 3) Basic vs Normal
     SAVING_THROW_GRAN_CHOICES = [
@@ -1552,44 +1608,42 @@ class ClassFeature(models.Model):
 
         return " – ".join(left + [right]) if left else right
     def clean(self):
-        errors = {}
-        grp     = self.subclass_group
-        scope   = self.scope
-        lvl_req = self.level_required
-        tier    = self.tier
-        master  = self.mastery_rank
+        super().clean()
 
-        # If this feature *needs* an umbrella but none is chosen, flag the field first.
-        if scope in ("subclass_choice", "subclass_feat", "gain_subclass_feat") and not grp:
-            errors["subclass_group"] = "Pick an umbrella (SubclassGroup) for this scope."
+        grp   = self.subclass_group
+        scope = self.scope
 
-        # Only check level_required if grp exists *and* is modular_linear
-        if scope == "subclass_feat" and grp and grp.system_type == SubclassGroup.SYSTEM_MODULAR_LINEAR:
-            if lvl_req is None or lvl_req < 1:
-                errors["level_required"] = "Subclass features must set level_required ≥ 1."
+        # Only subclass features must name an umbrella
+        if scope in ("subclass_feat", "gain_subclass_feat") and not grp:
+            from django.core.exceptions import ValidationError
+            raise ValidationError({"subclass_group": "Pick an umbrella (SubclassGroup) for subclass features."})
 
-        # Only run tier/mastery gating when a group is present
-        if grp and scope in ("subclass_feat", "gain_subclass_feat"):
-            if grp.system_type == SubclassGroup.SYSTEM_LINEAR:
-                if tier is not None:
-                    errors["tier"] = "Only modular_linear features may have a Tier."
-                if master is not None:
-                    errors["mastery_rank"] = "Only modular_mastery features may have a Mastery Rank."
-            elif grp.system_type == SubclassGroup.SYSTEM_MODULAR_LINEAR:
-                if tier is None:
-                    errors["tier"] = "This modular_linear feature must have a Tier (1,2,3…)."
-                if master is not None:
-                    errors["mastery_rank"] = "Modular_linear features may not have a Mastery Rank."
-            elif grp.system_type == SubclassGroup.SYSTEM_MODULAR_MASTERY:
-                if master is None:
-                    errors["mastery_rank"] = "This modular_mastery feature must have a Mastery Rank (0…4)."
-                if tier is not None:
-                    errors["tier"] = "Modular_mastery features may not have a Tier."
+        # If no group, nothing else to normalize
+        if not grp:
+            self.tier = None
+            self.mastery_rank = None
+            return
 
-        if errors:
-            raise ValidationError(errors)
+        # Normalize by system, avoiding hard failures
+        if grp.system_type == SubclassGroup.SYSTEM_MODULAR_MASTERY:
+            # REQUIRED: rank on subclass modules & gainers (it's your core structure)
+            if scope in ("subclass_feat", "gain_subclass_feat") and self.mastery_rank is None:
+                from django.core.exceptions import ValidationError
+                raise ValidationError({"mastery_rank": "Set a mastery rank (0–4)."})
+            # Not used here
+            self.tier = None
 
-        return super().clean()
+        elif grp.system_type == SubclassGroup.SYSTEM_MODULAR_LINEAR:
+            # Minimal requirement: tier on subclass modules; no level_required enforcement
+            if scope == "subclass_feat" and self.tier is None:
+                from django.core.exceptions import ValidationError
+                raise ValidationError({"tier": "Set a Tier (1,2,3…)."})
+            # Not used here
+            self.mastery_rank = None
+
+        else:  # linear
+            self.tier = None
+            self.mastery_rank = None
 
 
 class ResourceType(models.Model):
@@ -1850,6 +1904,47 @@ class CharacterFeature(models.Model):
     option         = models.ForeignKey("characters.FeatureOption",   on_delete=models.SET_NULL, null=True, blank=True)
     subclass       = models.ForeignKey("characters.ClassSubclass",  on_delete=models.SET_NULL, null=True, blank=True)
     level          = models.PositiveIntegerField(help_text="Character level when gained")
+    def clean(self):
+        super().clean()
+        # Only enforce for modular_mastery subclass modules
+        if self.feature and self.subclass:
+            grp = getattr(self.subclass, "group", None)
+            if grp and grp.system_type == SubclassGroup.SYSTEM_MODULAR_MASTERY and self.feature.scope == "subclass_feat":
+                from .models import ClassLevelFeature
+                base_class = self.subclass.base_class
+                char = self.character
+
+                # the character's class level at the time this was gained
+                lvl = self.level
+
+                # compute the allowed cap AT THAT LEVEL (same logic as pick_options)
+                cap_gainer = (
+                    ClassLevelFeature.objects
+                    .filter(
+                        class_level__character_class=base_class,
+                        class_level__level=lvl,
+                        feature__scope="gain_subclass_feat",
+                        feature__subclass_group=grp,
+                    )
+                    .aggregate(models.Max("feature__mastery_rank"))["feature__mastery_rank__max"]
+                    or 0
+                )
+
+                # respect global rank gates as well
+                from .models import SubclassMasteryUnlock
+                cap_gate = (
+                    SubclassMasteryUnlock.objects
+                    .filter(subclass_group=grp, unlock_level__lte=lvl)
+                    .aggregate(models.Max("rank"))["rank__max"]
+                    or 0
+                )
+                allowed_cap = min(cap_gainer, cap_gate)
+
+                feat_rank = self.feature.mastery_rank or 0
+                if feat_rank > allowed_cap:
+                    raise ValidationError(
+                        {"feature": f"This pick requires mastery rank ≤ {allowed_cap}, but feature is rank {feat_rank}."}
+                    )
 
     class Meta:
         unique_together = [("character","feature","option","subclass","level")]

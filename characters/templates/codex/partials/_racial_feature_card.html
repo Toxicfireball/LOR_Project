@@ -1,0 +1,149 @@
+{# Reusable card for a single RacialFeature (inherits ClassFeature) #}
+<div class="rounded-md border p-4">
+
+<div class="rounded-md border p-4">
+  <div class="flex flex-wrap items-center gap-2">
+    <h4 class="text-lg font-semibold">{{ feat.name }}</h4>
+
+    {# Subrace badge first (truth source now) #}
+    {% if feat.subrace %}
+      <span class="px-2 py-0.5 rounded text-[10px] bg-indigo-600 text-white">Subrace Feature</span>
+      <span class="px-2 py-0.5 rounded text-[10px] bg-indigo-100 text-indigo-800">
+        {{ feat.subrace.race.name }} — {{ feat.subrace.name }}
+      </span>
+    {% else %}
+      <span class="px-2 py-0.5 rounded text-[10px] bg-gray-200 text-gray-800">Racial Feature</span>
+    {% endif %}
+
+    {# Class chip if tied to a class #}
+    {% if feat.character_class %}
+      <span class="px-2 py-0.5 rounded text-[10px] bg-gray-100 text-gray-700">
+        Class: {{ feat.character_class.name }}
+      </span>
+    {% endif %}
+  </div>
+
+
+
+  {# Small facts row #}
+  <div class="mt-2 flex flex-wrap gap-2 text-[12px] text-gray-600">
+    {% if feat.level_required %}<span>Req L{{ feat.level_required }}</span>{% endif %}
+    {% if feat.tier %}<span>Tier {{ feat.tier }}</span>{% endif %}
+    {% if feat.mastery_rank is not None %}<span>Rank {{ feat.mastery_rank }}</span>{% endif %}
+    {% if feat.action_type %}<span>Action: {{ feat.get_action_type_display }}</span>{% endif %}
+    {% if feat.activity_type %}<span>Activity: {{ feat.get_activity_type_display }}</span>{% endif %}
+    {% if feat.uses %}<span>Uses: {{ feat.uses }}</span>{% endif %}
+    {% if feat.formula %}<span>Formula: {{ feat.formula }}{% if feat.formula_target %} → {{ feat.get_formula_target_display }}{% endif %}</span>{% endif %}
+    {% if feat.damage_type %}<span>Damage: {{ feat.get_damage_type_display }}</span>{% endif %}
+    {% if feat.spell_list %}<span>Spell List: {{ feat.get_spell_list_display }}</span>{% endif %}
+    {% if feat.cantrips_formula %}<span>Cantrips: {{ feat.cantrips_formula }}</span>{% endif %}
+    {% if feat.spells_known_formula %}<span>Spells Known: {{ feat.spells_known_formula }}</span>{% endif %}
+    {% if feat.spells_prepared_formula %}<span>Prepared: {{ feat.spells_prepared_formula }}</span>{% endif %}
+    {% if feat.modify_proficiency_target %}<span>Set Prof: {{ feat.modify_proficiency_target }}{% if feat.modify_proficiency_amount %} → {{ feat.modify_proficiency_amount.name }}{% endif %}</span>{% endif %}
+  </div>
+
+  {# Saving throw details #}
+  {% if feat.saving_throw_required %}
+    <div class="mt-2 text-[12px] text-gray-700">
+      <span class="font-medium">Saving Throw:</span>
+      {{ feat.get_saving_throw_type_display }}
+      {% if feat.saving_throw_granularity == 'basic' %}
+        • On success: {{ feat.saving_throw_basic_success|default:'—' }} • On failure: {{ feat.saving_throw_basic_failure|default:'—' }}
+      {% elif feat.saving_throw_granularity == 'normal' %}
+        • Crit Success: {{ feat.saving_throw_critical_success|default:'—' }}
+        • Success: {{ feat.saving_throw_success|default:'—' }}
+        • Failure: {{ feat.saving_throw_failure|default:'—' }}
+        • Crit Failure: {{ feat.saving_throw_critical_failure|default:'—' }}
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {# Resistances granted (if any were encoded here) #}
+  {% if feat.gain_resistance_mode %}
+    <div class="mt-2 text-[12px] text-gray-700">
+      <span class="font-medium">Resistance:</span>
+      {{ feat.get_gain_resistance_mode_display }}
+      {% if feat.gain_resistance_types and feat.gain_resistance_types|length %}
+        • Types:
+        {% for t in feat.gain_resistance_types %}
+          <span class="px-1 py-0.5 rounded bg-gray-100">{{ t }}</span>
+        {% endfor %}
+      {% endif %}
+      {% if feat.gain_resistance_mode == 'reduction' and feat.gain_resistance_amount %}
+        • Amount: -{{ feat.gain_resistance_amount }}
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {# Sub-skills granted #}
+  {% if feat.gain_subskills.all %}
+    <div class="mt-2 text-[12px] text-gray-700">
+      <span class="font-medium">Grants Proficiency:</span>
+      {% for ss in feat.gain_subskills.all %}
+        <span class="px-1 py-0.5 rounded bg-emerald-50 text-emerald-700">{{ ss }}</span>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {# Description (Summernote content) #}
+  {% if feat.description %}
+    <div class="prose max-w-none mt-3">
+      {{ feat.description|safe }}
+    </div>
+  {% endif %}
+
+  {# Spell slot table (if this feature is a spell_table with rows) #}
+  {% if feat.spell_slot_rows.all %}
+    <div class="mt-3 overflow-x-auto">
+      <table class="min-w-full text-xs border rounded">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="px-2 py-1 text-left">Lvl</th>
+            {% for i in "12345678910"|make_list %}
+              <th class="px-2 py-1 text-center">R{{ forloop.counter }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in feat.spell_slot_rows.all %}
+            <tr class="border-t">
+              <td class="px-2 py-1 font-medium">L{{ row.level }}</td>
+              <td class="px-2 py-1 text-center">{{ row.slot1 }}</td>
+              <td class="px-2 py-1 text-center">{{ row.slot2 }}</td>
+              <td class="px-2 py-1 text-center">{{ row.slot3 }}</td>
+              <td class="px-2 py-1 text-center">{{ row.slot4 }}</td>
+              <td class="px-2 py-1 text-center">{{ row.slot5 }}</td>
+              <td class="px-2 py-1 text-center">{{ row.slot6 }}</td>
+              <td class="px-2 py-1 text-center">{{ row.slot7 }}</td>
+              <td class="px-2 py-1 text-center">{{ row.slot8 }}</td>
+              <td class="px-2 py-1 text-center">{{ row.slot9 }}</td>
+              <td class="px-2 py-1 text-center">{{ row.slot10 }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
+  {# Race-specific options that grant other racial features #}
+  {% if feat.race_options.all %}
+    <div class="mt-3">
+      <div class="text-sm font-medium">Options</div>
+      <ul class="mt-1 list-disc pl-5 space-y-1">
+        {% for opt in feat.race_options.all %}
+          <li>
+            <span class="font-medium">{{ opt.label }}</span>
+            {% if opt.grants_feature %}
+              — grants <em>{{ opt.grants_feature.name }}</em>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
+  {# Internal code tag for debugging/audit #}
+  <div class="mt-3 text-[10px] text-gray-400">
+    Code: {{ feat.code }}
+  </div>
+</div>

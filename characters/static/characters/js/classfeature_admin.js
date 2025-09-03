@@ -8,8 +8,10 @@
     const activityEl = document.getElementById("id_activity_type");
 
     // ── Helpers ────────────────────────────────────────────────────────────────────
-    function row(name) { return document.querySelector(".form-row.field-" + name); }
-    function show(el, on) { if (el) el.style.display = on ? "" : "none"; }
+ function row(name) {
+   return document.querySelector(".form-row.field-" + name)
+       || document.querySelector("div.fieldBox.field-" + name);
+ }    function show(el, on) { if (el) el.style.display = on ? "" : "none"; }
     function currentGmpMode() {
       const r = document.querySelector('input[name="gmp_mode"]:checked');
       return r ? r.value : "";
@@ -28,6 +30,7 @@
 
     // Rows we toggle
     const rows = {
+      levelRequired:  row("level_required"),  
       subgroup:       row("subclass_group"),
       subclasses:     row("subclasses"),
       tier:           row("tier"),
@@ -65,6 +68,8 @@
 
     function toggleAll() {
       const scopeVal = scopeEl ? scopeEl.value : "";
+      const scopeNorm = (scopeVal || "").toLowerCase().replace("feature", "feat");
+
       const kindVal  = kindEl  ? kindEl.value  : "";
       const actVal   = activityEl ? activityEl.value : "";
 
@@ -78,25 +83,42 @@
       if (slotsInline)    slotsInline.style.display    = "none";
 
       // Gain Subclass Feature ⇒ only Tier, also hide the Kind row itself
-      if (scopeVal === "gain_subclass_feat") {
-        show(rows.tier, true);
-        const kindRow = document.querySelector(".form-row.field-kind");
-        if (kindRow) kindRow.style.display = "none";
-        return;
-      }
+if (scopeNorm  === "gain_subclass_feat") {
+  // ← make the umbrella visible so the system type can be chosen
+  show(rows.subgroup, true);
+  // optional: this chooser doesn’t attach to specific subclasses
+  show(rows.subclasses, false);
+
+  const st = grpSelect ? (grpSelect.getAttribute("data-system-type") || "") : "";
+  show(rows.levelRequired, false);
+  show(rows.tier,        st === "modular_linear");
+  show(rows.masteryRank, st === "modular_mastery");
+
+  const kindRow = document.querySelector(".form-row.field-kind");
+  if (kindRow) kindRow.style.display = "none";
+  return;
+}
+
 
       // Subclass scaffolding
-      if (scopeVal === "subclass_feat" || scopeVal === "subclass_choice") {
-        show(rows.subgroup, true);
-        show(rows.subclasses, true);
-      }
+if (scopeNorm  === "subclass_feat" || scopeNorm  === "subclass_choice") {
+  show(rows.subgroup,   true);
+  show(rows.subclasses, true);
+  // never show level_required for subclass flows
+  show(rows.levelRequired, false);
+}
 
       // Tier vs Mastery (only for subclass_feat)
-      if (scopeVal === "subclass_feat" && grpSelect && grpSelect.value) {
-        const st = grpSelect.getAttribute("data-system-type") || "";
-        show(rows.tier,        st === "modular_linear");
-        show(rows.masteryRank, st === "modular_mastery");
-      }
+if (scopeNorm  === "subclass_feat" && grpSelect && grpSelect.value) {
+  const st = grpSelect.getAttribute("data-system-type") || "";
+  show(rows.tier,        st === "modular_linear");
+  show(rows.masteryRank, st === "modular_mastery");
+}
+
+// If we're NOT in a subclass flow, show level_required normally
+if (["subclass_feat", "subclass_choice", "gain_subclass_feat"].indexOf(scopeNorm) === -1) {
+  show(rows.levelRequired, true);
+}
 
       // Class trait block
       if (kindVal === "class_trait") {
@@ -190,15 +212,129 @@
     const resModeEl = document.getElementById("id_gain_resistance_mode");
     if (resModeEl) resModeEl.addEventListener("change", toggleAll);
 
-    if (grpSelect) {
-      grpSelect.addEventListener("change", function () {
-        const map = JSON.parse(this.getAttribute("data-group-types") || "{}");
-        this.setAttribute("data-system-type", map[this.value] || "");
-        toggleAll();
-      });
-    }
+// Attach listeners
+if (grpSelect) {
+  grpSelect.addEventListener("change", function () {
+    const map = JSON.parse(this.getAttribute("data-group-types") || "{}");
+    this.setAttribute("data-system-type", map[this.value] || "");
+    toggleAll(); // repaint after every change
+  });
+
+  // ✅ Set the correct system type once on load too (preselect or browser back nav)
+  const startMap = JSON.parse(grpSelect.getAttribute("data-group-types") || "{}");
+  const startSys = startMap[grpSelect.value] || grpSelect.getAttribute("data-system-type") || "";
+  grpSelect.setAttribute("data-system-type", startSys);
+}
+
 
     // Initial paint
     toggleAll();
+  });
+})();
+
+
+// characters/js/classfeature_admin.js
+(function () {
+  const groupSel = document.querySelector('#id_subclass_group');
+  if (!groupSel) return;
+
+  const tierRow  = document.querySelector('.form-row.field-tier');
+  const rankRow  = document.querySelector('.form-row.field-mastery_rank');
+
+  function sysType() {
+    const map = JSON.parse(groupSel.dataset.groupTypes || '{}');
+    return map[groupSel.value] || groupSel.dataset.systemType || '';
+  }
+  function refresh() {
+    const sys = sysType();
+    if (tierRow) tierRow.style.display = (sys === 'modular_linear')   ? '' : 'none';
+    if (rankRow) rankRow.style.display = (sys === 'modular_mastery') ? '' : 'none';
+  }
+  groupSel.addEventListener('change', refresh);
+  refresh();
+})();
+
+
+// --- subclass visibility safety net ------------------------------------------
+(function () {
+  const scopeEl = document.getElementById('id_scope');
+  const grpSel  = document.getElementById('id_subclass_group');
+
+  function row(name) {
+    return document.querySelector('.form-row.field-' + name)
+        || document.querySelector('div.fieldBox.field-' + name);
+  }
+  function show(el, on) { if (el) el.style.display = on ? '' : 'none'; }
+  function sysType() {
+    if (!grpSel) return '';
+    const map = JSON.parse(grpSel.getAttribute('data-group-types') || '{}');
+    const sys = map[grpSel.value] || grpSel.getAttribute('data-system-type') || '';
+    grpSel.setAttribute('data-system-type', sys); // keep attribute fresh
+    return sys;
+  }
+
+  const levelRow     = row('level_required');
+  const subgroupRow  = row('subclass_group');
+  const subclassesRow= row('subclasses');
+  const tierRow      = row('tier');
+  const rankRow      = row('mastery_rank');
+
+  function refresh() {
+    const S = (scopeEl?.value || '').toLowerCase();
+
+    // tolerate both “…_feat” and “…_feature” spellings
+    const isSubclassFeat   = (S === 'subclass_feat'   || S === 'subclass_feature');
+    const isSubclassChoice = (S === 'subclass_choice');
+    const isGainSubclass   = (S === 'gain_subclass_feat' || S === 'gain_subclass_feature');
+    const inSubclassFlow   = isSubclassFeat || isSubclassChoice || isGainSubclass;
+
+    show(subgroupRow,  inSubclassFlow);
+    show(subclassesRow, isSubclassFeat || isSubclassChoice);
+    show(levelRow,     !inSubclassFlow);
+
+    const sys = sysType();
+    const showTier   = (isSubclassFeat || isGainSubclass) && sys === 'modular_linear';
+    const showRank   = (isSubclassFeat || isGainSubclass) && sys === 'modular_mastery';
+    show(tierRow, showTier);
+    show(rankRow, showRank);
+  }
+
+  scopeEl && scopeEl.addEventListener('change', refresh);
+  grpSel  && grpSel.addEventListener('change', refresh);
+  document.addEventListener('DOMContentLoaded', refresh);
+  refresh();
+})();
+(function () {
+  document.addEventListener('DOMContentLoaded', function () {
+    const groupSel = document.getElementById('id_subclass_group');
+    if (!groupSel) return;
+
+    const tierRow = document.querySelector('.form-row.field-tier')
+                || document.querySelector('div.fieldBox.field-tier');
+    const rankRow = document.querySelector('.form-row.field-mastery_rank')
+                || document.querySelector('div.fieldBox.field-mastery_rank');
+
+    function show(el, on) { if (el) el.style.display = on ? '' : 'none'; }
+
+    function currentSystem() {
+      // read mapping; if missing, fall back to stored attribute
+      let map = {};
+      try { map = JSON.parse(groupSel.getAttribute('data-group-types') || '{}'); }
+      catch (e) { map = {}; }
+      const sys = map[groupSel.value] || groupSel.getAttribute('data-system-type') || '';
+      // keep attribute fresh for other scripts
+      groupSel.setAttribute('data-system-type', sys);
+      return sys;
+    }
+
+    function refresh() {
+      const sys = currentSystem();
+      show(tierRow, sys === 'modular_linear');
+      show(rankRow, sys === 'modular_mastery');
+    }
+
+    groupSel.addEventListener('change', refresh);
+    // initial paint (covers preselected value + back/forward nav)
+    refresh();
   });
 })();

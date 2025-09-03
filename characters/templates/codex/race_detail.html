@@ -1,42 +1,217 @@
-{# templates/characters/race_detail.html #}
 {% extends "base.html" %}
 {% block content %}
-  <div class="max-w-3xl mx-auto p-6 space-y-6">
-    <div class="flex flex-col sm:flex-row sm:items-start sm:space-x-6">
-      
-      {# Primary Image (portrait) #}
+<div class="max-w-6xl mx-auto p-6 space-y-10">
+
+  {# =========================== RACE HEADER =========================== #}
+  <section class="grid grid-cols-1 lg:grid-cols-[140px_1fr_140px] gap-6 items-start">
+    {# Left portrait #}
+    <div class="w-full">
       {% if race.primary_image %}
-        <img
-          src="{{ race.primary_image.url }}"
-          alt="Primary image for {{ race.name }}"
-          class="w-full sm:w-32 h-32 object-cover rounded-full border-2 border-indigo-300"
-        />
+        <img src="{{ race.primary_image.url }}" alt="{{ race.name }} primary image"
+             class="w-full h-36 object-cover rounded-xl ring-1 ring-indigo-200" />
       {% else %}
-        <div class="w-full sm:w-32 h-32 bg-gray-200 flex items-center justify-center text-gray-500 rounded-full border-2 border-indigo-300">
-          No Primary
-        </div>
-      {% endif %}
-
-      <div class="mt-4 sm:mt-0 flex-1">
-        <h1 class="text-3xl font-bold mb-2">{{ race.name }}</h1>
-        <p class="text-sm text-gray-600 mb-2">{{ race.size|capfirst }} (Speed: {{ race.speed }})</p>
-        <p class="text-gray-700">{{ race.description }}</p>
-      </div>
-
-      {# Secondary Image (banner) #}
-      {% if race.secondary_image %}
-        <img
-          src="{{ race.secondary_image.url }}"
-          alt="Secondary image for {{ race.name }}"
-          class="w-full sm:w-32 h-32 object-cover rounded-full border-2 border-indigo-300 mt-4 sm:mt-0"
-        />
-      {% else %}
-        <div class="w-full sm:w-32 h-32 bg-gray-200 flex items-center justify-center text-gray-500 rounded-full border-2 border-indigo-300 mt-4 sm:mt-0">
-          No Secondary
+        <div class="w-full h-36 rounded-xl bg-gray-100 text-gray-400 flex items-center justify-center ring-1 ring-gray-200">
+          No Image
         </div>
       {% endif %}
     </div>
 
-    {# … then whatever other race sections (bonuses, features, etc.) … #}
-  </div>
+    {# Center info #}
+    <div class="space-y-4">
+      <header>
+        <h1 class="text-3xl font-bold tracking-tight">{{ race.name }}</h1>
+        <p class="mt-1 text-sm text-gray-600">
+          {{ race.size|capfirst }} • Speed {{ race.speed }}
+        </p>
+      </header>
+
+      {# Description #}
+      {% if race.description %}
+        <div class="prose max-w-none">{{ race.description|safe }}</div>
+      {% endif %}
+
+      {# Chips (Languages & Tags) #}
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {% if languages %}
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="text-xs uppercase tracking-wide text-gray-500">Languages</span>
+            {% for lang in languages %}
+              <span class="px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 text-xs">{{ lang.name }}</span>
+            {% endfor %}
+          </div>
+        {% endif %}
+        {% if tags %}
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="text-xs uppercase tracking-wide text-gray-500">Tags</span>
+            {% for tag in tags %}
+              <span class="px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs">{{ tag.name }}</span>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+
+      {# Race Ability Bonuses (non-zero only) #}
+      {% if race.strength_bonus or race.dexterity_bonus or race.constitution_bonus or race.intelligence_bonus or race.wisdom_bonus or race.charisma_bonus %}
+        <div class="rounded-lg bg-gray-50 ring-1 ring-gray-200 p-3">
+          <div class="text-xs uppercase tracking-wide text-gray-500 mb-2">Ability Bonuses</div>
+          <div class="flex flex-wrap gap-2 text-sm">
+            {% if race.strength_bonus %}<span class="px-2 py-1 rounded bg-white ring-1 ring-gray-200">STR +{{ race.strength_bonus }}</span>{% endif %}
+            {% if race.dexterity_bonus %}<span class="px-2 py-1 rounded bg-white ring-1 ring-gray-200">DEX +{{ race.dexterity_bonus }}</span>{% endif %}
+            {% if race.constitution_bonus %}<span class="px-2 py-1 rounded bg-white ring-1 ring-gray-200">CON +{{ race.constitution_bonus }}</span>{% endif %}
+            {% if race.intelligence_bonus %}<span class="px-2 py-1 rounded bg-white ring-1 ring-gray-200">INT +{{ race.intelligence_bonus }}</span>{% endif %}
+            {% if race.wisdom_bonus %}<span class="px-2 py-1 rounded bg-white ring-1 ring-gray-200">WIS +{{ race.wisdom_bonus }}</span>{% endif %}
+            {% if race.charisma_bonus %}<span class="px-2 py-1 rounded bg-white ring-1 ring-gray-200">CHA +{{ race.charisma_bonus }}</span>{% endif %}
+          </div>
+        </div>
+      {% endif %}
+      {# Note: Budget/Free/Max line intentionally removed per your request #}
+    </div>
+
+    {# Right banner #}
+    <div class="w-full">
+      {% if race.secondary_image %}
+        <img src="{{ race.secondary_image.url }}" alt="{{ race.name }} secondary image"
+             class="w-full h-36 object-cover rounded-xl ring-1 ring-indigo-200" />
+      {% else %}
+        <div class="w-full h-36 rounded-xl bg-gray-100 text-gray-400 flex items-center justify-center ring-1 ring-gray-200">
+          No Image
+        </div>
+      {% endif %}
+    </div>
+  </section>
+
+  {# =========================== SUBRACE QUICK LINKS =========================== #}
+  {% if subraces %}
+    <section class="space-y-3">
+      <h2 class="text-xl font-semibold">Subraces</h2>
+      <div class="flex flex-wrap gap-2">
+        {% for sr in subraces %}
+          <a href="{{ sr.get_absolute_url|default:'#' }}"
+             class="px-3 py-1 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm">
+            {{ sr.name }}
+          </a>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  {# =========================== UNIVERSAL FEATURES =========================== #}
+  <section class="space-y-4">
+    <h2 class="text-xl font-semibold">Universal Racial Features</h2>
+    {% if universal_features %}
+      <div class="grid grid-cols-1 gap-4">
+        {% for f in universal_features %}
+          {% include "codex/partials/_racial_feature_card.html" with feat=f %}
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="text-gray-500 text-sm">No universal racial features.</p>
+    {% endif %}
+  </section>
+
+  {# =========================== CLASS-TIED FEATURES =========================== #}
+  <section class="space-y-4">
+    <h2 class="text-xl font-semibold">Features by Class</h2>
+    {% if class_features_by_class %}
+      <div class="space-y-6">
+        {% for cls, feats in class_features_by_class %}
+          <div class="rounded-xl ring-1 ring-gray-200 overflow-hidden">
+            <div class="px-4 py-2 bg-gray-50 flex items-center justify-between">
+              <h3 class="font-semibold">{{ cls.name }}</h3>
+              <span class="text-xs text-gray-500">{{ feats|length }} feature{{ feats|length|pluralize }}</span>
+            </div>
+            <div class="p-4 grid grid-cols-1 gap-4">
+              {% for f in feats %}
+                {% include "codex/partials/_racial_feature_card.html" with feat=f %}
+              {% endfor %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="text-gray-500 text-sm">No class-specific racial features.</p>
+    {% endif %}
+  </section>
+
+  {# =========================== SUBRACE FEATURES (shows subrace bonuses) =========================== #}
+  <section class="space-y-4">
+    <h2 class="text-xl font-semibold">Features by Subrace</h2>
+    {% if subrace_features_by_subrace %}
+      <div class="space-y-8">
+        {% for sr, feats in subrace_features_by_subrace %}
+          <div class="rounded-xl ring-1 ring-indigo-200 overflow-hidden">
+            <div class="px-4 py-3 bg-indigo-50 flex items-center justify-between">
+              <div class="flex items-center gap-3">
+                <h3 class="font-semibold">
+                  {{ sr.race.name }} — {{ sr.name }}
+                </h3>
+                <span class="inline-flex px-2 py-0.5 rounded text-[10px] bg-indigo-600 text-white">Subrace</span>
+              </div>
+              <span class="text-xs text-gray-600">{{ feats|length }} feature{{ feats|length|pluralize }}</span>
+            </div>
+
+            {# Subrace Overview: size/speed and NON-ZERO ability bonuses #}
+            <div class="px-4 pt-4">
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div class="rounded-lg bg-white ring-1 ring-gray-200 p-3">
+                  <div class="text-xs uppercase tracking-wide text-gray-500 mb-1">Basics</div>
+                  <div class="text-sm text-gray-800">
+                    {{ sr.size|capfirst }} • Speed {{ sr.speed }}
+                  </div>
+                </div>
+
+                {% if sr.strength_bonus or sr.dexterity_bonus or sr.constitution_bonus or sr.intelligence_bonus or sr.wisdom_bonus or sr.charisma_bonus %}
+                  <div class="md:col-span-2 rounded-lg bg-white ring-1 ring-gray-200 p-3">
+                    <div class="text-xs uppercase tracking-wide text-gray-500 mb-1">Ability Bonuses</div>
+                    <div class="flex flex-wrap gap-2 text-sm">
+                      {% if sr.strength_bonus %}<span class="px-2 py-1 rounded bg-gray-50 ring-1 ring-gray-200">STR +{{ sr.strength_bonus }}</span>{% endif %}
+                      {% if sr.dexterity_bonus %}<span class="px-2 py-1 rounded bg-gray-50 ring-1 ring-gray-200">DEX +{{ sr.dexterity_bonus }}</span>{% endif %}
+                      {% if sr.constitution_bonus %}<span class="px-2 py-1 rounded bg-gray-50 ring-1 ring-gray-200">CON +{{ sr.constitution_bonus }}</span>{% endif %}
+                      {% if sr.intelligence_bonus %}<span class="px-2 py-1 rounded bg-gray-50 ring-1 ring-gray-200">INT +{{ sr.intelligence_bonus }}</span>{% endif %}
+                      {% if sr.wisdom_bonus %}<span class="px-2 py-1 rounded bg-gray-50 ring-1 ring-gray-200">WIS +{{ sr.wisdom_bonus }}</span>{% endif %}
+                      {% if sr.charisma_bonus %}<span class="px-2 py-1 rounded bg-gray-50 ring-1 ring-gray-200">CHA +{{ sr.charisma_bonus }}</span>{% endif %}
+                    </div>
+                  </div>
+                {% endif %}
+              </div>
+            </div>
+
+            <div class="p-4 grid grid-cols-1 gap-4">
+              {% for f in feats %}
+                {% include "codex/partials/_racial_feature_card.html" with feat=f %}
+              {% endfor %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="text-gray-500 text-sm">No subrace-specific racial features.</p>
+    {% endif %}
+  </section>
+
+  {# =========================== OPTIONAL: SUBCLASS UMBRELLA (leave if you still use it) =========================== #}
+  {% if subclass_features_by_group %}
+    <section class="space-y-4">
+      <h2 class="text-xl font-semibold">Subclass Features (umbrella / group)</h2>
+      <div class="space-y-6">
+        {% for grp, feats in subclass_features_by_group %}
+          <div class="rounded-xl ring-1 ring-indigo-200 overflow-hidden">
+            <div class="px-4 py-3 bg-indigo-50 flex items-center justify-between">
+              <h3 class="font-semibold">
+                {{ grp.character_class.name }} — {{ grp.name }}
+              </h3>
+              <span class="text-xs text-gray-600">{{ feats|length }} feature{{ feats|length|pluralize }}</span>
+            </div>
+            <div class="p-4 grid grid-cols-1 gap-4">
+              {% for f in feats %}
+                {% include "codex/partials/_racial_feature_card.html" with feat=f %}
+              {% endfor %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+</div>
 {% endblock %}

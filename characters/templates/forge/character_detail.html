@@ -1501,6 +1501,23 @@
                           Linear progression: the following {{ item.group.name }} feature(s) are granted automatically.
                         </div>
                       {% endif %}
+{# 🔹 SHOW MODULAR-MASTERY RULES HELP #}
+{% if item.system == "modular_mastery" %}
+  {% with r=item.group.modular_rules %}
+    {% if r %}
+      <div class="alert alert-secondary p-2">
+        <strong>Modular Mastery</strong> —
+        pick exactly {{ r.picks_per_trigger|default:1 }} this level;
+        every {{ r.modules_per_mastery|default:2 }} pick(s) = +1 Mastery rank
+        {% if r.max_mastery_rank %}(max rank {{ r.max_mastery_rank }}){% endif %}.
+      </div>
+    {% else %}
+      <div class="alert alert-warning p-2">
+        Modular Mastery group has no rules configured.
+      </div>
+    {% endif %}
+  {% endwith %}
+{% endif %}
 
                       <div class="d-grid gap-2">
                         {% with selected_vals=item.field.value %}

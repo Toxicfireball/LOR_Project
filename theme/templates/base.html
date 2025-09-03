@@ -7,11 +7,16 @@
   <title>{% block title %}…{% endblock %}</title>
 <style>
   /* dropdown visibility */
-  .dropdown-menu      { display: none; position: absolute; z-index: 70; } /* above page content */
+  .dropdown-menu      { display: none; position: static; z-index: auto; }
   .dropdown-menu.show { display: block; }
 
   .mobile-menu      { display: none; }
   .mobile-menu.show { display: block; }
+
+  /* desktop: make dropdowns fly out over content */
+  @media (min-width: 768px) {
+    nav .dropdown-menu { position: absolute; z-index: 70; margin-top: .5rem; }
+  }
 </style>
 
 <script src="https://cdn.tailwindcss.com?plugins=typography"></script>

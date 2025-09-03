@@ -23,6 +23,26 @@ FIVE_TIERS = ["Untrained", "Trained", "Expert", "Master", "Legendary"]
 from .models import Spell, CharacterKnownSpell, CharacterPreparedSpell
 from django.db.models import Q
 
+def _mastery_state(character, subclass, modules_per_mastery: int) -> dict:
+    """
+    Returns: {
+      "taken": int,  # number of subclass features already taken from this subclass
+      "rank": int,   # floor(taken / modules_per_mastery)
+      "into_rank": int,         # taken % modules_per_mastery
+      "need_for_next": int,     # modules_per_mastery - into_rank (0 if at boundary)
+    }
+    """
+    taken = CharacterFeature.objects.filter(
+        character=character,
+        subclass=subclass,
+        feature__scope='subclass_feat'
+    ).count()
+
+    mpm = max(1, int(modules_per_mastery or 1))
+    rank = taken // mpm
+    into = taken % mpm
+    need = (mpm - into) if into else 0
+    return {"taken": taken, "rank": rank, "into_rank": into, "need_for_next": need}
 
 # views.py (top, after imports)
 def _nonempty(val):
@@ -1458,9 +1478,53 @@ def race_list(request):
     races = Race.objects.all().order_by('name')
     return render(request, 'codex/race_list.html', {'races': races})
 
+from django.shortcuts import get_object_or_404, render
+from itertools import groupby
+from operator import attrgetter
+
+
 def race_detail(request, pk):
     race = get_object_or_404(Race, pk=pk)
-    return render(request, 'codex/race_detail.html', {'race': race})
+
+    feats_qs = (
+        race.features
+        .select_related('character_class', 'subrace')
+        .prefetch_related('gain_subskills', 'race_options__grants_feature', 'spell_slot_rows')
+        .order_by('name')
+    )
+
+    # (A) Universal = no subrace & no class
+    universal_features = [f for f in feats_qs if not f.subrace_id and not f.character_class_id]
+
+    # (B) By Class = has class, but NOT tied to subrace
+    class_map = {}
+    for f in feats_qs:
+        if f.character_class_id and not f.subrace_id:
+            class_map.setdefault(f.character_class, []).append(f)
+
+    # (C) By Subrace = any feature where subrace is set (this is now the “subrace feature”)
+    subrace_map = {}
+    for f in feats_qs:
+        if f.subrace_id:
+            subrace_map.setdefault(f.subrace, []).append(f)
+
+    # Sort buckets
+    universal_features.sort(key=attrgetter('name'))
+    for bucket in class_map.values():
+        bucket.sort(key=attrgetter('name'))
+    for bucket in subrace_map.values():
+        bucket.sort(key=attrgetter('name'))
+
+    context = {
+        'race': race,
+        'universal_features': universal_features,
+        'class_features_by_class': sorted(class_map.items(), key=lambda kv: kv[0].name),
+        'subrace_features_by_subrace': sorted(subrace_map.items(), key=lambda kv: kv[0].name),
+        'subraces': race.subraces.all().order_by('name'),
+        'languages': race.languages.all().order_by('name'),
+        'tags': race.tags.all().order_by('name'),
+    }
+    return render(request, 'codex/race_detail.html', context)
 
 # characters/views.py
 
@@ -2810,43 +2874,70 @@ def character_detail(request, pk):
 
         # ------------- MODULAR MASTERY -------------
         if grp.system_type == SubclassGroup.SYSTEM_MODULAR_MASTERY:
-            # your existing mastery logic (requires a specific subclass)
             active_sub = _active_subclass_for_group(character, grp, level_form, base_feats)
 
             eligible_qs = ClassFeature.objects.none()
+            mastery_meta = None
+            picks_per_trigger = 1
             if active_sub:
-                rules = active_sub.modular_rules or {}
+                # RULES COME FROM THE GROUP (umbrella)
+                rules = (grp.modular_rules or {})
                 modules_per_mastery = int(rules.get('modules_per_mastery', 2))
+                picks_per_trigger   = int(rules.get('picks_per_trigger', 1))
+                max_mastery_rank    = rules.get('max_mastery_rank')  # optional cap
 
-                taken_ids = set(
-                    CharacterFeature.objects
-                    .filter(character=character, subclass=active_sub, feature__scope='subclass_feat')
-                    .values_list('feature_id', flat=True)
-                )
-                taken_count = len(taken_ids)
-                current_mastery = taken_count // max(1, modules_per_mastery)
+                state = _mastery_state(character, active_sub, modules_per_mastery)
+                current_rank = state["rank"]
 
-                eligible_qs = (ClassFeature.objects
-                            .filter(scope='subclass_feat',
-                                    subclass_group=grp,
-                                    subclasses=active_sub)
-                            .exclude(pk__in=taken_ids)
-                            .filter(
-                                models.Q(mastery_rank__isnull=True) |
-                                models.Q(mastery_rank__lte=current_mastery)
-                            )
-                            .filter(
-                                models.Q(min_level__isnull=True) |
-                                models.Q(min_level__lte=cls_level_after)
-                            ))
+                # Gate by mastery rank + optional cap + class level gates
+                base = (ClassFeature.objects
+                        .filter(scope='subclass_feat',
+                                subclass_group=grp,
+                                subclasses=active_sub)
+                        .filter(
+                            models.Q(mastery_rank__isnull=True) |
+                            models.Q(mastery_rank__lte=current_rank)
+                        )
+                        .filter(
+                            models.Q(min_level__isnull=True) |
+                            models.Q(min_level__lte=cls_level_after)
+                        ))
 
+                if max_mastery_rank is not None:
+                    base = base.filter(
+                        models.Q(mastery_rank__isnull=True) |
+                        models.Q(mastery_rank__lte=int(max_mastery_rank))
+                    )
 
-            level_form.fields[field_name] = forms.ModelMultipleChoiceField(
-                label=f"Pick {grp.name} feature(s)",
-                queryset=eligible_qs.order_by('name'),
+                # Exclude already taken
+                taken_ids = CharacterFeature.objects.filter(
+                    character=character,
+                    subclass=active_sub,
+                    feature__scope='subclass_feat'
+                ).values_list('feature_id', flat=True)
+
+                eligible_qs = base.exclude(pk__in=taken_ids).order_by('name')
+
+                mastery_meta = {
+                    "modules_per_mastery": modules_per_mastery,
+                    "picks_per_trigger": picks_per_trigger,
+                    "rank": current_rank,
+                    "taken": state["taken"],
+                    "into_rank": state["into_rank"],
+                    "need_for_next": state["need_for_next"],
+                }
+
+            field = forms.ModelMultipleChoiceField(
+                label=f"Pick {grp.name} feature(s) — {active_sub.name if active_sub else 'choose subclass first'}",
+                queryset=eligible_qs,
                 required=bool(eligible_qs.exists()),
-                widget=forms.CheckboxSelectMultiple
+                widget=forms.CheckboxSelectMultiple,
+                help_text=(f"Mastery {mastery_meta['rank']}, "
+                        f"{mastery_meta['into_rank']}/{mastery_meta['modules_per_mastery']} into next "
+                        f"(pick exactly {mastery_meta['picks_per_trigger']} now)."
+                        if mastery_meta else "—")
             )
+            level_form.fields[field_name] = field
 
             feature_fields.append({
                 "kind": "gain_subclass_feat",
@@ -2856,7 +2947,10 @@ def character_detail(request, pk):
                 "subclass": active_sub,
                 "eligible": list(eligible_qs),
                 "system": grp.system_type,
+                "mastery_meta": mastery_meta,
             })
+            continue
+
     # ---- Restrict feat querysets by type + race/subrace + class name + tags ----
     # NOTE: Q must be imported at module level; do NOT import Q in this function.
 
@@ -3140,16 +3234,42 @@ def character_detail(request, pk):
                         option=opt,
                         level=next_level
                     )
-
                 elif name.endswith('_subfeats'):
-                    # NEW: persist selected subclass features for modular systems
                     grp = cf.subclass_group
-
-                    # ModelMultipleChoiceField returns ClassFeature objects
                     picked_features = list(val) if hasattr(val, '__iter__') else []
 
+                    if grp.system_type == SubclassGroup.SYSTEM_MODULAR_MASTERY:
+                        # enforce caps and correctness
+                        rules = (grp.modular_rules or {})
+                        picks_per_trigger = int(rules.get('picks_per_trigger', 1))
+                        modules_per_mastery = int(rules.get('modules_per_mastery', 2))
+                        active_sub = _active_subclass_for_group(character, grp, level_form, base_feats)
+
+                        if not active_sub:
+                            messages.error(request, f"You must choose a {grp.name} subclass first.")
+                            return redirect('characters:character_detail', pk=pk)
+
+                        # must pick exactly N
+                        if len(picked_features) != picks_per_trigger:
+                            messages.error(request, f"Pick exactly {picks_per_trigger} feature(s) for {grp.name}.")
+                            return redirect('characters:character_detail', pk=pk)
+
+                        # all selected must belong to the active subclass
+                        if any(active_sub not in sf.subclasses.all() for sf in picked_features):
+                            messages.error(request, "All selected features must belong to your chosen subclass.")
+                            return redirect('characters:character_detail', pk=pk)
+
+                        # re-compute current mastery rank; server-side recheck of mastery_rank gates
+                        ms = _mastery_state(character, active_sub, modules_per_mastery)
+                        current_rank = ms["rank"]
+                        for sf in picked_features:
+                            req = getattr(sf, "mastery_rank", None)
+                            if req is not None and int(req) > current_rank:
+                                messages.error(request, f"{sf.name} requires Mastery {req}.")
+                                return redirect('characters:character_detail', pk=pk)
+
+                    # persist the picks (same as you already do)
                     for sf in picked_features:
-                        # attach to the subclass this feature belongs to
                         sub_for_sf = sf.subclasses.first()
                         if not sub_for_sf:
                             continue
@@ -3157,10 +3277,10 @@ def character_detail(request, pk):
                             character=character,
                             feature=sf,
                             subclass=sub_for_sf,
-                            level=next_level  # keep character-level here
+                            level=next_level
                         )
 
-                      
+                                    
 
 
 
@@ -3226,6 +3346,22 @@ def character_detail(request, pk):
                         qs.filter(Q(level_required=1) | Q(level_required__isnull=True))
                         .order_by('name')
                     )
+            elif grp.system_type == SubclassGroup.SYSTEM_MODULAR_MASTERY:
+                rules = grp.modular_rules or {}
+                mpm = int(rules.get('modules_per_mastery', 2))
+                feats = []
+                state = _mastery_state(character, sc, mpm)
+                current_rank = state["rank"]
+
+                feats = list(
+                    qs.filter(
+                        models.Q(mastery_rank__isnull=True) |
+                        models.Q(mastery_rank__lte=current_rank)
+                    ).filter(
+                        models.Q(min_level__isnull=True) |
+                        models.Q(min_level__lte=cls_level_after)
+                    ).order_by('name')
+                )
 
             else:  # SubclassGroup.SYSTEM_MODULAR_MASTERY
                 rules = sc.modular_rules or {}
