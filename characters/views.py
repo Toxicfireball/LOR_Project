@@ -1521,6 +1521,26 @@ def subclass_group_list(request):
 from collections import OrderedDict
 
 from characters.models import CharacterClass, ClassFeature, ClassSubclass, SubclassGroup, ClassLevel, ClassLevelFeature
+def weapon_list(request):
+    trait_values_qs = WeaponTraitValue.objects.select_related("trait").order_by("trait__name")
+    weapons = (
+        Weapon.objects
+        .all()
+        .prefetch_related(Prefetch("weapontraitvalue_set", queryset=trait_values_qs))
+        .order_by("category", "range_type", "name")
+    )
+    return render(request, "codex/codex_weapons.html", {"weapons": weapons})
+
+# armor: sort by type → armor_value → name (table looks nicer this way)
+def armor_list(request):
+    armor_items = (
+        Armor.objects
+        .all()
+        .prefetch_related("traits")
+        .order_by("type", "armor_value", "name")
+    )
+    return render(request, "codex/codex_armor.html", {"armor_items": armor_items})
+
 
 from django.db.models import Prefetch,Max
 def class_detail(request, pk):

@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}Codex – Armor{% endblock %}
+
+{% block extra_css %}
+<style>
+  .table-wrap { overflow-x: auto; }
+  .tt { position: relative; display: inline-block; }
+  .tt .badge { @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-gray-200 text-gray-800; }
+  .tt-panel {
+    position: fixed;
+    display: none;
+    min-width: 16rem; max-width: 24rem;
+    background: #111827; color: #F9FAFB;
+    border-radius: .5rem; padding: .5rem .75rem;
+    box-shadow: 0 10px 20px rgba(0,0,0,.22);
+    z-index: 9999;
+    pointer-events: none;
+  }
+  .tt[data-open="1"] .tt-panel { display: block; }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1 class="text-3xl font-bold mb-6">Codex: Armor</h1>
+
+{% regroup armor_items by type as type_groups %}
+{% for g in type_groups %}
+  <h2 class="text-2xl font-semibold mt-8 mb-3">{{ g.grouper|title }} Armor</h2>
+
+  <div class="table-wrap bg-white rounded-xl shadow">
+    <table class="min-w-full text-sm">
+      <thead class="bg-gray-50 text-gray-700">
+        <tr class="text-left">
+          <th class="px-4 py-3">Name</th>
+          <th class="px-4 py-3">Armor</th>
+          <th class="px-4 py-3">Dex Cap</th>
+          <th class="px-4 py-3">Str Req</th>
+          <th class="px-4 py-3">Speed Penalty</th>
+          <th class="px-4 py-3">Hindrance</th>
+          <th class="px-4 py-3">Group Code</th>
+          <th class="px-4 py-3">Traits</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for a in g.list %}
+        <tr>
+          <td class="px-4 py-3 font-medium">{{ a.name }}</td>
+          <td class="px-4 py-3">{{ a.armor_value }}</td>
+          <td class="px-4 py-3">{{ a.dex_cap|default:"—" }}</td>
+          <td class="px-4 py-3">{{ a.strength_requirement|default:"—" }}</td>
+          <td class="px-4 py-3">{{ a.speed_penalty }}</td>
+          <td class="px-4 py-3">{{ a.hinderance }}</td>
+          <td class="px-4 py-3">{{ a.group_code }}</td>
+          <td class="px-4 py-3">
+            {% if a.traits.all %}
+            <div class="flex flex-wrap gap-1.5">
+              {% for t in a.traits.all %}
+                <span class="tt">
+                  <button class="badge tt-btn" type="button">{{ t.name }}</button>
+                  <div class="tt-panel" role="tooltip">
+                    <div class="text-xs leading-snug">
+                      <div class="font-semibold mb-1">{{ t.name }}</div>
+                      <p class="mb-0.5">{{ t.description }}</p>
+                    </div>
+                  </div>
+                </span>
+              {% endfor %}
+            </div>
+            {% else %}<span class="text-gray-400">—</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endfor %}
+
+<!-- same tooltip script as weapons page -->
+<script>
+function clamp(n, min, max){ return Math.max(min, Math.min(max, n)); }
+
+function place(panel, trigger) {
+  const r = trigger.getBoundingClientRect();
+  const pw = panel.offsetWidth, ph = panel.offsetHeight, gap = 8;
+  let top = r.top - ph - gap;
+  let left = r.left + (r.width/2) - (pw/2);
+  if (top < 8) top = r.bottom + gap;
+  const vw = document.documentElement.clientWidth;
+  left = clamp(left, 8, vw - pw - 8);
+  panel.style.top = Math.round(top) + 'px';
+  panel.style.left = Math.round(left) + 'px';
+}
+
+document.querySelectorAll('.tt').forEach(tt => {
+  const trigger = tt.querySelector('.tt-btn') || tt;
+  const panel   = tt.querySelector('.tt-panel');
+  if (!panel) return;
+
+  const open  = () => {
+    tt.setAttribute('data-open','1');
+    panel.style.display = 'block';        // <— show inline
+    place(panel, trigger);                // place after it’s visible
+  };
+  const close = () => {
+    tt.setAttribute('data-open','0');
+    panel.style.display = 'none';         // <— HIDE inline (fix)
+  };
+
+  trigger.addEventListener('pointerenter', open);
+  tt.addEventListener('pointerleave', close);
+  trigger.addEventListener('focus', open);
+  trigger.addEventListener('blur',  close);
+  trigger.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'mouse') {
+      (tt.getAttribute('data-open') === '1' ? close : open)();
+      e.preventDefault();
+    }
+  });
+});
+
+function closeAll(){
+  document.querySelectorAll('.tt').forEach(tt => {
+    if (tt.getAttribute('data-open') === '1') {
+      tt.setAttribute('data-open','0');
+      const p = tt.querySelector('.tt-panel');
+      if (p) p.style.display = 'none';    // <— also hide inline
+    }
+  });
+}
+
+document.addEventListener('click', (e) => { if (!e.target.closest('.tt')) closeAll(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAll(); });
+window.addEventListener('scroll', closeAll, { passive: true });
+window.addEventListener('resize', () => {
+  document.querySelectorAll('.tt[data-open="1"]').forEach(tt => {
+    const panel = tt.querySelector('.tt-panel');
+    const trg = tt.querySelector('.tt-btn') || tt;
+    if (panel) place(panel, trg);
+  });
+});
+
+</script>
+
+{% endblock %}

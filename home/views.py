@@ -5,3 +5,5 @@ def home(request):
 
 def character_creator(request):
     return render(request, 'home/character_creator.html')  # Fix this path!
+
+

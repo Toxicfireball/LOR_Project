@@ -48,9 +48,10 @@ class FeatureOptionInline(admin.TabularInline):
     model   = FeatureOption
     fk_name = "feature"
     extra   = 1
+    classes = ["featureoption-inline"]
     verbose_name = "Feature option"
     verbose_name_plural = "Feature options"
-
+    autocomplete_fields = ("grants_feature",) 
 # ─── Inline for Pages ─────────────────────────────────────────────────────────
 from django_summernote.widgets import SummernoteWidget
 from django.contrib import admin
@@ -132,6 +133,29 @@ def build_proficiency_target_choices():
         skills = []
     return [("", "---------")] + base + skills
 
+# home/admin.py
+def build_proficiency_target_choices():
+    """
+    Returns optgrouped choices for:
+      • Core proficiencies (from PROFICIENCY_TYPES)
+      • Skills (skill_<id>)
+      • Sub-skills (subskill_<id>) labeled “<Skill> – <Sub-skill>”
+    """
+    from characters.models import Skill, SubSkill, PROFICIENCY_TYPES
+    core      = list(PROFICIENCY_TYPES)
+    try:
+        skills    = [(f"skill_{s.pk}", s.name) for s in Skill.objects.all()]
+        subskills = [(f"subskill_{ss.pk}", f"{ss.skill.name} – {ss.name}")
+                     for ss in SubSkill.objects.select_related("skill")]
+    except Exception:
+        skills, subskills = [], []
+
+    # Django supports optgroups as ("Group label", [(value,label),...])
+    return [
+        ("Core",       core),
+        ("Skills",     skills),
+        ("Sub-skills", subskills),
+    ]
 
 # home/admin.py
 class ClassProficiencyProgressForm(forms.ModelForm):
@@ -431,30 +455,25 @@ class SubclassGroupAdmin(admin.ModelAdmin):
     list_filter  = ("character_class", "system_type")
     fields = ("character_class", "name", "code", "system_type")
 
-    # ▾ only show the inline(s) that make sense for the selected system_type
+    # ✅ Only attach inlines that make sense for SubclassGroup
     def get_inline_instances(self, request, obj=None):
-        sys = (
-            (request.POST.get("system_type") if request.method == "POST" else None)
-            or request.GET.get("system_type")
-            or (obj.system_type if obj else None)
-        )
         inlines = []
-        if sys == SubclassGroup.SYSTEM_MODULAR_LINEAR:
-            inlines.append(SubclassTierLevelInline(self.model, self.admin_site))
-        elif sys == SubclassGroup.SYSTEM_MODULAR_MASTERY:
-            inlines.append(SubclassMasteryUnlockInline(self.model, self.admin_site))
-        # linear: no inlines
+        if obj:
+            if obj.system_type == SubclassGroup.SYSTEM_MODULAR_LINEAR:
+                inlines.append(SubclassTierLevelInline(self.model, self.admin_site))
+            elif obj.system_type == SubclassGroup.SYSTEM_MODULAR_MASTERY:
+                inlines.append(SubclassMasteryUnlockInline(self.model, self.admin_site))
         return inlines
+
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
 
         grp = form.instance
-        # Only re-number for modular_mastery
         if grp.system_type == SubclassGroup.SYSTEM_MODULAR_MASTERY:
             gates = list(SubclassMasteryUnlock.objects.filter(subclass_group=grp))
-            # Assign ranks only if any row has rank is None
             if any(g.rank is None for g in gates):
-                for idx, gate in enumerate(sorted(gates, key=lambda g: (g.rank is None, g.rank, g.unlock_level, g.pk))):
+                for idx, gate in enumerate(sorted(
+                        gates, key=lambda g: (g.rank is None, g.rank, g.unlock_level, g.pk))):
                     if gate.rank is None:
                         gate.rank = idx
                 SubclassMasteryUnlock.objects.bulk_update(gates, ["rank"])
@@ -951,7 +970,19 @@ class ClassFeatureForm( ProficiencyTargetUIMixin,forms.ModelForm):
         label="Gain/Modify mode",
         help_text="Pick one: Increase tier by one (+1 tier), or Gain amount to override (set to a fixed tier)."
     )
-
+    TARGET_GRANT_MODE = (
+        ("grant_all",      "Grant all selected now"),
+        ("present_choices","Let the player choose (pick N)"),
+    )
+    target_grant_mode   = forms.ChoiceField(
+        choices=TARGET_GRANT_MODE, required=False, widget=forms.RadioSelect,
+        label="When multiple targets are selected…",
+        help_text="Grant all immediately, or present them as choices to the player."
+    )
+    target_choice_count = forms.IntegerField(
+        required=False, min_value=1, label="Choices to pick (N)",
+        help_text="Only used if ‘Let the player choose’ is selected."
+    )
 
     gain_proficiency_target = forms.ChoiceField(
         choices=build_proficiency_target_choices(),
@@ -1201,8 +1232,41 @@ class ClassFeatureForm( ProficiencyTargetUIMixin,forms.ModelForm):
                     self.cleaned_data["modify_proficiency_target"] = ""
 
 
-        return cleaned
+        target_tokens = self._normalize_prof_targets()
+        mode_core     = (self.cleaned_data.get("prof_change_mode") or "").strip()
+        gmp_mode      = (self.cleaned_data.get("gmp_mode") or "").strip()
 
+        # important: we only meddle with the *generic* Gain/Modify section
+        used_generic = bool(gmp_mode)          # your existing flag
+        # used_core    = bool(mode_core)       # as you already compute
+
+        # normalize modify_* to a flat list of tokens if necessary
+        sel = self.cleaned_data.get("modify_proficiency_target") or ""
+        if isinstance(sel, str):
+            selected = [t for t in sel.split(",") if t]
+        else:
+            selected = list(sel or [])
+
+        # ── NEW: apply the grant/choices mode when using generic section ──
+        if used_generic and selected:
+            grant_mode = (self.cleaned_data.get("target_grant_mode") or "grant_all").strip()
+
+            if grant_mode == "present_choices":
+                n = self.cleaned_data.get("target_choice_count") or 0
+                if n < 1:
+                    self.add_error("target_choice_count", "Enter how many the player may pick (≥ 1).")
+                if n > len(selected):
+                    self.add_error("modify_proficiency_target",
+                                   f"You selected only {len(selected)} target(s) but set pick {n}.")
+                # Encode as: choose:<N>:<comma-separated tokens>
+                encoded = f"choose:{n}:{','.join(selected)}"
+                self.cleaned_data["modify_proficiency_target"] = encoded
+            else:
+                # grant_all → store as simple comma-joined list (your current format)
+                self.cleaned_data["modify_proficiency_target"] = ",".join(selected)
+
+        # if NOT using the generic section, keep whatever you already set earlier
+        return cleaned
 
 class MasteryChoiceFormSet(BaseInlineFormSet):
     def clean(self):
@@ -1554,11 +1618,15 @@ class ClassFeatureAdmin(admin.ModelAdmin):
             ]}),
 
             # ── Section A: Gain/Modify (generic) ─────────────────────────
-            ("Gain/Modify Proficiency (generic)", { "fields": [
-                "gmp_mode",                       # (uptier | set)
-                "modify_proficiency_target",      # combined list (base types + Skills)
-                "modify_proficiency_amount",      # only shown when gmp_mode = set
-            ]}),
+("Gain/Modify Proficiency (generic)", { "fields": [
+    "gmp_mode",                       # (uptier | set)
+    "modify_proficiency_target",      # multi-select (core + skills + sub-skills)
+    "modify_proficiency_amount",      # used when gmp_mode = set
+
+    # ↓↓↓ NEW ↓↓↓
+    "target_grant_mode",              # Grant all vs. Present choices
+    "target_choice_count",            # N, when presenting choices
+]}),
 
             # ── Section B: Add Core Proficiency (armor & weapons only) ───
             ("Add Core Proficiency (armor/weapons only)", { "fields": [
@@ -1587,32 +1655,23 @@ class ClassFeatureAdmin(admin.ModelAdmin):
         # Force a <select> for modify_proficiency_target even though the model is CharField
         if db_field.name == "modify_proficiency_target":
             from django import forms
-            from characters.models import PROFICIENCY_TYPES, Skill
-            base = list(PROFICIENCY_TYPES)
-            skill_choices = [(f"skill_{s.pk}", s.name) for s in Skill.objects.all()]
-            all_choices = [("", "---------")] + base + skill_choices
             return forms.MultipleChoiceField(
-                choices=all_choices,
+                choices=build_proficiency_target_choices(),   # ← now includes Sub-skills
                 required=False,
                 widget=forms.SelectMultiple,
                 label=db_field.verbose_name,
-                help_text="Select one or more. Includes all core profs and every Skill.",
+                help_text="Select one or more (core profs, Skills, Sub-skills).",
             )
 
         if db_field.name == "gain_proficiency_target":
-                from django import forms
-                from characters.models import PROFICIENCY_TYPES, Skill
-                base = list(PROFICIENCY_TYPES)
-                skill_choices = [(f"skill_{s.pk}", s.name) for s in Skill.objects.all()]
-                all_choices = [("", "---------")] + base + skill_choices
-                return forms.ChoiceField(
-                    choices=all_choices,
-                    required=not db_field.blank,
-                    widget=forms.Select,
-                    label=db_field.verbose_name,
-                    help_text=db_field.help_text,
-                )
-        
+            from django import forms
+            return forms.ChoiceField(
+                choices=[("", "---------")] + build_proficiency_target_choices(),
+                required=not db_field.blank,
+                widget=forms.Select,
+                label=db_field.verbose_name,
+                help_text=db_field.help_text,
+            )
 
         return super().formfield_for_dbfield(db_field, request, **kwargs)
 
@@ -1659,27 +1718,23 @@ class ClassFeatureAdmin(admin.ModelAdmin):
         return super().changeform_view(request, object_id, form_url, extra_context)
 
     def get_inline_instances(self, request, obj=None):
-        inlines = []
-        # options inline…
-        has = (request.method == "POST" and request.POST.get("has_options") in ("1","true","on")) \
-            or (getattr(obj, "has_options", False) if obj else False)
-        if has:
-            inlines.append(FeatureOptionInline(self.model, self.admin_site))
+        # start with the class-defined inlines (FeatureOptionInline)
+        inls = super().get_inline_instances(request, obj)
 
         post_kind = request.POST.get("kind") if request.method == "POST" else None
         obj_kind  = getattr(obj, "kind", None)
         get_kind  = request.GET.get("kind")
 
+        # add the conditional inlines
         if post_kind == "inherent_spell" or obj_kind == "inherent_spell":
-            inlines.append(SpellInline(self.model, self.admin_site))
+            inls.append(SpellInline(self.model, self.admin_site))
 
-        # 🔧 ensure inline is present on Add so JS can toggle it immediately
         has_rows = bool(obj and SpellSlotRow.objects.filter(feature=obj).exists())
-        if obj is None or post_kind == "spell_table" or obj_kind == "spell_table" or get_kind == "spell_table" or has_rows:
-            inlines.append(SpellSlotRowInline(self.model, self.admin_site))
+        if (obj is None or post_kind == "spell_table" or obj_kind == "spell_table"
+                or get_kind == "spell_table" or has_rows):
+            inls.append(SpellSlotRowInline(self.model, self.admin_site))
 
-        return inlines
-
+        return inls
 
 
     def get_form(self, request, obj=None, **kwargs):

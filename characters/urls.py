@@ -37,6 +37,8 @@ urlpatterns = [
     path("codex/subclasses/", views.class_subclass_list, name="codex_subclasses"),
     path("codex/groups/", views.subclass_group_list, name="codex_groups"),
     path("codex/races/", views.race_list, name="codex_races"),
+    path("codex/weapons/", views.weapon_list, name="codex_weapons"),
+path("codex/armor/",   views.armor_list,  name="codex_armor"),
     # 🔧 renamed so templates `{% url 'characters:race_detail' pk=... %}` work
     path("codex/races/<int:pk>/", views.race_detail, name="race_detail"),
 # urls.py

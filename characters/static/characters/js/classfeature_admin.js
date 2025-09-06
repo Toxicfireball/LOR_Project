@@ -59,7 +59,6 @@
       cantrips:       row("cantrips_formula"),
       known:          row("spells_known_formula"),
       prepared:       row("spells_prepared_formula"),
-      optionsInline:  document.getElementById("options-group"),
       gainSubskills:  row("gain_subskills"),
       gainResMode:    row("gain_resistance_mode"),
       gainResTypes:   row("gain_resistance_types"),
@@ -76,11 +75,19 @@
       // Always re-resolve inline containers (they may or may not be present)
       const inherentInline = getInherentSpellInline();
       const slotsInline    = getSpellTableInline();
+  Object.values(rows).forEach(el => el && (el.style.display = "none"));
+  if (inherentInline) inherentInline.style.display = "none";
+  if (slotsInline)    slotsInline.style.display    = "none";
 
-      // Hide everything we control
-      Object.values(rows).forEach(el => el && (el.style.display = "none"));
-      if (inherentInline) inherentInline.style.display = "none";
-      if (slotsInline)    slotsInline.style.display    = "none";
+  // 0.5) Options inline FIRST so it also works in early-return branches
+  (function toggleOptionsInlineNow() {
+    const optsEl = document.getElementById("id_has_options");
+    const optionsInline = getOptionsInline();
+    if (optionsInline) {
+      optionsInline.style.display = (optsEl && optsEl.checked) ? "" : "none";
+    }
+  })();
+
 
       // Gain Subclass Feature ⇒ only Tier, also hide the Kind row itself
 if (scopeNorm  === "gain_subclass_feat") {
@@ -196,11 +203,15 @@ if (["subclass_feat", "subclass_choice", "gain_subclass_feat"].indexOf(scopeNorm
         show(rows.prepared,  true);
         if (slotsInline) slotsInline.style.display = "";
       }
-
+  (function toggleOptionsInlineFinal() {
+    const optsEl = document.getElementById("id_has_options");
+    const optionsInline = getOptionsInline();
+    if (optionsInline) {
+      optionsInline.style.display = (optsEl && optsEl.checked) ? "" : "none";
+    }
+  })();
       // Options inline
-      if (optsEl && optsEl.checked && rows.optionsInline) {
-        rows.optionsInline.style.display = "";
-      }
+
     }
 
     // Listeners
@@ -254,6 +265,12 @@ if (grpSelect) {
   refresh();
 })();
 
+function getOptionsInline() {
+  // matches the inline group we marked with classes=["featureoption-inline"]
+  return document.querySelector(".featureoption-inline")
+      || document.querySelector("#featureoption_set-group")
+      || document.querySelector("[id$='-featureoption_set-group']");
+}
 
 // --- subclass visibility safety net ------------------------------------------
 (function () {

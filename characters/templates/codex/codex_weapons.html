@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}Codex – Weapons{% endblock %}
+
+{% block extra_css %}
+<style>
+  /* Table container */
+  .table-wrap { overflow-x: auto; }
+
+  /* Tooltip: rendered as fixed so it isn’t clipped by any overflow parent */
+  .tt { position: relative; display: inline-block; }
+  .tt .badge { @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-gray-200 text-gray-800; }
+  .tt-panel {
+    position: fixed;            /* key: escape overflow clipping */
+    display: none;              /* toggled via data-open attr */
+    min-width: 16rem; max-width: 24rem;
+    background: #111827; color: #F9FAFB;
+    border-radius: .5rem; padding: .5rem .75rem;
+    box-shadow: 0 10px 20px rgba(0,0,0,.22);
+    z-index: 9999;
+    pointer-events: none;       /* avoids flicker leaving button */
+  }
+  .tt[data-open="1"] .tt-panel { display: block; }
+
+  /* Subheaders inside table bodies */
+  .subhead-row th {
+    @apply bg-gray-50 text-gray-700 font-semibold;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1 class="text-3xl font-bold mb-6">Codex: Weapons</h1>
+
+{% regroup weapons by category as cat_groups %}
+{% for cat in cat_groups %}
+  <h2 class="text-2xl font-semibold mt-8 mb-3">{{ cat.grouper|capfirst }} Weapons</h2>
+
+  <div class="table-wrap bg-white rounded-xl shadow">
+    <table class="min-w-full text-sm">
+      <thead class="bg-gray-50 text-gray-700">
+        <tr class="text-left">
+          <th class="px-4 py-3">Name</th>
+          <th class="px-4 py-3">Range Type</th>
+          <th class="px-4 py-3">Damage</th>
+          <th class="px-4 py-3">Damage Types</th>
+          <th class="px-4 py-3">Range (Normal)</th>
+          <th class="px-4 py-3">Range (Max)</th>
+          <th class="px-4 py-3">Traits</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% regroup cat.list by range_type as range_groups %}
+        {% for rg in range_groups %}
+          <tr class="subhead-row">
+            <th class="px-4 py-2" colspan="7">{{ rg.grouper|title }}</th>
+          </tr>
+
+          {% for w in rg.list %}
+          <tr>
+            <td class="px-4 py-3 font-medium">{{ w.name }}</td>
+            <td class="px-4 py-3">{{ w.get_range_type_display }}</td>
+            <td class="px-4 py-3">{{ w.damage }}</td>
+            <td class="px-4 py-3">
+              {% if w.damage_types %}
+                <div class="flex flex-wrap gap-1">
+                  {% for dt in w.damage_types %}
+                    <span class="badge">{{ dt|capfirst }}</span>
+                  {% endfor %}
+                </div>
+              {% else %}<span class="text-gray-400">—</span>{% endif %}
+            </td>
+            <td class="px-4 py-3">{{ w.range_normal|default:"—" }}</td>
+            <td class="px-4 py-3">{{ w.range_max|default:"—" }}</td>
+            <td class="px-4 py-3">
+              {% with tvs=w.weapontraitvalue_set.all %}
+              {% if tvs %}
+                <div class="flex flex-wrap gap-1.5">
+                  {% for tv in tvs %}
+                    <span class="tt">
+                      <button class="badge tt-btn" type="button">{{ tv.trait.name }}{% if tv.value %} <span class="text-gray-500">({{ tv.value }})</span>{% endif %}</button>
+                      <div class="tt-panel" role="tooltip">
+                        <div class="text-xs leading-snug">
+                          <div class="font-semibold mb-1">{{ tv.trait.name }}</div>
+                          <p class="mb-0.5">{{ tv.trait.description }}</p>
+                          {% if tv.value %}
+                            <p class="mt-1 text-gray-300"><span class="font-semibold">Value:</span> {{ tv.value }}</p>
+                          {% endif %}
+                        </div>
+                      </div>
+                    </span>
+                  {% endfor %}
+                </div>
+              {% else %}<span class="text-gray-400">—</span>{% endif %}
+              {% endwith %}
+            </td>
+          </tr>
+          {% endfor %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endfor %}
+
+<script>
+function clamp(n, min, max){ return Math.max(min, Math.min(max, n)); }
+
+function place(panel, trigger) {
+  const r = trigger.getBoundingClientRect();
+  const pw = panel.offsetWidth, ph = panel.offsetHeight, gap = 8;
+  let top = r.top - ph - gap;
+  let left = r.left + (r.width/2) - (pw/2);
+  if (top < 8) top = r.bottom + gap;
+  const vw = document.documentElement.clientWidth;
+  left = clamp(left, 8, vw - pw - 8);
+  panel.style.top = Math.round(top) + 'px';
+  panel.style.left = Math.round(left) + 'px';
+}
+
+document.querySelectorAll('.tt').forEach(tt => {
+  const trigger = tt.querySelector('.tt-btn') || tt;
+  const panel   = tt.querySelector('.tt-panel');
+  if (!panel) return;
+
+  const open  = () => {
+    tt.setAttribute('data-open','1');
+    panel.style.display = 'block';        // <— show inline
+    place(panel, trigger);                // place after it’s visible
+  };
+  const close = () => {
+    tt.setAttribute('data-open','0');
+    panel.style.display = 'none';         // <— HIDE inline (fix)
+  };
+
+  trigger.addEventListener('pointerenter', open);
+  tt.addEventListener('pointerleave', close);
+  trigger.addEventListener('focus', open);
+  trigger.addEventListener('blur',  close);
+  trigger.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'mouse') {
+      (tt.getAttribute('data-open') === '1' ? close : open)();
+      e.preventDefault();
+    }
+  });
+});
+
+function closeAll(){
+  document.querySelectorAll('.tt').forEach(tt => {
+    if (tt.getAttribute('data-open') === '1') {
+      tt.setAttribute('data-open','0');
+      const p = tt.querySelector('.tt-panel');
+      if (p) p.style.display = 'none';    // <— also hide inline
+    }
+  });
+}
+
+document.addEventListener('click', (e) => { if (!e.target.closest('.tt')) closeAll(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAll(); });
+window.addEventListener('scroll', closeAll, { passive: true });
+window.addEventListener('resize', () => {
+  document.querySelectorAll('.tt[data-open="1"]').forEach(tt => {
+    const panel = tt.querySelector('.tt-panel');
+    const trg = tt.querySelector('.tt-btn') || tt;
+    if (panel) place(panel, trg);
+  });
+});
+
+</script>
+
+{% endblock %}
