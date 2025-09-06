@@ -9,7 +9,7 @@ urlpatterns = [
     path("create/", views.create_character, name="create_character"),
     path("<int:pk>/", views.character_detail, name="character_detail"),
     path("<int:pk>/level-down/", views.level_down, name="level_down"),
-
+    path("ajax/race-features/", views.race_features_data, name="race_features_data"),  
     # Character mutations / AJAX (POST)
     path("<int:pk>/set-weapon/", views.set_weapon_choice, name="set_weapon_choice"),
     path("<int:pk>/set-armor/", views.set_armor_choice, name="set_armor_choice"),
@@ -41,7 +41,7 @@ urlpatterns = [
     path("codex/races/<int:pk>/", views.race_detail, name="race_detail"),
 # urls.py
 path("<int:pk>/override/", views.set_field_override, name="set_field_override"),
-
+    path("races/features/",     views.race_features_data, name="race_features_data_legacy"),        # optional alias
     # Loremaster
     path("loremaster/", views.LoremasterListView.as_view(), name="loremaster_list"),
     path("loremaster/<slug:slug>/", views.LoremasterDetailView.as_view(), name="loremaster_detail"),

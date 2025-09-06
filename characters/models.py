@@ -764,7 +764,7 @@ class CharacterClass(models.Model):
     
     key_abilities = models.ManyToManyField(
         AbilityScore,
-        blank=False,
+        blank=True,
         help_text="Select exactly one or two key ability scores for this class."
     )    
     primary_image = models.ImageField(
@@ -904,27 +904,33 @@ class ClassProficiencyProgress(models.Model):
 
     at_level         = models.PositiveIntegerField(help_text="Level at which this tier becomes active")
     tier             = models.ForeignKey(ProficiencyTier, on_delete=models.PROTECT)
+    armor_item  = models.ForeignKey('Armor',  on_delete=models.PROTECT, blank=True, null=True)
+    weapon_item = models.ForeignKey('Weapon', on_delete=models.PROTECT, blank=True, null=True)
 
     class Meta:
         ordering = ["character_class", "proficiency_type", "at_level"]
         # keep a simple uniqueness constraint; we enforce validity in clean()
-        unique_together = ("character_class", "proficiency_type", "at_level", "armor_group", "weapon_group")
-
+        unique_together = (
+           "character_class", "proficiency_type", "at_level",
+           "armor_group", "weapon_group", "armor_item", "weapon_item"
+       )
     def clean(self):
         super().clean()
         if self.proficiency_type == "armor":
-            if not self.armor_group or self.weapon_group:
-                from django.core.exceptions import ValidationError
-                raise ValidationError({"armor_group": "Pick an armor group (unarmored/light/medium/heavy/shield)."})
+           # must pick EXACTLY ONE of: armor_group OR armor_item
+           if self.weapon_group or self.weapon_item:
+               raise ValidationError("Armor prof may not set any weapon fields.")
+           if bool(self.armor_group) == bool(self.armor_item):
+               raise ValidationError("Pick either an armor group OR a specific armor item.")
         elif self.proficiency_type == "weapon":
-            if not self.weapon_group or self.armor_group:
-                from django.core.exceptions import ValidationError
-                raise ValidationError({"weapon_group": "Pick a weapon group (unarmed/simple/martial/special)."})
+           if self.armor_group or self.armor_item:
+               raise ValidationError("Weapon prof may not set any armor fields.")
+           if bool(self.weapon_group) == bool(self.weapon_item):
+               raise ValidationError("Pick either a weapon group OR a specific weapon.")
         else:
-            # non-armor/weapon proficiencies must NOT set sub-groups
-            if self.armor_group or self.weapon_group:
-                from django.core.exceptions import ValidationError
-                raise ValidationError("Only armor/weapon proficiencies can set a group.")
+           # non-armor/weapon: no sub-targets at all
+           if any([self.armor_group, self.weapon_group, self.armor_item_id, self.weapon_item_id]):
+               raise ValidationError("Only armor/weapon proficiencies can target groups or items.")
 
     def __str__(self):
         grp = ""

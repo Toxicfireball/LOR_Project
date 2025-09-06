@@ -67,6 +67,18 @@
     border-radius: 4px;
     box-sizing: border-box;
   }
+.feature-card {
+  background:#fff; border:1px solid #ddd; border-radius:6px; padding:12px; margin:10px 0;
+}
+.feature-card h4 { margin:0 0 6px; }
+.feature-meta { font-size:.9rem; color:#555; margin-bottom:6px; }
+.feature-kv { margin:6px 0; }
+.feature-kv dt { font-weight:bold; }
+.feature-kv dd { margin:0 0 6px 0; }
+.feature-subclass-select { margin-top:8px; }
+.group-title { margin: 16px 0 8px; font-weight: bold; }
+.group-divider { border-top:1px solid #ddd; margin:12px 0; }
+.small-note { color:#666; font-size:.9rem; }
 
   /* Buttons */
   button {
@@ -194,16 +206,16 @@
     </div>
 
     <!-- Half-elf origin -->
-    <div id="half-elf-origin-container" style="display:none; border:1px solid #ddd; padding:10px; background:#eef; margin-top:10px;">
-      <h3>Choose Your Half-Elf Origin</h3>
-      <p>Select one of the following: High Elf (+1 Int), Wood Elf (+1 Wis), or Dark Elf (+1 Cha).</p>
-      <select id="half-elf-origin" name="half_elf_origin" disabled style="width:100%; padding:8px;">
-        <option value="high">High Elf</option>
-        <option value="wood">Wood Elf</option>
-        <option value="dark">Dark Elf</option>
-      </select>
-    </div>
+
   </div>
+  <div id="racial-features" class="section light" style="display:none;">
+    <h3>Racial Features</h3>
+    <div id="racial-features-body">Select a race to see its features.</div>
+  </div>
+
+  <!-- Will store subclass picks keyed by feature id -->
+  <input type="hidden" name="racial_subclass_picks" id="racial_subclass_picks" value="{}">
+  <input type="hidden" name="race_option_picks" id="race_option_picks" value="{}">
 
   <!-- Backgrounds -->
   <div class="section">
@@ -311,6 +323,8 @@
 </form>
 <script id="races-data" type="application/json">{{ races_json|safe }}</script>
 <script id="backgrounds-data" type="application/json">{{ backgrounds_json|safe }}</script>
+<script>window.__RACE_FEATURES_URL__ = "{{ race_features_url }}";</script>
+
 <script>
 (function () {
   const races = JSON.parse(document.getElementById('races-data').textContent || '[]');
@@ -376,8 +390,7 @@ racesData.forEach(r => {
     const raceSelect          = document.getElementById("race");
     const subraceDiv          = document.getElementById("subrace-container");
     const subraceSelect       = document.getElementById("subrace");
-    const halfElfDiv          = document.getElementById("half-elf-origin-container");
-    const halfElfSelect       = document.getElementById("half-elf-origin");
+
 
     const mainBgSelect        = document.getElementById("main_background");
     const side1Div            = document.getElementById("side_bg1_container");
@@ -406,6 +419,127 @@ racesData.forEach(r => {
     const charismaInput       = document.getElementById("charismaInput");
 
     const computedSkillsInput = document.getElementById("computed_skill_proficiencies");
+        // --- Racial features (AJAX) ------------------------------------------------
+    const racialFeaturesWrap = document.getElementById("racial-features");
+    const racialFeaturesBody = document.getElementById("racial-features-body");
+    const raceFeaturesURL    = window.__RACE_FEATURES_URL__;
+    const subclassPicksInput = document.getElementById("racial_subclass_picks");
+    let racialSubclassPicks  = {};
+
+    try { racialSubclassPicks = JSON.parse(subclassPicksInput.value || "{}") || {}; }
+    catch(e) { racialSubclassPicks = {}; }
+
+    function escapeHtml(s) {
+      return String(s ?? "").replace(/[&<>"']/g, c => (
+        {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
+      ));
+    }
+
+function featureCardHTML(f) {
+  const kv = (f.details || [])
+    .map(d => `<dt>${escapeHtml(d.label)}</dt><dd>${d.value}</dd>`)
+    .join("");
+
+  const subclassSelectHTML = f.is_subclass_choice ? `
+    <div class="feature-subclass-select">
+      <label>Select ${escapeHtml(f.subclass_group || "Subclass")}:
+        <select data-feature="${f.id}">
+          <option value="">-- Choose an option --</option>
+          ${(f.subclasses || []).map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join("")}
+        </select>
+      </label>
+      <div class="small-note">Required: pick a ${escapeHtml(f.subclass_group || "subclass")} for this feature.</div>
+    </div>
+  ` : "";
+
+  const optionsBlock = raceOptionsHTML(f);   // ⬅ NEW
+
+  const desc = (f.description_html || "").trim();
+  const descHTML = desc ? `<div class="feature-desc small-note">${desc}</div>` : "";
+
+  return `
+    <div class="feature-card" data-feature-id="${f.id}">
+      <h4>${escapeHtml(f.name || "Feature")}</h4>
+      ${kv ? `<dl class="feature-kv">${kv}</dl>` : ""}
+      ${optionsBlock}            <!-- ⬅ shows RaceFeatureOption select (and nested subclass picker if needed) -->
+      ${subclassSelectHTML}      <!-- ⬅ top-level subclass_choice (if any) -->
+      ${descHTML}
+    </div>
+  `;
+}
+
+
+    function sectionHTML(title, list) {
+      if (!Array.isArray(list) || list.length === 0) return "";
+      return `
+        <div class="group-divider"></div>
+        <div class="group-title">${escapeHtml(title)}</div>
+        ${list.map(featureCardHTML).join("")}
+      `;
+    }
+
+    function bindSubclassSelects(container) {
+      container.querySelectorAll("select[data-feature]").forEach(sel => {
+        const fid  = String(sel.getAttribute("data-feature"));
+        const saved = racialSubclassPicks[fid] ? String(racialSubclassPicks[fid]) : "";
+        if (saved) sel.value = saved;
+
+        sel.addEventListener("change", () => {
+          if (sel.value) {
+            racialSubclassPicks[fid] = sel.value;
+          } else {
+            delete racialSubclassPicks[fid];
+          }
+          subclassPicksInput.value = JSON.stringify(racialSubclassPicks);
+        });
+      });
+      // keep input in sync even if nothing changed (useful on first render)
+      subclassPicksInput.value = JSON.stringify(racialSubclassPicks);
+    }
+
+    async function loadRaceFeatures() {
+      const raceId    = (raceSelect.value || "").trim();
+      const subraceId = (subraceDiv.style.display !== "none" && subraceSelect.value) ? subraceSelect.value.trim() : "";
+
+      if (!raceId) {
+        racialFeaturesWrap.style.display = "none";
+        racialFeaturesBody.innerHTML = "Select a race to see its features.";
+        return;
+      }
+
+      const qs = new URLSearchParams({ race: raceId });
+      if (subraceId) qs.set("subrace", subraceId);
+
+      racialFeaturesWrap.style.display = "";
+      racialFeaturesBody.innerHTML = `<div class="small-note">Loading features…</div>`;
+
+      try {
+        const res = await fetch(`${raceFeaturesURL}?${qs.toString()}`, {
+          headers: { "X-Requested-With": "XMLHttpRequest" },
+          credentials: "same-origin"                 // ← ensure the session cookie is sent
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+
+        const parts = [];
+        // Race-wide (no subrace, no class)
+        parts.push(sectionHTML("Race Features", data.universal_features || []));
+        // Subrace-specific (only current subrace)
+        parts.push(sectionHTML("Subrace Features", data.subrace_features || []));
+        // Optional: class-specific buckets (if your Race has them)
+        (data.class_features_by_class || []).forEach(bucket => {
+          parts.push(sectionHTML(`${bucket.class_name} Features`, bucket.features || []));
+        });
+
+        const html = parts.join("").trim();
+        racialFeaturesBody.innerHTML = html || `<div class="small-note">No racial features for this selection.</div>`;
+        bindSubclassSelects(racialFeaturesBody);
+        bindRaceOptionControls(racialFeaturesBody);
+      } catch (e) {
+  racialFeaturesBody.innerHTML = `<div class="small-note">Could not load racial features. Please try again.</div>`;      }
+    }
+    // --------------------------------------------------------------------------
+
     const finalRaceInput      = document.getElementById("finalRace");
     const characterForm       = document.getElementById("characterForm");
 
@@ -527,26 +661,6 @@ function getCurrentRacialModifiers() {
     //
     // Half-elf origin
     //
-function updateHalfElfOriginDisplay(){
-  const selectedId = Number(subraceDiv.style.display === "block" && subraceSelect.value ? subraceSelect.value : raceSelect.value);
-  // find selected object to check its code/name
-  const selected =
-    racesData.find(r => r.id === selectedId)
-    || racesData.flatMap(r => r.subraces || []).find(sr => sr.id === selectedId);
-
-  const isHalfElf = selected && (
-    (selected.code && selected.code === "half_elf_fully") ||
-    (selected.name && selected.name.toLowerCase().includes("half-elf"))
-  );
-
-  if (isHalfElf) {
-    halfElfDiv.style.display = "block";
-    halfElfSelect.disabled = false;
-  } else {
-    halfElfDiv.style.display = "none";
-    halfElfSelect.value = "";
-  }
-}
 
 
     //
@@ -565,6 +679,86 @@ function updateHalfElfOriginDisplay(){
     //
     // Background logic
     //
+    const raceOptionPicksInput = document.getElementById("race_option_picks");
+let raceOptionPicks = {};
+try { raceOptionPicks = JSON.parse(raceOptionPicksInput.value || "{}") || {}; } catch(e){ raceOptionPicks = {}; }
+
+function raceOptionsHTML(f) {
+  const opts = f.race_options || [];
+  if (!opts.length) return "";
+
+  const saved = (raceOptionPicks[String(f.id)] || {}).option_id || "";
+  const savedSub = (raceOptionPicks[String(f.id)] || {}).subclass_id || "";
+
+  const options = ['<option value="">-- Choose an option --</option>']
+    .concat(opts.map(o => `<option value="${o.id}" ${String(saved)===String(o.id) ? "selected":""}>${escapeHtml(o.label)}</option>`))
+    .join("");
+
+  // Side panel for the currently selected option
+  let inner = "";
+  const selected = opts.find(o => String(o.id) === String(saved));
+  if (selected && selected.grants_feature) {
+    const gf = selected.grants_feature;
+    const kv = (gf.details || [])
+      .map(d => `<dt>${escapeHtml(d.label)}</dt><dd>${d.value}</dd>`)
+      .join("");
+    inner += `
+      <div class="feature-card" style="background:#fafafa;border-color:#eee;">
+        ${kv ? `<dl class="feature-kv">${kv}</dl>` : ""}
+        ${gf.description_html ? `<div class="feature-desc small-note">${gf.description_html}</div>` : ""}
+      </div>
+    `;
+    if (gf.is_subclass_choice) {
+      const subOptions = ['<option value="">-- Choose ${escapeHtml(gf.subclass_group || "subclass")} --</option>']
+        .concat((gf.subclasses || []).map(s => `<option value="${s.id}" ${String(savedSub)===String(s.id) ? "selected": ""}>${escapeHtml(s.name)}</option>`))
+        .join("");
+      inner += `
+        <div class="feature-subclass-select">
+          <label>${escapeHtml(gf.subclass_group || "Subclass")}:
+            <select data-option-subclass-for="${f.id}">${subOptions}</select>
+          </label>
+        </div>
+      `;
+    }
+  }
+
+  return `
+    <div class="feature-option-select">
+      <label>Choose one:
+        <select data-option-for="${f.id}">
+          ${options}
+        </select>
+      </label>
+    </div>
+    ${inner}
+  `;
+}
+
+function bindRaceOptionControls(container) {
+  // option picker
+  container.querySelectorAll("select[data-option-for]").forEach(sel => {
+    const fid = String(sel.getAttribute("data-option-for"));
+    sel.addEventListener("change", () => {
+      const optId = sel.value || "";
+      raceOptionPicks[fid] = { option_id: optId };
+      raceOptionPicksInput.value = JSON.stringify(raceOptionPicks);
+      // re-render to show details / nested subclass selector for the chosen option
+      loadRaceFeatures();
+    });
+  });
+
+  // nested subclass picker when an option grants a subclass_choice
+  container.querySelectorAll("select[data-option-subclass-for]").forEach(sel => {
+    const fid = String(sel.getAttribute("data-option-subclass-for"));
+    sel.addEventListener("change", () => {
+      const rec = raceOptionPicks[fid] || {};
+      rec.subclass_id = sel.value || "";
+      raceOptionPicks[fid] = rec;
+      raceOptionPicksInput.value = JSON.stringify(raceOptionPicks);
+    });
+  });
+}
+
     function updateBackgroundModifiers(){
       resetBGState();
 const main = backgroundsData.find(b=>b.code===mainBgSelect.value);      const combo = document.querySelector('input[name="bg_combo"]:checked').value;
@@ -804,24 +998,31 @@ raceSelect.addEventListener("change", () => {
   subraceSelect.innerHTML = "<option value=''>-- Select a Subrace --</option>";
   const r = racesData.find(x => x.id === Number(raceSelect.value));
   if (r && Array.isArray(r.subraces) && r.subraces.length) {
-    r.subraces.forEach(sr => {
-      const text = sr.label || sr.name;
-      subraceSelect.add(new Option(text, sr.id));    // ✅ submit PK
-    });
+    r.subraces.forEach(sr => subraceSelect.add(new Option(sr.label || sr.name, sr.id)));
     subraceDiv.style.display = "";
   } else {
     subraceDiv.style.display = "none";
   }
   applyRacialSlots();
-  updateHalfElfOriginDisplay();
   updateDisplay();
+  loadRaceFeatures();       // ← keep this
 });
 
-    subraceSelect.addEventListener("change",()=>{
-      applyRacialSlots();
-      updateHalfElfOriginDisplay();
-      updateDisplay();
-    });
+subraceSelect.addEventListener("change", () => {
+  applyRacialSlots();
+  updateDisplay();
+  loadRaceFeatures();       // ← keep this
+});
+
+
+subraceSelect.addEventListener("change",()=>{
+  applyRacialSlots();
+  updateDisplay();
+
+  // NEW
+  loadRaceFeatures();
+});
+
 
     // background combo → show/hide side selects
     Array.from(bgComboRadios).forEach(r=>{
@@ -874,7 +1075,7 @@ if (window.__lor) {
   });
 }
 
-
+loadRaceFeatures(); // NEW
 
     // finally initial render
     updateDisplay();

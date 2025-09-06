@@ -12,7 +12,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django_select2.views import AutoResponseView
 from django.db.models import Count
-from .models import Character, Skill  
+from .models import Character, Skill  , RaceFeatureOption  
 from campaigns.models import Campaign
 from django.db import models
 import math
@@ -22,6 +22,145 @@ FIVE_TIERS = ["Untrained", "Trained", "Expert", "Master", "Legendary"]
 # ---- Background helpers ------------------------------------------------------
 from .models import Spell, CharacterKnownSpell, CharacterPreparedSpell
 from django.db.models import Q
+from django.views.decorators.http import require_GET
+
+def _racefeat_details_kv(f):
+    """
+    RaceFeature → compact (label, value) list, hiding Scope/Kind/Activity-ish fields.
+    """
+    try:
+        kv = _feature_details_map(f)
+    except Exception:
+        kv = []
+        for k, label in [
+            ("code", "Code"),
+            ("name", "Name"),
+            ("description", "Description"),
+            ("uses", "Uses"),
+            ("formula", "Formula"),
+            ("formula_target", "Formula Target"),
+            ("saving_throw_type", "Save Type"),
+            ("saving_throw_granularity", "Save Granularity"),
+        ]:
+            v = getattr(f, k, None)
+            if v not in (None, "", [], {}):
+                kv.append((label, v))
+    # normalize to list-of-dicts
+    if isinstance(kv, dict):
+        kv = list(kv.items())
+    return [{"label": k, "value": v} for k, v in kv if v not in (None, "", [], {})]
+
+
+
+# views.py
+from django.views.decorators.http import require_GET
+from django.contrib.auth.decorators import login_required
+
+@require_GET
+@login_required
+def race_features_data(request):
+    race_id    = request.GET.get("race")
+    subrace_id = request.GET.get("subrace")
+
+    try:
+        race = Race.objects.get(pk=int(race_id))
+    except Exception:
+        return HttpResponseBadRequest("Invalid race")
+
+    feats_qs = (
+        race.features
+            .select_related("character_class", "subrace", "subclass_group")
+            .prefetch_related(
+                "subclasses",
+                "gain_subskills",
+                "race_options__grants_feature__subclass_group__subclasses",  # ⬅ subclasses for nested subclass_choice
+                "spell_slot_rows"
+            )
+            .order_by("name")
+    )
+
+    # ① hide all features that are *targets* of race options (only appear within the option)
+    granted_ids = set(
+        RaceFeatureOption.objects
+            .filter(feature__race=race)
+            .values_list("grants_feature_id", flat=True)
+    )
+
+    # ② buckets
+    universal = [f for f in feats_qs if not f.subrace_id and not f.character_class_id and f.id not in granted_ids]
+
+    class_map = {}
+    for f in feats_qs:
+        if f.character_class_id and not f.subrace_id and f.id not in granted_ids:
+            key = getattr(f.character_class, "name", "—")
+            class_map.setdefault(key, []).append(f)
+
+    sid = None
+    try:
+        sid = int(subrace_id) if subrace_id else None
+    except Exception:
+        sid = None
+    subrace_feats = [f for f in feats_qs if sid and f.subrace_id == sid and f.id not in granted_ids]
+
+    def ser(f):
+        # ----- options, robust -----
+        ros = []
+        opts_mgr = getattr(f, "race_options", None)
+        if opts_mgr:
+            for opt in opts_mgr.all():
+                row = {"id": opt.id, "label": opt.label}
+                gf = opt.grants_feature
+                if gf:
+                    gf_group = getattr(gf, "subclass_group", None)
+                    gf_is_sc = ((getattr(gf, "scope", "") or "").strip().lower() == "subclass_choice")
+                    subclasses = []
+                    if gf_group:
+                        for s in gf_group.subclasses.all():
+                            subclasses.append({"id": s.id, "name": s.name})
+                    row["grants_feature"] = {
+                        "id": gf.id,
+                        "name": gf.name or gf.code or "Feature",
+                        "is_subclass_choice": gf_is_sc,                # ⬅ nested subclass picker flag
+                        "subclass_group": gf_group.name if gf_group else None,
+                        "subclasses": subclasses,                      # ⬅ subclasses for the nested picker
+                        "details": _racefeat_details_kv(gf),
+                        "description_html": getattr(gf, "description", "") or "",
+                    }
+                ros.append(row)
+
+        # ----- top-level subclass choice (unchanged; we’re still *hiding* Scope/Kind/Activity in details) -----
+        group = getattr(f, "subclass_group", None)
+        subclasses = [{"id": s.id, "name": s.name} for s in (group.subclasses.all() if group else [])]
+        is_sc = bool(subclasses) and ((getattr(f, "scope", "") or "").strip().lower() == "subclass_choice")
+
+        return {
+            "id": f.id,
+            "name": f.name or f.code or "Feature",
+            "subclass_group": group.name if group else None,
+            "subclasses": subclasses,
+            "is_subclass_choice": is_sc,
+
+            # choice UX
+            "has_race_options": len(ros) > 0,
+            "needs_choice": bool(subclasses) or len(ros) > 0,
+            "race_options": ros,                     # ⬅ only used for asking choices
+
+            # details/desc (already hide Scope/Kind/Activity)
+            "details": _racefeat_details_kv(f),
+            "description_html": getattr(f, "description", "") or "",
+        }
+
+    payload = {
+        "universal_features": [ser(f) for f in universal],
+        "class_features_by_class": [
+            {"class_name": cname, "features": [ser(f) for f in sorted(fs, key=lambda x: (x.name or ""))]}
+            for cname, fs in sorted(class_map.items(), key=lambda kv: kv[0])
+        ],
+        "subrace_features": [ser(f) for f in sorted(subrace_feats, key=lambda x: (x.name or ""))],
+    }
+    return JsonResponse(payload)
+
+
 
 def _mastery_state(character, subclass, modules_per_mastery: int) -> dict:
     """
@@ -54,70 +193,105 @@ def _eval_formula(expr, ctx):
         return int(eval(expr, {"__builtins__": {}}, ctx))
     except Exception:
         return None
+# views.py
+
+HIDE_LABELS = {"Scope", "Kind", "Activity", "Activity Type"}  # anything we never want to show
+
 def _feature_details_map(f):
     """
-    Return a dict of human-friendly, non-empty detail fields for ClassFeature.
-    Only includes fields that exist and have values in your model.
+    Build an ordered list of (label, value) for ClassFeature f,
+    skipping empty values and hiding Scope/Kind/Activity.
     """
-    out = {}
+    items = []
 
-    # Common textuals
-    for k, label in [
-        ("description", "Description"),
-        ("uses", "Uses"),
-        ("formula", "Formula"),
-        ("formula_target", "Formula Target"),
-        ("activity_type", "Activity Type"),
-        ("action_type", "Action Type"),
-        ("code", "Code"),
-        ("name", "Name"),
-        ("damage_type", "Damage Type"),
-        ("spell_list", "Spell List"),
-        ("cantrips_formula", "Cantrips Formula"),
-        ("spells_known_formula", "Spells Known Formula"),
-        ("spells_prepared_formula", "Spells Prepared Formula"),
-        ("martial_points_formula", "Martial Points Formula"),
-        ("available_masteries_formula", "Available Masteries Formula"),
-    ]:
-        v = getattr(f, k, None)
-        if _nonempty(v): out[label] = v
+    # Basic identity
+    items.append(_nonempty_tuple("Code", f.code))
+    items.append(_nonempty_tuple("Name", f.name))
+    if getattr(f, "character_class", None):
+        items.append(_nonempty_tuple("Class", f.character_class.name))
+    if getattr(f, "subclass_group", None):
+        items.append(_nonempty_tuple("Subclass Group", f.subclass_group.name))
+    if getattr(f, "subclasses", None):
+        subs = ", ".join(s.name for s in f.subclasses.all())
+        items.append(_nonempty_tuple("Subclasses", subs))
 
-    # Saving throw block
+    # Level / Tiers / Mastery
+    items.append(_nonempty_tuple("Level Required", f.level_required))
+    items.append(_nonempty_tuple("Min Class Level", f.min_level))
+    items.append(_nonempty_tuple("Tier", f.tier))
+    items.append(_nonempty_tuple("Mastery Rank", f.mastery_rank))
+
+    # Action only (NO Activity)
+    if getattr(f, "action_type", ""):
+        items.append(_nonempty_tuple(
+            "Action",
+            f.get_action_type_display() if hasattr(f, "get_action_type_display") else f.action_type
+        ))
+
+    # Saving Throw
     if getattr(f, "saving_throw_required", False):
-        out["Saving Throw"] = (getattr(f, "saving_throw_type", "") or "").title()
-        gran = getattr(f, "saving_throw_granularity", "")
-        if _nonempty(gran): out["Save Granularity"] = gran.title()
-        # outcomes
-        for k, label in [
-            ("saving_throw_basic_success", "Basic: Success"),
-            ("saving_throw_basic_failure", "Basic: Failure"),
-            ("saving_throw_critical_success", "Critical Success"),
-            ("saving_throw_success", "Success"),
-            ("saving_throw_failure", "Failure"),
-            ("saving_throw_critical_failure", "Critical Failure"),
-        ]:
-            v = getattr(f, k, None)
-            if _nonempty(v): out[label] = v
+        items.append(("Saving Throw Required", "Yes"))
+        items.append(_nonempty_tuple(
+            "Save Type",
+            f.get_saving_throw_type_display() if hasattr(f, "get_saving_throw_type_display") else f.saving_throw_type
+        ))
+        items.append(_nonempty_tuple(
+            "Save Granularity",
+            f.get_saving_throw_granularity_display() if hasattr(f, "get_saving_throw_granularity_display") else f.saving_throw_granularity
+        ))
+        items.append(_nonempty_tuple("Critical Success", f.saving_throw_critical_success))
+        items.append(_nonempty_tuple("Success",           f.saving_throw_success or f.saving_throw_basic_success))
+        items.append(_nonempty_tuple("Failure",           f.saving_throw_failure or f.saving_throw_basic_failure))
+        items.append(_nonempty_tuple("Critical Failure",  f.saving_throw_critical_failure))
 
-    # Subclass / Tier / Mastery gating (if present)
-    for k, label in [
-        ("level_required", "Level Required"),
-        ("tier", "Tier"),
-        ("mastery_rank", "Mastery Rank"),
-    ]:
-        v = getattr(f, k, None)
-        if _nonempty(v): out[label] = v
+    # Damage / Formula
+    items.append(_nonempty_tuple(
+        "Damage Type",
+        f.get_damage_type_display() if hasattr(f, "get_damage_type_display") else f.damage_type
+    ))
+    items.append(_nonempty_tuple(
+        "Formula Target",
+        f.get_formula_target_display() if hasattr(f, "get_formula_target_display") else f.formula_target
+    ))
+    items.append(_nonempty_tuple("Formula", f.formula))
+    items.append(_nonempty_tuple("Uses",    f.uses))
 
-    # Gain Resistance block (if used)
-    for k, label in [
-        ("gain_resistance_mode", "Resistance Mode"),
-        ("gain_resistance_amount", "Resistance Amount"),
-        ("gain_resistance_types", "Resistance Types"),
-    ]:
-        v = getattr(f, k, None)
-        if _nonempty(v): out[label] = v
+    # Proficiency modification (if used)
+    items.append(_nonempty_tuple("Modify Proficiency Target", f.modify_proficiency_target))
+    items.append(_nonempty_tuple(
+        "Modify Proficiency Tier", f.modify_proficiency_amount.name if f.modify_proficiency_amount_id else None
+    ))
 
-    return out
+    # Resistances
+    items.append(_nonempty_tuple(
+        "Resistance Mode",
+        f.get_gain_resistance_mode_display() if hasattr(f, "get_gain_resistance_mode_display") else f.gain_resistance_mode
+    ))
+    if f.gain_resistance_types:
+        items.append(_nonempty_tuple("Resistance Types", ", ".join(f.gain_resistance_types)))
+    items.append(_nonempty_tuple("Resistance Amount", f.gain_resistance_amount))
+
+    # Spellcasting entitlements
+    items.append(_nonempty_tuple(
+        "Spell List",
+        f.get_spell_list_display() if hasattr(f, "get_spell_list_display") else f.spell_list
+    ))
+    items.append(_nonempty_tuple("Cantrips Formula",       f.cantrips_formula))
+    items.append(_nonempty_tuple("Spells Known Formula",   f.spells_known_formula))
+    items.append(_nonempty_tuple("Spells Prepared Formula",f.spells_prepared_formula))
+
+    # Options (class feature options—not race options)
+    if getattr(f, "has_options", False) and f.options.exists():
+        labels = [o.label for o in f.options.all()]
+        items.append(_nonempty_tuple("Options", ", ".join(labels)))
+
+    # Description
+    items.append(_nonempty_tuple("Description", f.description))
+
+    # Filter: drop empties and hidden labels
+    items = [p for p in items if p is not None and p[0] not in HIDE_LABELS and p[1] not in (None, "", [], {})]
+    return items
+
 
 def _feat_details_map(feat):
     """
@@ -888,12 +1062,22 @@ def _spellcasting_context(char):
         for o in all_origins
     }
 
+    remaining_slots = {o: {} for o in all_origins}
+    for o in all_origins:
+        for r in rank_range:
+            if r == 0:
+                continue
+            total = int(slots_safe.get(o, {}).get(r, 0))
+            used  = int(prepared_counts_safe.get(o, {}).get(r, 0))
+            remaining_slots[o][r] = max(0, total - used)
+
     return {
         "rank_range": rank_range,
         "prepared_counts": prepared_counts_safe,
         "known_by_origin": dict(known_by_origin),
         "cantrips_by_origin": dict(cantrips_by_origin),
         "slots_by_origin_rank": slots_safe,
+        "remaining_slots": remaining_slots,           # ← restore this
         "origins": sorted(all_origins),
     }
 
@@ -1847,7 +2031,70 @@ def create_character(request):
 
             # Now persist the Character
             character.save()
+            def _to_int(v):
+                try: return int(v)
+                except Exception: return None
 
+            # 1) read the hidden JSON fields your JS fills in
+            import json
+            raw_sc = request.POST.get("racial_subclass_picks") or "{}"   # { "<feature_id>": <subclass_id> }
+            raw_ro = request.POST.get("race_option_picks")   or "{}"     # { "<feature_id>": { "option_id": X, "subclass_id": Y? } }
+            try: sc_picks = json.loads(raw_sc)
+            except Exception: sc_picks = {}
+            try: ro_picks = json.loads(raw_ro)
+            except Exception: ro_picks = {}
+
+            # 2) determine which RaceFeatures are auto-granted at creation
+            feats_qs = (
+                character.race.features
+                .select_related("subrace", "subclass_group")
+                .prefetch_related("subclasses")
+            )
+
+            # hide anything that is only granted via a RaceFeatureOption
+            granted_ids = set(
+                RaceFeatureOption.objects
+                    .filter(feature__race=character.race)
+                    .values_list("grants_feature_id", flat=True)
+            )
+
+            universal = [f for f in feats_qs if not f.subrace_id and f.id not in granted_ids]
+            subrace_feats = [
+                f for f in feats_qs
+                if getattr(character, "subrace_id", None) and f.subrace_id == character.subrace_id and f.id not in granted_ids
+            ]
+
+            def _selected_subclass_id_for(feature_id):
+                # keys might arrive as "123" or 123
+                return _to_int(sc_picks.get(str(feature_id)) or sc_picks.get(feature_id))
+
+            def _upsert_cfeat(racial_feature, subclass_id=None):
+                row, _ = CharacterFeature.objects.get_or_create(
+                    character=character,
+                    racial_feature=racial_feature,
+                    defaults={"level": character.level}
+                )
+                if subclass_id:
+                    sub = ClassSubclass.objects.filter(pk=int(subclass_id)).first()
+                    if sub and row.subclass_id != sub.id:
+                        row.subclass = sub
+                        row.save(update_fields=["subclass"])
+
+            # 3) create CharacterFeature rows for the auto-granted features
+            for f in (universal + subrace_feats):
+                _upsert_cfeat(f, _selected_subclass_id_for(f.id))
+
+            # 4) process any picked RACE OPTIONS that grant an additional feature
+            for f_id, payload in (ro_picks or {}).items():
+                # payload is {"option_id": <id>, "subclass_id": <id?>} per your JS
+                opt_id = _to_int((payload or {}).get("option_id"))
+                if not opt_id:
+                    continue
+                opt = RaceFeatureOption.objects.filter(pk=opt_id).select_related("grants_feature").first()
+                if not opt or not opt.grants_feature_id:
+                    continue
+                sub_id = _to_int((payload or {}).get("subclass_id"))
+                _upsert_cfeat(opt.grants_feature, sub_id)
             # ---- Persist skill proficiencies coming from background picks -----------------
             # 1 stacked grant = Trained, 2 stacked grants = Expert (cap at 2, per your rule).
             from .models import ProficiencyLevel, CharacterSkillProficiency
@@ -1989,6 +2236,8 @@ def create_character(request):
         'form':             form,
         'races_json':       json.dumps(races,       cls=DjangoJSONEncoder),
         'backgrounds_json': json.dumps(backgrounds, cls=DjangoJSONEncoder),
+        # NEW: endpoint the page will call to load features
+        'race_features_url':reverse('characters:race_features_data'),
     }
     return render(request, 'forge/create_character.html', context)
 
@@ -2017,6 +2266,12 @@ def character_detail(request, pk):
         'Wisdom':       character.wisdom,
         'Charisma':     character.charisma,
     }
+    racial_feature_rows = (
+    CharacterFeature.objects
+        .filter(character=character, racial_feature__isnull=False)
+        .select_related("racial_feature", "subclass")
+        .order_by("level", "racial_feature__name")
+)
     abilities = []
     for label, score in ability_map.items():
         m = _abil_mod(score)
@@ -4385,6 +4640,7 @@ def character_detail(request, pk):
     'subclass_feats_at_next': subclass_feats_at_next,
             'proficiency_rows':   proficiency_rows,   # (preview table you already had)
         'proficiency_summary': proficiency_summary,
+        'racial_feature_rows': racial_feature_rows,
         'manual_form': manual_form,
         'manual_grants': character.manual_grants.select_related('content_type').all(),
             'field_overrides': field_overrides,
