@@ -2036,7 +2036,7 @@ def create_character(request):
                 except Exception: return None
 
             # 1) read the hidden JSON fields your JS fills in
-            import json
+
             raw_sc = request.POST.get("racial_subclass_picks") or "{}"   # { "<feature_id>": <subclass_id> }
             raw_ro = request.POST.get("race_option_picks")   or "{}"     # { "<feature_id>": { "option_id": X, "subclass_id": Y? } }
             try: sc_picks = json.loads(raw_sc)
@@ -2237,7 +2237,6 @@ def create_character(request):
         'races_json':       json.dumps(races,       cls=DjangoJSONEncoder),
         'backgrounds_json': json.dumps(backgrounds, cls=DjangoJSONEncoder),
         # NEW: endpoint the page will call to load features
-        'race_features_url':reverse('characters:race_features_data'),
     }
     return render(request, 'forge/create_character.html', context)
 
