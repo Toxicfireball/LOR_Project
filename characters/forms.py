@@ -1,5 +1,7 @@
 # forms.py
 import json
+from django.db.models import Q, Count
+from django.contrib.contenttypes.models import ContentType
 
 from django import forms
 from .models import Character
@@ -236,7 +238,42 @@ class LevelUpForm(forms.Form):
                                             required=False, label="Class Feat")
     martial_mastery = forms.ModelChoiceField(queryset=MartialMastery.objects.none(),
                                             required=False, label="Martial Mastery")
+# --- FIRST LEVEL IN CLASS → starting skills picker -------------------------
+# helper: build allowable (leaf) skill choices the character doesn't already have
+    def _starting_skill_choices_for_char(char):
+        ct_skill = ContentType.objects.get_for_model(Skill)
+        ct_sub   = ContentType.objects.get_for_model(SubSkill)
 
+        # things the character already has a recorded proficiency for
+        existing = set(
+            char.skill_proficiencies.values_list("selected_skill_type_id", "selected_skill_id")
+        )
+
+        # leaf top-level skills (non-advanced AND no subskills)
+        leaf_skills = (
+            Skill.objects.filter(is_advanced=False)
+                         .annotate(n=Count("subskills"))
+                         .filter(n=0)
+                         .order_by("name")
+        )
+
+        # sub-skills under non-advanced parents
+        leaf_subs = (
+            SubSkill.objects.filter(skill__is_advanced=False)
+                            .select_related("skill")
+                            .order_by("skill__name", "name")
+        )
+
+        choices = []
+        for sk in leaf_skills:
+            if (ct_skill.id, sk.id) not in existing:
+                choices.append((f"sk_{sk.id}", sk.name))
+
+        for ss in leaf_subs:
+            if (ct_sub.id, ss.id) not in existing:
+                choices.append((f"sub_{ss.id}", f"{ss.skill.name} – {ss.name}"))
+
+        return choices
     def __init__(self, *args, character, to_choose, uni, preview_cls, grants_class_feat=False, **kwargs):
 
         super().__init__(*args, **kwargs)
@@ -251,7 +288,22 @@ class LevelUpForm(forms.Form):
         else:
             qs = CharacterClass.objects.order_by("name")
         self.fields["base_class"].queryset = qs
+        if preview_cls:
+            cp = character.class_progress.filter(character_class=preview_cls).first()
+            cls_level_after = (cp.levels if cp else 0) + 1
+        else:
+            cls_level_after = 1
 
+        if cls_level_after == 1:
+            _choices = LevelUpForm._starting_skill_choices_for_char(character)
+            if _choices:
+                self.fields["starting_skill_picks"] = forms.MultipleChoiceField(
+                    choices=_choices,
+                    required=False,
+                    widget=forms.CheckboxSelectMultiple,
+                    label="Starting Skills (non-advanced only)",
+                    help_text="Pick from leaf skills: either a skill with no sub-skills, or a specific sub-skill."
+                )
         # auto_feats
         self.auto_feats = [f for f in to_choose if isinstance(f, ClassFeature) and f.scope in ("class_feat","subclass_feat")]
 

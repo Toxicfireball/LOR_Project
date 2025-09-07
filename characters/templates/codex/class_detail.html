@@ -36,51 +36,119 @@
 {# Full-detail features by level #}
 <h2 class="text-2xl font-semibold mb-2">Class Features</h2>
 {% for lvl in levels %}
-  {% with feats=lvl.features.all %}
+  {% with feats=lvl.filtered_features %}
+
     {% if feats %}
       <h3 class="text-xl font-medium mt-6">Level {{ lvl.level }}</h3>
-      {% for f in feats %}
-        {% if f.scope in allowed_scopes %}
-          <div class="border rounded p-4 mb-4 bg-white shadow-sm">
-            <h4 class="text-lg font-semibold">{{ f.name }} <small>({{ f.code }})</small></h4>
-            <div class="mt-2 mb-3">{{ f.description|safe }}</div>
-            <dl class="grid grid-cols-2 gap-x-6 text-sm">
-              {% if f.action_type %}
-                <dt class="font-medium">Action</dt><dd>{{ f.get_action_type_display }}</dd>
-              {% endif %}
-              {% if f.activity_type %}
-                <dt class="font-medium">Usage</dt><dd>{{ f.get_activity_type_display }}</dd>
-              {% endif %}
-              {% if f.uses %}
-                <dt class="font-medium">Uses</dt><dd>{{ f.uses }}</dd>
-              {% endif %}
-              {% if f.formula %}
-                <dt class="font-medium">Formula</dt><dd><code>{{ f.formula }}</code></dd>
-              {% endif %}
-              {% if f.modify_proficiency_target %}
-                <dt class="font-medium">Proficiency Set</dt>
-                <dd>
-                  {{ f.modify_proficiency_target }} → {{ f.modify_proficiency_amount.name }}
-                </dd>
-              {% endif %}
-              {% if f.saving_throw_required %}
-                <dt class="font-medium">Save ({{ f.get_saving_throw_type_display }})</dt>
-                <dd class="text-sm">
-                  {% if f.saving_throw_granularity == 'basic' %}
-                    Success: {{ f.saving_throw_basic_success }}<br>
-                    Failure: {{ f.saving_throw_basic_failure }}
-                  {% else %}
-                    Crit Success: {{ f.saving_throw_critical_success }}<br>
-                    Success: {{ f.saving_throw_success }}<br>
-                    Failure: {{ f.saving_throw_failure }}<br>
-                    Crit Failure: {{ f.saving_throw_critical_failure }}
+{% for f in feats %}
+  {% if f.scope in allowed_scopes %}
+    <div class="border rounded p-4 mb-4 bg-white shadow-sm">
+      <h4 class="text-lg font-semibold">{{ f.name }} <small>({{ f.code }})</small></h4>
+      <div class="mt-2 mb-3">{{ f.description|safe }}</div>
+      <dl class="grid grid-cols-2 gap-x-6 text-sm">
+        {% if f.action_type %}
+          <dt class="font-medium">Action</dt><dd>{{ f.get_action_type_display }}</dd>
+        {% endif %}
+        {% if f.activity_type %}
+          <dt class="font-medium">Usage</dt><dd>{{ f.get_activity_type_display }}</dd>
+        {% endif %}
+        {% if f.uses %}
+          <dt class="font-medium">Uses</dt><dd>{{ f.uses }}</dd>
+        {% endif %}
+        {% if f.formula %}
+          <dt class="font-medium">Formula</dt><dd><code>{{ f.formula }}</code></dd>
+        {% endif %}
+        {% if f.modify_proficiency_target %}
+          <dt class="font-medium">Proficiency Set</dt>
+          <dd>
+            {{ f.modify_proficiency_target }} → {{ f.modify_proficiency_amount.name }}
+          </dd>
+        {% endif %}
+        {% if f.saving_throw_required %}
+          <dt class="font-medium">Save ({{ f.get_saving_throw_type_display }})</dt>
+          <dd class="text-sm">…</dd>
+        {% endif %}
+      </dl>
+
+      {# — Options (base-class feature) — INSERTED HERE — #}
+      {% with opts=f.options.all %}
+        {% if opts %}
+          <div class="mt-4 border-t pt-3">
+            <h5 class="font-semibold mb-2">Options</h5>
+            <div class="space-y-3">
+              {% for opt in opts %}
+                <div class="rounded border p-3 bg-gray-50">
+                  <div class="font-medium">{{ opt.label }}</div>
+
+                  {% if opt.grants_feature %}
+                    <div class="mt-2 rounded border p-3 bg-white">
+                      <div class="text-sm text-gray-600">Grants:</div>
+                      <h6 class="text-base font-semibold">
+                        {{ opt.grants_feature.name }}
+                        {% if opt.grants_feature.code %}
+                          <small>({{ opt.grants_feature.code }})</small>
+                        {% endif %}
+                      </h6>
+                      <div class="prose prose-sm mt-1">
+                        {{ opt.grants_feature.description|safe }}
+                      </div>
+
+                      <dl class="grid grid-cols-2 gap-x-6 text-sm mt-2">
+                        {% if opt.grants_feature.action_type %}
+                          <dt class="font-medium">Action</dt>
+                          <dd>{{ opt.grants_feature.get_action_type_display }}</dd>
+                        {% endif %}
+                        {% if opt.grants_feature.activity_type %}
+                          <dt class="font-medium">Usage</dt>
+                          <dd>{{ opt.grants_feature.get_activity_type_display }}</dd>
+                        {% endif %}
+                        {% if opt.grants_feature.uses %}
+                          <dt class="font-medium">Uses</dt>
+                          <dd>{{ opt.grants_feature.uses }}</dd>
+                        {% endif %}
+                        {% if opt.grants_feature.formula %}
+                          <dt class="font-medium">Formula</dt>
+                          <dd><code>{{ opt.grants_feature.formula }}</code></dd>
+                        {% endif %}
+                        {% if opt.grants_feature.modify_proficiency_target %}
+                          <dt class="font-medium">Proficiency Set</dt>
+                          <dd>
+                            {{ opt.grants_feature.modify_proficiency_target }}
+                            {% if opt.grants_feature.modify_proficiency_amount %}
+                              → {{ opt.grants_feature.modify_proficiency_amount.name }}
+                            {% endif %}
+                          </dd>
+                        {% endif %}
+                        {% if opt.grants_feature.saving_throw_required %}
+                          <dt class="font-medium">
+                            Save ({{ opt.grants_feature.get_saving_throw_type_display }})
+                          </dt>
+                          <dd class="text-sm">
+                            {% if opt.grants_feature.saving_throw_granularity == 'basic' %}
+                              Success: {{ opt.grants_feature.saving_throw_basic_success }}<br>
+                              Failure: {{ opt.grants_feature.saving_throw_basic_failure }}
+                            {% else %}
+                              Crit Success: {{ opt.grants_feature.saving_throw_critical_success }}<br>
+                              Success: {{ opt.grants_feature.saving_throw_success }}<br>
+                              Failure: {{ opt.grants_feature.saving_throw_failure }}<br>
+                              Crit Failure: {{ opt.grants_feature.saving_throw_critical_failure }}
+                            {% endif %}
+                          </dd>
+                        {% endif %}
+                      </dl>
+                    </div>
                   {% endif %}
-                </dd>
-              {% endif %}
-            </dl>
+                </div>
+              {% endfor %}
+            </div>
           </div>
         {% endif %}
-      {% endfor %}
+      {% endwith %}
+
+    </div>
+  {% endif %}
+{% endfor %}
+
     {% endif %}
   {% endwith %}
 {% endfor %}
@@ -144,8 +212,81 @@
                         {% endif %}
                       </dd>
                     {% endif %}
-                  </dl>
-                </div>
+                                {% if sf.options.all %}
+                      <div class="mt-4 border-t pt-3">
+                        <h5 class="font-semibold mb-2">Options</h5>
+                        <div class="space-y-3">
+                          {% for opt in sf.options.all %}
+                            <div class="rounded border p-3 bg-gray-50">
+                              <div class="font-medium">{{ opt.label }}</div>
+
+                              {% if opt.grants_feature %}
+                                <div class="mt-2 rounded border p-3 bg-white">
+                                  <div class="text-sm text-gray-600">Grants:</div>
+                                  <h6 class="text-base font-semibold">
+                                    {{ opt.grants_feature.name }}
+                                    {% if opt.grants_feature.code %}
+                                      <small>({{ opt.grants_feature.code }})</small>
+                                    {% endif %}
+                                  </h6>
+                                  <div class="prose prose-sm mt-1">
+                                    {{ opt.grants_feature.description|safe }}
+                                  </div>
+                                  <dl class="grid grid-cols-2 gap-x-6 text-sm mt-2">
+                                    {% if opt.grants_feature.action_type %}
+                                      <dt class="font-medium">Action</dt>
+                                      <dd>{{ opt.grants_feature.get_action_type_display }}</dd>
+                                    {% endif %}
+                                    {% if opt.grants_feature.activity_type %}
+                                      <dt class="font-medium">Usage</dt>
+                                      <dd>{{ opt.grants_feature.get_activity_type_display }}</dd>
+                                    {% endif %}
+                                    {% if opt.grants_feature.uses %}
+                                      <dt class="font-medium">Uses</dt>
+                                      <dd>{{ opt.grants_feature.uses }}</dd>
+                                    {% endif %}
+                                    {% if opt.grants_feature.formula %}
+                                      <dt class="font-medium">Formula</dt>
+                                      <dd><code>{{ opt.grants_feature.formula }}</code></dd>
+                                    {% endif %}
+                                    {% if opt.grants_feature.modify_proficiency_target %}
+                                      <dt class="font-medium">Proficiency Set</dt>
+                                      <dd>
+                                        {{ opt.grants_feature.modify_proficiency_target }}
+                                        {% if opt.grants_feature.modify_proficiency_amount %}
+                                          → {{ opt.grants_feature.modify_proficiency_amount.name }}
+                                        {% endif %}
+                                      </dd>
+                                    {% endif %}
+                                    {% if opt.grants_feature.saving_throw_required %}
+                                      <dt class="font-medium">
+                                        Save ({{ opt.grants_feature.get_saving_throw_type_display }})
+                                      </dt>
+                                      <dd class="text-sm">
+                                        {% if opt.grants_feature.saving_throw_granularity == 'basic' %}
+                                          Success: {{ opt.grants_feature.saving_throw_basic_success }}<br>
+                                          Failure: {{ opt.grants_feature.saving_throw_basic_failure }}
+                                        {% else %}
+                                          Crit Success: {{ opt.grants_feature.saving_throw_critical_success }}<br>
+                                          Success: {{ opt.grants_feature.saving_throw_success }}<br>
+                                          Failure: {{ opt.grants_feature.saving_throw_failure }}<br>
+                                          Crit Failure: {{ opt.grants_feature.saving_throw_critical_failure }}
+                                        {% endif %}
+                                      </dd>
+                                    {% endif %}
+                                  </dl>
+                                </div>
+                              {% endif %}
+                            </div>
+                          {% endfor %}
+                        </div>
+                      </div>
+                    {% endif %}
+
+
+
+          </div>
+
               {% endfor %}
             {% endfor %}
           {% else %}

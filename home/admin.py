@@ -34,6 +34,8 @@ import json
 # admin.py
 from django.contrib.admin import SimpleListFilter
 from django.db.models import Q
+DICE = ["d4","d6","d8","d10","d12","d20"]
+
 class SubclassTierLevelInline(admin.TabularInline):
     model = SubclassTierLevel
     extra = 1
@@ -56,11 +58,61 @@ class FeatureOptionInline(admin.TabularInline):
 from django_summernote.widgets import SummernoteWidget
 from django.contrib import admin
 from django_summernote.admin import SummernoteModelAdmin
+from django.apps import apps
+from django.db import models, connection
+from django.db.models import IntegerField
+
 class SpecialItemForm(forms.ModelForm):
     class Meta:
         model  = SpecialItem
         fields = "__all__"   # or list exactly the fields you show in your fieldsets
+ABILITY_NAMES = ("strength","dexterity","constitution","intelligence","wisdom","charisma")
+Character = apps.get_model("characters", "Character")
 
+ABILITY_FIELDS = [
+     f.name
+     for f in Character._meta.get_fields()
+     if isinstance(f, models.IntegerField) and f.name in ABILITY_NAMES
+ ]
+
+ALL_INT_FIELDS = [
+    f.name
+    for f in Character._meta.get_fields()
+    if isinstance(f, IntegerField)
+]
+def get_other_vars():
+    try:
+        from characters.models import CharacterClass
+        if CharacterClass._meta.db_table in connection.introspection.table_names():
+            class_fields = [f"{cls.name.lower()}_level" for cls in CharacterClass.objects.all()]
+        else:
+            class_fields = []
+    except Exception:
+        class_fields = []
+
+    return [
+        "level", "class_level", "proficiency_modifier",
+        "hp", "temp_hp",
+    ] + class_fields + [
+        "reflex_save", "fortitude_save", "will_save",
+        "initiative", "weapon_attack", "spell_attack", "spell_dc",
+        "perception", "dodge",
+    ]
+
+# home/admin.py (near other small helpers)
+ABILITY_MOD_VARS = [f"{name}_mod" for name in ABILITY_NAMES]
+VARS = ABILITY_FIELDS + get_other_vars() + ALL_INT_FIELDS
+
+class CSVMultipleChoiceField(forms.MultipleChoiceField):
+    """
+    Treat a stored comma-separated string as a list for initial/redisplay.
+    """
+    def prepare_value(self, value):
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [v for v in value.split(",") if v.strip()]
+        return list(value)
 
 # in home/admin.py
 from django.forms.forms import DeclarativeFieldsMetaclass
@@ -164,33 +216,13 @@ class ClassProficiencyProgressForm(forms.ModelForm):
         fields = "__all__"
 
     def clean(self):
-        cd  = super().clean()
-        typ = cd.get("proficiency_type")
-
-        if typ == "armor":
-            cd["weapon_group"] = None
-            cd["weapon_item"]  = None
-            # require exactly one of group or item
-
-            if not cd.get("armor_group") and not cd.get("armor_item"):
-                self.add_error(None, "Pick an armor group OR a specific armor item.")
-            if cd.get("armor_group") and cd.get("armor_item"):
-                self.add_error(None, "Choose either group OR item, not both.")
-        elif typ == "weapon":
-           cd["armor_group"] = None
-           cd["armor_item"]  = None
-
-           if not cd.get("weapon_group") and not cd.get("weapon_item"):
-               self.add_error(None, "Pick a weapon group OR a specific weapon.")
-           if cd.get("weapon_group") and cd.get("weapon_item"):
-               self.add_error(None, "Choose either group OR item, not both.")
-        else:
-           cd["armor_group"]  = None
-           cd["weapon_group"] = None
-           cd["armor_item"]   = None
-           cd["weapon_item"]  = None
+        cd = super().clean()
+        # hard-clear sub-targets; progress rows don’t deal with them
+        cd["armor_group"] = None
+        cd["weapon_group"] = None
+        cd["armor_item"]  = None
+        cd["weapon_item"] = None
         return cd
-
 
 @admin.register(LoremasterImage)
 class LoremasterImageAdmin(admin.ModelAdmin):
@@ -479,19 +511,37 @@ class SubclassGroupAdmin(admin.ModelAdmin):
                 SubclassMasteryUnlock.objects.bulk_update(gates, ["rank"])
 
 
-class ClassProficiencyProgressInline(admin.TabularInline):
-    model  = ClassProficiencyProgress
-    form   = ClassProficiencyProgressForm   # ← add this
-    extra  = 1
-    fields = (
-       'proficiency_type',
-       'armor_group', 'armor_item',
-       'weapon_group','weapon_item',
-       'at_level', 'tier'
-   )
+class CPPFormSet(BaseInlineFormSet):
+    def add_fields(self, form, index):
+        super().add_fields(form, index)
+        # If this is a bound POST, include the posted pk in the id field's queryset
+        if form.is_bound and "id" in form.fields:
+            posted_pk = form.data.get(f"{form.prefix}-id")
+            if posted_pk:
+                field = form.fields["id"]
+                # default queryset = rows for THIS parent; add the posted row just in case
+                field.queryset = field.queryset | ClassProficiencyProgress.objects.filter(pk=posted_pk)
 
-    class Media:
-        js = ("characters/js/class_proficiency_progress.js",)
+    def clean(self):
+        super().clean()
+        for form in self.forms:
+            if self.can_delete and form.cleaned_data.get("DELETE"):
+                continue
+            pt   = form.cleaned_data.get("proficiency_type")
+            lvl  = form.cleaned_data.get("at_level")
+            tier = form.cleaned_data.get("tier")
+            if not pt and not lvl and not tier:
+                form.cleaned_data["DELETE"] = True
+            elif pt and (not lvl or not tier):
+                if not lvl:  form.add_error("at_level", "Enter the class level.")
+                if not tier: form.add_error("tier", "Pick a proficiency tier.")
+
+class ClassProficiencyProgressInline(admin.TabularInline):
+    model   = ClassProficiencyProgress
+    fk_name = "character_class"   # ← make Django’s relation explicit
+    formset = CPPFormSet
+    extra   = 0
+    fields  = ('proficiency_type','at_level','tier')
 
 
 
@@ -504,6 +554,21 @@ class CharacterClassBaseProfForm(CharacterClassForm):
         label="Armor proficiencies (baseline)",
         help_text="Armor groups this class starts proficient with at level 1."
     )
+
+    starting_skills_formula = forms.CharField(
+        required=False,
+        label="Starting skills (formula)",
+        widget=FormulaBuilderWidget(
+            # Suggest the usual numeric vars PLUS ability modifiers
+            variables=VARS + ABILITY_MOD_VARS,
+            dice=DICE,
+            attrs={"rows": 2, "cols": 40},
+        ),
+        help_text=(
+            "How many trained skills the class grants at level 1. "
+            "Examples: '2', '2 + int_mod'."
+        ),
+    )    
     weapon_proficiencies = forms.MultipleChoiceField(
         choices=WEAPON_GROUPS,
         required=False,
@@ -550,55 +615,48 @@ class CharacterClassBaseProfForm(CharacterClassForm):
                 .filter(character_class=cls, proficiency_type="weapon", at_level=1, weapon_item__isnull=False)
                 .values_list("weapon_item", flat=True)
             )
-    def save(self, commit=True):
-        inst = super().save(commit=commit)
+    def sync_baseline_prof_progress(self, inst):
+        # ⬇️ this is the exact body you currently have in save() that
+        #     deletes/creates CPP rows. Move it here unchanged.
+        armor_sel   = set(self.cleaned_data.get("armor_proficiencies") or [])
+        weapon_sel  = set(self.cleaned_data.get("weapon_proficiencies") or [])
+        armor_items = set(self.cleaned_data.get("armor_items_baseline") or [])
+        weapon_items= set(self.cleaned_data.get("weapon_items_baseline") or [])
 
-        # Read the selected baseline groups
-        armor_sel = set(self.cleaned_data.get("armor_proficiencies") or [])
-        weapon_sel = set(self.cleaned_data.get("weapon_proficiencies") or [])
-        armor_items  = set(self.cleaned_data.get("armor_items_baseline") or [])
-        weapon_items = set(self.cleaned_data.get("weapon_items_baseline") or [])
-
-        # Choose a default tier (lowest bonus or lowest pk)
         default_tier = (
             ProficiencyTier.objects.order_by("bonus").first()
             or ProficiencyTier.objects.order_by("pk").first()
         )
-
-        # If no tiers exist yet, just return; admin can add tiers later.
         if not default_tier:
             return inst
 
         with transaction.atomic():
-            # Armor: keep only selected groups at level 1; create missing ones
+            # ---- keep your exact delete/get_or_create code here ----
+            # Armor groups @ L1
             ClassProficiencyProgress.objects.filter(
                 character_class=inst, proficiency_type="armor", at_level=1
             ).exclude(armor_group__in=armor_sel).delete()
 
             for grp in armor_sel:
                 ClassProficiencyProgress.objects.get_or_create(
-                    character_class=inst,
-                    proficiency_type="armor",
-                    at_level=1,
-                    armor_group=grp,
-                    weapon_group=None,
+                    character_class=inst, proficiency_type="armor", at_level=1,
+                    armor_group=grp, weapon_group=None,
                     defaults={"tier": default_tier},
                 )
 
-            # Weapon: same pattern
+            # Weapon groups @ L1
             ClassProficiencyProgress.objects.filter(
                 character_class=inst, proficiency_type="weapon", at_level=1
             ).exclude(weapon_group__in=weapon_sel).delete()
 
             for grp in weapon_sel:
                 ClassProficiencyProgress.objects.get_or_create(
-                    character_class=inst,
-                    proficiency_type="weapon",
-                    at_level=1,
-                    armor_group=None,
-                    weapon_group=grp,
+                    character_class=inst, proficiency_type="weapon", at_level=1,
+                    armor_group=None, weapon_group=grp,
                     defaults={"tier": default_tier},
                 )
+
+            # Specific items @ L1
             ClassProficiencyProgress.objects.filter(
                 character_class=inst, proficiency_type="armor", at_level=1, armor_item__isnull=False
             ).exclude(armor_item__in=armor_items).delete()
@@ -609,7 +667,6 @@ class CharacterClassBaseProfForm(CharacterClassForm):
                     defaults={"tier": default_tier},
                 )
 
-            # items: weapon
             ClassProficiencyProgress.objects.filter(
                 character_class=inst, proficiency_type="weapon", at_level=1, weapon_item__isnull=False
             ).exclude(weapon_item__in=weapon_items).delete()
@@ -621,6 +678,10 @@ class CharacterClassBaseProfForm(CharacterClassForm):
                 )
         return inst
 
+    def save(self, commit=True):
+        inst = forms.ModelForm.save(self, commit=commit)
+        self._needs_baseline_sync = True
+        return inst
 class MartialMasteryForm(forms.ModelForm):
     # ==== existing ====
     allowed_weapons = forms.ModelMultipleChoiceField(
@@ -868,11 +929,37 @@ class ClassSubclassAdmin(admin.ModelAdmin):
 
 
 
+class SubclassGroupInlineFormSet(BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+        seen = set()
+        for form in self.forms:
+            if self.can_delete and form.cleaned_data.get("DELETE"):
+                continue
+            name = form.cleaned_data.get("name")
+            if not name:
+                continue
+            # duplicate in the posted forms
+            if name in seen:
+                form.add_error("name", "Name already used under this class.")
+            seen.add(name)
+            # duplicate vs DB
+            exists = (SubclassGroup.objects
+                      .filter(character_class=self.instance, name=name)
+                      .exclude(pk=form.instance.pk)
+                      .exists())
+            if exists:
+                form.add_error("name", "This umbrella name already exists for this class.")
+
 class SubclassGroupInline(admin.TabularInline):
     model  = SubclassGroup
     extra  = 1
-    fields = ("name", "code", "system_type")   # ← added
-# ─── CharacterClass, Tiers & Levels ─────────────────────────────────────────────
+    fields = ("name", "code", "system_type")
+    def get_formset(self, request, obj=None, **kwargs):
+        FS = super().get_formset(request, obj, **kwargs)
+        class Wrapped(FS, SubclassGroupInlineFormSet):
+            pass
+        return Wrapped
 
 
 
@@ -891,45 +978,13 @@ class ProficiencyTierAdmin(admin.ModelAdmin):
 from django.apps import apps
 from django.db import models
 from django.db.models import IntegerField
-DICE = ["d4","d6","d8","d10","d12","d20"]
-Character = apps.get_model("characters", "Character")
-ABILITY_NAMES = ("strength","dexterity","constitution","intelligence","wisdom","charisma")
-ABILITY_FIELDS = [
-     f.name
-     for f in Character._meta.get_fields()
-     if isinstance(f, models.IntegerField) and f.name in ABILITY_NAMES
- ]
 
-ALL_INT_FIELDS = [
-    f.name
-    for f in Character._meta.get_fields()
-    if isinstance(f, IntegerField)
-]
 # the rest of your VARS (levels, saves, class_level, plus any “_level” fields)
 from django.db import connection
 
 
-def get_other_vars():
-    try:
-        from characters.models import CharacterClass
-        if CharacterClass._meta.db_table in connection.introspection.table_names():
-            class_fields = [f"{cls.name.lower()}_level" for cls in CharacterClass.objects.all()]
-        else:
-            class_fields = []
-    except Exception:
-        class_fields = []
-
-    return [
-        "level", "class_level", "proficiency_modifier",
-        "hp", "temp_hp",
-    ] + class_fields + [
-        "reflex_save", "fortitude_save", "will_save",
-        "initiative", "weapon_attack", "spell_attack", "spell_dc",
-        "perception", "dodge",
-    ]
 
 
-VARS = ABILITY_FIELDS + get_other_vars() + ALL_INT_FIELDS
 class ClassResourceForm(forms.ModelForm):
     class Meta:
         model = ClassResource
@@ -1654,17 +1709,20 @@ class ClassFeatureAdmin(admin.ModelAdmin):
     def formfield_for_dbfield(self, db_field, request, **kwargs):
         # Force a <select> for modify_proficiency_target even though the model is CharField
         if db_field.name == "modify_proficiency_target":
-            from django import forms
-            return forms.MultipleChoiceField(
-                choices=build_proficiency_target_choices(),   # ← now includes Sub-skills
+            # nice, opt-grouped choices (Core / Skills / Sub-skills)
+            choices = build_proficiency_target_choices()
+
+            field = CSVMultipleChoiceField(
+                choices=choices,
                 required=False,
-                widget=forms.SelectMultiple,
+                widget=FilteredSelectMultiple("proficiency targets", is_stacked=False),
                 label=db_field.verbose_name,
-                help_text="Select one or more (core profs, Skills, Sub-skills).",
+                help_text="Select one or more (core proficiencies, skills, sub-skills).",
             )
+            return field
 
         if db_field.name == "gain_proficiency_target":
-            from django import forms
+            # keep your existing single-select (hidden by the form)
             return forms.ChoiceField(
                 choices=[("", "---------")] + build_proficiency_target_choices(),
                 required=not db_field.blank,
@@ -1672,7 +1730,6 @@ class ClassFeatureAdmin(admin.ModelAdmin):
                 label=db_field.verbose_name,
                 help_text=db_field.help_text,
             )
-
         return super().formfield_for_dbfield(db_field, request, **kwargs)
 
     def save_model(self, request, obj, form, change):
@@ -1832,7 +1889,7 @@ class ClassFeatureAdmin(admin.ModelAdmin):
             'characters/js/classfeature_admin.js',
         )
         css = {
-            'all': ('characters/css/formula_builder.css',)
+            'all': ('characters/css/formula_builder.css','characters/css/ClassFeatureAdmin.css')
         }
 # characters/admin.py
 
@@ -1929,12 +1986,53 @@ class CharacterClassAdmin(admin.ModelAdmin):
         "primary_image",   "primary_preview",
         "secondary_image", "secondary_preview",
         "tertiary_image",  "tertiary_preview",
+                "starting_skills_formula",
          "armor_proficiencies", "weapon_proficiencies",
          "armor_items_baseline","weapon_items_baseline",
         # … any other existing CharacterClass fields …
     )
     readonly_fields = ("primary_preview", "secondary_preview", "tertiary_preview")
+    def get_form(self, request, obj=None, **kwargs):
+        Base = super().get_form(request, obj, **kwargs)
 
+        class DebugForm(Base):
+            def is_valid(self):
+                ok = super().is_valid()
+                if not ok:
+                    print(">>> CharacterClass FORM errors:", self.errors.as_data())
+                return ok
+
+        return DebugForm
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        if getattr(form, "_needs_baseline_sync", False):
+            form.sync_baseline_prof_progress(form.instance)
+
+
+    def get_inline_instances(self, request, obj=None):
+        # also wrap each inline formset to log their errors
+        inlines = super().get_inline_instances(request, obj)
+        for inline in inlines:
+            base_get_formset = inline.get_formset
+
+            def _wrap(base):
+                def wrapped_get_formset(request_, obj_=None, **kw):
+                    FS = base(request_, obj_, **kw)
+                    class DebugFS(FS):
+                        def is_valid(self):
+                            ok = super().is_valid()
+                            if not ok:
+                                print(f">>> {self.model.__name__} INLINE non-form:",
+                                    self.non_form_errors().as_data())
+                                for f in self.forms:
+                                    if f.errors:
+                                        print("   - row errors:", f.errors.as_data())
+                            return ok
+                    return DebugFS
+                return wrapped_get_formset
+
+            inline.get_formset = _wrap(base_get_formset)
+        return inlines
     def primary_preview(self, obj):
         if obj.primary_image:
             return format_html(
@@ -1952,7 +2050,19 @@ class CharacterClassAdmin(admin.ModelAdmin):
             )
         return "(no secondary image)"
     secondary_preview.short_description = "Secondary Preview"
+    def save_model(self, request, obj, form, change):
+        if form.errors:
+            print(">>> CharacterClass form errors:", form.errors.as_data())
+        return super().save_model(request, obj, form, change)
 
+    def save_formset(self, request, form, formset, change):
+        if formset.total_error_count():
+            print(f">>> {formset.model.__name__} non-form errors:",
+                  formset.non_form_errors().as_data())
+            for f in formset.forms:
+                if f.errors:
+                    print("   - row errors:", f.errors.as_data())
+        return super().save_formset(request, form, formset, change)
     def tertiary_preview(self, obj):
         if obj.tertiary_image:
             return format_html(
@@ -2366,8 +2476,6 @@ class RacialFeatureAdmin(SummernoteModelAdmin):
     def formfield_for_dbfield(self, db_field, request, **kwargs):
         # Force a <select> for modify_proficiency_target even though the model is CharField
         if db_field.name == "modify_proficiency_target":
-            from django import forms
-            from characters.models import PROFICIENCY_TYPES, Skill
 
             # 1) build the combined list: base prof types + all Skill names
             base = list(PROFICIENCY_TYPES)
@@ -2375,12 +2483,12 @@ class RacialFeatureAdmin(SummernoteModelAdmin):
             all_choices = [("", "---------")] + base + skill_choices
 
             # 2) return a ChoiceField (renders as <select>) instead of default TextInput
-            return forms.ChoiceField(
-                choices=all_choices,
-                required=not db_field.blank,
-                widget=forms.Select,
+            choices = build_proficiency_target_choices()
+            return CSVMultipleChoiceField(
+                choices=choices,
+                required=False,
+                widget=FilteredSelectMultiple("proficiency targets", is_stacked=False),
                 label=db_field.verbose_name,
-                help_text=db_field.help_text,
             )
 
 

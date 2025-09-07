@@ -44,6 +44,7 @@ WEAPON_GROUPS = [
     ("simple",  "Simple"),
     ("martial", "Martial"),
     ("special", "Special"),
+    ('black_powder', "Black Powder")
 ]
 
 
@@ -761,6 +762,14 @@ class CharacterClass(models.Model):
                       default=8,
                       help_text="Your class’s Hit Die"
                   )
+    starting_skills_formula = models.CharField(
+        max_length=200,
+        blank=True,
+        help_text=(
+            "Formula for the number of skills you start trained in at level 1. "
+            "Examples: '2', '2 + int_mod', '1 + floor((intelligence-10)/2)'."
+        ),
+    )
     
     key_abilities = models.ManyToManyField(
         AbilityScore,
@@ -891,54 +900,25 @@ class ProficiencyTier(models.Model):
         return self.name
 
 
-class ClassProficiencyProgress(models.Model):
-    """
-    For each (class, proficiency_type), at what level you bump up to a given tier.
-    Add an optional subgroup for armor/weapon.
-    """
-    character_class  = models.ForeignKey(CharacterClass, on_delete=models.CASCADE, related_name="prof_progress")
-    proficiency_type = models.CharField(max_length=20, choices=PROFICIENCY_TYPES)
-    # NEW: which group (only used when type is armor/weapon)
-    armor_group  = models.CharField(max_length=10, choices=ARMOR_GROUPS, blank=True, null=True)
-    weapon_group = models.CharField(max_length=10, choices=WEAPON_GROUPS, blank=True, null=True)
 
-    at_level         = models.PositiveIntegerField(help_text="Level at which this tier becomes active")
-    tier             = models.ForeignKey(ProficiencyTier, on_delete=models.PROTECT)
-    armor_item  = models.ForeignKey('Armor',  on_delete=models.PROTECT, blank=True, null=True)
-    weapon_item = models.ForeignKey('Weapon', on_delete=models.PROTECT, blank=True, null=True)
+
+class ClassProficiencyProgress(models.Model):
+    character_class  = models.ForeignKey('CharacterClass', on_delete=models.CASCADE, related_name="prof_progress")
+    proficiency_type = models.CharField(max_length=20, choices=PROFICIENCY_TYPES)
+    armor_group  = models.CharField(max_length=10, choices=ARMOR_GROUPS, blank=True, null=True)
+    weapon_group = models.CharField(max_length=20, choices=WEAPON_GROUPS, blank=True, null=True)
+    at_level     = models.PositiveIntegerField()
+    tier         = models.ForeignKey('ProficiencyTier', on_delete=models.PROTECT)
+    armor_item   = models.ForeignKey('Armor',  on_delete=models.PROTECT, blank=True, null=True)
+    weapon_item  = models.ForeignKey('Weapon', on_delete=models.PROTECT, blank=True, null=True)
 
     class Meta:
         ordering = ["character_class", "proficiency_type", "at_level"]
-        # keep a simple uniqueness constraint; we enforce validity in clean()
-        unique_together = (
-           "character_class", "proficiency_type", "at_level",
-           "armor_group", "weapon_group", "armor_item", "weapon_item"
-       )
-    def clean(self):
-        super().clean()
-        if self.proficiency_type == "armor":
-           # must pick EXACTLY ONE of: armor_group OR armor_item
-           if self.weapon_group or self.weapon_item:
-               raise ValidationError("Armor prof may not set any weapon fields.")
-           if bool(self.armor_group) == bool(self.armor_item):
-               raise ValidationError("Pick either an armor group OR a specific armor item.")
-        elif self.proficiency_type == "weapon":
-           if self.armor_group or self.armor_item:
-               raise ValidationError("Weapon prof may not set any armor fields.")
-           if bool(self.weapon_group) == bool(self.weapon_item):
-               raise ValidationError("Pick either a weapon group OR a specific weapon.")
-        else:
-           # non-armor/weapon: no sub-targets at all
-           if any([self.armor_group, self.weapon_group, self.armor_item_id, self.weapon_item_id]):
-               raise ValidationError("Only armor/weapon proficiencies can target groups or items.")
 
-    def __str__(self):
-        grp = ""
-        if self.proficiency_type == "armor" and self.armor_group:
-            grp = f" ({self.armor_group})"
-        if self.proficiency_type == "weapon" and self.weapon_group:
-            grp = f" ({self.weapon_group})"
-        return f"{self.character_class.name} {self.proficiency_type}{grp}@L{self.at_level} → {self.tier.name}"
+
+    def clean(self):
+        # keep this no-op, that’s fine
+        super().clean()
 
 class CharacterClassProgress(models.Model):
     """
@@ -972,6 +952,7 @@ class Weapon(models.Model):
         ('simple', 'Simple'),
         ('martial', 'Martial'),
         ('special', 'Special'),
+        ('black powder', "Black Powder")
     ]
     MELEE, RANGED = "melee", "ranged"
     RANGE_CHOICES = [(MELEE, "Melee"), (RANGED, "Ranged")]
@@ -980,11 +961,13 @@ class Weapon(models.Model):
         ('bludgeoning', 'Bludgeoning'),
         ('piercing',    'Piercing'),
         ('slashing',    'Slashing'),
+        ('explosive',    'Explosives'),
+        
     ]
 
     name         = models.CharField(max_length=100, unique=True)
     damage       = models.CharField(max_length=50)
-    category     = models.CharField(max_length=10, choices=CATEGORY_CHOICES)
+    category     = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
     is_melee     = models.BooleanField(default=True)
     range_type   = models.CharField(max_length=6, choices=RANGE_CHOICES, default=MELEE)
     range_normal = models.PositiveIntegerField(null=True, blank=True)

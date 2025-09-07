@@ -11,7 +11,6 @@ from django.db.models import Q, Max
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django_select2.views import AutoResponseView
-from django.db.models import Count
 from .models import Character, Skill  , RaceFeatureOption  
 from campaigns.models import Campaign
 from django.db import models
@@ -1584,10 +1583,27 @@ def class_detail(request, pk):
                   'features',
                   queryset=ClassFeature.objects
                     .select_related('modify_proficiency_amount')
-                    .prefetch_related('subclasses'),
+                    .prefetch_related(
+                        'subclasses',
+                        'options__grants_feature',   
+                    ),
               )
           )
     )
+
+    # Build a per-level list that EXCLUDES features granted by options on the same level.
+    for cl in levels:
+        feats = list(cl.features.all())
+        # All grant targets reachable from features at THIS level:
+        granted_ids = {
+            opt.grants_feature_id
+            for f in feats
+            for opt in getattr(f, "options", []).all()
+            if opt.grants_feature_id
+        }
+        # Store both for the template:
+        cl._granted_feature_ids = granted_ids
+        cl.filtered_features = [f for f in feats if f.id not in granted_ids]
 
     # Load each group & its subclasses
     subclass_groups = (
@@ -1639,9 +1655,28 @@ def class_detail(request, pk):
     # ── 5) Summary 1…20 ────────────────────────────────────────────────────────
     max_lvl = max(levels.aggregate(Max('level'))['level__max'] or 1, 20)
     summary = []
+
     for lvl in range(1, max_lvl + 1):
         cl = next((c for c in levels if c.level == lvl), None)
-        feats = list(cl.features.all()) if cl else []
+        feats = []
+        if cl:
+            feats = list(getattr(cl, 'filtered_features', cl.features.all()))
+
+        labels = []
+        for f in feats:
+            if f.scope == 'subclass_feat':
+                names = []
+                for sub in f.subclasses.all().select_related('group'):
+                    gname = getattr(getattr(sub, "group", None), "name", None)
+                    names.append((gname or sub.name or "").strip())
+                names = [n for n in names if n]
+                labels.append(names[0] if names else (f.name or f.code or "Subclass Feature"))
+            else:
+                labels.append("–".join(p for p in [f.code, f.name] if p))
+
+        unique = list(dict.fromkeys(labels))  # dedupe, preserve order
+        summary.append({'level': lvl, 'features': unique})
+
 
     labels = []
     for f in feats:
@@ -3577,7 +3612,45 @@ def character_detail(request, pk):
                 level=next_level
             )
         # Manual add (feat/feature/racial_feature) with explanation
-        return redirect('characters:character_detail', pk=pk)
+
+        # H) Starting skills — only when this is the first level in the chosen class
+        if cls_level_after_post == 1:
+            raw_picks = level_form.cleaned_data.get("starting_skill_picks") or []
+
+            if raw_picks:
+                # Find the "Trained" proficiency (fallback: first non-Untrained)
+                trained = (ProficiencyLevel.objects
+                        .filter(name__iexact="Trained").order_by("bonus").first())
+                if not trained:
+                    trained = (ProficiencyLevel.objects
+                            .exclude(name__iregex=r'(?i)untrained').order_by("bonus").first())
+
+                ct_skill = ContentType.objects.get_for_model(Skill)
+                ct_sub   = ContentType.objects.get_for_model(SubSkill)
+
+                for token in raw_picks:
+                    try:
+                        if token.startswith("sk_"):
+                            sid = int(token[3:])
+                            CharacterSkillProficiency.objects.get_or_create(
+                                character=character,
+                                selected_skill_type=ct_skill,
+                                selected_skill_id=sid,
+                                defaults={"proficiency": trained},
+                            )
+                        elif token.startswith("sub_"):
+                            sid = int(token[4:])
+                            CharacterSkillProficiency.objects.get_or_create(
+                                character=character,
+                                selected_skill_type=ct_sub,
+                                selected_skill_id=sid,
+                                defaults={"proficiency": trained},
+                            )
+                    except ValueError:
+                        # ignore any malformed value silently
+                        pass
+
+                return redirect('characters:character_detail', pk=pk)
 
     # ── 5) BUILD feature_fields FOR TEMPLATE ───────────────────────────────
     subclass_feats_at_next = {}
