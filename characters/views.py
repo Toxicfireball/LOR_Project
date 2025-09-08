@@ -2369,6 +2369,82 @@ def character_detail(request, pk):
 )
     cls_level_after = _class_level_after_pick(character, preview_cls)
     cls_level_after_post = cls_level_after
+    show_starting_skill_picker = (cls_level_after == 1)  # only at first level in this class
+
+    starting_skill_choices = {"skills": [], "subskills": []}
+    starting_skill_max = 0  # <-- NEW
+
+    def _starting_skills_cap_for(cls_obj):
+        expr = (getattr(cls_obj, "starting_skills_formula", "") or "").strip()
+        if not expr:
+            return 0
+
+        def _abil(score: int) -> int:
+            return (score - 10) // 2
+
+        # IMPORTANT: short names -> MODIFIERS
+        ctx = {
+            # modifiers (primary names)
+            "strength": _abil(character.strength), "dexterity": _abil(character.dexterity),
+            "constitution": _abil(character.constitution), "intelligence": _abil(character.intelligence),
+            "wisdom": _abil(character.wisdom), "charisma": _abil(character.charisma),
+
+            # explicit *_mod aliases (same values as above)
+            "str_mod": _abil(character.strength), "dex_mod": _abil(character.dexterity),
+            "con_mod": _abil(character.constitution), "int_mod": _abil(character.intelligence),
+            "wis_mod": _abil(character.wisdom), "cha_mod": _abil(character.charisma),
+
+            # scores (only if you want them available explicitly)
+            "strength_score": character.strength, "dexterity_score": character.dexterity,
+            "constitution_score": character.constitution, "intelligence_score": character.intelligence,
+            "wisdom_score": character.wisdom, "charisma_score": character.charisma,
+
+            # math/helpers
+            "floor": math.floor, "ceil": math.ceil, "min": min, "max": max,
+            "int": int, "round": round,
+        }
+
+        # <class>_level tokens (wizard_level, fighter_level, ...)
+        for prog in character.class_progress.select_related('character_class'):
+            token = re.sub(r'[^a-z0-9_]', '', (prog.character_class.name or '')
+                        .strip().lower().replace(' ', '_'))
+            if token:
+                ctx[f"{token}_level"] = int(prog.levels or 0)
+
+        try:
+            val = eval(expr, {"__builtins__": {}}, ctx)
+            return max(0, int(val))
+        except Exception:
+            return 0
+
+    if show_starting_skill_picker:
+        # compute cap for the PREVIEWED class (GET)
+        starting_skill_max = _starting_skills_cap_for(preview_cls)
+
+        ct_skill = ContentType.objects.get_for_model(Skill)
+        ct_sub   = ContentType.objects.get_for_model(SubSkill)
+        already = set(
+            character.skill_proficiencies.values_list("selected_skill_type_id", "selected_skill_id")
+        )
+
+        # skills with no subskills, non-advanced
+        for sk in (Skill.objects
+                .filter(subskills__isnull=True, is_advanced=False)
+                .order_by("name")):
+            if (ct_skill.id, sk.id) not in already:
+                starting_skill_choices["skills"].append({"id": sk.id, "label": sk.name})
+
+        # all subskills of non-advanced skills
+        for sub in (SubSkill.objects
+                    .filter(skill__is_advanced=False)
+                    .select_related("skill")
+                    .order_by("skill__name", "name")):
+            if (ct_sub.id, sub.id) not in already:
+                starting_skill_choices["subskills"].append({
+                    "id": sub.id,
+                    "label": f"{sub.skill.name} – {sub.name}",
+                })
+
     try:
         cl = (
             ClassLevel.objects
@@ -3615,10 +3691,14 @@ def character_detail(request, pk):
 
         # H) Starting skills — only when this is the first level in the chosen class
         if cls_level_after_post == 1:
-            raw_picks = level_form.cleaned_data.get("starting_skill_picks") or []
+            raw_picks = request.POST.getlist("starting_skill_picks")  # ← from <select multiple>
+
+            # Cap based on the picked class (mods-based formula now)
+            cap = _starting_skills_cap_for(picked_cls)
+            if cap and len(raw_picks) > cap:
+                raw_picks = raw_picks[:cap]  # hard-enforce; or flash a message if you prefer
 
             if raw_picks:
-                # Find the "Trained" proficiency (fallback: first non-Untrained)
                 trained = (ProficiencyLevel.objects
                         .filter(name__iexact="Trained").order_by("bonus").first())
                 if not trained:
@@ -3647,10 +3727,8 @@ def character_detail(request, pk):
                                 defaults={"proficiency": trained},
                             )
                     except ValueError:
-                        # ignore any malformed value silently
                         pass
 
-                return redirect('characters:character_detail', pk=pk)
 
     # ── 5) BUILD feature_fields FOR TEMPLATE ───────────────────────────────
     subclass_feats_at_next = {}
@@ -3927,7 +4005,6 @@ def character_detail(request, pk):
             },
         })
 
-    add_row("armor",                      label="Armor")
     add_row("dodge",  "Dexterity", dex_mod, label="Dodge", base_const=10)   # ← 10 + DEX + prof + ½ level
     add_row("reflex", "Dexterity", dex_mod, label="Reflex")
     add_row("fortitude","Constitution", con_mod, label="Fortitude")
@@ -4500,6 +4577,13 @@ def character_detail(request, pk):
         "actions_text": True,
     }
 
+    # Build combined flat list for checkboxes (labels sorted A→Z)
+    starting_skill_flat = []
+    for s in starting_skill_choices.get("skills", []):
+        starting_skill_flat.append({"id_key": f"sk_{s['id']}", "label": s["label"]})
+    for s in starting_skill_choices.get("subskills", []):
+        starting_skill_flat.append({"id_key": f"sub_{s['id']}", "label": s["label"]})
+    starting_skill_flat.sort(key=lambda x: (x["label"] or "").lower())
 
     # ----- include in context -----
     extra_ctx = {
@@ -4660,6 +4744,35 @@ def character_detail(request, pk):
         Known    = character.known_spells.model
         Prepared = character.prepared_spells.model
 
+        starting_skill_max = 0
+        if show_starting_skill_picker:
+            # compute cap for the PREVIEWED class (GET)
+            starting_skill_max = _starting_skills_cap_for(preview_cls)
+
+            ct_skill = ContentType.objects.get_for_model(Skill)
+            ct_sub   = ContentType.objects.get_for_model(SubSkill)
+            already = set(
+                character.skill_proficiencies.values_list("selected_skill_type_id", "selected_skill_id")
+            )
+
+            # skills with no subskills, non-advanced
+            for sk in (Skill.objects
+                    .filter(subskills__isnull=True, is_advanced=False)
+                    .order_by("name")):
+                if (ct_skill.id, sk.id) not in already:
+                    starting_skill_choices["skills"].append({"id": sk.id, "label": sk.name})
+
+            # all subskills of non-advanced skills
+            for sub in (SubSkill.objects
+                        .filter(skill__is_advanced=False)
+                        .select_related("skill")
+                        .order_by("skill__name", "name")):
+                if (ct_sub.id, sub.id) not in already:
+                    starting_skill_choices["subskills"].append({
+                        "id": sub.id,
+                        "label": f"{sub.skill.name} – {sub.name}",
+                    })
+
         try:
             with transaction.atomic():
                 if op == "learn_cantrip":
@@ -4707,6 +4820,8 @@ def character_detail(request, pk):
     # ── 6) RENDER character_detail.html ───────────────────────────────────
     return render(request, 'forge/character_detail.html', {
         "spell_table_by_rank": rows_by_rank,
+        "show_starting_skill_picker": show_starting_skill_picker,
+"starting_skill_choices": starting_skill_choices,
         "spell_rank_range": scx["rank_range"],
         "spellcasting_ctx": _spellcasting_context(character),
         'character':          character,
@@ -4722,7 +4837,7 @@ def character_detail(request, pk):
         'total_level':        total_level,
         'preview_class':      preview_cls,
         'tier_names':         tier_names,
-        
+        "starting_skill_max": starting_skill_max,
         'auto_feats':         auto_feats,
         'form':               level_form,
         'edit_form':          edit_form,
@@ -4734,6 +4849,8 @@ def character_detail(request, pk):
         'proficiency_summary': proficiency_summary,
         'racial_feature_rows': racial_feature_rows,
         'manual_form': manual_form,
+        "starting_skill_flat": starting_skill_flat,
+
         'manual_grants': character.manual_grants.select_related('content_type').all(),
             'field_overrides': field_overrides,
             'field_notes': field_notes,
