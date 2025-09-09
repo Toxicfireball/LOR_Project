@@ -1398,21 +1398,7 @@ class CombinedCLFFormSet(MasteryChoiceFormSet):
             names = ", ".join(str(f) for f in dupes)
             raise ValidationError(f"Duplicate feature selected at this level: {names}")
 
-        for feature, grp, tier in picks:
-            if tier == 1:
-                continue
-            needed_suffix = f"_{tier - 1}"
-            exists_lower_tier = ClassLevelFeature.objects.filter(
-                class_level__character_class=cls,
-                class_level__level__lt=this_level,
-                feature__subclass_group=grp,
-                feature__code__endswith=needed_suffix
-            ).exists()
-            if not exists_lower_tier:
-                raise ValidationError(
-                    f"You assigned Tier {tier} ({feature.code}) at level {this_level}, "
-                    f"but no Tier {tier - 1} from {grp.name!r} exists at a lower level."
-                )
+        
 class CLFForm(forms.ModelForm):
     class Meta:
         model  = ClassLevelFeature
