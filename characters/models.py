@@ -518,35 +518,21 @@ class Character(models.Model):
 
     def mastery_for(self, subclass: "ClassSubclass") -> int:
         """
-        Current mastery rank the character has in this subclass,
-        based on (a) how many modules they've picked from THIS subclass,
-        and (b) the group's SubclassMasteryUnlock level gates.
+        Current tier = floor(modules_taken / modules_required).
+        No unlock-level gates are used for modular mastery.
         """
         grp = getattr(subclass, "group", None)
         if not grp or grp.system_type != SubclassGroup.SYSTEM_MODULAR_MASTERY:
             return 0
 
-        # how many subclass modules (features) have they actually chosen?
         taken = CharacterFeature.objects.filter(
-            character=self,
-            subclass=subclass,
-            feature__scope="subclass_feat",
+            character=self, subclass=subclass, feature__scope="subclass_feat",
         ).count()
+        per = max(1, int(getattr(grp, "modules_per_mastery", 2)))
+        # 1-based tiers: at 0 modules you are Tier 1; tier increases every `per` modules.
+        return 1 + (taken // per)
 
-        # rank implied purely by count (2 modules == rank 1, etc.)
-        default_per = grp.modules_per_mastery or 2
-        count_rank = taken // default_per
 
-        # highest rank allowed by level gates
-        cls_lvl = self.class_level_for(subclass.base_class)
-        gate_rank = (
-            SubclassMasteryUnlock.objects
-            .filter(subclass_group=grp, unlock_level__lte=cls_lvl)
-            .aggregate(Max("rank"))["rank__max"] or 0
-        )
-
-        # final rank is the min of “earned by modules” and “allowed by level”
-        return min(count_rank, gate_rank)
     def _cap_from_gainers(self, base_class: "CharacterClass", group: "SubclassGroup", lvl: int) -> int:
         """
         Look at the ClassLevelFeatures for THIS exact class level that point to
@@ -580,73 +566,57 @@ class Character(models.Model):
         )
 
 
-    def mastery_pick_options(self, subclass: "ClassSubclass"):
+    def mastery_pick_options(self, subclass, preview_level=None, gainer_cap=None):
         """
-        Modular-mastery picking logic driven by GAINERS.
-
-        • The ONLY level-wired rows are ClassLevelFeature → ClassFeature(scope='gain_subclass_feat').
-        • Each gainer carries mastery_rank = the maximum rank you may pick UP TO at this level.
-        • ClassLevelFeature.num_picks = how many modules you may take this level.
-
-        Returns: (num_picks_now, queryset_of_eligible_subclass_modules)
+        Return (allowed_cap, queryset) for modular mastery picks.
+        - Tier is 1-based: 0 modules ⇒ Tier 1.
+        - 'gainer_cap' is the Mastery Rank on the *gain_subclass_feat* trigger (max tier allowed).
+        - We do *not* apply level gating for mastery; only tier + 'modules required'.
         """
-        from .models import ClassFeature, ClassLevelFeature, CharacterFeature
-
-        group = subclass.group
-        base_class = subclass.base_class
-        if not group or group.system_type != SubclassGroup.SYSTEM_MODULAR_MASTERY:
+        grp = getattr(subclass, "subclass_group", None) or getattr(subclass, "group", None)
+        if not grp:
             return 0, ClassFeature.objects.none()
 
-        lvl = self.class_level_for(base_class)
+        # modules needed to increase tier (a.k.a. "Modules Required")
+        per = getattr(grp, "modules_per_mastery", None)
+        if not per or int(per) <= 0:
+            per = getattr(grp, "modules_required", 2)
+        per = max(1, int(per))
 
-        # 1) How many picks at THIS level? (use only the GAINERS)
-        picks_now = (
-            ClassLevelFeature.objects
-            .filter(
-                class_level__character_class=base_class,
-                class_level__level=lvl,
-                feature__scope="gain_subclass_feat",
-                feature__subclass_group=group,
-            )
-            .aggregate(total=models.Sum("num_picks"))["total"] or 0
-        )
+        # how many modules already taken in THIS subclass
+        taken = (CharacterFeature.objects
+                 .filter(character=self,
+                         subclass=subclass,
+                         feature__scope='subclass_feat')
+                 .count())
 
-        # 2) What rank CAP applies at THIS level?
-        cap_from_gainer = self._cap_from_gainers(base_class, group, lvl)
-        # Also respect your global rank gates, if present:
-        cap_from_gates  = self._cap_from_rank_gates(group, base_class)
-        allowed_cap     = min(cap_from_gainer, cap_from_gates)
+        current_tier = 1 + (taken // per)   # 1-based
+        # cap from the gainer (if None, don't reduce below current_tier)
+        cap = int(gainer_cap) if gainer_cap is not None else current_tier
+        allowed_cap = max(1, min(current_tier, cap))
 
-        # 3) Eligible modules (scope=subclass_feat) for THIS subclass up to the cap, and not already taken
-        already_have_ids = set(
-            CharacterFeature.objects
-            .filter(character=self, subclass=subclass, feature__scope="subclass_feat")
-            .values_list("feature_id", flat=True)
-        )
+        # feature ids already owned in this subclass (exclude)
+        owned_ids = list(CharacterFeature.objects
+                         .filter(character=self,
+                                 subclass=subclass,
+                                 feature__scope='subclass_feat')
+                         .values_list("feature_id", flat=True))
 
-        options = (
-            ClassFeature.objects
-            .filter(
-                scope="subclass_feat",
-                subclass_group=group,
-                subclasses=subclass,
-            )
-            .filter(
-                models.Q(mastery_rank__isnull=True) | models.Q(mastery_rank__lte=allowed_cap)
-            )
-            .filter(
-                models.Q(min_level__isnull=True) | models.Q(min_level__lte=lvl)
-            )
-            .exclude(pk__in=already_have_ids)
-            .order_by("mastery_rank", "name")
-        )
+        # eligible modules for this subclass at tier ≤ allowed_cap
+        # accept either .tier or .mastery_rank as the module's tier field
+        qs = (ClassFeature.objects
+              .filter(scope='subclass_feat',
+                      subclass_group=grp,
+                      subclasses=subclass)
+              .filter(
+                  Q(tier__isnull=True) | Q(tier__lte=allowed_cap) |
+                  Q(mastery_rank__isnull=True) | Q(mastery_rank__lte=allowed_cap)
+              )
+              .exclude(pk__in=owned_ids)
+              .order_by('tier', 'mastery_rank', 'name'))
 
-        return picks_now, options
+        return allowed_cap, qs
 
-
-
-    def __str__(self):
-        return self.name or f"Character {self.id}"
 class RaceTag(models.Model):
     name = models.CharField(max_length=50, unique=True)
     slug = models.SlugField(max_length=50, unique=True, blank=True)
@@ -1899,41 +1869,32 @@ class CharacterFeature(models.Model):
         if self.feature and self.subclass:
             grp = getattr(self.subclass, "group", None)
             if grp and grp.system_type == SubclassGroup.SYSTEM_MODULAR_MASTERY and self.feature.scope == "subclass_feat":
-                from .models import ClassLevelFeature
+                # cap = min(current_tier_at_that_time, gainer cap at that time)
                 base_class = self.subclass.base_class
-                char = self.character
+                lvl        = int(self.level)
 
-                # the character's class level at the time this was gained
-                lvl = self.level
+                cap_gainer = (ClassLevelFeature.objects
+                    .filter(class_level__character_class=base_class,
+                            class_level__level=lvl,
+                            feature__scope="gain_subclass_feat",
+                            feature__subclass_group=grp)
+                    .aggregate(models.Max("feature__mastery_rank"))["feature__mastery_rank__max"] or 0)
 
-                # compute the allowed cap AT THAT LEVEL (same logic as pick_options)
-                cap_gainer = (
-                    ClassLevelFeature.objects
-                    .filter(
-                        class_level__character_class=base_class,
-                        class_level__level=lvl,
-                        feature__scope="gain_subclass_feat",
-                        feature__subclass_group=grp,
-                    )
-                    .aggregate(models.Max("feature__mastery_rank"))["feature__mastery_rank__max"]
-                    or 0
-                )
+                per = max(1, int(getattr(grp, "modules_per_mastery", 2)))
 
-                # respect global rank gates as well
-                from .models import SubclassMasteryUnlock
-                cap_gate = (
-                    SubclassMasteryUnlock.objects
-                    .filter(subclass_group=grp, unlock_level__lte=lvl)
-                    .aggregate(models.Max("rank"))["rank__max"]
-                    or 0
-                )
-                allowed_cap = min(cap_gainer, cap_gate)
+                # modules already taken in this subclass BEFORE this pick
+                taken_before = (CharacterFeature.objects
+                    .filter(character=self.character, subclass=self.subclass,
+                            feature__scope="subclass_feat", level__lt=lvl)
+                    .count())
 
-                feat_rank = self.feature.mastery_rank or 0
+                current_tier = 1 + (taken_before // per)  # 1-based
+                allowed_cap  = min(current_tier, cap_gainer)
+
+                feat_rank = int(self.feature.mastery_rank or 0)
                 if feat_rank > allowed_cap:
-                    raise ValidationError(
-                        {"feature": f"This pick requires mastery rank ≤ {allowed_cap}, but feature is rank {feat_rank}."}
-                    )
+                    raise ValidationError({"feature": f"This pick requires rank ≤ {allowed_cap}, but feature is rank {feat_rank}."})
+
 
     class Meta:
         unique_together = [("character","feature","option","subclass","level")]

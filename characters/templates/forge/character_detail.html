@@ -501,42 +501,48 @@
 </div> <!-- /.col-md-7 -->
 </div> <!-- /.row -->
 
-<hr class="my-3">
+{% with mm=combat_blocks.martial_mastery %}
+  {% if mm %}
+    <hr class="my-3">
 
-<h6 class="mb-2">Martial Mastery</h6>
-<div class="mb-2">
-  <strong>Total Points:</strong> {{ combat_blocks.martial_mastery.total_points|default:0 }}
-  &nbsp;•&nbsp;
-  <strong>Known Cap:</strong> {{ combat_blocks.martial_mastery.total_known_cap|default:0 }}
-</div>
+    <h6 class="mb-2">Martial Mastery</h6>
+    <div class="mb-2">
+      <strong>Total Points:</strong> {{ mm.total_points }}
+      &nbsp;•&nbsp;
+      <strong>Known Cap:</strong> {{ mm.total_known_cap }}
+    </div>
 
-{% if combat_blocks.martial_mastery.known_names and combat_blocks.martial_mastery.known_names|length %}
-  <div class="mb-2">
-    <strong>Known:</strong>
-    {% for n in combat_blocks.martial_mastery.known_names %}
-      <span class="badge text-bg-secondary me-1 mb-1">{{ n }}</span>
-    {% endfor %}
-  </div>
-{% endif %}
-
-{% if active_passive_tab.martial_mastery_entitlement.by_feature and active_passive_tab.martial_mastery_entitlement.by_feature|length %}
-  <div class="table-responsive">
-    <table class="table table-sm">
-      <thead><tr><th>Feature</th><th>Class</th><th>Points</th><th>Known Cap</th></tr></thead>
-      <tbody>
-        {% for row in active_passive_tab.martial_mastery_entitlement.by_feature %}
-          <tr>
-            <td>{{ row.feature_name }}</td>
-            <td>{{ row.class_name }}</td>
-            <td>{{ row.points }}</td>
-            <td>{{ row.known_cap }}</td>
-          </tr>
+    {% if mm.known_names and mm.known_names|length %}
+      <div class="mb-2">
+        <strong>Known:</strong>
+        {% for n in mm.known_names %}
+          <span class="badge text-bg-secondary me-1 mb-1">{{ n }}</span>
         {% endfor %}
-      </tbody>
-    </table>
-  </div>
-{% endif %}
-</div> 
+      </div>
+    {% endif %}
+
+    {% with mme=active_passive_tab.martial_mastery_entitlement %}
+      {% if mme and mme.by_feature and mme.by_feature|length %}
+        <div class="table-responsive">
+          <table class="table table-sm">
+            <thead><tr><th>Feature</th><th>Class</th><th>Points</th><th>Known Cap</th></tr></thead>
+            <tbody>
+              {% for row in mme.by_feature %}
+                <tr>
+                  <td>{{ row.feature_name }}</td>
+                  <td>{{ row.class_name }}</td>
+                  <td>{{ row.points }}</td>
+                  <td>{{ row.known_cap }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+    {% endwith %}
+  {% endif %}
+{% endwith %}
+
       
 
         <!-- SKILLS TAB -->
@@ -789,42 +795,7 @@
       <p class="mb-0 text-muted">None marked Active.</p>
     {% endif %}
   </div>
-  <div class="card p-3 mt-3">
-  <h5 class="mb-3">Martial Mastery</h5>
 
-  <div class="mb-2">
-    <strong>Total Points:</strong> {{ active_passive_tab.martial_mastery_entitlement.total_points|default:0 }}
-    &nbsp;•&nbsp;
-    <strong>Known Cap:</strong> {{ active_passive_tab.martial_mastery_entitlement.total_known_cap|default:0 }}
-  </div>
-
-  {% if active_passive_tab.martial_mastery_entitlement.by_feature and active_passive_tab.martial_mastery_entitlement.by_feature|length %}
-    <div class="table-responsive">
-      <table class="table table-sm">
-        <thead><tr><th>Feature</th><th>Class</th><th>Points</th><th>Known Cap</th></tr></thead>
-        <tbody>
-          {% for row in active_passive_tab.martial_mastery_entitlement.by_feature %}
-            <tr>
-              <td>{{ row.feature_name }}</td>
-              <td>{{ row.class_name }}</td>
-              <td>{{ row.points }}</td>
-              <td>{{ row.known_cap }}</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  {% endif %}
-
-  {% if active_passive_tab.masteries and active_passive_tab.masteries|length %}
-    <div class="mt-2">
-      <strong>Known:</strong>
-      {% for m in active_passive_tab.masteries %}
-        <span class="badge text-bg-secondary me-1 mb-1">{{ m.mastery.name }}</span>
-      {% endfor %}
-    </div>
-  {% endif %}
-</div>
 
 </div>
 
@@ -1597,23 +1568,7 @@
                           Linear progression: the following {{ item.group.name }} feature(s) are granted automatically.
                         </div>
                       {% endif %}
-{# 🔹 SHOW MODULAR-MASTERY RULES HELP #}
-{% if item.system == "modular_mastery" %}
-  {% with r=item.group.modular_rules %}
-    {% if r %}
-      <div class="alert alert-secondary p-2">
-        <strong>Modular Mastery</strong> —
-        pick exactly {{ r.picks_per_trigger|default:1 }} this level;
-        every {{ r.modules_per_mastery|default:2 }} pick(s) = +1 Mastery rank
-        {% if r.max_mastery_rank %}(max rank {{ r.max_mastery_rank }}){% endif %}.
-      </div>
-    {% else %}
-      <div class="alert alert-warning p-2">
-        Modular Mastery group has no rules configured.
-      </div>
-    {% endif %}
-  {% endwith %}
-{% endif %}
+
 
                       <div class="d-grid gap-2">
                         {% with selected_vals=item.field.value %}

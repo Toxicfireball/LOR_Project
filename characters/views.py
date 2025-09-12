@@ -22,6 +22,40 @@ FIVE_TIERS = ["Untrained", "Trained", "Expert", "Master", "Legendary"]
 from .models import Spell, CharacterKnownSpell, CharacterPreparedSpell
 from django.db.models import Q
 from django.views.decorators.http import require_GET
+# ── helpers that read the LEVEL TRIGGER instead of JSON ───────────────────
+def _picks_for_trigger(trigger, base_cls, cls_level):
+    """
+    'Choices granted at this level' → how many modules the player picks now.
+    Prefers the pivot (ClassLevelFeature.choices_granted), falls back to
+    trigger.choices_granted on the feature.
+    """
+    from .models import ClassLevel
+    try:
+        cl = ClassLevel.objects.get(character_class=base_cls, level=cls_level)
+    except ClassLevel.DoesNotExist:
+        return int(getattr(trigger, "choices_granted", 1) or 1)
+
+    # Try the through model if it exists
+    try:
+        from .models import ClassLevelFeature  # your M2M through that stores choices_granted
+        clf = ClassLevelFeature.objects.filter(class_level=cl, feature=trigger).first()
+        if clf and getattr(clf, "choices_granted", None) not in (None, ""):
+            return int(clf.choices_granted)
+    except Exception:
+        pass
+
+    # Fallback to the feature field itself
+    return int(getattr(trigger, "choices_granted", 1) or 1)
+
+
+def _allowed_rank_from_trigger(trigger):
+    """
+    'Mastery Rank' on the gain_subclass_feat feature → max rank the player may
+    select up to *this level*. If blank/NULL, treat as unlimited.
+    """
+    mr = getattr(trigger, "mastery_rank", None)
+    return (int(mr) if mr not in (None, "") else None)
+
 
 def _racefeat_details_kv(f):
     """
@@ -48,6 +82,25 @@ def _racefeat_details_kv(f):
     if isinstance(kv, dict):
         kv = list(kv.items())
     return [{"label": k, "value": v} for k, v in kv if v not in (None, "", [], {})]
+def _modules_required(grp) -> int:
+    try:
+        return max(1, int(getattr(grp, "modules_required", 2) or 2))
+    except Exception:
+        return 2
+
+def _current_mastery_tier(character, subclass, grp) -> int:
+    """Zero-based tier. Advances after every N modules (group.modules_required)."""
+    taken = (CharacterFeature.objects
+             .filter(character=character,
+                     subclass=subclass,
+                     feature__scope='subclass_feat')
+             .count())
+    return taken // _modules_required(grp)
+
+def _trigger_mastery_cap(trigger):
+    """Mastery cap taken directly from the *gain subclass feature* (gainer)."""
+    r = getattr(trigger, "mastery_rank", None)
+    return (int(r) if r is not None else None)
 
 
 
@@ -1622,6 +1675,7 @@ def class_detail(request, pk):
                 tl.tier: tl.unlock_level
                 for tl in group.tier_levels.all()
             }
+
         for sub in group.subclasses.all():
             fbylevel = {}
 
@@ -1632,11 +1686,28 @@ def class_detail(request, pk):
                     .filter(scope='subclass_feat',
                             subclasses=sub,
                             subclass_group=group)
+                    .select_related('modify_proficiency_amount')
+                    .prefetch_related('options__grants_feature')
                 )
                 for f in modular_feats:
                     lvl = tier_map.get(f.tier)
                     if lvl:
                         fbylevel.setdefault(lvl, []).append(f)
+
+            elif group.system_type == SubclassGroup.SYSTEM_MODULAR_MASTERY:
+                # ⬅️ NEW: mastery modules have no wired ClassLevel; just show them.
+                mastery_modules = (
+                    ClassFeature.objects
+                    .filter(scope='subclass_feat',
+                            subclasses=sub,
+                            subclass_group=group)
+                    .select_related('modify_proficiency_amount')
+                    .prefetch_related('options__grants_feature')
+                    .order_by('mastery_rank', 'name')
+                )
+                if mastery_modules:
+                    # use a synthetic “level 0” bucket so the template can render them
+                    fbylevel[0] = list(mastery_modules)
 
             else:
                 # existing “linear” logic
@@ -1648,8 +1719,9 @@ def class_detail(request, pk):
                     if feats:
                         fbylevel.setdefault(cl.level, []).extend(feats)
 
-            # Sort by level so L2 comes before L5, etc.
+            # Sort numerically by the key so 0 (Modules) comes before L2, L5, etc.
             sub.features_by_level = OrderedDict(sorted(fbylevel.items()))
+
  
 
     # ── 5) Summary 1…20 ────────────────────────────────────────────────────────
@@ -3257,84 +3329,110 @@ def character_detail(request, pk):
             })
             continue
 
-        # ------------- MODULAR MASTERY -------------
+        # ------------- MODULAR MASTERY (TRIGGER-DRIVEN) -------------
         if grp.system_type == SubclassGroup.SYSTEM_MODULAR_MASTERY:
-            active_sub = _active_subclass_for_group(character, grp, level_form, base_feats)
+            from django.db.models import Count
 
-            eligible_qs = ClassFeature.objects.none()
-            mastery_meta = None
-            picks_per_trigger = 1
-            if active_sub:
-                # RULES COME FROM THE GROUP (umbrella)
-                rules = (grp.modular_rules or {})
-                modules_per_mastery = int(rules.get('modules_per_mastery', 2))
-                picks_per_trigger   = int(rules.get('picks_per_trigger', 1))
-                max_mastery_rank    = rules.get('max_mastery_rank')  # optional cap
+            field_name = f"feat_{trigger.pk}_subfeats"
 
-                state = _mastery_state(character, active_sub, modules_per_mastery)
-                current_rank = state["rank"]
+            # how many modules per tier (default 2 if not set)
+            per = max(1, int(getattr(grp, "modules_per_mastery", 2)))
 
-                # Gate by mastery rank + optional cap + class level gates
-                base = (ClassFeature.objects
-                        .filter(scope='subclass_feat',
-                                subclass_group=grp,
-                                subclasses=active_sub)
-                        .filter(
-                            models.Q(mastery_rank__isnull=True) |
-                            models.Q(mastery_rank__lte=current_rank)
-                        )
-                        .filter(
-                            models.Q(min_level__isnull=True) |
-                            models.Q(min_level__lte=cls_level_after)
-                        ))
+            # how many picks this trigger gives (usually 1)
+            picks_per_trigger = _picks_for_trigger(trigger, preview_cls, cls_level_after)
 
-                if max_mastery_rank is not None:
-                    base = base.filter(
-                        models.Q(mastery_rank__isnull=True) |
-                        models.Q(mastery_rank__lte=int(max_mastery_rank))
-                    )
+            # the *gainer’s* cap for tier you may pick up to (None/0 = unlimited)
+            gainer_cap = int(getattr(trigger, "mastery_rank", 0) or 0)  # 0/None => unbounded
 
-                # Exclude already taken
-                taken_ids = CharacterFeature.objects.filter(
+            # what we’ve already taken (per subclass) for this group
+            taken_by_sub = dict(
+                CharacterFeature.objects.filter(
                     character=character,
-                    subclass=active_sub,
-                    feature__scope='subclass_feat'
-                ).values_list('feature_id', flat=True)
-
-                eligible_qs = base.exclude(pk__in=taken_ids).order_by('name')
-
-                mastery_meta = {
-                    "modules_per_mastery": modules_per_mastery,
-                    "picks_per_trigger": picks_per_trigger,
-                    "rank": current_rank,
-                    "taken": state["taken"],
-                    "into_rank": state["into_rank"],
-                    "need_for_next": state["need_for_next"],
-                }
-
-            field = forms.ModelMultipleChoiceField(
-                label=f"Pick {grp.name} feature(s) — {active_sub.name if active_sub else 'choose subclass first'}",
-                queryset=eligible_qs,
-                required=bool(eligible_qs.exists()),
-                widget=forms.CheckboxSelectMultiple,
-                help_text=(f"Mastery {mastery_meta['rank']}, "
-                        f"{mastery_meta['into_rank']}/{mastery_meta['modules_per_mastery']} into next "
-                        f"(pick exactly {mastery_meta['picks_per_trigger']} now)."
-                        if mastery_meta else "—")
+                    feature__scope='subclass_feat',
+                    feature__subclass_group=grp
+                ).values('subclass_id').annotate(cnt=Count('id'))
+                .values_list('subclass_id', 'cnt')
             )
-            level_form.fields[field_name] = field
+
+            # current tier per subclass (start at tier 1; advance every 'per' modules)
+            current_tier_by_sub = {}
+            for sub in grp.subclasses.all():
+                taken = int(taken_by_sub.get(sub.id, 0))
+                current_tier_by_sub[sub.id] = 1 + (taken // per)
+
+            # feature ids already owned in this group (avoid duplicates)
+            owned_feat_ids = set(
+                CharacterFeature.objects.filter(
+                    character=character, feature__scope='subclass_feat',
+                    feature__subclass_group=grp
+                ).values_list('feature_id', flat=True)
+            )
+
+            # build eligible set across *all* subclasses
+            eligible_ids = []
+            for sub in grp.subclasses.all():
+                # allowed tier for this subclass this time:
+                # <= current tier, and <= trigger's cap if it exists
+                allowed_cap = current_tier_by_sub[sub.id]
+                if gainer_cap:
+                    allowed_cap = min(allowed_cap, gainer_cap)
+
+                q = ClassFeature.objects.filter(
+                    scope='subclass_feat',
+                    subclass_group=grp,
+                    subclasses=sub
+                )
+                if allowed_cap:
+                    q = q.filter(models.Q(mastery_rank__isnull=True) |
+                                models.Q(mastery_rank__lte=allowed_cap))
+
+                # NO level attachments — do not filter by ClassLevel; optionally keep min_level if you use it
+                q = q.exclude(pk__in=owned_feat_ids)
+
+                eligible_ids.extend(q.values_list('id', flat=True))
+
+            eligible_qs = ClassFeature.objects.filter(pk__in=eligible_ids) \
+                .order_by('mastery_rank', 'name')
+
+            help_txt = (
+                f"Pick exactly {picks_per_trigger} module"
+                f"{'' if picks_per_trigger == 1 else 's'}. You can pick from any subclass. "
+                f"Tiers per subclass now: "
+                + ", ".join(
+                    f"{s.name}≤{current_tier_by_sub.get(s.id,1)}"
+                    + (f" (cap {gainer_cap})" if gainer_cap else "")
+                    for s in grp.subclasses.all()
+                )
+            )
+
+            # ALWAYS create the field (prevents KeyError on POST)
+            level_form.fields[field_name] = forms.ModelMultipleChoiceField(
+                label=f"Pick {grp.name} feature(s)",
+                queryset=eligible_qs,
+                required=(picks_per_trigger > 0),
+                widget=forms.CheckboxSelectMultiple,
+                help_text=help_txt,
+            )
 
             feature_fields.append({
                 "kind": "gain_subclass_feat",
                 "label": f"Gain Subclass Feature – {grp.name}",
                 "field": level_form[field_name],
                 "group": grp,
-                "subclass": active_sub,
+                "subclass": None,   # no subclass choice in this system
                 "eligible": list(eligible_qs),
                 "system": grp.system_type,
-                "mastery_meta": mastery_meta,
+                "mastery_meta": {
+                    "picks_per_trigger": picks_per_trigger,
+                    "modules_per_mastery": per,
+                    "gainer_cap": gainer_cap or None,
+                },
             })
             continue
+
+
+
+
 
     # ---- Restrict feat querysets by type + race/subrace + class name + tags ----
     # NOTE: Q must be imported at module level; do NOT import Q in this function.
@@ -3621,51 +3719,74 @@ def character_detail(request, pk):
                     )
                 elif name.endswith('_subfeats'):
                     grp = cf.subclass_group
+                    per = max(1, int(getattr(grp, "modules_per_mastery", 2)))
+                    picks_per_trigger = _picks_for_trigger(cf, picked_cls, cls_level_after_post)
+                    gainer_cap = int(getattr(cf, "mastery_rank", 0) or 0)
+
                     picked_features = list(val) if hasattr(val, '__iter__') else []
+                    if len(picked_features) != picks_per_trigger:
+                        messages.error(request, f"Pick exactly {picks_per_trigger} feature(s) for {grp.name}.")
+                        return redirect('characters:character_detail', pk=pk)
 
-                    if grp.system_type == SubclassGroup.SYSTEM_MODULAR_MASTERY:
-                        # enforce caps and correctness
-                        rules = (grp.modular_rules or {})
-                        picks_per_trigger = int(rules.get('picks_per_trigger', 1))
-                        modules_per_mastery = int(rules.get('modules_per_mastery', 2))
-                        active_sub = _active_subclass_for_group(character, grp, level_form, base_feats)
+                    # Map current tier by subclass (after previous picks, before this trigger)
+                    from django.db.models import Count
+                    taken_by_sub = dict(
+                        CharacterFeature.objects.filter(
+                            character=character,
+                            feature__scope='subclass_feat',
+                            feature__subclass_group=grp
+                        ).values('subclass_id').annotate(cnt=models.Count('id'))
+                        .values_list('subclass_id', 'cnt')
+                    )
+                    current_tier_by_sub = {}
+                    for sub in grp.subclasses.all():
+                        taken = int(taken_by_sub.get(sub.id, 0))
+                        current_tier_by_sub[sub.id] = 1 + (taken // per)
 
-                        if not active_sub:
-                            messages.error(request, f"You must choose a {grp.name} subclass first.")
-                            return redirect('characters:character_detail', pk=pk)
+                    owned_feat_ids = set(
+                        CharacterFeature.objects.filter(
+                            character=character, feature__scope='subclass_feat',
+                            feature__subclass_group=grp
+                        ).values_list('feature_id', flat=True)
+                    )
 
-                        # must pick exactly N
-                        if len(picked_features) != picks_per_trigger:
-                            messages.error(request, f"Pick exactly {picks_per_trigger} feature(s) for {grp.name}.")
-                            return redirect('characters:character_detail', pk=pk)
-
-                        # all selected must belong to the active subclass
-                        if any(active_sub not in sf.subclasses.all() for sf in picked_features):
-                            messages.error(request, "All selected features must belong to your chosen subclass.")
-                            return redirect('characters:character_detail', pk=pk)
-
-                        # re-compute current mastery rank; server-side recheck of mastery_rank gates
-                        ms = _mastery_state(character, active_sub, modules_per_mastery)
-                        current_rank = ms["rank"]
-                        for sf in picked_features:
-                            req = getattr(sf, "mastery_rank", None)
-                            if req is not None and int(req) > current_rank:
-                                messages.error(request, f"{sf.name} requires Mastery {req}.")
-                                return redirect('characters:character_detail', pk=pk)
-
-                    # persist the picks (same as you already do)
+                    # Validate each pick against its own subclass tier/cap
+                    to_create = []
                     for sf in picked_features:
-                        sub_for_sf = sf.subclasses.first()
-                        if not sub_for_sf:
-                            continue
+                        # determine which subclass this feature belongs to (expect exactly one)
+                        subs = list(sf.subclasses.filter(subclass_group=grp))
+                        if len(subs) != 1:
+                            messages.error(request, f"Feature “{sf.name}” is not tied to exactly one subclass.")
+                            return redirect('characters:character_detail', pk=pk)
+                        sub = subs[0]
+
+                        if sf.id in owned_feat_ids:
+                            messages.error(request, f"You already own “{sf.name}”.")
+                            return redirect('characters:character_detail', pk=pk)
+
+                        allowed_cap = current_tier_by_sub.get(sub.id, 1)
+                        if gainer_cap:
+                            allowed_cap = min(allowed_cap, gainer_cap)
+
+                        # if feature has a mastery_rank, enforce it
+                        mr = getattr(sf, "mastery_rank", None)
+                        if mr and int(mr) > int(allowed_cap):
+                            messages.error(request,
+                                        f"“{sf.name}” requires tier {mr}, but your allowed tier for {sub.name} is {allowed_cap}.")
+                            return redirect('characters:character_detail', pk=pk)
+
+                        to_create.append((sf, sub))
+
+                    # Save all valid picks
+                    for sf, sub in to_create:
                         CharacterFeature.objects.get_or_create(
                             character=character,
                             feature=sf,
-                            subclass=sub_for_sf,
-                            level=next_level
+                            subclass=sub,
+                            defaults={"level": next_level}
                         )
 
-                                    
+                                                        
 
 
 
@@ -3691,6 +3812,11 @@ def character_detail(request, pk):
 
         # H) Starting skills — only when this is the first level in the chosen class
         if cls_level_after_post == 1:
+            trained = (ProficiencyLevel.objects
+                    .filter(name__iexact="Trained").order_by("bonus").first())
+            if not trained:
+                messages.error(request, "Missing proficiency levels (need at least ‘Trained’). Please seed the tiers and try again.")
+                return redirect('characters:character_detail', pk=pk)            
             raw_picks = request.POST.getlist("starting_skill_picks")  # ← from <select multiple>
 
             # Cap based on the picked class (mods-based formula now)
@@ -3728,6 +3854,9 @@ def character_detail(request, pk):
                             )
                     except ValueError:
                         pass
+        # ---- DONE: all mutations saved; switch to PRG to avoid stale context ----
+        messages.success(request, f"{character.name} advanced to level {next_level}.")
+        return redirect('characters:character_detail', pk=pk)
 
 
     # ── 5) BUILD feature_fields FOR TEMPLATE ───────────────────────────────
@@ -3772,19 +3901,16 @@ def character_detail(request, pk):
                         .order_by('name')
                     )
             elif grp.system_type == SubclassGroup.SYSTEM_MODULAR_MASTERY:
-                rules = grp.modular_rules or {}
-                mpm = int(rules.get('modules_per_mastery', 2))
-                feats = []
-                state = _mastery_state(character, sc, mpm)
-                current_rank = state["rank"]
+                per = max(1, int(getattr(grp, "modules_per_mastery", 2)))
+                taken = CharacterFeature.objects.filter(
+                    character=character, subclass=sc, feature__scope='subclass_feat'
+                ).count()
+                current_rank = 1 + (taken // per) 
 
                 feats = list(
                     qs.filter(
                         models.Q(mastery_rank__isnull=True) |
                         models.Q(mastery_rank__lte=current_rank)
-                    ).filter(
-                        models.Q(min_level__isnull=True) |
-                        models.Q(min_level__lte=cls_level_after)
                     ).order_by('name')
                 )
 
@@ -3803,6 +3929,8 @@ def character_detail(request, pk):
                 )
             sc.feats_next = feats
             subclass_feats_at_next[(grp.pk, sc.pk)] = [f.pk for f in feats]  # optional, if you want an index
+
+
 
 
     for feat in to_choose:
@@ -4207,6 +4335,8 @@ def character_detail(request, pk):
         for row in all_skill_rows:
             field = f"sp_{row['id_key']}"
             new_pk = request.POST.get(field)
+            if not new_pk:  # None or ""
+                    continue
             if new_pk is None:
                 continue
             if str(new_pk) != str(row["prof_id"] or ""):
@@ -4433,7 +4563,7 @@ def character_detail(request, pk):
                 "wis_mod": _abil_mod(character.wisdom), "cha_mod": _abil_mod(character.charisma),
                 "floor": math.floor, "ceil": math.ceil, "min": min, "max": max, "round": round, "int": int,
             }
-            ctx.update(cp_map)  # e.g. {"wizard_level": 5, ...}
+            ctx.update(cp_map)
             return int(eval(expr, {"__builtins__": {}}, ctx))
         except Exception:
             return 0
@@ -4470,28 +4600,32 @@ def character_detail(request, pk):
         ).select_related("character_class").distinct()
     )
 
-    mm_entries = []
-    total_mm_points = 0
-    total_mm_known_cap = 0
-    for ft in owned_mm_features:
-        pts   = _eval_mm(getattr(ft, "martial_points_formula", None), _class_levels_ctx)
-        known = _eval_mm(getattr(ft, "available_masteries_formula", None), _class_levels_ctx)
-        total_mm_points   += max(0, pts)
-        total_mm_known_cap+= max(0, known)
-        mm_entries.append({
-            "feature_id": ft.id,
-            "feature_name": ft.name,
-            "class_name": ft.character_class.name if ft.character_class_id else "",
-            "points": pts,
-            "known_cap": known,
-        })
+    # IMPORTANT: only build the entitlement if the character actually owns a martial_mastery feature
+    martial_mastery_ctx = None
+    if owned_mm_features:
+        mm_entries = []
+        total_mm_points = 0
+        total_mm_known_cap = 0
+        for ft in owned_mm_features:
+            pts   = _eval_mm(getattr(ft, "martial_points_formula", None), _class_levels_ctx)
+            known = _eval_mm(getattr(ft, "available_masteries_formula", None), _class_levels_ctx)
+            total_mm_points    += max(0, pts)
+            total_mm_known_cap += max(0, known)
+            mm_entries.append({
+                "feature_id": ft.id,
+                "feature_name": ft.name,
+                "class_name": ft.character_class.name if ft.character_class_id else "",
+                "points": pts,
+                "known_cap": known,
+            })
 
-    martial_mastery_ctx = {
-        "total_points": total_mm_points,
-        "total_known_cap": total_mm_known_cap,
-        "by_feature": mm_entries,
-        "known_list": [m.mastery for m in character.martial_masteries.select_related("mastery").all()] if hasattr(character, "martial_masteries") else [],
-    }
+        martial_mastery_ctx = {
+            "total_points": total_mm_points,
+            "total_known_cap": total_mm_known_cap,
+            "by_feature": mm_entries,
+            "known_list": [m.mastery for m in character.martial_masteries.select_related("mastery").all()]
+                        if hasattr(character, "martial_masteries") else [],
+        }
 
     # Combat tab (defense/offense split)
     combat_blocks = {
@@ -4506,13 +4640,15 @@ def character_detail(request, pk):
             "spell_dc": (derived["spell_dcs"][0]["value"] if derived.get("spell_dcs") else None),
             "weapons": attacks_detailed,
         },
-        "martial_mastery": {
+    }
+    # Add this block only when entitlement exists
+    if martial_mastery_ctx:
+        combat_blocks["martial_mastery"] = {
             "total_points": martial_mastery_ctx["total_points"],
             "total_known_cap": martial_mastery_ctx["total_known_cap"],
-            # If you want a compact list on Combat, keep it terse:
             "known_names": [getattr(k, "name", str(k)) for k in martial_mastery_ctx["known_list"]],
-        },
-    }
+        }
+
 
 
     # Feats tab (you already compute these)
@@ -4571,11 +4707,13 @@ def character_detail(request, pk):
         "spell_tables":      spell_tables,
         "known_spells":      known_spells,
         "prepared_spells":   prepared_spells,
-        "masteries":         masteries,  # existing list of known masteries
-        "martial_mastery_entitlement": martial_mastery_ctx,  # <= NEW entitlement/points
+        "masteries":         masteries,
         "activations_map":   activations_map,
         "actions_text": True,
     }
+    # Attach only if present
+    if martial_mastery_ctx:
+        active_passive_tab["martial_mastery_entitlement"] = martial_mastery_ctx
 
     # Build combined flat list for checkboxes (labels sorted A→Z)
     starting_skill_flat = []

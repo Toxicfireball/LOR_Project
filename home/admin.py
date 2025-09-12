@@ -1404,50 +1404,13 @@ class CLFForm(forms.ModelForm):
         model  = ClassLevelFeature
         fields = ("feature", "num_picks")
         labels = {"num_picks": "Choices granted at this level"}
-        help_texts = {
-            "num_picks": "For ‘Gain Subclass Feature’ choosers, how many picks the player gets now.",
-        }
 
+    # CLFForm.__init__  (remove the HiddenInput swap)
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
-        # default: hide unless clearly needed
-        show_picks = False
-        feat = getattr(self.instance, "feature", None)
-
-        try:
-            from characters.models import SubclassGroup
-            if feat and feat.scope == "gain_subclass_feat" and feat.subclass_group \
-               and feat.subclass_group.system_type == SubclassGroup.SYSTEM_MODULAR_MASTERY:
-                show_picks = True
-        except Exception:
-            # be conservative if anything is missing
-            show_picks = False
-
-        if not show_picks:
-            self.fields["num_picks"].widget = forms.HiddenInput()
-            self.fields["num_picks"].required = False
-            # keep the DB clean when not applicable
-            if "num_picks" not in self.initial:
-                self.initial["num_picks"] = 0
-
-    def clean(self):
-        cleaned = super().clean()
-        feat = cleaned.get("feature")
-        try:
-            from characters.models import SubclassGroup
-            is_mod_mastery_gainer = bool(
-                feat and feat.scope == "gain_subclass_feat" and
-                getattr(feat, "subclass_group", None) and
-                feat.subclass_group.system_type == SubclassGroup.SYSTEM_MODULAR_MASTERY
-            )
-        except Exception:
-            is_mod_mastery_gainer = False
-
-        # If it isn't the modular-mastery gainer, force 0
-        if not is_mod_mastery_gainer:
-            cleaned["num_picks"] = 0
-        return cleaned
+        # Always render the input; we’ll hide/show with JS.
+        self.fields["num_picks"].required = False
+        self.fields["num_picks"].widget.attrs.setdefault("min", 0)
 
 
 class ClassLevelFeatureInline(admin.TabularInline):
@@ -1472,17 +1435,17 @@ class ClassLevelFeatureInline(admin.TabularInline):
                 L   = parent.level
                 qs = qs.filter(character_class=cls)
 
-                # ── modular_mastery: allow only features whose (group, rank) is unlocked at L
+                # modular_mastery unlocked (group, rank) pairs
                 allowed_mm = set(
                     SubclassMasteryUnlock.objects
                     .filter(subclass_group__character_class=cls, unlock_level__lte=L)
                     .values_list("subclass_group_id", "rank")
                 )
-                mm_q = Q()  # OR bucket of allowed (group, rank) pairs
+                mm_q = Q()
                 for g_id, r in allowed_mm:
                     mm_q |= Q(subclass_group_id=g_id, mastery_rank=r)
 
-                # ── modular_linear: allow only features whose (group, tier) is unlocked at L
+                # modular_linear unlocked (group, tier) pairs
                 allowed_ml = set(
                     SubclassTierLevel.objects
                     .filter(subclass_group__character_class=cls, unlock_level__lte=L)
@@ -1492,27 +1455,37 @@ class ClassLevelFeatureInline(admin.TabularInline):
                 for g_id, t in allowed_ml:
                     ml_q |= Q(subclass_group_id=g_id, tier=t)
 
-                # Build final filter:
                 qs = qs.filter(
-                    # keep anything that is NOT a subclass feature
                     ~Q(scope="subclass_feat")
                     |
-                    # allow subclass_feats that are NOT modular systems
                     ~Q(subclass_group__system_type__in=[
                         SubclassGroup.SYSTEM_MODULAR_MASTERY,
                         SubclassGroup.SYSTEM_MODULAR_LINEAR,
                     ])
                     |
-                    # allow modular_mastery subclass_feats unlocked at this level
                     (Q(subclass_group__system_type=SubclassGroup.SYSTEM_MODULAR_MASTERY) & mm_q)
                     |
-                    # allow modular_linear subclass_feats for the tier unlocked at this level
                     (Q(subclass_group__system_type=SubclassGroup.SYSTEM_MODULAR_LINEAR) & ml_q)
                 ).distinct()
 
             kwargs["queryset"] = qs
-        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
+        # build the field once
+        field = super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+        if db_field.name == "feature":
+            # use the module-level imports; do NOT re-import SubclassGroup here
+            mm_gainer_map = {
+                str(f.pk): bool(
+                    f.scope == "gain_subclass_feat"
+                    and f.subclass_group
+                    and f.subclass_group.system_type == SubclassGroup.SYSTEM_MODULAR_MASTERY
+                )
+                for f in field.queryset
+            }
+            field.widget.attrs["data-mm-gainer-map"] = json.dumps(mm_gainer_map)
+
+        return field
 
 @admin.register(ArmorTrait)
 class ArmorTraitAdmin(admin.ModelAdmin):
