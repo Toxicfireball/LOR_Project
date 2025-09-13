@@ -28,8 +28,7 @@ from characters.forms import BackgroundForm,CharacterClassForm, CombinedSkillFie
 from django.utils.html import format_html
 from django.forms.models import BaseInlineFormSet
 from django.core.exceptions import ValidationError
-from characters.models import PROFICIENCY_TYPES, Skill
-from django.contrib import admin
+from characters.models import PROFICIENCY_TYPES, Skill ,    SkillProficiencyUpgrade,  ClassSkillPointGrant, ClassSkillFeatGrant
 import json
 # admin.py
 from django.contrib.admin import SimpleListFilter
@@ -544,6 +543,20 @@ class ClassProficiencyProgressInline(admin.TabularInline):
     fields  = ('proficiency_type','at_level','tier')
 
 
+class ClassSkillPointGrantInline(admin.TabularInline):
+    model = ClassSkillPointGrant
+    fk_name = "character_class"
+    extra = 0
+    fields = ("at_level", "points_awarded")
+    ordering = ("at_level",)
+
+
+class ClassSkillFeatGrantInline(admin.TabularInline):
+    model = ClassSkillFeatGrant
+    fk_name = "character_class"
+    extra = 0
+    fields = ("at_level", "num_picks")
+    ordering = ("at_level",)
 
 
 class CharacterClassBaseProfForm(CharacterClassForm):
@@ -970,6 +983,19 @@ class ProficiencyTierAdmin(admin.ModelAdmin):
     search_fields  = ('name',)
 
 
+@admin.register(SkillProficiencyUpgrade)
+class SkillProficiencyUpgradeAdmin(admin.ModelAdmin):
+    list_display  = ("from_rank", "to_rank", "points", "min_level")
+    list_filter   = ("from_rank", "to_rank")
+    ordering      = ("points", "min_level", "from_rank", "to_rank")
+    search_fields = ("from_rank", "to_rank")
+
+    def get_readonly_fields(self, request, obj=None):
+        # Disallow nonsense sequences in UI by making from/to readonly on edit
+        ro = list(super().get_readonly_fields(request, obj))
+        if obj:
+            ro += ["from_rank", "to_rank"]
+        return ro
 
 
 
@@ -1929,9 +1955,10 @@ class CharacterClassAdmin(admin.ModelAdmin):
     filter_horizontal = ("tags", "key_abilities")  # use horizontal filter for the M2M
 
     inlines = [
-        ClassProficiencyProgressInline,
-        SubclassGroupInline,
-        ClassResourceInline,
+        ClassProficiencyProgressInline,  # existing prof-progression rows
+        ClassSkillPointGrantInline,      # NEW: per-level skill points
+        ClassSkillFeatGrantInline,       # NEW: per-level skill feat grants
+        SubclassGroupInline, 
     ]
 
     # show fields in the order you like: primary, secondary, tertiary images plus previews
@@ -2058,7 +2085,19 @@ class CharacterClassAdmin(admin.ModelAdmin):
     display_key_abilities.short_description = "Key Abilities"
 
 
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        # record that we need to sync L1 baseline prof rows after m2m/save_related
+        if hasattr(form, "_needs_baseline_sync"):
+            obj._needs_baseline_sync = True
 
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        # perform the baseline sync (armor/weapon @ L1) using your existing helper
+        inst = form.instance
+        if getattr(inst, "_needs_baseline_sync", False):
+            form.sync_baseline_prof_progress(inst)
+            delattr(inst, "_needs_baseline_sync")
 # characters/admin.py
 
 from django.contrib import admin

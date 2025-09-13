@@ -496,15 +496,7 @@ class CharacterClassForm(forms.ModelForm):
         model  = CharacterClass
         fields = "__all__"  # includes key_abilities
 
-    def clean_key_abilities(self):
-        abilities = self.cleaned_data.get("key_abilities")
-        if not abilities:
-            raise ValidationError("You must select at least one key ability score.")
-        # abilities can be a QuerySet or a list; handle both
-        n = abilities.count() if hasattr(abilities, "count") else len(abilities)
-        if n not in (1, 2):
-            raise ValidationError("Select exactly one or two key ability scores.")
-        return abilities
+
 
     def clean(self):
         cleaned = super().clean()

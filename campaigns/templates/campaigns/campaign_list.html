@@ -1,29 +1,41 @@
-<!-- campaigns/templates/campaigns/campaign_list.html -->
-
 {% extends "base.html" %}
-
-{% block title %}
- Campaign_list
-{% endblock %}
-
 {% block content %}
-<head>
-    <meta charset="UTF-8">
-    <title>Campaign List</title>
-</head>
-<body>
-    <h2>All Campaigns</h2>
-    <a href="{% url 'campaigns:create_campaign' %}">Create a New Campaign</a>
-    <ul>
-      {% for campaign in campaigns %}
-        <li>
-          <a href="{% url 'campaigns:campaign_detail' campaign.id %}">
-            {{ campaign.name }}
-          </a>
-        </li>
-      {% endfor %}
-    </ul>
-    <p><a href="{% url 'accounts:logout' %}">Logout</a></p>
-</body>
-</html>
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h1 class="mb-0">Campaigns</h1>
+    <div class="text-muted">Browse or create a table. GMs see all attached characters; players see their own.</div>
+  </div>
+  <a class="btn btn-primary" href="{% url 'campaigns:create_campaign' %}">
+    + New Campaign
+  </a>
+</div>
+
+<div class="row g-3">
+  {% for c in campaigns %}
+    <div class="col-12 col-md-6 col-xl-4">
+      <div class="card h-100 shadow-sm">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-start">
+            <h5 class="card-title mb-1"><a href="{% url 'campaigns:campaign_detail' c.id %}">{{ c.name }}</a></h5>
+            <span class="badge bg-light text-dark" title="Created on">{{ c.created_at|date:"M j, Y" }}</span>
+          </div>
+          {% with gm=c.campaignmembership_set.all|dictsort:"role"|length %}
+          <p class="card-text text-muted small mb-2">
+            {{ c.description|default:"No description yet."|truncatechars:140 }}
+          </p>
+          {% endwith %}
+        </div>
+        <div class="card-footer bg-white d-flex gap-2">
+          <a href="{% url 'campaigns:campaign_detail' c.id %}" class="btn btn-sm btn-outline-primary">Open</a>
+        </div>
+      </div>
+    </div>
+  {% empty %}
+    <div class="col-12">
+      <div class="alert alert-info">
+        No campaigns yet. Click <strong>New Campaign</strong> to start one as GM.
+      </div>
+    </div>
+  {% endfor %}
+</div>
 {% endblock %}

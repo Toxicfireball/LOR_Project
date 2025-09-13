@@ -1,24 +1,37 @@
-<!-- campaigns/templates/campaigns/create_campaign.html -->
 {% extends "base.html" %}
-
-{% block title %}
-  Create_campaign
-{% endblock %}
-
 {% block content %}
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Create Campaign</title>
-</head>
-<body>
-    <h2>Create a New Campaign</h2>
-    <form method="post">
-      {% csrf_token %}
-      {{ form.as_p }}
-      <button type="submit">Create Campaign</button>
-    </form>
-    <p><a href="{% url 'campaigns:campaign_list' %}">Back to Campaign List</a></p>
-</body>
-</html>
+<h1>Create a New Campaign</h1>
+<p class="text-muted">
+  The creator becomes the <strong>GM</strong>. You can invite players and attach characters afterwards.
+</p>
+
+<form method="post" class="card shadow-sm">
+  <div class="card-body">
+    {% csrf_token %}
+    <div class="mb-3">
+      {{ form.name.label_tag }} {{ form.name }}
+      <div class="form-text">{{ form.name.help_text }}</div>
+      {% if form.name.errors %}<div class="text-danger small">{{ form.name.errors }}</div>{% endif %}
+    </div>
+    <div class="mb-3">
+      {{ form.description.label_tag }} {{ form.description }}
+      <div class="form-text">{{ form.description.help_text }}</div>
+      {% if form.description.errors %}<div class="text-danger small">{{ form.description.errors }}</div>{% endif %}
+    </div>
+  </div>
+  <div class="card-footer d-flex gap-2">
+    <a href="{% url 'campaigns:campaign_list' %}" class="btn btn-outline-secondary">Cancel</a>
+    <button class="btn btn-success" type="submit">Create Campaign</button>
+  </div>
+</form>
+
+<div class="mt-4">
+  <h5>What to include in the description</h5>
+  <ul class="small text-muted mb-0">
+    <li>Campaign premise and tone</li>
+    <li>Allowed classes/rulebooks & house rules</li>
+    <li>Session schedule and platform (in-person, VTT, voice)</li>
+    <li>Lines/veils and safety tools</li>
+  </ul>
+</div>
 {% endblock %}

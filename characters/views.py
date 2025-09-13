@@ -6,7 +6,7 @@ from django.db.models import Case, When, IntegerField
 # characters/views.py
 from collections import defaultdict
 from collections import Counter
-
+from campaigns.models import CampaignMembership
 from django.db.models import Q, Max
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
@@ -19,10 +19,29 @@ from django.views.decorators.http import require_POST
 from django.http import JsonResponse, HttpResponseBadRequest
 FIVE_TIERS = ["Untrained", "Trained", "Expert", "Master", "Legendary"]
 # ---- Background helpers ------------------------------------------------------
-from .models import Spell, CharacterKnownSpell, CharacterPreparedSpell
+from .models import Spell, CharacterKnownSpell, CharacterPreparedSpell, CharacterSkillPointTx
 from django.db.models import Q
 from django.views.decorators.http import require_GET
 # ── helpers that read the LEVEL TRIGGER instead of JSON ───────────────────
+
+# put near the top of views.py (import re if not already)
+import re, math
+
+def _normalize_formula(expr: str) -> str:
+    """Make data-entry formulas Python-evaluable."""
+    if not expr:
+        return ""
+    s = str(expr)
+
+    # Fix common English function names/phrases
+    s = re.sub(r'(?i)\bround\s*up\s*\(', 'ceil(', s)      # "round up(" → ceil(
+    s = re.sub(r'(?i)\broundup\s*\(',   'ceil(', s)       # "roundup(" → ceil(
+    s = re.sub(r'(?i)\bceiling\s*\(',   'ceil(', s)       # "ceiling(" → ceil(
+
+    # Be permissive with whitespace and case
+    s = s.strip().lower()
+    return s
+
 def _picks_for_trigger(trigger, base_cls, cls_level):
     """
     'Choices granted at this level' → how many modules the player picks now.
@@ -486,10 +505,41 @@ def _is_untrained_name(name: str | None) -> bool:
     return (name or "").strip().lower() == "untrained"
 
 from django.contrib.contenttypes.models import ContentType
+# characters/views.py
+from django.contrib import messages
+from django.views.decorators.http import require_POST
+from django.db.models import Prefetch
+
 @login_required
 def character_list(request):
-    characters = request.user.characters.all()
+    characters = (
+        request.user.characters
+        .select_related("race", "subrace", "campaign")
+        .prefetch_related(Prefetch("class_progress__character_class"))
+        .all()
+    )
     return render(request, 'forge/character_list.html', {'characters': characters})
+
+@login_required
+@require_POST
+def delete_character(request, pk):
+    char = get_object_or_404(Character, pk=pk, user=request.user)
+    name = char.name
+    char.delete()
+    messages.success(request, f'Deleted “{name}”.')
+    if request.headers.get("x-requested-with") == "XMLHttpRequest":
+        return JsonResponse({"ok": True})
+    return redirect('characters:character_list')
+
+@login_required
+@require_POST
+def bulk_delete_characters(request):
+    ids = request.POST.getlist("ids") or request.POST.getlist("ids[]")
+    qs = Character.objects.filter(user=request.user, id__in=ids)
+    count = qs.count()
+    qs.delete()
+    messages.success(request, f"Deleted {count} character{'s' if count != 1 else ''}.")
+    return redirect('characters:character_list')
 
 
 @login_required
@@ -2148,13 +2198,7 @@ def create_character(request):
                     if main_bg.secondary_skill:
                         _grant_skill_once(main_bg.secondary_skill)
 
-            # ---- Apply the ability adds to the character before saving --------------------
-            for abil_key, inc in abil_adds.items():
-                if inc <= 0:
-                    continue
-                cur = getattr(character, abil_key, None)
-                if isinstance(cur, int):
-                    setattr(character, abil_key, cur + inc)
+
 
             # Now persist the Character
             character.save()
@@ -2381,8 +2425,42 @@ from .forms import LevelUpForm
 @login_required
 def character_detail(request, pk):
     # ── 1) Load character & basic sheet context ─────────────────────────────
-    character = get_object_or_404(Character, pk=pk, user=request.user)
+    character = get_object_or_404(Character, pk=pk)
+
+    is_gm_for_campaign = False
+    if character.campaign_id:
+        is_gm_for_campaign = CampaignMembership.objects.filter(
+            campaign=character.campaign, user=request.user, role="gm"
+        ).exists()
+
+    if not (request.user.id == character.user_id or is_gm_for_campaign):
+        return HttpResponseForbidden("You don’t have permission to view this character.")
+
+    can_edit = (request.user.id == character.user_id) or is_gm_for_campaign    
     can_edit  = request.user == character.user
+    # LOR skill progression constants
+    LOR_TIER_ORDER     = ["Untrained","Trained","Expert","Master","Legendary"]
+    LOR_UPGRADE_COST   = {"Untrained":1, "Trained":2, "Expert":3, "Master":5}   # → next tier
+    LOR_MIN_LEVEL_FOR  = {"Trained":0, "Expert":3, "Master":7, "Legendary":14}  # first level you may *reach* that tier
+
+    def _tier_name(pl):
+        return (pl.name if pl else "Untrained").title()
+
+    def _next_tier_name(current_name):
+        try:
+            i = LOR_TIER_ORDER.index(current_name.title())
+            return LOR_TIER_ORDER[i+1] if i+1 < len(LOR_TIER_ORDER) else None
+        except ValueError:
+            return "Trained"  # safety
+
+    def _upgrade_cost(current_name):
+        return LOR_UPGRADE_COST.get(current_name.title(), 1)
+
+    def _min_level_to_reach(tier_name):
+        return LOR_MIN_LEVEL_FOR.get(tier_name.title(), 99)
+
+    # Switchable refund behavior: "step"=just the last step; "full"=all invested in current tier path
+    RETRAIN_REFUND_MODE = "step"
 
     ability_map = {
         'Strength':     character.strength,
@@ -2484,7 +2562,7 @@ def character_detail(request, pk):
                 ctx[f"{token}_level"] = int(prog.levels or 0)
 
         try:
-            val = eval(expr, {"__builtins__": {}}, ctx)
+            val = eval(_normalize_formula(expr), {"__builtins__": {}}, ctx)
             return max(0, int(val))
         except Exception:
             return 0
@@ -2587,6 +2665,10 @@ def character_detail(request, pk):
             # ability: expose both score and modifier under common aliases
             ctx.update({
                 # scores
+                    "ceil": math.ceil,
+    "round_up": math.ceil,
+    "roundup": math.ceil,     # NEW alias
+    "ceiling": math.ceil, 
                 "strength_score": character.strength, "dexterity_score": character.dexterity,
                 "constitution_score": character.constitution, "intelligence_score": character.intelligence,
                 "wisdom_score": character.wisdom, "charisma_score": character.charisma,
@@ -2607,6 +2689,7 @@ def character_detail(request, pk):
                 if not expr:
                     return None
                 try:
+                    expr = _normalize_formula(expr)       # <<< ADD THIS LINE
                     val = eval(expr, {"__builtins__": {}}, ctx)
                     return int(val)
                 except Exception:
@@ -2632,9 +2715,23 @@ def character_detail(request, pk):
             expr_can = _ov_expr(f"spellcap_formula:{ft.id}:cantrips")
             expr_kn  = _ov_expr(f"spellcap_formula:{ft.id}:known")
             expr_pr  = _ov_expr(f"spellcap_formula:{ft.id}:prepared")
+            # Enforce minimums
+            if known_max is not None:
+                known_max = max(1, int(known_max))
+            if prepared_max is not None:
+                prepared_max = max(1, int(prepared_max))
+
             if expr_can: cantrips_max = _eval(expr_can) or 0
             if expr_kn  is not None: known_max    = _eval(expr_kn)
             if expr_pr  is not None: prepared_max = _eval(expr_pr)
+            
+            # RE-APPLY minimums after overrides
+            if cantrips_max is not None:
+                cantrips_max = max(1, int(cantrips_max or 0))
+            if known_max is not None:
+                known_max = max(1, int(known_max or 0))
+            if prepared_max is not None:
+                prepared_max = max(1, int(prepared_max or 0))
             def _ov(key):
                 row = CharacterFieldOverride.objects.filter(character=character, key=key).first()
                 try:
@@ -2654,15 +2751,20 @@ def character_detail(request, pk):
             # Current counts scoped to this origin/list
             known_qs_base = character.known_spells.select_related("spell")
             prep_qs_base  = character.prepared_spells.select_related("spell")
+            # Spells known by this character regardless of list (avoid dup-learn)
+            known_ids_all = set(character.known_spells.values_list("spell_id", flat=True))
+
             if origin:
                 token_re = rf'(^|[,;/\s\(\)]+){re.escape(origin)}([,;/\s\(\)]+|$)'
-                # Known spells: match in Spell.origin or Spell.sub_origin
                 known_qs_base = known_qs_base.filter(
                     Q(spell__origin__icontains=origin) |
                     Q(spell__sub_origin__icontains=origin) |
                     Q(spell__origin__iregex=token_re) |
-                    Q(spell__sub_origin__iregex=token_re)
+                    Q(spell__sub_origin__iregex=token_re) |
+                    Q(origin__icontains=origin) |                     # NEW
+                    Q(origin__iregex=token_re)                        # NEW
                 )
+
                 # Prepared spells row stores only origin; use contains + token regex
                 prep_qs_base  = prep_qs_base.filter(
                     Q(origin__icontains=origin) |
@@ -2725,7 +2827,7 @@ def character_detail(request, pk):
             # 2) Cantrips to learn (not yet known)
             cantrip_choices = list(
                 avail_base.filter(level=0)
-                        .exclude(pk__in=known_cantrips_qs.values_list("spell_id", flat=True))
+                        .exclude(pk__in=known_ids_all)
                         .order_by("name")
                         .values(*cols)
             )
@@ -2735,10 +2837,11 @@ def character_detail(request, pk):
             for r in range(1, max_rank + 1):
                 spell_choices_by_rank[r] = list(
                     avail_base.filter(level=r)
-                            .exclude(pk__in=known_leveled_qs.values_list("spell_id", flat=True))
+                            .exclude(pk__in=known_ids_all)
                             .order_by("name")
                             .values(*cols)
                 )
+
 
 
             known_leveled_rows = list(
@@ -3854,6 +3957,21 @@ def character_detail(request, pk):
                             )
                     except ValueError:
                         pass
+
+        # --- Skill points grant for THIS level-up ---
+        pts = int(getattr(picked_cls, "skill_points_per_level", 0) or 0)
+        if pts:
+            CharacterSkillPointTx.objects.create(
+                character=character,
+                amount=pts,
+                source="level_award",
+                reason=f"{picked_cls.name} L{cls_level_after_post}",
+                at_level=next_level,
+                awarded_class=picked_cls,
+            )
+            messages.success(request, f"Gained {pts} skill point(s) from {picked_cls.name}.")
+
+
         # ---- DONE: all mutations saved; switch to PRG to avoid stale context ----
         messages.success(request, f"{character.name} advanced to level {next_level}.")
         return redirect('characters:character_detail', pk=pk)
@@ -4212,18 +4330,12 @@ def character_detail(request, pk):
 
     totals = _formula_totals(character)
     for b in spellcasting_blocks:
-        # your blocks use either ".list" or ".origin" for the spell list label
-        origin_key = None
-        if isinstance(b, dict):
-            origin_key = (b.get("list") or b.get("origin") or "").lower()
-        else:
-            origin_key = (getattr(b, "list", "") or getattr(b, "origin", "")).lower()
+        origin_key = (b.get("list") or b.get("origin") or "").lower()
+        fill = totals.get(origin_key, {}).get("cantrips_known")
+        if fill is not None and int(b.get("cantrips", 0) or 0) == 0:
+            b["cantrips"] = int(fill)
 
-        cap = totals.get(origin_key, {}).get("cantrips_known", 0)
-        if isinstance(b, dict):
-            b["cantrips"] = cap
-        else:
-            setattr(b, "cantrips", cap)
+
 
 
     # pick a main DC for the left card (first available)
@@ -4299,6 +4411,27 @@ def character_detail(request, pk):
                 "total1":    total1,
                 "total2":    total2,
             }
+            # --- LOR upgrade metadata for the UI ---
+            current_name = _tier_name(prof)                 # e.g., "Trained"
+            next_tier    = _next_tier_name(current_name)    # e.g., "Expert" or None
+            row["next_tier"] = next_tier
+            if next_tier:
+                row["upgrade_cost"] = _upgrade_cost(current_name)
+                row["min_level_for_next"] = _min_level_to_reach(next_tier)
+                row["can_reach_next_now"] = (character.level >= row["min_level_for_next"])
+            else:
+                row["upgrade_cost"] = None
+                row["min_level_for_next"] = None
+                row["can_reach_next_now"] = False
+
+            # Retrain is allowed for anything above Untrained
+            row["can_retrain"] = (current_name != "Untrained")
+            # Simple preview: if downgrading one step, refund the cost of the step you're undoing
+            if row["can_retrain"]:
+                # new tier after retrain
+                idx = LOR_TIER_ORDER.index(current_name)
+                new_name = LOR_TIER_ORDER[idx-1]
+                row["refund_preview"] = LOR_UPGRADE_COST[new_name]
 
             all_skill_rows.append(row)
   # Apply per-skill deltas stored in CharacterFieldOverride
@@ -4883,51 +5016,36 @@ def character_detail(request, pk):
         Prepared = character.prepared_spells.model
 
         starting_skill_max = 0
-        if show_starting_skill_picker:
-            # compute cap for the PREVIEWED class (GET)
-            starting_skill_max = _starting_skills_cap_for(preview_cls)
-
-            ct_skill = ContentType.objects.get_for_model(Skill)
-            ct_sub   = ContentType.objects.get_for_model(SubSkill)
-            already = set(
-                character.skill_proficiencies.values_list("selected_skill_type_id", "selected_skill_id")
-            )
-
-            # skills with no subskills, non-advanced
-            for sk in (Skill.objects
-                    .filter(subskills__isnull=True, is_advanced=False)
-                    .order_by("name")):
-                if (ct_skill.id, sk.id) not in already:
-                    starting_skill_choices["skills"].append({"id": sk.id, "label": sk.name})
-
-            # all subskills of non-advanced skills
-            for sub in (SubSkill.objects
-                        .filter(skill__is_advanced=False)
-                        .select_related("skill")
-                        .order_by("skill__name", "name")):
-                if (ct_sub.id, sub.id) not in already:
-                    starting_skill_choices["subskills"].append({
-                        "id": sub.id,
-                        "label": f"{sub.skill.name} – {sub.name}",
-                    })
 
         try:
             with transaction.atomic():
                 if op == "learn_cantrip":
-                    for val in picks:     # "spell_id|0"
-                        sid, _ = (val.split("|", 1) + ["", ""])[:2]
-                        Known.objects.get_or_create(
-                            character=character, spell_id=int(sid),
-                            defaults={"origin": origin_key, "rank": 0}
+                    for val in picks:  # "spell_id|0" or sometimes just "spell_id"
+                        sid, rk = (val.split("|", 1) + ["", ""])[:2]
+                        sid_i = int(sid)
+                        # cantrip rank is always 0
+                        Known.objects.update_or_create(
+                            character=character,
+                            spell_id=sid_i,
+                            defaults={"origin": origin_key, "rank": 0},
                         )
 
                 elif op == "learn_known":
-                    for val in picks:     # "spell_id|rank"
+                    for val in picks:  # "spell_id|rank" (rank is required, but recover if omitted)
                         sid, rk = (val.split("|", 1) + ["", ""])[:2]
-                        Known.objects.get_or_create(
-                            character=character, spell_id=int(sid),
-                            defaults={"origin": origin_key, "rank": int(rk or 0)}
+                        sid_i = int(sid)
+                        # if UI didn't include rank, fall back to the Spell.level
+                        if rk == "":
+                            rk = Spell.objects.filter(pk=sid_i).values_list("level", flat=True).first() or 0
+                        rk_i = int(rk)
+                        # learn_known
+                        Known.objects.update_or_create(
+                            character=character,
+                            spell_id=sid_i,
+                            defaults={"origin": origin_key, "rank": rk_i},
                         )
+
+
 
                 elif op == "unlearn_cantrip" or op == "unlearn_known":
                     for kid in picks:     # values are Known rows' ids
@@ -4953,7 +5071,7 @@ def character_detail(request, pk):
         return redirect('characters:character_detail', pk=pk)
 
 
-
+    skill_points_balance = CharacterSkillPointTx.balance_for(character)
 
     # ── 6) RENDER character_detail.html ───────────────────────────────────
     return render(request, 'forge/character_detail.html', {
@@ -4982,6 +5100,8 @@ def character_detail(request, pk):
         'details_form':       details_form,
     'feature_fields':         feature_fields,
     'spellcasting_blocks': spellcasting_blocks,
+    "skill_points_balance": skill_points_balance,
+
     'subclass_feats_at_next': subclass_feats_at_next,
             'proficiency_rows':   proficiency_rows,   # (preview table you already had)
         'proficiency_summary': proficiency_summary,

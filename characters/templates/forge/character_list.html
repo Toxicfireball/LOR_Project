@@ -1,15 +1,158 @@
 {% extends "base.html" %}
 {% block title %}Your Characters{% endblock %}
 {% block content %}
-<h2>Your Characters</h2>
-<ul>
-  {% for char in characters %}
-    <li>
-      <strong>{{ char.name }}</strong> (Level {{ char.level }})
-      — <a href="{% url 'characters:character_detail' char.id %}">View Character</a>
-    </li>
-  {% empty %}
-    <li>You haven’t created any characters yet. <a href="{% url 'characters:create_character' %}">Create one now</a>.</li>
-  {% endfor %}
-</ul>
+<h2 class="page-title">Your Characters</h2>
+
+{% if characters %}
+<form id="bulkForm" method="post" action="{% url 'characters:bulk_delete_characters' %}">
+  {% csrf_token %}
+  <div class="toolbar">
+    <div class="left">
+      <label class="checkbox-pill">
+        <input type="checkbox" id="selectAll"> Select all
+      </label>
+    </div>
+    <div class="right">
+      <button type="submit" id="bulkDeleteBtn" class="danger" disabled>
+        Delete selected
+      </button>
+    </div>
+  </div>
+
+  <div class="card-grid">
+    {% for char in characters %}
+      <article class="char-card">
+        <header>
+          <div class="select">
+            <input type="checkbox" class="rowChk" name="ids" value="{{ char.id }}">
+          </div>
+          <div class="avatar" aria-hidden="true">
+            {{ char.name|first|upper }}
+          </div>
+          <div class="title">
+            <a href="{% url 'characters:character_detail' char.id %}" class="name">
+              {{ char.name }}
+            </a>
+            <div class="subtitle">
+              Level {{ char.level|default:"0" }}
+              {% with cps=char.class_progress.all %}
+                {% if cps %}
+                  •
+                  {% for cp in cps %}
+                    {{ cp.character_class.name }} {{ cp.levels }}{% if not forloop.last %}, {% endif %}
+                  {% endfor %}
+                {% endif %}
+              {% endwith %}
+            </div>
+          </div>
+          <div class="actions">
+            <a class="btn" href="{% url 'characters:character_detail' char.id %}">View</a>
+            <a class="btn secondary" href="{% url 'characters:character_detail' char.id %}#edit">Edit</a>
+            <form method="post" action="{% url 'characters:delete_character' char.id %}" class="inline-delete" onsubmit="return confirm('Delete {{ char.name }}? This cannot be undone.');">
+              {% csrf_token %}
+              <button type="submit" class="btn danger">Delete</button>
+            </form>
+          </div>
+        </header>
+
+        <div class="meta">
+          <div>
+            <span class="label">Race</span>
+            <span class="value">
+              {{ char.race.name|default:"—" }}{% if char.subrace %} ({{ char.subrace.name }}){% endif %}
+            </span>
+          </div>
+          <div>
+            <span class="label">Campaign</span>
+            <span class="value">{{ char.campaign.name|default:"—" }}</span>
+          </div>
+          <div>
+            <span class="label">HP</span>
+            <span class="value">
+              {{ char.HP|default:0 }}{% if char.temp_HP %} <small>(+{{ char.temp_HP }} temp)</small>{% endif %}
+            </span>
+          </div>
+          <div>
+            <span class="label">Armor</span>
+            <span class="value">
+              {{ char.armor_value|default:"—" }}
+            </span>
+          </div>
+        </div>
+
+        <details class="details">
+          <summary>More details</summary>
+          <div class="grid">
+            <div><span class="label">STR</span><span class="value">{{ char.strength|default:"—" }}</span></div>
+            <div><span class="label">DEX</span><span class="value">{{ char.dexterity|default:"—" }}</span></div>
+            <div><span class="label">CON</span><span class="value">{{ char.constitution|default:"—" }}</span></div>
+            <div><span class="label">INT</span><span class="value">{{ char.intelligence|default:"—" }}</span></div>
+            <div><span class="label">WIS</span><span class="value">{{ char.wisdom|default:"—" }}</span></div>
+            <div><span class="label">CHA</span><span class="value">{{ char.charisma|default:"—" }}</span></div>
+          </div>
+        </details>
+      </article>
+    {% endfor %}
+  </div>
+</form>
+{% else %}
+  <div class="empty-state">
+    <h3>No characters yet</h3>
+    <p>Create your first hero and jump in.</p>
+    <a class="btn primary" href="{% url 'characters:create_character' %}">Create one now</a>
+  </div>
+{% endif %}
+
+<style>
+.page-title{margin:0 0 .75rem;font-size:1.6rem}
+.toolbar{display:flex;justify-content:space-between;align-items:center;margin:.5rem 0 1rem}
+.checkbox-pill{font-size:.95rem}
+.card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:1rem}
+.char-card{border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.char-card header{display:grid;grid-template-columns:auto 44px 1fr auto;gap:.75rem;align-items:center;padding:1rem 1rem .5rem}
+.char-card .select{padding-right:.25rem}
+.avatar{width:44px;height:44px;border-radius:999px;display:grid;place-items:center;background:#eef2ff;color:#3730a3;font-weight:700}
+.title .name{font-weight:700;text-decoration:none;color:#111827}
+.title .subtitle{color:#6b7280;font-size:.9rem;margin-top:.15rem}
+.actions{display:flex;gap:.5rem;flex-wrap:wrap}
+.btn{border:1px solid #e5e7eb;background:#f9fafb;padding:.4rem .65rem;border-radius:8px;font-size:.9rem;text-decoration:none;color:#111827}
+.btn.secondary{background:#fff}
+.btn.danger{border-color:#fecaca;background:#fee2e2;color:#991b1b}
+.btn.primary{border-color:#c7d2fe;background:#e0e7ff;color:#3730a3}
+.inline-delete{display:inline}
+.meta{display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem;padding:0 1rem 1rem;border-top:1px dashed #f3f4f6}
+.meta .label{display:block;color:#6b7280;font-size:.75rem}
+.meta .value{font-weight:600}
+.details{border-top:1px solid #f3f4f6;padding:0 1rem}
+.details summary{cursor:pointer;padding:.75rem 0;color:#4b5563}
+.details .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem 1rem;padding:0 0 1rem}
+.empty-state{border:2px dashed #e5e7eb;border-radius:12px;padding:2rem;text-align:center;background:#fff}
+.danger:disabled,#bulkDeleteBtn[disabled]{opacity:.4;cursor:not-allowed}
+</style>
+
+<script>
+  const selectAll = document.getElementById('selectAll');
+  const checks = Array.from(document.querySelectorAll('.rowChk'));
+  const bulkBtn = document.getElementById('bulkDeleteBtn');
+
+  function refreshBulk(){
+    const any = checks.some(c => c.checked);
+    bulkBtn.disabled = !any;
+  }
+  if (selectAll){
+    selectAll.addEventListener('change', e => {
+      checks.forEach(c => c.checked = e.target.checked);
+      refreshBulk();
+    });
+  }
+  checks.forEach(c => c.addEventListener('change', refreshBulk));
+
+  document.getElementById('bulkForm')?.addEventListener('submit', function(e){
+    if (bulkBtn.disabled) { e.preventDefault(); return; }
+    const n = checks.filter(c => c.checked).length;
+    if (!confirm(`Delete ${n} selected character${n===1?'':'s'}? This cannot be undone.`)){
+      e.preventDefault();
+    }
+  });
+</script>
 {% endblock %}

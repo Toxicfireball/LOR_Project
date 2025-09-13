@@ -701,6 +701,40 @@ class CharacterSkillProficiency(models.Model):
         return f"{self.character.name} – {self.selected_skill} ({self.proficiency})"
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Skill System (global): upgrade costs and level gates
+# ──────────────────────────────────────────────────────────────────────────────
+SKILL_RANKS = [
+    ("untrained", "Untrained"),
+    ("trained",   "Trained"),
+    ("expert",    "Expert"),
+    ("master",    "Master"),
+    ("legendary", "Legendary"),
+]
+
+class SkillProficiencyUpgrade(models.Model):
+    """
+    Global rule rows that the client can read to know:
+      - how many points it costs to upgrade from A → B
+      - the minimum *character level* required for that upgrade
+    Example rows you will seed:
+      untrained→trained:  points=1, min_level=0
+      trained  →expert :  points=2, min_level=3
+      expert   →master :  points=3, min_level=7
+      master   →legend.:  points=5, min_level=14
+    """
+    from_rank   = models.CharField(max_length=12, choices=SKILL_RANKS)
+    to_rank     = models.CharField(max_length=12, choices=SKILL_RANKS)
+    points      = models.PositiveSmallIntegerField()
+    min_level   = models.PositiveIntegerField(default=0,
+                    help_text="Minimum CHARACTER level to perform this upgrade")
+
+    class Meta:
+        unique_together = (("from_rank", "to_rank"),)
+        ordering = ["points", "min_level", "from_rank", "to_rank"]
+
+    def __str__(self):
+        return f"{self.from_rank.title()} → {self.to_rank.title()} (cost {self.points}, L{self.min_level}+)"
 
 # ------------------------------------------------------------------------------
 # Classes, Levels, Features
@@ -740,7 +774,10 @@ class CharacterClass(models.Model):
             "Examples: '2', '2 + int_mod', '1 + floor((intelligence-10)/2)'."
         ),
     )
-    
+    skill_points_per_level = models.PositiveSmallIntegerField(
+        default=1,
+        help_text="How many skill points this class grants each time you gain a level in it.",
+    )   
     key_abilities = models.ManyToManyField(
         AbilityScore,
         blank=True,
@@ -815,6 +852,29 @@ class SubclassGroup(models.Model):
     def __str__(self):
         return f"{self.character_class.name} – {self.name}"
 
+# models.py
+class CharacterSkillPointTx(models.Model):
+    SOURCE_CHOICES = [
+        ("level_award", "Level Award"),
+        ("spend",       "Spend on Skill"),
+        ("refund",      "Refund (Retrain)"),
+        ("admin",       "Admin/Adjustment"),
+    ]
+    character     = models.ForeignKey("Character", related_name="skill_point_txs", on_delete=models.CASCADE)
+    amount        = models.IntegerField(help_text="Positive=grant/refund, negative=spend")
+    source        = models.CharField(max_length=16, choices=SOURCE_CHOICES)
+    reason        = models.CharField(max_length=255, blank=True)
+    at_level      = models.IntegerField(default=0)
+    awarded_class = models.ForeignKey("CharacterClass", null=True, blank=True, on_delete=models.SET_NULL)
+    created_at    = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+    @staticmethod
+    def balance_for(character):
+        from django.db.models import Sum
+        return (character.skill_point_txs.aggregate(t=Sum("amount"))["t"] or 0)
 
 
 class ClassSubclass(models.Model):
@@ -2103,6 +2163,40 @@ class ClassLevelFeature(models.Model):
     def __str__(self):
         return f"{self.class_level} → {self.feature.code}"
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Class-level tables for Skill Points and Skill Feat grants
+# ──────────────────────────────────────────────────────────────────────────────
+class ClassSkillPointGrant(models.Model):
+    """
+    How many SKILL POINTS this class grants *when you reach this class level*.
+    The client can sum these across the character's class splits.
+    """
+    character_class = models.ForeignKey('CharacterClass', on_delete=models.CASCADE, related_name='skill_point_grants')
+    at_level        = models.PositiveIntegerField()
+    points_awarded  = models.PositiveSmallIntegerField(help_text="Skill points granted at this class level")
+
+    class Meta:
+        unique_together = (("character_class", "at_level"),)
+        ordering = ["character_class", "at_level"]
+
+    def __str__(self):
+        return f"{self.character_class.name} L{self.at_level} → +{self.points_awarded} skill point(s)"
+
+
+class ClassSkillFeatGrant(models.Model):
+    """
+    Whether this class grants SKILL FEAT pick(s) at a given class level.
+    """
+    character_class = models.ForeignKey('CharacterClass', on_delete=models.CASCADE, related_name='skill_feat_grants')
+    at_level        = models.PositiveIntegerField()
+    num_picks       = models.PositiveSmallIntegerField(default=1, help_text="How many skill feat picks at this level")
+
+    class Meta:
+        unique_together = (("character_class", "at_level"),)
+        ordering = ["character_class", "at_level"]
+
+    def __str__(self):
+        return f"{self.character_class.name} L{self.at_level} → Skill Feat ×{self.num_picks}"
 
 
 #GOOGLE TRANSFER STUFFF 

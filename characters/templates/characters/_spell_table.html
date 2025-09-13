@@ -40,7 +40,7 @@
   </div>
 
   <div>
-    <button class="btn btn-sm btn-primary">
+    <button type="submit" class="btn btn-sm btn-primary">
       {% if action == "prepare" %}Prepare Selected{% elif action == "unprepare" %}Unprepare Selected
       {% elif action == "learn_known" or action == "learn_cantrip" %}Learn Selected
       {% elif action == "unlearn_known" or action == "unlearn_cantrip" %}Unlearn Selected{% else %}Save{% endif %}

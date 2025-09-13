@@ -25,7 +25,10 @@ urlpatterns = [
         views.link_character_to_campaign,
         name="link_character_to_campaign",
     ),
-
+    path("", views.character_list, name="character_list"),
+    path("<int:pk>/", views.character_detail, name="character_detail"),
+    path("<int:pk>/delete/", views.delete_character, name="delete_character"),
+    path("bulk-delete/", views.bulk_delete_characters, name="bulk_delete_characters"),
     # Codex
     path("codex/", views.codex_index, name="codex_index"),
     path("codex/spells/", views.spell_list, name="codex_spells"),

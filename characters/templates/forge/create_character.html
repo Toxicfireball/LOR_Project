@@ -666,15 +666,16 @@ function getCurrentRacialModifiers() {
     //
     // Prevent duplicate backgrounds
     //
-    function preventDuplicate(a,b,msg){
-      a.addEventListener("change",()=>{
-        if(a.value && a.value===b.value){
-          alert(msg);
-          a.value="";
-        }
-        updateDisplay();
-      });
+function preventDuplicate(a,b,msg){
+  a.addEventListener("change",()=>{
+    if (a.value && a.value === b.value){
+      alert(msg);
+      a.value = "";
     }
+    window.resetBoosts(); // ← keep boosts consistent when a dup is corrected
+  });
+}
+
 
     //
     // Background logic
@@ -1025,25 +1026,30 @@ subraceSelect.addEventListener("change",()=>{
 
 
     // background combo → show/hide side selects
-    Array.from(bgComboRadios).forEach(r=>{
-      r.addEventListener("change",()=>{
-        const c = r.value;
-       side1Div.style.display = (c==="1"||c==="2") ? "block" : "none";
-       side2Div.style.display = (c==="2")             ? "block" : "none";
-        updateBackgroundModifiers();
-        updateDisplay();
-      });
-    });
+// background combo → show/hide side selects (also reset boosts)
+Array.from(bgComboRadios).forEach(r=>{
+  r.addEventListener("change",()=>{
+    const c = r.value;
+    side1Div.style.display = (c==="1"||c==="2") ? "block" : "none";
+    side2Div.style.display = (c==="2") ? "block" : "none";
+    window.resetBoosts(); // ← reset all Boost Mod picks when background combo changes
+  });
+});
+
 
     // any background dropdown/choice change
+// any background dropdown/choice change → reset boosts
 [ mainBgSelect, side1Select, side1AbilitySelect, side1SkillSelect,
   side2Select, side2AbilitySelect, side2SkillSelect,
   ...whichSideRadios
 ].forEach(el=>{
   if (el && el.addEventListener) {
-    el.addEventListener("change", ()=>updateDisplay());
+    el.addEventListener("change", () => {
+      window.resetBoosts();  // ← nukes boostModifiers/boostedStats and re-renders
+    });
   }
 });
+
 
 
     // duplicate prevention

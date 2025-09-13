@@ -51,7 +51,11 @@
 </style>
 
 
-
+{% if messages %}
+  {% for m in messages %}
+    <div class="alert alert-{{ m.tags|default:'info' }} mb-2">{{ m }}</div>
+  {% endfor %}
+{% endif %}
 
 
 <div class="container my-4">
@@ -1117,16 +1121,28 @@
                 <input type="hidden" name="feature_id" value="{{ b.feature_id }}">
                 <div class="col-md-2">
                   <label class="form-label form-label-sm">Cantrips</label>
-                  <input class="form-control form-control-sm" name="cap_cantrips" type="number" placeholder="{{ b.cantrips_max }}">
-                </div>
+<div class="mb-2">
+  <label class="form-label mb-0">Cantrips cap</label>
+  <input type="number" name="cap_cantrips" class="form-control"
+         placeholder="{{ block.cantrips_max }}">
+  <small class="text-muted">Current (calculated): {{ block.cantrips_max }}</small>
+</div>                </div>
                 <div class="col-md-2">
                   <label class="form-label form-label-sm">Known</label>
-                  <input class="form-control form-control-sm" name="cap_known" type="number" placeholder="{{ b.known_max|default:'—' }}">
-                </div>
+<div class="mb-2">
+  <label class="form-label mb-0">Known cap</label>
+  <input type="number" name="cap_known" class="form-control"
+         placeholder="{{ block.known_max|default:'—' }}">
+  <small class="text-muted">Current: {{ block.known_max|default:'—' }}</small>
+</div>              </div>
                 <div class="col-md-2">
                   <label class="form-label form-label-sm">Prepared</label>
-                  <input class="form-control form-control-sm" name="cap_prepared" type="number" placeholder="{{ b.prepared_max|default:'—' }}">
-                </div>
+<div class="mb-2">
+  <label class="form-label mb-0">Prepared cap</label>
+  <input type="number" name="cap_prepared" class="form-control"
+         placeholder="{{ block.prepared_max|default:'—' }}">
+  <small class="text-muted">Current: {{ block.prepared_max|default:'—' }}</small>
+</div>        </div>
                 <div class="col-md-4">
                   <label class="form-label form-label-sm">Reason (required)</label>
                   <input class="form-control form-control-sm" name="note" required>
