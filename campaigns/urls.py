@@ -1,5 +1,3 @@
-# campaigns/urls.py
-# campaigns/urls.py
 from django.urls import path
 from . import views
 
@@ -13,4 +11,8 @@ urlpatterns = [
     path("<int:campaign_id>/attach/", views.attach_character, name="attach_character"),
     path("<int:campaign_id>/detach/<int:character_id>/", views.detach_character, name="detach_character"),
     path("<int:campaign_id>/leave/", views.leave_campaign, name="leave_campaign"),
+    path("<int:campaign_id>/inventory/add/", views.add_party_item, name="add_party_item"),
+    # NEW
+    path("<int:campaign_id>/notes/add/", views.add_campaign_note, name="add_campaign_note"),
+    path("<int:campaign_id>/messages/send/", views.send_campaign_message, name="send_campaign_message"),
 ]

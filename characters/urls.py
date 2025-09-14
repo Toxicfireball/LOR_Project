@@ -66,7 +66,7 @@ path("codex/armor/",   views.armor_list,  name="codex_armor"),
         views.RulebookPageDetailView.as_view(),
         name="rulebook_page_detail_by_pk",
     ),
-
+path("search/", views.global_search, name="global_search"),
     # Select2 autocomplete
     path("autocomplete/classfeats/", views.ClassFeatAutocomplete.as_view(), name="classfeat_autocomplete"),
 ]

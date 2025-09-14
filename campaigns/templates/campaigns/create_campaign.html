@@ -1,37 +1,91 @@
 {% extends "base.html" %}
+
 {% block content %}
-<h1>Create a New Campaign</h1>
-<p class="text-muted">
-  The creator becomes the <strong>GM</strong>. You can invite players and attach characters afterwards.
-</p>
+<div class="max-w-5xl mx-auto px-4 py-6">
+  <div class="mb-6">
+    <h1 class="text-2xl font-bold">Create a New Campaign</h1>
+    <p class="text-gray-600">You’ll be the <strong>GM</strong>. Invite players and attach characters after creation.</p>
+  </div>
 
-<form method="post" class="card shadow-sm">
-  <div class="card-body">
+  <form method="post" class="bg-white rounded-xl shadow-sm border border-gray-200">
     {% csrf_token %}
-    <div class="mb-3">
-      {{ form.name.label_tag }} {{ form.name }}
-      <div class="form-text">{{ form.name.help_text }}</div>
-      {% if form.name.errors %}<div class="text-danger small">{{ form.name.errors }}</div>{% endif %}
+    <div class="p-5 border-b border-gray-200">
+      <h2 class="font-semibold">Campaign details</h2>
     </div>
-    <div class="mb-3">
-      {{ form.description.label_tag }} {{ form.description }}
-      <div class="form-text">{{ form.description.help_text }}</div>
-      {% if form.description.errors %}<div class="text-danger small">{{ form.description.errors }}</div>{% endif %}
-    </div>
-  </div>
-  <div class="card-footer d-flex gap-2">
-    <a href="{% url 'campaigns:campaign_list' %}" class="btn btn-outline-secondary">Cancel</a>
-    <button class="btn btn-success" type="submit">Create Campaign</button>
-  </div>
-</form>
 
-<div class="mt-4">
-  <h5>What to include in the description</h5>
-  <ul class="small text-muted mb-0">
-    <li>Campaign premise and tone</li>
-    <li>Allowed classes/rulebooks & house rules</li>
-    <li>Session schedule and platform (in-person, VTT, voice)</li>
-    <li>Lines/veils and safety tools</li>
-  </ul>
+    <div class="p-5 space-y-5">
+      {% if form.non_field_errors %}
+        <div class="rounded-lg border border-red-200 bg-red-50 text-red-800 p-3 text-sm">
+          {{ form.non_field_errors }}
+        </div>
+      {% endif %}
+
+      <div>
+        <label class="block text-sm text-gray-600 mb-1" for="{{ form.name.id_for_label }}">Name</label>
+        {{ form.name }}
+        {% if form.name.errors %}<p class="text-sm text-red-600 mt-1">{{ form.name.errors|striptags }}</p>{% endif %}
+      </div>
+
+      <div>
+        <label class="block text-sm text-gray-600 mb-1" for="{{ form.description.id_for_label }}">Description</label>
+        {{ form.description }}
+        <p class="text-xs text-gray-500 mt-1">Premise, tone, allowed sources, schedule, safety tools…</p>
+        {% if form.description.errors %}<p class="text-sm text-red-600 mt-1">{{ form.description.errors|striptags }}</p>{% endif %}
+      </div>
+
+      <div>
+        <label class="block text-sm text-gray-600 mb-1" for="{{ form.join_password.id_for_label }}">Join Password (optional)</label>
+        <div class="relative">
+          {{ form.join_password }}
+          <button type="button" id="pw-toggle"
+                  class="absolute right-2 top-1/2 -translate-y-1/2 text-sm text-gray-600 hover:text-gray-800">
+            Show
+          </button>
+        </div>
+        <p class="text-xs text-gray-500 mt-1">If set, players must enter this password to join.</p>
+        {% if form.join_password.errors %}<p class="text-sm text-red-600 mt-1">{{ form.join_password.errors|striptags }}</p>{% endif %}
+      </div>
+    </div>
+
+    <div class="p-5 border-t border-gray-200 flex items-center justify-end gap-3">
+      <a class="inline-flex items-center px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50"
+         href="{% url 'campaigns:campaign_list' %}">
+        Cancel
+      </a>
+      <button class="inline-flex items-center px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700"
+              type="submit">
+        Create Campaign
+      </button>
+    </div>
+  </form>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  // make default Django widgets look like Tailwind inputs
+  (function () {
+    const decorate = el => {
+      if (!el) return;
+      el.classList.add(
+        "block","w-full","rounded-md","border","border-gray-300","bg-white","px-3","py-2",
+        "text-sm","placeholder-gray-400","focus:outline-none","focus:ring-2","focus:ring-indigo-500","focus:border-indigo-500"
+      );
+    };
+    document.querySelectorAll('input[type="text"], input[type="password"], textarea, select')
+      .forEach(decorate);
+
+    // password visibility toggle
+    const pw = document.getElementById('{{ form.join_password.id_for_label }}');
+    const btn = document.getElementById('pw-toggle');
+    if (pw && btn) {
+      if (pw.type !== 'password') pw.type = 'password';
+      btn.addEventListener('click', () => {
+        const show = pw.type === 'password';
+        pw.type = show ? 'text' : 'password';
+        btn.textContent = show ? 'Hide' : 'Show';
+      });
+    }
+  })();
+</script>
 {% endblock %}

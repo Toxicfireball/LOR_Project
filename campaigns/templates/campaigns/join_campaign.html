@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="max-w-md mx-auto px-4 py-10">
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200">
+    <div class="p-6 border-b border-gray-200">
+      <h1 class="text-xl font-bold flex items-center gap-2">
+        Join “{{ campaign.name }}”
+        {% if campaign.join_password %}<span title="Password required">🔒</span>{% endif %}
+      </h1>
+      <p class="text-sm text-gray-600 mt-1">
+        {% if campaign.join_password %}
+          This campaign is password protected. Enter the join password to continue.
+        {% else %}
+          This campaign is open. You can join right away.
+        {% endif %}
+      </p>
+    </div>
+
+    <form method="post" action="{% url 'campaigns:join_campaign' campaign.id %}" class="p-6 space-y-4">
+      {% csrf_token %}
+
+      {# show only error/warning messages so old success toasts don’t clutter #}
+      {% if messages %}
+        <div class="space-y-2">
+          {% for m in messages %}
+            {% if m.tags == 'error' or m.tags == 'warning' %}
+              <div class="rounded-md p-3 text-sm bg-red-50 text-red-800 border border-red-200">
+                {{ m }}
+              </div>
+            {% endif %}
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      {% if form.non_field_errors %}
+        <div class="rounded-md border border-red-200 bg-red-50 text-red-800 p-3 text-sm">
+          {{ form.non_field_errors }}
+        </div>
+      {% endif %}
+
+      {% if campaign.join_password %}
+        <div>
+          <label class="block text-sm text-gray-700 mb-1" for="{{ form.password.id_for_label }}">Password</label>
+          <div class="relative">
+            {{ form.password }}
+            <button type="button" id="pw-toggle"
+                    class="absolute right-2 top-1/2 -translate-y-1/2 text-sm text-gray-600 hover:text-gray-800">
+              Show
+            </button>
+          </div>
+          {% if form.password.errors %}
+            <p class="text-sm text-red-600 mt-1">{{ form.password.errors|striptags }}</p>
+          {% endif %}
+        </div>
+      {% endif %}
+
+      <div>
+        <label class="block text-sm text-gray-700 mb-1" for="{{ form.character.id_for_label }}">
+          Attach a character (optional)
+        </label>
+        {{ form.character }}
+        {% if form.character.errors %}
+          <p class="text-sm text-red-600 mt-1">{{ form.character.errors|striptags }}</p>
+        {% endif %}
+        <p class="text-xs text-gray-500 mt-2">
+          Only characters you own that aren’t already attached to another campaign appear here.
+          You can also attach a character later from the <strong>Characters</strong> tab.
+        </p>
+      </div>
+
+      <div class="pt-2 flex items-center justify-end gap-3">
+        <a href="{% url 'campaigns:campaign_detail' campaign.id %}"
+           class="inline-flex items-center px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">
+          Cancel
+        </a>
+        <button type="submit"
+                class="inline-flex items-center px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">
+          Join Campaign
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <p class="text-xs text-gray-500 mt-4">
+    Tip: After joining, open the <strong>Characters</strong> tab inside the campaign to attach/verify your character.
+  </p>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  // password show/hide (only rendered if the campaign is locked)
+  (function () {
+    const pw = document.getElementById('{{ form.password.id_for_label|default:"pw" }}');
+    const btn = document.getElementById('pw-toggle');
+    if (pw && btn) {
+      if (pw.type !== 'password') pw.type = 'password';
+      btn.addEventListener('click', () => {
+        const show = pw.type === 'password';
+        pw.type = show ? 'text' : 'password';
+        btn.textContent = show ? 'Hide' : 'Show';
+      });
+    }
+  })();
+</script>
+{% endblock %}

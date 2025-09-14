@@ -1,41 +1,53 @@
 {% extends "base.html" %}
-{% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <div>
-    <h1 class="mb-0">Campaigns</h1>
-    <div class="text-muted">Browse or create a table. GMs see all attached characters; players see their own.</div>
-  </div>
-  <a class="btn btn-primary" href="{% url 'campaigns:create_campaign' %}">
-    + New Campaign
-  </a>
-</div>
 
-<div class="row g-3">
-  {% for c in campaigns %}
-    <div class="col-12 col-md-6 col-xl-4">
-      <div class="card h-100 shadow-sm">
-        <div class="card-body">
-          <div class="d-flex justify-content-between align-items-start">
-            <h5 class="card-title mb-1"><a href="{% url 'campaigns:campaign_detail' c.id %}">{{ c.name }}</a></h5>
-            <span class="badge bg-light text-dark" title="Created on">{{ c.created_at|date:"M j, Y" }}</span>
+{% block content %}
+<div class="max-w-6xl mx-auto px-4 py-6">
+  <div class="flex items-start justify-between mb-6">
+    <div>
+      <h1 class="text-2xl font-bold">Campaigns</h1>
+      <p class="text-gray-600">Browse or create a table. Locked campaigns show 🔒.</p>
+    </div>
+    <a href="{% url 'campaigns:create_campaign' %}"
+       class="inline-flex items-center px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">
+      + New Campaign
+    </a>
+  </div>
+
+  <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+    {% for c in campaigns %}
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 hover:ring-1 hover:ring-indigo-500/40 transition">
+        <div class="p-5">
+          <div class="flex items-start justify-between">
+            <h2 class="text-lg font-semibold leading-tight">
+              <a class="hover:underline" href="{% url 'campaigns:campaign_detail' c.id %}">
+                {{ c.name }} {% if c.join_password %}🔒{% endif %}
+              </a>
+            </h2>
+            <span class="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-md">
+              {{ c.created_at|date:"M j, Y" }}
+            </span>
           </div>
-          {% with gm=c.campaignmembership_set.all|dictsort:"role"|length %}
-          <p class="card-text text-muted small mb-2">
+          <p class="text-sm text-gray-600 mt-2">
             {{ c.description|default:"No description yet."|truncatechars:140 }}
           </p>
-          {% endwith %}
         </div>
-        <div class="card-footer bg-white d-flex gap-2">
-          <a href="{% url 'campaigns:campaign_detail' c.id %}" class="btn btn-sm btn-outline-primary">Open</a>
+        <div class="px-5 pb-5">
+          <a href="{% url 'campaigns:campaign_detail' c.id %}"
+             class="inline-flex items-center px-3 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 text-sm">
+            Open
+          </a>
+          {% if c.join_password %}
+            <span class="text-xs text-gray-500 ml-2 align-middle">Password required</span>
+          {% endif %}
         </div>
       </div>
-    </div>
-  {% empty %}
-    <div class="col-12">
-      <div class="alert alert-info">
-        No campaigns yet. Click <strong>New Campaign</strong> to start one as GM.
+    {% empty %}
+      <div class="col-span-full">
+        <div class="rounded-lg border border-blue-200 bg-blue-50 text-blue-900 p-4">
+          No campaigns yet. Click <strong>New Campaign</strong> to start one as GM.
+        </div>
       </div>
-    </div>
-  {% endfor %}
+    {% endfor %}
+  </div>
 </div>
 {% endblock %}

@@ -1,0 +1,106 @@
+{# templates/characters/global_search.html #}
+{% extends "base.html" %}
+{% block title %}Search{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto">
+  <h1 class="text-2xl font-bold mb-4">Search (name or code)</h1>
+
+  <form action="{% url 'characters:global_search' %}" method="get" class="mb-6">
+    <div class="flex gap-2">
+      <input
+        type="text"
+        name="q"
+        value="{{ q|default_if_none:'' }}"
+        placeholder="e.g. ABJ101, 'Longsword', 'elf', 'ARC-01'…"
+        class="flex-1 px-4 py-2 rounded border border-gray-300 focus:outline-none"
+        autofocus
+      />
+      <button class="px-4 py-2 bg-gray-800 text-white rounded">Search</button>
+    </div>
+  </form>
+
+  {% if q %}
+    {% if total_count == 0 %}
+      <p class="text-gray-600">No results for “<span class="font-semibold">{{ q }}</span>”.</p>
+    {% else %}
+      <p class="text-gray-600 mb-4">
+        Found <span class="font-semibold">{{ total_count }}</span> item{{ total_count|pluralize }} for
+        “<span class="font-semibold">{{ q }}</span>”.
+      </p>
+
+      {% if top_exact %}
+        <div class="mb-8">
+          <h2 class="text-xl font-semibold mb-2">Exact code matches</h2>
+          <div class="grid md:grid-cols-2 gap-3">
+            {% for it in top_exact %}
+              <div class="bg-white rounded shadow p-3">
+                <div class="flex items-start justify-between">
+                  <div>
+                    <div class="font-medium">{{ it.display }}</div>
+                    <div class="text-sm text-gray-500">{{ it.section }}</div>
+                  </div>
+                  {% if it.code %}
+                    <span class="ml-2 text-xs bg-gray-100 border px-2 py-0.5 rounded">{{ it.code }}</span>
+                  {% endif %}
+                </div>
+                <div class="mt-2 flex gap-2">
+                  {% if it.url %}
+                    <a href="{{ it.url }}" class="text-blue-700 hover:underline text-sm">Open</a>
+                  {% endif %}
+                  {% if it.code %}
+                    <button
+                      type="button"
+                      class="text-sm text-gray-700 hover:underline"
+                      onclick="navigator.clipboard.writeText('{{ it.code }}')"
+                    >Copy code</button>
+                  {% endif %}
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+
+      {% for group in groups %}
+        <div class="mb-8">
+          <h2 class="text-lg font-semibold mb-2">{{ group.label }}</h2>
+          <div class="grid md:grid-cols-2 gap-3">
+            {% for it in group.items %}
+              <div class="bg-white rounded shadow p-3">
+                <div class="flex items-start justify-between">
+                  <div>
+                    <div class="font-medium">{{ it.display }}</div>
+                    {% if it.rank == 0 %}
+                      <div class="text-xs text-green-700">code match</div>
+                    {% elif it.rank == 1 %}
+                      <div class="text-xs text-gray-500">startswith match</div>
+                    {% else %}
+                      <div class="text-xs text-gray-500">contains match</div>
+                    {% endif %}
+                  </div>
+                  {% if it.code %}
+                    <span class="ml-2 text-xs bg-gray-100 border px-2 py-0.5 rounded">{{ it.code }}</span>
+                  {% endif %}
+                </div>
+                <div class="mt-2 flex gap-2">
+                  {% if it.url %}
+                    <a href="{{ it.url }}" class="text-blue-700 hover:underline text-sm">Open</a>
+                  {% endif %}
+                  {% if it.code %}
+                    <button
+                      type="button"
+                      class="text-sm text-gray-700 hover:underline"
+                      onclick="navigator.clipboard.writeText('{{ it.code }}')"
+                    >Copy code</button>
+                  {% endif %}
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      {% endfor %}
+    {% endif %}
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,233 +1,399 @@
 {% extends "base.html" %}
 {% load static %}
+
 {% block content %}
+<div class="max-w-6xl mx-auto px-4 py-6">
 
-<!-- ===== Scoped styles (no Bootstrap/Tailwind required) ===== -->
-<style>
-  :root{
-    --bg:#0b1324; --panel:#0f172a; --panel-2:#111827;
-    --text:#e5e7eb; --muted:#9aa0aa; --brand:#3b82f6; --brand2:#6366f1;
-    --ok:#10b981; --warn:#f59e0b; --danger:#ef4444; --ring:#1f2937;
-    --card:#0b1220; --border:#202735;
-    --radius:14px;
-  }
-  .wrap{ max-width:1100px; margin:0 auto; padding:24px 16px; color:var(--text); }
-  .hero{
-    background: linear-gradient(135deg,var(--brand) 0%, var(--brand2) 100%);
-    border-radius: var(--radius);
-    padding: 20px 22px;
-    display:flex; gap:18px; align-items:flex-start; justify-content:space-between;
-    color:white; box-shadow: 0 10px 30px rgba(0,0,0,.25);
-  }
-  .hero h1{ margin:.1rem 0; font-size:1.6rem; font-weight:700; letter-spacing:.2px}
-  .pills{ display:flex; gap:8px; flex-wrap:wrap;}
-  .pill{ background:rgba(255,255,255,.18); border:1px solid rgba(255,255,255,.26);
-         border-radius:999px; padding:.25rem .55rem; font-size:.8rem }
-  .btn{ display:inline-flex; align-items:center; gap:.45rem;
-        background:rgba(255,255,255,.12); color:white; border:1px solid rgba(255,255,255,.28);
-        padding:.55rem .8rem; border-radius:10px; text-decoration:none; font-weight:600 }
-  .btn:hover{ background:rgba(255,255,255,.18) }
-  .btn-outline{ background:transparent; border-color:rgba(255,255,255,.5) }
-  .btn-danger{ background: var(--danger); border-color: var(--danger) }
-  .btn-primary{ background:#2563eb; border-color:#2563eb }
-  .btn-sm{ padding:.45rem .6rem; font-size:.9rem; border-radius:9px }
-
-  .panel{ background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); }
-  .panel .hd{ padding:14px 16px; border-bottom:1px solid var(--border); font-weight:700 }
-  .panel .bd{ padding:16px }
-
-  /* Tabs */
-  .tabs{ display:flex; gap:6px; margin:16px 0 12px; }
-  .tab{ background:var(--panel-2); border:1px solid var(--border); color:var(--muted);
-        padding:.55rem .9rem; border-radius:999px; cursor:pointer; }
-  .tab.active{ background:#1d2435; color:#fff; border-color:#2a3244 }
-  .tab:hover{ color:#fff }
-
-  /* Search + attach row */
-  .row2{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; justify-content:space-between; margin-bottom:12px }
-  .search{ position:relative; flex:1 1 360px; }
-  .search input{ width:100%; background:#0d1526; color:#e5e7eb; border:1px solid #1f2937;
-                 padding:.65rem 2.2rem .65rem .9rem; border-radius:10px; outline:none }
-  .search svg{ position:absolute; right:.6rem; top:50%; transform:translateY(-50%); opacity:.5 }
-
-  select, .select{ background:#0d1526; color:#e5e7eb; border:1px solid #1f2937; padding:.6rem .8rem; border-radius:10px; }
-  label.small{ font-size:.85rem; color:var(--muted); margin-right:.5rem }
-
-  /* Character grid */
-  .grid{ display:grid; grid-template-columns: repeat( auto-fill, minmax(280px,1fr) ); gap:12px; }
-  .card{ background:var(--card); border:1px solid var(--border); border-radius:14px; padding:14px; display:flex; flex-direction:column; gap:10px }
-  .row{ display:flex; gap:10px; align-items:center; justify-content:space-between }
-  .who{ display:flex; gap:10px; align-items:center }
-  .avatar{ width:36px; height:36px; border-radius:50%; background:#111827; display:inline-grid; place-content:center; font-weight:700 }
-  .meta{ color:var(--muted); font-size:.9rem }
-  .badge{ background:#0e1a2e; color:#a0b8ff; border:1px solid #1f2c46; font-weight:700; font-size:.85rem;
-          padding:.18rem .45rem; border-radius:7px }
-  .actions{ display:flex; gap:8px; }
-  .empty{ color:var(--muted); padding:14px 0 }
-
-  /* Members list */
-  .list{ list-style:none; margin:0; padding:0 }
-  .list li{ display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-top:1px solid var(--border) }
-  .chip{ font-size:.75rem; padding:.18rem .5rem; border-radius:999px; border:1px solid }
-  .chip-gm{ color:#ff6666; background:#2a0e0e; border-color:#3d1717 }
-  .chip-pc{ color:#70a2ff; background:#0d1a33; border-color:#1a2b50 }
-
-  .muted{ color:var(--muted) }
-  .lead{ font-size:.95rem; line-height:1.5 }
-</style>
-
-<div class="wrap">
-  <!-- HERO -->
-  <div class="hero">
-    <div>
-      <h1>{{ campaign.name }}</h1>
-      <div class="muted" style="font-size:.9rem;">Created {{ campaign.created_at|date:"M j, Y" }}</div>
-      <div class="pills" style="margin-top:8px;">
-        <span class="pill">{{ stats.gm_count }} GM</span>
-        <span class="pill">{{ stats.player_count }} Player{{ stats.player_count|pluralize }}</span>
-        <span class="pill">{{ stats.char_count }} Character{{ stats.char_count|pluralize }}</span>
+  <!-- Header -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-4">
+    <div class="p-5 flex items-start justify-between">
+      <div>
+        <h1 class="text-xl font-bold flex items-center gap-2">
+          {{ campaign.name }}
+          {% if campaign.is_password_protected %}<span title="Password required">🔒</span>{% endif %}
+        </h1>
+        <p class="text-sm text-gray-600">Created {{ campaign.created_at|date:"M j, Y" }}</p>
+        <div class="mt-2 flex flex-wrap gap-2 text-xs">
+          <span class="px-2 py-1 rounded-md bg-gray-100 text-gray-700">{{ stats.gm_count }} GM</span>
+          <span class="px-2 py-1 rounded-md bg-gray-100 text-gray-700">{{ stats.player_count }} Player{{ stats.player_count|pluralize }}</span>
+          <span class="px-2 py-1 rounded-md bg-gray-100 text-gray-700">{{ stats.char_count }} Character{{ stats.char_count|pluralize }}</span>
+        </div>
       </div>
-    </div>
-
-    <div class="pills" style="align-self:flex-start;">
-      {% if not is_member %}
-        <a class="btn" href="{% url 'campaigns:join_campaign' campaign.id %}">Join as Player</a>
-      {% else %}
-        <form method="post" action="{% url 'campaigns:leave_campaign' campaign.id %}">
-          {% csrf_token %}
-          <button class="btn btn-outline" type="submit">Leave Campaign</button>
-        </form>
-      {% endif %}
+      <div class="shrink-0">
+        {% if not is_member %}
+          <a class="inline-flex items-center px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700"
+             href="{% url 'campaigns:join_campaign' campaign.id %}">
+            Join as Player{% if campaign.is_password_protected %} (🔒){% endif %}
+          </a>
+        {% else %}
+          <form method="post" action="{% url 'campaigns:leave_campaign' campaign.id %}">
+            {% csrf_token %}
+            <button class="inline-flex items-center px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">
+              Leave Campaign
+            </button>
+          </form>
+        {% endif %}
+      </div>
     </div>
   </div>
 
-  <!-- TABS -->
-  <div class="tabs" id="tabs">
-    <button class="tab active" data-tab="overview">Overview</button>
-    <button class="tab" data-tab="characters">Characters</button>
-    <button class="tab" data-tab="members">Members</button>
+  <!-- Tabs -->
+  <div class="border-b border-gray-200 mb-4" role="tablist" id="campTabs">
+    <div class="flex flex-wrap gap-2">
+      <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900"
+              data-tab="#overview" data-active="true">Overview</button>
+      <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900"
+              data-tab="#characters">Characters</button>
+      <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900"
+              data-tab="#members">Members</button>
+      <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900"
+              data-tab="#notes">Notes</button>
+      <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900"
+              data-tab="#inventory">Party Inventory</button>
+      <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900"
+              data-tab="#messages">Messages</button>
+    </div>
   </div>
 
-  <!-- OVERVIEW -->
-  <section class="panel" data-panel="overview">
-    <div class="bd">
-      <h3 class="muted" style="margin:0 0 .5rem 0;">Campaign Description</h3>
-      <div class="lead">
-        {{ campaign.description|linebreaksbr|default:"<em class='muted'>No description yet. Share setting, tone, allowed sources, schedule, and safety tools here.</em>" }}
+  <div class="space-y-4">
+    <!-- Overview -->
+    <section id="overview" class="tab-panel bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-2">Campaign Description</h2>
+      <div class="prose max-w-none">
+        {{ campaign.description|linebreaksbr|default:"<em class='text-gray-500'>No description yet. Share setting, tone, allowed sources, schedule, and safety tools here.</em>" }}
       </div>
-    </div>
-    <div class="bd" style="border-top:1px solid var(--border)">
-      <h3 class="muted" style="margin:0 0 .5rem 0;">How this works</h3>
-      <ul class="lead muted" style="margin:0; padding-left:1rem;">
-        <li><strong style="color:#fff">GM</strong> can view & manage <em>all</em> attached characters (and open their sheets).</li>
-        <li><strong style="color:#fff">Players</strong> can attach/detach and open their own characters.</li>
-        <li>Attaching auto-adds the character owner as a Player in this campaign (if not already).</li>
-        <li>Detaching never deletes data from a character.</li>
-      </ul>
-    </div>
-  </section>
+    </section>
 
-  <!-- CHARACTERS -->
-  <section class="panel" style="margin-top:14px; display:none" data-panel="characters">
-    <div class="hd">Characters</div>
-    <div class="bd">
-      <div class="row2">
-        <div class="search">
-          <input id="charSearch" type="search" placeholder="Search by character or player…">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M21 21l-4.35-4.35M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16Z" stroke="currentColor" stroke-width="1.5"/></svg>
+    <!-- Characters -->
+    <section id="characters" class="tab-panel hidden bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+      <div class="grid md:grid-cols-[1fr_auto] gap-3 items-end mb-4">
+        <div>
+          <label class="block text-sm text-gray-600 mb-1">Search</label>
+          <input id="charSearch" type="search" placeholder="Search by character or player…"
+                 class="block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
         </div>
 
         {% if is_member %}
-        <form method="post" action="{% url 'campaigns:attach_character' campaign.id %}" class="row2" style="flex:0 0 auto">
+        <form class="flex items-end gap-2" method="post" action="{% url 'campaigns:attach_character' campaign.id %}">
           {% csrf_token %}
-          <label class="small" for="{{ attach_form.character.id_for_label }}">Attach</label>
-          {{ attach_form.character }}
-          <button class="btn btn-primary" type="submit">Attach</button>
+          <div>
+            <label class="block text-sm text-gray-600 mb-1" for="{{ attach_form.character.id_for_label }}">Attach character</label>
+            {{ attach_form.character }}
+          </div>
+          <button class="inline-flex items-center px-3 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700"
+                  type="submit">Attach</button>
         </form>
         {% endif %}
       </div>
 
-      <div id="charGrid" class="grid">
+      <div id="charGrid" class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {% for ch in attached_characters %}
-          <article class="card char" data-name="{{ ch.name|lower }}" data-player="{{ ch.user.username|lower }}">
-            <div class="row">
-              <div class="who">
-                <div class="avatar">{{ ch.name|first|upper }}</div>
-                <div>
-                  <div style="font-weight:700">{{ ch.name }}</div>
-                  <div class="meta">by {{ ch.user.username }}</div>
-                </div>
+          <div class="char bg-white rounded-lg border border-gray-200 shadow-sm p-4"
+               data-name="{{ ch.name|lower }}" data-player="{{ ch.user.username|lower }}">
+            <div class="flex items-start justify-between">
+              <div>
+                <div class="font-semibold">{{ ch.name }}</div>
+                <div class="text-sm text-gray-600">by {{ ch.user.username }}</div>
               </div>
-              <span class="badge">L{{ ch.level|default:0 }}</span>
+              <span class="text-xs px-2 py-1 rounded-md bg-gray-100 text-gray-700">L{{ ch.level|default:0 }}</span>
             </div>
-            <div class="row">
-              <div class="actions">
-                <a class="btn btn-sm btn-primary" href="{% url 'characters:character_detail' ch.id %}">Open Sheet</a>
-                {% if is_gm or ch.user_id == request.user.id %}
-                <form method="post" action="{% url 'campaigns:detach_character' campaign.id ch.id %}">
-                  {% csrf_token %}
-                  <button class="btn btn-sm btn-danger" type="submit">Detach</button>
-                </form>
+            <div class="mt-3 flex gap-2">
+              <a class="inline-flex items-center px-3 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700 text-sm"
+                 href="{% url 'characters:character_detail' ch.id %}">Open Sheet</a>
+              {% if is_gm or ch.user_id == request.user.id %}
+              <form method="post" action="{% url 'campaigns:detach_character' campaign.id ch.id %}">
+                {% csrf_token %}
+                <button class="inline-flex items-center px-3 py-2 rounded-md border border-red-300 text-red-600 hover:bg-red-50 text-sm"
+                        type="submit">Detach</button>
+              </form>
+              {% endif %}
+            </div>
+          </div>
+        {% empty %}
+          <div class="col-span-full rounded-lg border border-gray-200 bg-gray-50 p-4 text-gray-700">
+            No characters attached yet. Use the <strong>Attach</strong> control to add one.
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <!-- Members -->
+    <section id="members" class="tab-panel hidden bg-white rounded-xl shadow-sm border border-gray-200">
+      <ul class="divide-y divide-gray-200">
+        {% for row in memberships_with_chars %}
+          <li class="p-4 flex items-start justify-between">
+            <div>
+              <div class="font-semibold">{{ row.m.user.username }}</div>
+              <div class="text-sm text-gray-600">
+                {% if row.chars %}
+                  Character{{ row.chars|length|pluralize }}:
+                  {% for ch in row.chars %}{{ ch.name }}{% if not forloop.last %}, {% endif %}{% endfor %}
+                {% else %}
+                  No character attached
                 {% endif %}
               </div>
             </div>
-          </article>
-        {% empty %}
-          <div class="empty">No characters attached yet. Use the <strong>Attach</strong> control to add one.</div>
-        {% endfor %}
-      </div>
-    </div>
-  </section>
-
-  <!-- MEMBERS -->
-  <section class="panel" style="margin-top:14px; display:none" data-panel="members">
-    <div class="hd">Members</div>
-    <div class="bd" style="padding:0">
-      <ul class="list">
-        {% for m in memberships %}
-          <li>
-            <div class="who">
-              <div class="avatar">{{ m.user.username|first|upper }}</div>
-              <div style="font-weight:700">{{ m.user.username }}</div>
-            </div>
-            {% if m.role == "gm" %}
-              <span class="chip chip-gm">GM</span>
+            {% if row.m.role == "gm" %}
+              <span class="text-xs px-2 py-1 rounded-md bg-red-100 text-red-700">GM</span>
             {% else %}
-              <span class="chip chip-pc">Player</span>
+              <span class="text-xs px-2 py-1 rounded-md bg-indigo-100 text-indigo-700">Player</span>
             {% endif %}
           </li>
         {% empty %}
-          <li class="muted" style="padding:16px">No members yet.</li>
+          <li class="p-4 text-gray-600">No members yet.</li>
         {% endfor %}
       </ul>
+    </section>
+
+    <!-- Notes -->
+    <section id="notes" class="tab-panel hidden">
+      <div class="grid lg:grid-cols-2 gap-4">
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+          <h2 class="font-semibold mb-3">New Note</h2>
+          <form method="post" action="{% url 'campaigns:add_campaign_note' campaign.id %}" class="space-y-3">
+            {% csrf_token %}
+            <div>
+              <label class="block text-sm text-gray-600 mb-1">Visibility</label>
+              {{ note_form.visibility }}
+            </div>
+
+            {% if is_gm %}
+              <div class="rounded-md border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
+                <strong>GM:</strong> Optionally grant an item to the party with this note.
+              </div>
+              <div class="grid grid-cols-12 gap-3">
+                <div class="col-span-7">
+                  <label class="block text-sm text-gray-600 mb-1">Give item to party</label>
+                  {{ note_form.equipment }}
+                </div>
+                <div class="col-span-5">
+                  <label class="block text-sm text-gray-600 mb-1">Quantity</label>
+                  {{ note_form.quantity }}
+                </div>
+              </div>
+            {% endif %}
+
+            <div>
+              <label class="block text-sm text-gray-600 mb-1">Note</label>
+              {{ note_form.content }}
+            </div>
+
+            <button class="inline-flex items-center px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700"
+                    type="submit">Post Note</button>
+          </form>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+          <h2 class="font-semibold mb-3">Recent Notes</h2>
+          <div class="divide-y divide-gray-200">
+            {% for n in notes %}
+              <div class="py-3">
+                <div class="flex items-center justify-between">
+                  <div class="text-sm text-gray-700">
+                    <strong>{{ n.author.username }}</strong>
+                    <span class="text-gray-500">• {{ n.created_at|date:"M j, Y H:i" }}</span>
+                    <span class="text-gray-500">• {{ n.get_visibility_display }}</span>
+                  </div>
+                  {% if n.item %}
+                    <span class="text-xs px-2 py-1 rounded-md bg-green-100 text-green-700">🎁 {{ n.item.name }} ×{{ n.quantity }}</span>
+                  {% endif %}
+                </div>
+                <div class="mt-2 text-gray-800">{{ n.content|linebreaksbr }}</div>
+              </div>
+            {% empty %}
+              <div class="text-gray-600">No notes yet.</div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Inventory -->
+     <!-- Inventory -->
+<section id="inventory" class="tab-panel hidden bg-white rounded-xl shadow-sm border border-gray-200">
+
+  {% if is_gm %}
+  <form method="post" action="{% url 'campaigns:add_party_item' campaign.id %}"
+        class="flex flex-wrap items-end gap-3 p-4 border-b border-gray-200">
+    {% csrf_token %}
+    <div class="min-w-[260px]">
+      <label class="block text-sm text-gray-600 mb-1">Item</label>
+      {{ add_item_form.item }}
     </div>
-  </section>
+    <div>
+      <label class="block text-sm text-gray-600 mb-1">Quantity</label>
+      {{ add_item_form.quantity }}
+    </div>
+    <button type="submit"
+            class="inline-flex items-center px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">
+      Add to Party
+    </button>
+  </form>
+  {% endif %}
+
+  <ul class="divide-y divide-gray-200">
+    {% for it in inventory %}
+      <li class="p-4 flex items-center justify-between">
+        <div>
+          <div class="font-semibold">{{ it.item.name }}</div>
+          <div class="text-sm text-gray-600">Added by {{ it.added_by|default:"System" }} • {{ it.created_at|date:"M j, Y" }}</div>
+        </div>
+        <span class="text-xs px-2 py-1 rounded-md bg-gray-100 text-gray-700">×{{ it.quantity }}</span>
+      </li>
+    {% empty %}
+      <li class="p-4 text-gray-600">No party items yet.</li>
+    {% endfor %}
+  </ul>
+</section>
+
+    <section id="inventory" class="tab-panel hidden bg-white rounded-xl shadow-sm border border-gray-200">
+      <ul class="divide-y divide-gray-200">
+        {% for it in inventory %}
+          <li class="p-4 flex items-center justify-between">
+            <div>
+              <div class="font-semibold">{{ it.item.name }}</div>
+              <div class="text-sm text-gray-600">Added by {{ it.added_by|default:"System" }} • {{ it.created_at|date:"M j, Y" }}</div>
+            </div>
+            <span class="text-xs px-2 py-1 rounded-md bg-gray-100 text-gray-700">×{{ it.quantity }}</span>
+          </li>
+        {% empty %}
+          <li class="p-4 text-gray-600">No party items yet.</li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    <!-- Messages -->
+    <section id="messages" class="tab-panel hidden">
+      <div class="grid lg:grid-cols-2 gap-4">
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+          <h2 class="font-semibold mb-3">Direct Messages</h2>
+          <form method="post" action="{% url 'campaigns:send_campaign_message' campaign.id %}" class="space-y-3">
+            {% csrf_token %}
+            <div>
+              <label class="block text-sm text-gray-600 mb-1">To</label>
+              {{ message_form.recipient }}
+            </div>
+            <div>
+              <label class="block text-sm text-gray-600 mb-1">Message</label>
+              {{ message_form.content }}
+            </div>
+            <button class="inline-flex items-center px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700"
+                    type="submit">Send</button>
+          </form>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+          <h2 class="font-semibold mb-3">Your recent conversations</h2>
+          <div class="divide-y divide-gray-200">
+            {% for msg in inbox %}
+              <div class="py-3">
+                <div class="text-xs text-gray-500">{{ msg.created_at|date:"M j, Y H:i" }}</div>
+                <div class="font-semibold">{{ msg.sender.username }}</div>
+                <div class="text-sm text-gray-600">→ {{ msg.recipient.username }}</div>
+                <div class="mt-1">{{ msg.content|linebreaksbr }}</div>
+              </div>
+            {% empty %}
+              <div class="text-gray-600">No messages yet.</div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
 </div>
+{% endblock %}
 
-<!-- ===== Minimal JS for tabs + search ===== -->
+{% block extra_js %}
 <script>
-  (function(){
-    const tabs = document.querySelectorAll('.tab');
-    const panels = document.querySelectorAll('[data-panel]');
-    function show(which){
-      tabs.forEach(t => t.classList.toggle('active', t.dataset.tab===which));
-      panels.forEach(p => p.style.display = (p.dataset.panel===which) ? '' : 'none');
-    }
-    tabs.forEach(t => t.addEventListener('click', () => show(t.dataset.tab)));
-    show('overview'); // default
+(function () {
+  const panels  = Array.from(document.querySelectorAll('.tab-panel'));
+  const buttons = Array.from(document.querySelectorAll('.tab-btn'));
+  if (!buttons.length) return;
 
-    // search
-    const q = document.getElementById('charSearch');
-    if(q){
-      const cards = [...document.querySelectorAll('.char')];
-      q.addEventListener('input', () => {
-        const s = q.value.trim().toLowerCase();
-        cards.forEach(c=>{
-          const name=c.dataset.name||'', player=c.dataset.player||'';
-          c.style.display = (name.includes(s) || player.includes(s)) ? '' : 'none';
-        });
-      });
+  function show(id) {
+    panels.forEach(p => p.classList.toggle('hidden', '#' + p.id !== id));
+    buttons.forEach(b => b.dataset.active = (b.dataset.tab === id));
+    history.replaceState(null, '', id);
+  }
+
+  // initial: use hash if valid; otherwise Notes for GMs, Overview for others
+  const hashOk = location.hash && document.querySelector(location.hash);
+  const fallback = {% if is_gm %}'#notes'{% else %}'#overview'{% endif %};
+  show(hashOk ? location.hash : (buttons[0]?.dataset.tab || fallback));
+
+  buttons.forEach(b => b.addEventListener('click', () => show(b.dataset.tab)));
+  window.addEventListener('hashchange', () => {
+    if (document.querySelector(location.hash)) show(location.hash);
+  });
+})();
+</script>
+
+<script>
+  (function () {
+    const buttons = document.querySelectorAll('#campTabs [data-bs-toggle="tab"]');
+    const panes   = document.querySelectorAll('.tab-pane');
+    if (!buttons.length) return;
+
+    function activate(targetSel, clickedBtn) {
+      panes.forEach(p => p.classList.remove('show','active'));
+      buttons.forEach(b => b.classList.remove('active'));
+      const pane = document.querySelector(targetSel);
+      if (pane) { pane.classList.add('show','active'); }
+      if (clickedBtn) clickedBtn.classList.add('active');
     }
+
+    buttons.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        activate(btn.getAttribute('data-bs-target'), btn);
+      });
+    });
   })();
 </script>
+<script>
+/* Minimal tabs (no Bootstrap JS required) */
+(function () {
+  const tablist = document.getElementById('campTabs');
+  if (!tablist) return;
+
+  const buttons = tablist.querySelectorAll('[data-bs-toggle="tab"]');
+  const panes   = document.querySelectorAll('.tab-content .tab-pane');
+
+  function activate(target) {
+    // target comes like "#notes"
+    buttons.forEach(btn => {
+      const isActive = btn.dataset.bsTarget === target;
+      btn.classList.toggle('active', isActive);
+      btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+    panes.forEach(pane => {
+      const match = ('#' + pane.id) === target;
+      pane.classList.toggle('show',   match);
+      pane.classList.toggle('active', match);
+      // keep "fade" on non-active panes for a subtle transition
+      if (match) pane.classList.remove('fade'); else pane.classList.add('fade');
+    });
+  }
+
+  // click -> switch and update hash
+  buttons.forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const target = btn.dataset.bsTarget || '#overview';
+      history.replaceState(null, '', target);
+      activate(target);
+    });
+  });
+
+  // initial pane from hash (e.g. “…#notes”), or default to overview
+  const initial = (location.hash && document.querySelector(location.hash)) ? location.hash : '#overview';
+  activate(initial);
+
+  // keep tabs in sync if the hash changes (e.g., redirects to #notes after posting)
+  window.addEventListener('hashchange', () => {
+    if (document.querySelector(location.hash)) activate(location.hash);
+  });
+})();
+</script>
+
 {% endblock %}

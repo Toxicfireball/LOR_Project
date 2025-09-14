@@ -33,7 +33,17 @@
         <a href="{% url 'home' %}" class="text-xl font-bold">LOR</a>
 
         <div class="hidden md:flex md:items-center md:space-x-6">
-
+<form action="{% url 'characters:global_search' %}" method="get" class="flex items-center">
+  <input
+    type="text"
+    name="q"
+    value="{{ request.GET.q|default:'' }}"
+    placeholder="Search (name or code)…"
+    class="w-64 px-3 py-1 rounded bg-white text-gray-900 placeholder-gray-500
+           focus:outline-none focus:ring-2 focus:ring-blue-400"
+  />
+  <button class="ml-2 px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-white">Go</button>
+</form>
           <!-- Forge -->
           <div class="relative">
             <button id="forge-toggle" class="flex items-center hover:underline focus:outline-none">
@@ -130,6 +140,16 @@
           <path d="M5.5 7l4.5 4.5L14.5 7z"/>
         </svg>
       </button>
+<form action="{% url 'characters:global_search' %}" method="get" class="my-2">
+  <input
+    type="text"
+    name="q"
+    value="{{ request.GET.q|default:'' }}"
+    placeholder="Search (name or code)…"
+    class="w-full px-3 py-2 rounded bg-white text-gray-900 placeholder-gray-500 focus:outline-none"
+  />
+  <button class="mt-2 w-full px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded text-white">Search</button>
+</form>
       <div id="mobile-forge-menu" class="dropdown-menu pl-4">
         <a href="{% url 'characters:create_character' %}" class="block py-1 hover:underline">Create Character</a>
         <a href="{% url 'characters:character_list' %}"   class="block py-1 hover:underline">View Characters</a>

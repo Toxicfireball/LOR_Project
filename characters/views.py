@@ -126,6 +126,178 @@ def _trigger_mastery_cap(trigger):
 # views.py
 from django.views.decorators.http import require_GET
 from django.contrib.auth.decorators import login_required
+# characters/views.py
+from urllib.parse import urlencode
+from django.shortcuts import render
+from django.urls import reverse
+from django.db.models import Q
+
+from .models import (
+    # “code” &/or “name”
+    CharacterClass, ClassSubclass, SubclassGroup, ClassFeature,
+    Race, Subrace, Background, Language, ResourceType, WearableSlot,
+    Skill, SubSkill, Weapon, Armor, WeaponTrait, ArmorTrait,
+    Spell, ClassFeat, MartialMastery,
+    Rulebook, RulebookPage, LoremasterArticle,ClassSkillFeatGrant
+)
+
+def _display_text(obj):
+    # Prefer human-friendly main field
+    for attr in ("name", "title"):
+        if hasattr(obj, attr) and getattr(obj, attr):
+            return getattr(obj, attr)
+    return str(obj)
+
+def _code_text(obj):
+    # Collect a sensible “code-like” field if present
+    for attr in ("code", "class_ID", "slug"):
+        if hasattr(obj, attr) and getattr(obj, attr):
+            return getattr(obj, attr)
+    return ""
+
+def _detail_url(obj):
+    # Link where we know we have detail pages;
+    # otherwise send users to a Codex list with a pre-filled query (?q=...)
+    try:
+        if isinstance(obj, CharacterClass):
+            return reverse("characters:class_detail", kwargs={"pk": obj.pk})
+        if isinstance(obj, Race):
+            return reverse("characters:race_detail", kwargs={"pk": obj.pk})
+        if isinstance(obj, Rulebook):
+            return reverse("characters:rulebook_detail", kwargs={"pk": obj.pk})
+        if isinstance(obj, RulebookPage):
+            return reverse("characters:rulebook_page_detail",
+                           kwargs={"rulebook_pk": obj.rulebook_id, "pk": obj.pk})
+        if isinstance(obj, LoremasterArticle):
+            return obj.get_absolute_url()  # already defined in your model
+
+        # Codex list pages – we pass a ?q=... so users land filtered
+        name_qs = urlencode({"q": _display_text(obj)})
+        if isinstance(obj, Weapon):
+            return reverse("characters:codex_weapons") + f"?{name_qs}"
+        if isinstance(obj, Armor):
+            return reverse("characters:codex_armor") + f"?{name_qs}"
+        if isinstance(obj, Spell):
+            return reverse("characters:codex_spells") + f"?{name_qs}"
+        if isinstance(obj, ClassFeat):
+            return reverse("characters:codex_feats") + f"?{name_qs}"
+
+        # Fallback: None (still listed, just no link)
+        return None
+    except Exception:
+        return None
+
+def _search_model(model, code_fields, name_fields, query, limit_each=30):
+    """
+    Rank order within a model:
+      1) exact code   (rank 0)
+      2) startswith   (rank 1)
+      3) icontains    (rank 2)
+    Dedup across the three passes.
+    """
+    seen = set()
+    items = []
+
+    def push(obj, rank):
+        key = (obj.__class__.__name__, obj.pk)
+        if key in seen: 
+            return
+        seen.add(key)
+        items.append({
+            "pk": obj.pk,
+            "display": _display_text(obj),
+            "code": _code_text(obj),
+            "url": _detail_url(obj),
+            "rank": rank,
+        })
+
+    # 1) exact code
+    if code_fields:
+        q = Q()
+        for f in code_fields:
+            q |= Q(**{f + "__iexact": query})
+        for obj in model.objects.filter(q)[:limit_each]:
+            push(obj, 0)
+
+    # 2) startswith (code + name)
+    if name_fields or code_fields:
+        q = Q()
+        for f in code_fields + name_fields:
+            q |= Q(**{f + "__istartswith": query})
+        for obj in model.objects.filter(q)[:limit_each]:
+            push(obj, 1)
+
+    # 3) contains (code + name)
+    if name_fields or code_fields:
+        q = Q()
+        for f in code_fields + name_fields:
+            q |= Q(**{f + "__icontains": query})
+        for obj in model.objects.filter(q)[:limit_each]:
+            push(obj, 2)
+
+    # Stable sort by rank then display text
+    items.sort(key=lambda x: (x["rank"], x["display"].lower()))
+    return items
+
+def global_search(request):
+    query = (request.GET.get("q") or "").strip()
+
+    # What we search (easy to extend)
+    SEARCHABLES = [
+        # label, model, code_fields, name_fields
+        ("Features",            ClassFeature,    ["code"],        ["name"]),
+        ("Classes",             CharacterClass,  ["class_ID"],    ["name"]),
+        ("Subclass Groups",     SubclassGroup,   ["code"],        ["name"]),
+        ("Subclasses",          ClassSubclass,   ["code"],        ["name"]),
+        ("Races",               Race,            ["code"],        ["name"]),
+        ("Subraces",            Subrace,         ["code"],        ["name"]),
+        ("Backgrounds",         Background,      ["code"],        ["name"]),
+        ("Languages",           Language,        ["code"],        ["name"]),
+        ("Resource Types",      ResourceType,    ["code"],        ["name"]),
+        ("Wearable Slots",      WearableSlot,    ["code"],        ["name"]),
+        ("Skills",              Skill,           [],              ["name"]),
+        ("Sub-skills",          SubSkill,        [],              ["name"]),
+        ("Weapons",             Weapon,          [],              ["name"]),
+        ("Armor",               Armor,           [],              ["name"]),
+        ("Weapon Traits",       WeaponTrait,     [],              ["name"]),
+        ("Armor Traits",        ArmorTrait,      [],              ["name"]),
+        ("Spells",              Spell,           [],              ["name"]),
+        ("Feats",               ClassFeat,       [],              ["name"]),
+        ("Martial Masteries",   MartialMastery,  [],              ["name"]),
+        ("Rulebooks",           Rulebook,        [],              ["name"]),
+        ("Rulebook Pages",      RulebookPage,    [],              ["title"]),
+        ("Loremaster Articles", LoremasterArticle, ["slug"],      ["title"]),
+    ]
+
+    results = []
+    total_count = 0
+
+    if query:
+        for label, model, code_fields, name_fields in SEARCHABLES:
+            model_items = _search_model(model, code_fields, name_fields, query)
+            if model_items:
+                results.append({
+                    "label": label,
+                    "items": model_items,
+                })
+                total_count += len(model_items)
+
+    # Pull exact-code hits (rank 0) to a top “Exact code matches” section
+    top_exact = []
+    for group in results:
+        exacts = [it for it in group["items"] if it["rank"] == 0]
+        if exacts:
+            top_exact.extend([dict(it, section=group["label"]) for it in exacts])
+
+    context = {
+        "q": query,
+        "top_exact": top_exact,     # flattened, rank==0
+        "groups": results,          # grouped sections (rank-mixed)
+        "total_count": total_count,
+    }
+    return render(request, "global_search.html", context)
+
+
 
 @require_GET
 @login_required
@@ -1476,36 +1648,6 @@ def _taken_tier_by_subclass(character, group):
     return {r["subclass_id"]: (r["max_tier"] or 0) for r in rows}
 
 
-def _active_subclass_for_group(character, grp, level_form, base_feats):
-    """
-    Determine which subclass is active for this group:
-    1) If this same level includes a new subclass_choice radio and it’s selected, use that.
-    2) Otherwise, use the last saved subclass for this group.
-    """
-    # find the subclass_choice feature for this group on this screen (if any)
-    sc_feats = [f for f in base_feats
-                if isinstance(f, ClassFeature)
-                and f.scope == 'subclass_choice'
-                and f.subclass_group_id == grp.id]
-    if sc_feats:
-        fn = f"feat_{sc_feats[0].pk}_subclass"
-        if fn in level_form.fields:
-            val = level_form[fn].value()
-            if val:
-                try:
-                    return grp.subclasses.get(pk=int(val))
-                except (ValueError, ClassSubclass.DoesNotExist):
-                    pass
-
-    # fallback: whatever the character already chose earlier for this group
-    prev = (CharacterFeature.objects
-            .filter(character=character,
-                    subclass__group=grp,
-                    feature__scope='subclass_choice')
-            .order_by('-level')
-            .first())
-    return prev.subclass if prev else None
-
 
 
 
@@ -2437,7 +2579,7 @@ def character_detail(request, pk):
         return HttpResponseForbidden("You don’t have permission to view this character.")
 
     can_edit = (request.user.id == character.user_id) or is_gm_for_campaign    
-    can_edit  = request.user == character.user
+
     # LOR skill progression constants
     LOR_TIER_ORDER     = ["Untrained","Trained","Expert","Master","Legendary"]
     LOR_UPGRADE_COST   = {"Untrained":1, "Trained":2, "Expert":3, "Master":5}   # → next tier
@@ -2524,6 +2666,9 @@ def character_detail(request, pk):
     starting_skill_choices = {"skills": [], "subskills": []}
     starting_skill_max = 0  # <-- NEW
 
+
+
+
     def _starting_skills_cap_for(cls_obj):
         expr = (getattr(cls_obj, "starting_skills_formula", "") or "").strip()
         if not expr:
@@ -2595,21 +2740,54 @@ def character_detail(request, pk):
                     "label": f"{sub.skill.name} – {sub.name}",
                 })
 
+    # keep the preview version for GET/UI preview
     try:
-        cl = (
+        cl_preview = (
             ClassLevel.objects
             .prefetch_related(
                 'features__subclasses',
                 'features__subclass_group',
-                'features__options__grants_feature',   # ← ADD
+                'features__options__grants_feature',
             )
             .get(character_class=preview_cls, level=cls_level_after)
-
         )
-        base_feats = list(cl.features.all())
+        base_feats_preview = list(cl_preview.features.all())
     except ClassLevel.DoesNotExist:
-        base_feats = []
-    grants_class_feat = any(
+        base_feats_preview = []
+
+    # decide which set drives validation (POST: posted class; GET: preview)
+    data = request.POST if request.method == 'POST' else request.GET
+    if request.method == 'POST':
+        posted_cls_id = data.get('base_class')
+        try:
+            posted_cls = CharacterClass.objects.get(pk=int(posted_cls_id))
+        except (TypeError, ValueError, CharacterClass.DoesNotExist):
+            posted_cls = preview_cls
+        cls_level_for_validate = _class_level_after_pick(character, posted_cls)
+
+        try:
+            cl_validate = (
+                ClassLevel.objects
+                .prefetch_related(
+                    'features__subclasses',
+                    'features__subclass_group',
+                    'features__options__grants_feature',
+                )
+                .get(character_class=posted_cls, level=cls_level_for_validate)
+            )
+            base_feats_validate = list(cl_validate.features.all())
+        except ClassLevel.DoesNotExist:
+            base_feats_validate = []
+
+        base_feats = base_feats_validate
+    else:
+        cls_level_for_validate = _class_level_after_pick(character, preview_cls)
+        base_feats = base_feats_preview
+
+    # only real ClassFeature instances go here
+    to_choose = base_feats.copy()
+
+    _grants_class_feat_at = any(
         isinstance(f, ClassFeature) and (
             # explicit scopes
             (getattr(f, "scope", "") in ("class_feat_pick", "class_feat_choice"))
@@ -3290,21 +3468,57 @@ def character_detail(request, pk):
 
 
     # bind LevelUpForm on GET (so base_class stays selected) *and* on POST
+
+    # bind LevelUpForm on GET (so base_class stays selected) *and* on POST
     data = request.POST if request.method == 'POST' else request.GET
+
+    # Determine the class/level to VALIDATE AGAINST (posted if POST, else preview)
+
+
     level_form = LevelUpForm(
         data or None,
         character=character,
         to_choose=to_choose,
         uni=uni,
-        preview_cls=preview_cls,
-        grants_class_feat=grants_class_feat
+        preview_cls=preview_cls,             # keep for UI preview
+        grants_class_feat=_grants_class_feat_at
     )
-    if grants_class_feat and "class_feat_pick" not in level_form.fields:
+
+    # Add the field *only* when the validated class/level needs it
+    if _grants_class_feat_at and "class_feat_pick" not in level_form.fields:
         level_form.fields["class_feat_pick"] = forms.ModelChoiceField(
-            queryset=ClassFeat.objects.all(), # filled by the filter block below
+            queryset=ClassFeat.objects.all(),  # filled by the filter block below
             required=True,
             label="Class Feat"
         )
+
+    # ── NEW: Skill Feat picker(s) when the selected class grants them at this level ──
+    # Determine the target class/level we are validating against
+    target_cls = posted_cls if request.method == 'POST' else preview_cls
+    skill_grant = (
+        ClassSkillFeatGrant.objects
+        .filter(character_class=target_cls, at_level=cls_level_for_validate)
+        .first()
+    )
+
+    if skill_grant and "skill_feat_pick" not in level_form.fields:
+        if int(skill_grant.num_picks or 0) <= 1:
+            # Single pick
+            level_form.fields["skill_feat_pick"] = forms.ModelChoiceField(
+                queryset=ClassFeat.objects.all(),  # filtered below by feat_type=r"^Skill$"
+                required=True,
+                label="Skill Feat"
+            )
+        else:
+            # Multiple picks using checkboxes
+            level_form.fields["skill_feat_pick"] = forms.ModelMultipleChoiceField(
+                queryset=ClassFeat.objects.all(),  # filtered below by feat_type=r"^Skill$"
+                required=True,
+                label=f"Pick {int(skill_grant.num_picks)} Skill Feat(s)",
+                widget=forms.CheckboxSelectMultiple
+            )
+
+
     # INIT HERE so we can append immediately below
     feature_fields = []
 
@@ -3312,6 +3526,96 @@ def character_detail(request, pk):
         f for f in to_choose
         if isinstance(f, ClassFeature) and f.scope == 'gain_subclass_feat'
     ]
+
+    def _active_subclass_for_group(character, grp, level_form=None, base_feats=None):
+        """
+        Returns the chosen Subclass for `grp` using (in order):
+        1) the POSTed choice this request (if present),
+        2) the last saved 'subclass_choice' CharacterFeature,
+        3) the last saved 'subclass_feat' (infers subclass),
+        4) an explicit override 'subclass_choice:<grp.id>' if you use that,
+        else None.
+        """
+        # 0) if this request posts a subclass choice field, use it
+        if level_form is not None and getattr(level_form, "is_bound", False):
+            base_feats = list(base_feats or [])
+            sc_choices = [
+                f for f in base_feats
+                if isinstance(f, ClassFeature)
+                and getattr(f, "scope", "") == "subclass_choice"
+                and getattr(f, "subclass_group_id", None) == grp.id
+            ]
+            for f in sc_choices:
+                key = f"feat_{f.pk}_subclass"
+                raw = (level_form.data.get(key) or "").strip()
+                if raw.isdigit():
+                    try:
+                        return grp.subclasses.get(pk=int(raw))
+                    except grp.subclasses.model.DoesNotExist:
+                        pass
+
+        # 1) last explicitly saved subclass choice
+        row = (CharacterFeature.objects
+            .filter(character=character,
+                    feature__scope="subclass_choice",
+                    feature__subclass_group=grp)
+            .exclude(subclass__isnull=True)
+            .order_by("-level", "-id")
+            .first())
+        if row and row.subclass_id:
+            return row.subclass
+
+        # 2) infer from owned subclass features
+        row = (CharacterFeature.objects
+            .filter(character=character,
+                    feature__scope="subclass_feat",
+                    feature__subclass_group=grp)
+            .exclude(subclass__isnull=True)
+            .order_by("-level", "-id")
+            .first())
+        if row and row.subclass_id:
+            return row.subclass
+
+        # 3) optional manual override
+        ov = CharacterFieldOverride.objects.filter(character=character, key=f"subclass_choice:{grp.id}").first()
+        if ov and str(ov.value).strip().isdigit():
+            try:
+                return grp.subclasses.get(pk=int(ov.value))
+            except grp.subclasses.model.DoesNotExist:
+                pass
+
+        return None
+    def _linear_feats_for_level(cls_obj, grp, subclass, cls_level, base_feats=None):
+
+        if not subclass:
+            return []
+
+        feats = []
+        for f in (base_feats or []):
+            if (getattr(f, "scope", "") == "subclass_feat"
+                and getattr(f, "subclass_group_id", None) == grp.id
+                and (subclass in f.subclasses.all())):
+                lr = getattr(f, "level_required", None)
+                ml = getattr(f, "min_level", None)
+                if (ml is None or int(ml) <= int(cls_level)) and (lr is None or int(lr) <= int(cls_level)):
+                    feats.append(f)
+
+        if feats:
+            return feats
+
+        # Fallback: only when nothing is attached to this level (avoid leaking ungated L1 features)
+        return list(
+            ClassFeature.objects
+                .filter(scope="subclass_feat", subclass_group=grp, subclasses=subclass)
+                .filter(
+                    Q(level_required=cls_level) |
+                    Q(level_required__isnull=True, min_level__lte=cls_level)
+                )
+                .exclude(level_required__isnull=True, min_level__isnull=True)
+        )
+
+
+
 
     for trigger in gain_sub_feat_triggers:
         grp = trigger.subclass_group
@@ -3327,50 +3631,21 @@ def character_detail(request, pk):
         # ---------------- LINEAR ----------------
         if grp.system_type == SubclassGroup.SYSTEM_LINEAR:
             active_sub = _active_subclass_for_group(character, grp, level_form, base_feats)
+            feats_now = _linear_feats_for_level(preview_cls, grp, active_sub, cls_level_after, base_feats)
+            eligible_qs = ClassFeature.objects.filter(pk__in=[f.pk for f in feats_now]).order_by('name')
 
-            feats_now = []
-            if active_sub:
-                try:
-                    cl_next = (ClassLevel.objects
-                            .prefetch_related('features__subclasses', 'features__subclass_group')
-                            .get(character_class=preview_cls, level=cls_level_after))
-                    feats_now = [
-                        f for f in cl_next.features.all()
-                        if f.scope == 'subclass_feat'
-                        and f.subclass_group_id == grp.id
-                        and (active_sub in f.subclasses.all())
-                        and (f.level_required is None or f.level_required <= cls_level_after)
-                    ]
-                except ClassLevel.DoesNotExist:
-                    feats_now = list(
-                        ClassFeature.objects.filter(
-                            scope='subclass_feat',
-                            subclass_group=grp,
-                            subclasses=active_sub,
-                            level_required=cls_level_after
-
-                        )
-                    )
-
-            eligible_qs = ClassFeature.objects.filter(pk__in=[f.pk for f in feats_now])
-
-            # no choices to make; still add a stable field (not required)
-            level_form.fields[field_name] = forms.ModelMultipleChoiceField(
-                queryset=eligible_qs,
-                required=False,
-                widget=forms.CheckboxSelectMultiple
-            )
-
+            # NEW: display-only block so the modal shows what you'll gain (no picking for linear)
             feature_fields.append({
                 "kind": "gain_subclass_feat",
                 "label": f"Gain Subclass Feature – {grp.name}",
-                "field": level_form[field_name],
+                "field": None,                       # ← important: read-only (auto-grant on submit)
                 "group": grp,
-                "subclass": active_sub,
-                "eligible": list(eligible_qs),
-                "system": grp.system_type,
+                "subclass": active_sub,              # may be None until user picks
+                "eligible": list(eligible_qs),       # what will be granted at this level
+                "system": grp.system_type,           # used by template to branch
             })
-            continue
+            continue  # ← optional, keeps the flow parallel to other systems
+
 
         # ------------- MODULAR LINEAR -------------
         if grp.system_type == SubclassGroup.SYSTEM_MODULAR_LINEAR:
@@ -3533,6 +3808,37 @@ def character_detail(request, pk):
             })
             continue
 
+    # --- PREVIEW: auto LINEAR subclass grants when the level has only subclass_feat attachments ---
+    groups_with_trigger = {t.subclass_group_id for t in gain_sub_feat_triggers if getattr(t, "subclass_group_id", None)}
+
+    for grp in subclass_groups:
+        if grp.system_type != SubclassGroup.SYSTEM_LINEAR:
+            continue
+        if grp.id in groups_with_trigger:
+            continue  # already handled via trigger UI
+
+        # Are there subclass_feat features actually attached to this ClassLevel?
+        attached_here = [
+            f for f in (base_feats or [])
+            if isinstance(f, ClassFeature)
+            and (getattr(f, "scope", "") or "") == "subclass_feat"
+            and getattr(f, "subclass_group_id", None) == grp.id
+        ]
+        if not attached_here:
+            continue
+
+        active_sub = _active_subclass_for_group(character, grp, level_form, base_feats)
+        feats_now = _linear_feats_for_level(preview_cls, grp, active_sub, cls_level_after, base_feats)
+
+        feature_fields.append({
+            "kind": "gain_subclass_feat",
+            "label": f"Gain Subclass Feature – {grp.name}",
+            "field": None,                  # read-only preview
+            "group": grp,
+            "subclass": active_sub,
+            "eligible": list(feats_now),    # exactly what this level grants for the chosen subclass
+            "system": grp.system_type,
+        })
 
 
 
@@ -3570,38 +3876,22 @@ def character_detail(request, pk):
             )
 
     if "class_feat_pick" in level_form.fields:
-        cls_after = cls_level_after           # class level after this pick
-        cls_name  = preview_cls.name
+        # Use the same target class/level we validated with
+        target_cls = posted_cls if request.method == 'POST' else preview_cls
+        cls_after  = cls_level_for_validate
+        cls_name   = target_cls.name
 
-        # Collect role tags from the class, normalized to lower
-        class_tags = [t.lower() for t in preview_cls.tags.values_list("name", flat=True)]
-
-        # Build token list we will accept as a "membership" match
-        #   - specific class name
-        #   - class role tags (e.g., Spellcaster, Martial)
-        #   - a few safe synonyms for Spellcaster so we catch messy data
+        class_tags = [t.lower() for t in target_cls.tags.values_list("name", flat=True)]
         tokens = [cls_name] + class_tags
         if "spellcaster" in class_tags:
             tokens += ["spellcaster", "spellcasting", "caster"]
         if "martial" in class_tags:
             tokens += ["martial"]
 
-        # Turn tokens into an OR'd, word-boundary style iregex that tolerates lists
-        # (comma/semicolon/slash/space separated)
-        token_res = [
-            rf'(^|[,;/\s]){re.escape(tok)}([,;/\s]|$)'
-            for tok in tokens if tok
-        ]
+        token_res = [rf'(^|[,;/\s]){re.escape(tok)}([,;/\s]|$)' for tok in tokens if tok]
         any_token_re = "(" + ")|(".join(token_res) + ")" if token_res else None
 
-        # Start from Class feats
         base = ClassFeat.objects.filter(feat_type__iexact="Class")
-
-        # Accept if:
-        #  - class_name contains the specific class name OR one of the role tags, OR
-        #  - tags contains one of the role tags, OR
-        #  - class_name is empty/NULL, OR
-        #  - class_name says "All Classes" / "Any Class"
         membership_q = (
             Q(class_name__iregex=any_token_re) |
             Q(tags__iregex=any_token_re) |
@@ -3614,14 +3904,10 @@ def character_detail(request, pk):
 
         qs = base.filter(membership_q)
 
-        # Parse free-text level prerequisite (e.g., "3rd level", "Druid 1st level or higher")
         eligible_ids = [
             f.pk for f in qs
             if parse_req_level(getattr(f, "level_prerequisite", "")) <= cls_after
         ]
-
-        # If we still somehow filtered everything out (dirty data), fall back to:
-        #  - just Class feats whose class_name includes the specific class OR is blank/"All Classes"
         if not eligible_ids:
             cls_re = rf'(^|[,;/\s]){re.escape(cls_name)}([,;/\s]|$)'
             relaxed = base.filter(
@@ -3690,6 +3976,32 @@ def character_detail(request, pk):
                 feature=feat,
                 level=next_level
             )
+        # C.1) LINEAR subclasses: auto-grant this level’s subclass features for the active choice
+        # ensure we have the features for THIS class+level
+        # F) LINEAR subclasses: auto-grant this level’s subclass features for the now-saved choice
+        try:
+            cl_linear = (
+                ClassLevel.objects
+                .prefetch_related('features__subclasses', 'features__subclass_group')
+                .get(character_class=picked_cls, level=cls_level_after_post)
+            )
+            base_feats_for_level = list(cl_linear.features.all())
+        except ClassLevel.DoesNotExist:
+            base_feats_for_level = []
+
+        for grp in picked_cls.subclass_groups.filter(system_type=SubclassGroup.SYSTEM_LINEAR):
+            active_sub = _active_subclass_for_group(character, grp, None, base_feats_for_level)
+            if not active_sub:
+                continue
+            grant_feats = _linear_feats_for_level(picked_cls, grp, active_sub, cls_level_after_post, base_feats_for_level)
+            for sf in grant_feats:
+                CharacterFeature.objects.get_or_create(
+                    character=character,
+                    feature=sf,
+                    subclass=active_sub,
+                    defaults={"level": next_level}
+                )
+
 
 
         # D) general_feat + asi
@@ -3772,35 +4084,8 @@ def character_detail(request, pk):
                         )
 
                     else:
-                        # LINEAR: prefer features attached to this ClassLevel
-                        try:
-                            cl_next = (
-                                ClassLevel.objects
-                                .prefetch_related(
-                                    'features__subclasses',
-                                    'features__subclass_group',
-                                    'features__options__grants_feature',   # ← ADD
-                                )
-                                .get(character_class=picked_cls, level=cls_level_after_post)
-                            )
+                        grant_feats = _linear_feats_for_level(picked_cls, grp, sub, cls_level_after_post, base_feats_for_level)
 
-                            grant_feats = [
-                                f for f in cl_next.features.all()
-                                if f.scope == 'subclass_feat'
-                                and f.subclass_group_id == grp.id
-                                and sub in f.subclasses.all()
-                            ]
-                        except ClassLevel.DoesNotExist:
-                            # fallback: explicit level_required
-                            grant_feats = list(
-                                ClassFeature.objects.filter(
-                                    scope='subclass_feat',
-                                    subclass_group=grp,
-                                    subclasses=sub,
-                                    level_required=cls_level_after_post
-
-                                )
-                            )
 
                     # 3) persist the unlocked subclass features
                     for sf in grant_feats:
@@ -3894,7 +4179,8 @@ def character_detail(request, pk):
 
 
                 # F) class_feat_pick & skill_feat_pick
-        # F) pick a Class Feat only
+
+        # 1) Class Feat (unchanged behavior)
         pick = level_form.cleaned_data.get('class_feat_pick')
         if pick:
             CharacterFeat.objects.create(
@@ -3902,6 +4188,46 @@ def character_detail(request, pk):
                 feat=pick,
                 level=next_level
             )
+
+        # 2) Skill Feat(s) – honor ClassSkillFeatGrant.num_picks at this new class level
+        # Recompute the grant for the ACTUAL class/level we just advanced in
+        skill_grant_post = (
+            ClassSkillFeatGrant.objects
+            .filter(character_class=picked_cls, at_level=cls_level_after_post)
+            .first()
+        )
+
+        if skill_grant_post and "skill_feat_pick" in level_form.cleaned_data:
+            chosen = level_form.cleaned_data["skill_feat_pick"]
+
+            # Normalize to a list
+            if chosen is None:
+                chosen_list = []
+            elif hasattr(chosen, "__iter__") and not isinstance(chosen, (str, bytes)):
+                chosen_list = list(chosen)
+            else:
+                chosen_list = [chosen]
+
+            # Enforce exact count if num_picks > 0
+            need = int(skill_grant_post.num_picks or 0)
+            if need > 0 and len(chosen_list) != need:
+                messages.error(
+                    request,
+                    f"You must pick exactly {need} Skill Feat{'s' if need != 1 else ''}."
+                )
+                return redirect('characters:character_detail', pk=pk)
+
+            # Persist the selected skill feats
+            for sf in chosen_list:
+                # Safety: only allow feats typed "Skill" (should already be enforced by queryset)
+                if (sf.feat_type or "").strip().lower() != "skill":
+                    continue
+                CharacterFeat.objects.create(
+                    character=character,
+                    feat=sf,
+                    level=next_level
+                )
+
 
         # G) martial_mastery
         mm = level_form.cleaned_data.get('martial_mastery')
@@ -3975,7 +4301,8 @@ def character_detail(request, pk):
         # ---- DONE: all mutations saved; switch to PRG to avoid stale context ----
         messages.success(request, f"{character.name} advanced to level {next_level}.")
         return redirect('characters:character_detail', pk=pk)
-
+    elif request.method == 'POST' and 'level_up_submit' in request.POST:
+        messages.error(request, "Level up couldn’t be applied. Please fix the highlighted fields.")
 
     # ── 5) BUILD feature_fields FOR TEMPLATE ───────────────────────────────
     subclass_feats_at_next = {}
@@ -4000,24 +4327,8 @@ def character_detail(request, pk):
                 )
 
             elif grp.system_type == SubclassGroup.SYSTEM_LINEAR:
-                # Prefer features linked to this ClassLevel
-                feats = [
-                    f for f in base_feats
-                    if f.scope == 'subclass_feat'
-                    and f.subclass_group_id == grp.id
-                    and sc in f.subclasses.all()
-                ]
-                # Fallback: explicit level gating
-                if not feats:
-                    feats = list(
-                        qs.filter(level_required=cls_level_after).order_by('name')
-                    )
-                # Extra safety for L1 data that forgot level_required
-                if not feats and cls_level_after == 1:
-                    feats = list(
-                        qs.filter(Q(level_required=1) | Q(level_required__isnull=True))
-                        .order_by('name')
-                    )
+                feats = _linear_feats_for_level(preview_cls, grp, sc, cls_level_after, base_feats)
+
             elif grp.system_type == SubclassGroup.SYSTEM_MODULAR_MASTERY:
                 per = max(1, int(getattr(grp, "modules_per_mastery", 2)))
                 taken = CharacterFeature.objects.filter(

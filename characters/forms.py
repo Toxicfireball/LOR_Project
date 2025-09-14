@@ -355,7 +355,7 @@ class LevelUpForm(forms.Form):
                 self.fields[name] = forms.ChoiceField(
                     label=f"Choose {feat.subclass_group.name}",
                     choices=choices,
-                    required=True,
+                    required=False,
                     widget=forms.RadioSelect
                 )
 

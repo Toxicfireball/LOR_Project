@@ -2738,5 +2738,13 @@ document.addEventListener('DOMContentLoaded', function () {
   updateCap();
 })();
 </script>
+{% if form.errors %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  var el = document.getElementById('levelUpModal');
+  if (el) new bootstrap.Modal(el).show();
+});
+</script>
+{% endif %}
 
 {% endblock %}

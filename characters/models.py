@@ -515,7 +515,9 @@ class Character(models.Model):
             .first()
         ) or 0
 
-
+    def __str__(self):
+        # What shows in dropdowns, admin, etc.
+        return self.name or f"Character #{self.pk}"
     def mastery_for(self, subclass: "ClassSubclass") -> int:
         """
         Current tier = floor(modules_taken / modules_required).
@@ -1094,7 +1096,11 @@ class SpecialItem(models.Model):
 
     attunement        = models.BooleanField("Attunement required", default=False)
     name              = models.CharField(max_length=100)
-    slot              = models.ForeignKey(EquipmentSlot, on_delete=models.CASCADE)
+    slot = models.ForeignKey(
+        EquipmentSlot,
+        null=True, blank=True,             
+        on_delete=models.SET_NULL          
+    )    
     item_type         = models.CharField(max_length=12, null=True, choices=ITEM_TYPE_CHOICES)
 
     weapon            = models.ForeignKey(Weapon,       null=True, blank=True, on_delete=models.SET_NULL)
@@ -1118,8 +1124,13 @@ class SpecialItem(models.Model):
         if self.item_type != "weapon":        self.weapon = None
         if self.item_type != "armor":         self.armor = None
         if self.item_type != "wearable":      self.wearable_slot = None
-
-
+    def __str__(self):
+        bits = [self.name]
+        if self.enhancement_bonus:
+            bits.append(f"+{self.enhancement_bonus}")
+        if self.rarity:
+            bits.append(self.get_rarity_display())
+        return " ".join(bits)
 
 
 class SpecialItemTraitValue(models.Model):
