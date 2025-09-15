@@ -16,7 +16,7 @@ from django_select2.forms import HeavySelect2Widget
 from .models import CharacterSubSkillProficiency, CharacterClass, CharacterClassProgress
 from django.core.exceptions import ValidationError
 from django import forms
-from .models import CharacterClass, MartialMastery, ClassFeat, Race, Subrace, ClassFeature, ClassSubclass, Background, FeatureOption, UniversalLevelFeature, RacialFeature
+from .models import ClassSkillFeatGrant, CharacterClass, MartialMastery, ClassFeat, Race, Subrace, ClassFeature, ClassSubclass, Background, FeatureOption, UniversalLevelFeature, RacialFeature
 class CharacterCreationForm(forms.ModelForm):
     # — pick race by its slug/code, not by PK
     race = forms.ModelChoiceField(
@@ -238,6 +238,11 @@ class LevelUpForm(forms.Form):
                                             required=False, label="Class Feat")
     martial_mastery = forms.ModelChoiceField(queryset=MartialMastery.objects.none(),
                                             required=False, label="Martial Mastery")
+    skill_feat = forms.ModelChoiceField(
+        queryset=ClassFeat.objects.none(),
+        required=False,
+        label="Skill Feat"
+    )
 # --- FIRST LEVEL IN CLASS → starting skills picker -------------------------
 # helper: build allowable (leaf) skill choices the character doesn't already have
     def _starting_skill_choices_for_char(char):
@@ -275,11 +280,48 @@ class LevelUpForm(forms.Form):
 
         return choices
     def __init__(self, *args, character, to_choose, uni, preview_cls, grants_class_feat=False, **kwargs):
-
+        
         super().__init__(*args, **kwargs)
         self.character = character
         self.uni = uni
-        # base_class queryset (unchanged)
+        # inside LevelUpForm.__init__ just after super().__init__
+        next_level = character.level + 1
+
+        race_names = []
+        if getattr(character, "race", None) and getattr(character.race, "name", None):
+            race_names.append(character.race.name)
+        if getattr(character, "subrace", None) and getattr(character.subrace, "name", None):
+            race_names.append(character.subrace.name)
+        race_q = Q(race__exact="") | Q(race__isnull=True)
+        if race_names:
+            token_res = [rf'(^|[,;/\s]){re.escape(n)}([,;/\s]|$)' for n in race_names]
+            race_q |= Q(race__iregex="(" + ")|(".join(token_res) + ")")
+
+        # Skill Feat (if this class & level grant one)
+        if preview_cls and ClassSkillFeatGrant.objects.filter(
+            character_class=preview_cls, at_level=next_level
+        ).exists():
+            # inside LevelUpForm.__init__
+            q = (ClassFeat.objects
+                .filter(feat_type__istartswith="Skill")
+                .filter(
+                    Q(level_prerequisite__isnull=True) |      # ← add this
+                    Q(level_prerequisite__exact="") |
+                    Q(level_prerequisite__iregex=rf'(^|[,;/\s]){next_level}([,;/\s]|$)')
+                )
+                .filter(race_q)
+                .exclude(pk__in=character.feats.values_list("feat__pk", flat=True))
+                .order_by("name"))
+
+            if q.exists():
+                self.fields["skill_feat"].queryset = q
+                self.fields["skill_feat"].required = True
+                self.fields["skill_feat"].widget = forms.Select(attrs={"class": "d-none"})
+            else:
+                self.fields.pop("skill_feat", None)
+        else:
+            self.fields.pop("skill_feat", None)
+
         if character.level == 0:
             qs = CharacterClass.objects.order_by("name")
         elif character.level < 5:
@@ -321,15 +363,8 @@ class LevelUpForm(forms.Form):
 
 
         # race/subrace token match used for both General & Class feats
-        race_names = []
-        if getattr(character, "race", None) and getattr(character.race, "name", None):
-            race_names.append(character.race.name)
-        if getattr(character, "subrace", None) and getattr(character.subrace, "name", None):
-            race_names.append(character.subrace.name)
-        race_q = Q(race__exact="") | Q(race__isnull=True)
-        if race_names:
-            token_res = [rf'(^|[,;/\s]){re.escape(n)}([,;/\s]|$)' for n in race_names]
-            race_q |= Q(race__iregex="(" + ")|(".join(token_res) + ")")
+
+
 
         # General Feat (only when universal grants)
         if uni and uni.grants_general_feat:
@@ -351,9 +386,9 @@ class LevelUpForm(forms.Form):
         for feat in to_choose:
             if isinstance(feat, ClassFeature) and feat.scope == "subclass_choice":
                 name = f"feat_{feat.pk}_subclass"
-                choices = [(s.pk, s.name) for s in feat.subclass_group.subclasses.all()]
+                choices = [(s.pk, s.name) for s in feat.group.subclasses.all()]
                 self.fields[name] = forms.ChoiceField(
-                    label=f"Choose {feat.subclass_group.name}",
+                    label=f"Choose {feat.group.name}",
                     choices=choices,
                     required=False,
                     widget=forms.RadioSelect

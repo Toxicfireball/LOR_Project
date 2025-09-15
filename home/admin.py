@@ -1541,7 +1541,22 @@ class SpellSlotRowForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         # Submit the value but make it visually read-only
         self.fields["level"].widget.attrs["readonly"] = True   # not 'disabled'
-
+class SpellSlotRowInlineFormSet(BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+        seen_levels = set()
+        for form in self.forms:
+            if self.can_delete and form.cleaned_data.get("DELETE"):
+                continue
+            if not form.cleaned_data:
+                continue
+            level = form.cleaned_data.get("level")
+            # ignore completely empty extra forms
+            if level is None:
+                continue
+            if level in seen_levels:
+                form.add_error("level", "You already added a row for this level.")
+            seen_levels.add(level)
 
 # admin.py (SpellSlotRowInline)
 class SpellSlotRowInline(admin.TabularInline):
@@ -1590,7 +1605,7 @@ class ClassFeatureAdmin(admin.ModelAdmin):
     prepopulated_fields = {"code": ("name",)}
     search_fields = ("name", "code")
     form         = ClassFeatureForm
-    inlines = [FeatureOptionInline]    
+    inlines = [FeatureOptionInline,SpellSlotRowInline]    
     list_display = (
         'character_class','scope','kind','subclass_group',
         'code','name','formula_target','has_options',
@@ -1685,7 +1700,7 @@ class ClassFeatureAdmin(admin.ModelAdmin):
 
 
         # NEW — show the proficiency UI and the tier to grant when in “progress” mode
-
+    all_inlines = (FeatureOptionInline, SpellInline, SpellSlotRowInline)
     def get_queryset(self, request):
         qs = super().get_queryset(request)
         return qs.filter(racialfeature__isnull=True)
@@ -1760,23 +1775,16 @@ class ClassFeatureAdmin(admin.ModelAdmin):
         return super().changeform_view(request, object_id, form_url, extra_context)
 
     def get_inline_instances(self, request, obj=None):
-        # start with the class-defined inlines (FeatureOptionInline)
-        inls = super().get_inline_instances(request, obj)
-
-        post_kind = request.POST.get("kind") if request.method == "POST" else None
-        obj_kind  = getattr(obj, "kind", None)
-        get_kind  = request.GET.get("kind")
-
-        # add the conditional inlines
-        if post_kind == "inherent_spell" or obj_kind == "inherent_spell":
-            inls.append(SpellInline(self.model, self.admin_site))
-
-        has_rows = bool(obj and SpellSlotRow.objects.filter(feature=obj).exists())
-        if (obj is None or post_kind == "spell_table" or obj_kind == "spell_table"
-                or get_kind == "spell_table" or has_rows):
-            inls.append(SpellSlotRowInline(self.model, self.admin_site))
-
-        return inls
+        # Use the saved obj (not POST) to decide visibility.
+        instances = [inline(self.model, self.admin_site) for inline in self.all_inlines]
+        # If you want to remove some, do it based on obj.kind only:
+        if obj:
+            if obj.kind != "inherent_spell":
+                instances = [i for i in instances if not isinstance(i, SpellInline)]
+            if obj.kind != "spell_table":
+                instances = [i for i in instances if not isinstance(i, SpellSlotRowInline)]
+        # IMPORTANT: on add view (obj is None) don’t remove any; or redirect after save.
+        return instances
 
 
     def get_form(self, request, obj=None, **kwargs):

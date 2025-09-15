@@ -688,6 +688,9 @@
                 </table>
               </div>
             </div>
+
+
+
             <div class="col-md-6">
               <div class="card h-100">
                 <div class="card-header fw-bold">Class Feats</div>
@@ -1486,6 +1489,115 @@
                     {% endfor %}
                   </div>
                 {% endif %}
+{# --- Skill Feat picker (supports single or multi-pick) --- #}
+{% if form.skill_feat_pick %}
+  {% with fld=form.skill_feat_pick %}
+    <div class="mb-4">
+      <label class="form-label">{{ fld.label }}</label>
+      <input type="text" id="skill-feat-filter" class="form-control mb-2" placeholder="Filter skill feats…">
+
+      <table id="skill-feats-table" class="table table-bordered">
+        <thead>
+          <tr>
+            <th></th>
+            <th data-sort="1">Feat</th>
+            <th data-sort="2">Description</th>
+            <th data-sort="3">Level</th>
+            <th data-sort="4">Requirements</th>
+            <th data-sort="5">Tags</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for feat in fld.field.queryset %}
+            <tr>
+              <td>
+                {% with multi=fld.field.widget.allow_multiple_selected %}
+                  <input
+                    type="{% if multi %}checkbox{% else %}radio{% endif %}"
+                    name="{{ fld.html_name }}"
+                    value="{{ feat.pk }}"
+                    {% if multi %}
+                      {% if fld.value and feat.pk|stringformat:"s" in fld.value %}checked{% endif %}
+                    {% else %}
+                      {% if fld.value|stringformat:"s" == feat.pk|stringformat:"s" %}checked{% endif %}
+                      {% if fld.field.required %}required{% endif %}
+                    {% endif %}
+                  >
+                {% endwith %}
+              </td>
+              <td class="feat-name">{{ feat.name }}</td>
+              <td class="feat-desc summernote-content">{{ feat.description|default:"(no description)"|safe }}</td>
+              <td class="feat-level">{{ feat.level_prerequisite|default:"None" }}</td>
+              <td class="feat-reqs">{{ feat.prerequisites|default:"—" }}</td>
+              <td class="feat-tags">{{ feat.tags|default:"None" }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="6" class="text-muted"><em>No skill feats available at this level.</em></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      {% for err in fld.errors %}
+        <div class="text-danger">{{ err }}</div>
+      {% endfor %}
+    </div>
+  {% endwith %}
+{% elif form.skill_feat %}
+  {% with fld=form.skill_feat %}
+    {# same table/body as above, but using fld=form.skill_feat #}
+    <div class="mb-4">
+      <label class="form-label">{{ fld.label }}</label>
+      <input type="text" id="skill-feat-filter" class="form-control mb-2" placeholder="Filter skill feats…">
+
+      <table id="skill-feats-table" class="table table-bordered">
+        <thead>
+          <tr>
+            <th></th>
+            <th data-sort="1">Feat</th>
+            <th data-sort="2">Description</th>
+            <th data-sort="3">Level</th>
+            <th data-sort="4">Requirements</th>
+            <th data-sort="5">Tags</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for feat in fld.field.queryset %}
+            <tr>
+              <td>
+                {% with multi=fld.field.widget.allow_multiple_selected %}
+                  <input
+                    type="{% if multi %}checkbox{% else %}radio{% endif %}"
+                    name="{{ fld.html_name }}"
+                    value="{{ feat.pk }}"
+                    {% if multi %}
+                      {% if fld.value and feat.pk|stringformat:"s" in fld.value %}checked{% endif %}
+                    {% else %}
+                      {% if fld.value|stringformat:"s" == feat.pk|stringformat:"s" %}checked{% endif %}
+                      {% if fld.field.required %}required{% endif %}
+                    {% endif %}
+                  >
+                {% endwith %}
+              </td>
+              <td class="feat-name">{{ feat.name }}</td>
+              <td class="feat-desc summernote-content">{{ feat.description|default:"(no description)"|safe }}</td>
+              <td class="feat-level">{{ feat.level_prerequisite|default:"None" }}</td>
+              <td class="feat-reqs">{{ feat.prerequisites|default:"—" }}</td>
+              <td class="feat-tags">{{ feat.tags|default:"None" }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="6" class="text-muted"><em>No skill feats available at this level.</em></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      {% for err in fld.errors %}
+        <div class="text-danger">{{ err }}</div>
+      {% endfor %}
+    </div>
+  {% endwith %}
+{% endif %}
+
+
 
                 {# === FEATURE FIELDS LOOP === #}
                 {% for item in feature_fields %}
@@ -2745,6 +2857,17 @@ document.addEventListener('DOMContentLoaded', function () {
   if (el) new bootstrap.Modal(el).show();
 });
 </script>
+<script>
+  // One-time setup for all feat tables
+  (function(){
+    if (typeof initFeatTable !== 'function') return;
+    initFeatTable({ tableId: "general-feats-table",       searchId: "general-feat-filter" });
+    initFeatTable({ tableId: "class-feats-table",         searchId: "class-feat-filter"   });
+    initFeatTable({ tableId: "skill-feats-table",         searchId: "skill-feat-filter"   });          // modal
+    initFeatTable({ tableId: "skill-feats-table-browse",  searchId: "skill-feat-filter-browse" });     // feats tab (if kept)
+  })();
+</script>
+
 {% endif %}
 
 {% endblock %}

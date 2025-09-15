@@ -1,10 +1,15 @@
 {# only the inner `<div class="modal-content">` from your old modal #}
+
 <div class="modal-header">
   <h5 class="modal-title">Level Up to {{ next_level }}</h5>
   <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
 </div>
 <div class="modal-body">
-
+  {% if form.non_field_errors %}
+  <div class="alert alert-danger small mb-2">
+    {{ form.non_field_errors }}
+  </div>
+{% endif %}
   {# ——— CLASS PREVIEW FORM (GET) ——— #}
   <form id="preview-form" method="get"
         action="{% url 'characters:level_up' character.pk %}"
