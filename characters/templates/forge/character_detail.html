@@ -2791,27 +2791,50 @@ function getCookie(name) {
 })();
 </script>
 <script>
-(function(){
-  // Force show the skills edit panel and close siblings
-  document.addEventListener('click', function(e){
+(function () {
+  // 0) Stop Bootstrap from managing these panels
+  //    (removes collapse classes + inline styles if Bootstrap already touched them)
+  document.querySelectorAll('#skills-accordion .skill-edit-panel').forEach(p => {
+    // If a Collapse instance exists, dispose it
+    try {
+      const inst = bootstrap?.Collapse?.getInstance?.(p);
+      if (inst) inst.dispose();
+    } catch (_e) {}
+    p.classList.remove('collapse', 'collapsing', 'show');
+    p.style.removeProperty('height');
+    p.style.removeProperty('overflow');
+  });
+
+  // 1) Minimal CSS to show/hide without animation
+  const s = document.createElement('style');
+  s.textContent = `
+    #skills-accordion .skill-edit-panel { display: none; }
+    #skills-accordion .skill-edit-panel.is-open { display: block; }
+    /* if a leftover Bootstrap state sneaks in, neutralize it */
+    #skills-accordion .collapsing { height: auto !important; overflow: visible !important; transition: none !important; }
+    /* ensure readable text on the grey td */
+    #skills-accordion td.bg-dark-subtle, 
+    #skills-accordion td.bg-dark-subtle * { color: var(--bs-body-color) !important; }
+  `;
+  document.head.appendChild(s);
+
+  // 2) Toggle logic (no Bootstrap)
+  document.addEventListener('click', function (e) {
     const btn = e.target.closest('.skill-edit-btn');
     if (!btn) return;
-
-    const targetSel = btn.getAttribute('data-target');
-    const panel = document.querySelector(targetSel);
+    const sel = btn.getAttribute('data-target');
+    const panel = sel && document.querySelector(sel);
     if (!panel) return;
 
-    const inst = bootstrap.Collapse.getOrCreateInstance(panel, { toggle: false });
-    // Close other open panels in the skills accordion
-    document.querySelectorAll('#skills-accordion .collapse.show').forEach(el => {
-      if (el !== panel) bootstrap.Collapse.getOrCreateInstance(el, { toggle: false }).hide();
-    });
-    // Now force this one open
-    inst.show();
+    // Close others
+    document.querySelectorAll('#skills-accordion .skill-edit-panel.is-open')
+      .forEach(p => { if (p !== panel) p.classList.remove('is-open'); });
 
-    // Optional: scroll into view so the user sees it immediately
-    const row = panel.closest('tr');
-    if (row) row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    // Open target
+    panel.classList.add('is-open');
+
+    // Scroll into view
+    panel.closest('tr')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   });
 })();
 </script>
