@@ -21,7 +21,8 @@
     // weapons
     var wOn = getBool('#id_restrict_to_weapons');
     show(wrap('allowed_weapons'), wOn);
-
+    var rOn = getBool('#id_restrict_to_range');
+    show(wrap('allowed_range_types'), rOn);
     // damage
     var dOn = getBool('#id_restrict_to_damage');
     show(wrap('allowed_damage_types'), dOn);
@@ -49,14 +50,14 @@
 
   onReady(function() {
     // add smooth show/hide for relevant rows (fixed the stray comma and added trait_match_mode)
-    ['allowed_weapons','allowed_damage_types','allowed_traits','trait_match_mode','classes','required_ability','required_ability_score']
+    ['allowed_weapons','allowed_damage_types','allowed_range_types','allowed_traits','trait_match_mode','classes','required_ability','required_ability_score']
       .forEach(function(n){
         var el = wrap(n); 
         if (el) el.style.transition = 'all 0.15s ease';
       });
 
     // wire toggles
-    ['#id_restrict_to_weapons','#id_restrict_to_damage','#id_restrict_to_traits','#id_restrict_to_classes','#id_restrict_by_ability']
+    ['#id_restrict_to_weapons','#id_restrict_to_damage','#id_restrict_to_range','#id_restrict_to_traits','#id_restrict_to_classes','#id_restrict_by_ability']
       .forEach(function(id){
         var el = $(id);
         if (el) el.addEventListener('change', sync);

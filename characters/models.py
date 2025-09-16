@@ -1718,7 +1718,14 @@ class MartialMastery(models.Model):
         ("any", "Match ANY of the selected traits"),
         ("all", "Match ALL of the selected traits"),
     ]
-
+    restrict_to_range    = models.BooleanField(
+        default=False,
+        help_text="When on, limit to the selected weapon range types (melee/ranged)."
+    )
+    allowed_range_types  = models.JSONField(
+        default=list, blank=True,
+        help_text="Values: 'melee' and/or 'ranged'. Leave empty if not restricting."
+    )
     trait_match_mode = models.CharField(
         max_length=3,
         choices=TRAIT_MATCH_CHOICES,

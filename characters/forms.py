@@ -383,16 +383,22 @@ class LevelUpForm(forms.Form):
             self.fields.pop("general_feat", None)
 
         # Subclass choice radios (unchanged)
+        # Subclass choice radios — FIX: use subclass_group and guard when missing
         for feat in to_choose:
             if isinstance(feat, ClassFeature) and feat.scope == "subclass_choice":
                 name = f"feat_{feat.pk}_subclass"
-                choices = [(s.pk, s.name) for s in feat.group.subclasses.all()]
+
+                # prefer subclass_group; fall back to .group only if you really have it somewhere
+                grp = getattr(feat, "subclass_group", None) or getattr(feat, "group", None)
+                subs = grp.subclasses.all() if grp else []
+
                 self.fields[name] = forms.ChoiceField(
-                    label=f"Choose {feat.group.name}",
-                    choices=choices,
-                    required=False,
+                    label=f"Choose {getattr(grp, 'name', 'Subclass')}",
+                    choices=[(s.pk, s.name) for s in subs],
+                    required=bool(grp and subs),            # require only if there’s something to pick
                     widget=forms.RadioSelect
                 )
+
 
         # Option pickers (unchanged)
         for feat in to_choose:

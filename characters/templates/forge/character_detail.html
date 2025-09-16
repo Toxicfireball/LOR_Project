@@ -14,8 +14,9 @@
 
 {% block content %}
 <style>
-    .modal          { z-index: 1065 !important; }
-  .modal-backdrop { z-index: 1060 !important; }
+.modal          { z-index: 2000 !important; }
+.modal-backdrop { z-index: 1990 !important; }
+
   .edit-pill {
   border: 0; background: transparent; padding: 0 .25rem; font-size: .85rem;
   color: #6c757d; cursor: pointer;
@@ -41,6 +42,8 @@
   #skills-table td:first-child { min-width: 220px; }
 </style>
 <style>
+  #skills-accordion .collapse.show { height: auto !important; display: block !important; }
+#skills-accordion .collapse     { overflow: visible; }
 .skill-picker .skill-list{max-height:340px;overflow:auto;padding:.25rem .25rem 0}
 .skill-picker .skill-item{display:flex;align-items:center;gap:.5rem;padding:.5rem .75rem;border-top:1px solid rgba(0,0,0,.05);cursor:pointer}
 .skill-picker .skill-item:first-child{border-top:0}
@@ -70,7 +73,8 @@
       >Level Up</button>
       <a
         href="{% url 'characters:level_down' character.pk %}"
-        class="btn btn-danger {% if character.level == 0 %}disabled{% endif %}"
+        class="btn btn-danger {% if total_level == 0 %}disabled{% endif %}"
+
       >Level Down</a>
     </div>
   </div>
@@ -375,6 +379,9 @@
           </tr>
         {% endfor %}
       </tbody>
+
+
+      
       </table>
     </div>
   </div>
@@ -561,8 +568,9 @@
       </div>
     {% endif %}
 
-    <form method="post" action="{% url 'characters:character_detail' character.pk %}">
-      {% csrf_token %}
+<form id="skills-profs-form" method="post" action="{% url 'characters:character_detail' character.pk %}">
+  {% csrf_token %}
+
 
       <div class="table-responsive">
         <table class="table table-sm align-middle">
@@ -575,7 +583,8 @@
               <th class="text-end" style="width:120px;">Edit</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody id="skills-accordion">
+
             {% for row in skills_rows %}
               {# display row #}
               <tr>
@@ -589,51 +598,174 @@
                     ({% if row.prof_bonus >= 0 %}+{% endif %}{{ row.prof_bonus }})
                   </small>
                 </td>
-                <td>
-                  {% if row.total2 is not None %}
-                    {% if row.total1 >= row.total2 %}{{ row.total1 }}{% else %}{{ row.total2 }}{% endif %}
-                  {% else %}
-                    {{ row.total1 }}
-                  {% endif %}
-                </td>
-                <td class="text-end">
-                  <button
-                    type="button"
-                    class="btn btn-sm btn-outline-primary toggle-skill-edit"
-                    data-target="edit-{{ row.id_key }}"
-                  >Edit</button>
-                </td>
+<td>
+  {% if row.total2 is not None %}
+    {% if row.total1 >= row.total2 %}{{ row.total1 }}{% else %}{{ row.total2 }}{% endif %}
+  {% else %}
+    {{ row.total1 }}
+  {% endif %}
+
+  {% if row.adjustment %}
+    <small class="text-muted ms-1">
+      {% if row.adjustment >= 0 %}+{% endif %}{{ row.adjustment }}
+      {% if row.adjustment_reason %} ({{ row.adjustment_reason }}){% endif %}
+    </small>
+  {% endif %}
+
+  {% note_icon "skill_delta:"|add:row.id_key %}
+</td>
+
+
+{% with sid=forloop.counter0|stringformat:"s"|add:"-"|add:row.id_key|slugify %}
+
+<td class="text-end">
+<button class="btn btn-sm btn-outline-secondary skill-edit-btn"
+        type="button"
+        data-target="#skedit-{{ sid }}">
+  Edit
+</button>
+
+</td>
+
+
               </tr>
 
-              {# inline editor (hidden until Edit is clicked) #}
-{# inline editor (hidden until Edit is clicked) #}
-<tr id="edit-{{ row.id_key }}" class="d-none">
-  <td colspan="5">
-    <div class="row g-2 align-items-center">
-      <div class="col-md-3">
-        <label class="form-label form-label-sm mb-1">Adjustment (±)</label>
-        <input type="number" step="1" class="form-control form-control-sm"
-               name="skadj_{{ row.id_key }}"
-               value="{{ row.adjustment|default:0 }}">
-        <div class="form-text">Adds to this skill’s total.</div>
-      </div>
-      <div class="col-md-7">
-        <label class="form-label form-label-sm mb-1">Reason (required)</label>
-        <input name="skadj_note_{{ row.id_key }}"
-               class="form-control form-control-sm"
-               placeholder="Why are you changing this?"
-               required>
-      </div>
-      <div class="col-md-2 text-end">
-        <label class="form-label form-label-sm mb-1 d-block">&nbsp;</label>
-        <button class="btn btn-sm btn-primary" name="save_skill_row" value="{{ row.id_key }}">
-          Save
+<tr>
+  <td colspan="5" class="bg-dark-subtle p-0">
+    <div class="collapse p-2 skill-edit-panel"
+         id="skedit-{{ sid }}">
+<div class="mb-2 small text-muted">
+  <div>
+    <strong>Current formula (primary):</strong>
+    {{ row.formula1 }}
+    {% if row.adjustment %}
+      {% if row.adjustment >= 0 %}+{% endif %}{{ row.adjustment }}
+      {% if row.adjustment_reason %} (<em>{{ row.adjustment_reason }}</em>){% endif %}
+    {% endif %}
+  </div>
+  {% if row.formula2 %}
+    <div>
+      <strong>Current formula (secondary):</strong>
+      {{ row.formula2 }}
+      {% if row.adjustment %}
+        {% if row.adjustment >= 0 %}+{% endif %}{{ row.adjustment }}
+        {% if row.adjustment_reason %} (<em>{{ row.adjustment_reason }}</em>){% endif %}
+      {% endif %}
+    </div>
+  {% endif %}
+</div>
+
+    <div class="row g-2">
+
+      <!-- 1) Change PROFICIENCY TIER for this skill/subskill -->
+      <div class="col-md-4">
+        <label class="form-label mb-1">Tier</label>
+        <select name="sp_{{ row.id_key }}" class="form-select form-select-sm">
+          <option value="">— no change —</option>
+          {% for t in row.tier_choices %}
+            <option value="{{ t.id }}" {% if t.id == row.prof_id %}selected{% endif %}>{{ t.name }}</option>
+          {% endfor %}
+        </select>
+        <input name="sp_note_{{ row.id_key }}" class="form-control form-control-sm mt-1"
+               placeholder="Reason for tier change">
+        <button class="btn btn-sm btn-primary mt-2"
+                name="save_skill_profs_submit" value="1">
+          Update Tier
         </button>
       </div>
+
+      <!-- 2) Adjust by amount (+/-), with reason; also CLEAR -->
+      <div class="col-md-4">
+        <label class="form-label mb-1">Adjust by (applies to both columns)</label>
+        <div class="input-group input-group-sm">
+          <input type="number" class="form-control"
+                 name="skadj_{{ row.id_key }}"
+                 value="{{ row.adjustment|default:'' }}">
+          <input type="text" class="form-control"
+                 name="skadj_note_{{ row.id_key }}"
+                 placeholder="Reason (required)">
+        </div>
+        <div class="mt-2 d-flex gap-2">
+          <button class="btn btn-sm btn-warning"
+                  name="save_skill_row" value="{{ row.id_key }}">
+            Save Adjustment
+          </button>
+          <button class="btn btn-sm btn-outline-danger"
+                  name="clear_skill_adj" value="{{ row.id_key }}">
+            Remove Adjustment
+          </button>
+        </div>
+      </div>
+
+      <!-- 3) Formula / Final overrides for Ability 1 -->
+      <div class="col-md-4">
+        <label class="form-label mb-1">{{ row.ability1 }} column override</label>
+        <input class="form-control form-control-sm mb-1"
+               name="ov_formula_{{ row.id_key }}_1"
+               placeholder='Formula (e.g. "+2" or "prof+half+str_mod")'>
+        <div class="input-group input-group-sm mb-1">
+          <span class="input-group-text">Final</span>
+          <input type="number" class="form-control"
+                 name="ov_final_{{ row.id_key }}_1"
+                 placeholder="(number)">
+        </div>
+        <input class="form-control form-control-sm"
+               name="ov_reason_{{ row.id_key }}_1"
+               placeholder="Reason (required)">
+        <div class="mt-2 d-flex gap-2">
+          <button class="btn btn-sm btn-success"
+                  name="save_skill_override" value="{{ row.id_key }}:1">
+            Save Override
+          </button>
+          <button class="btn btn-sm btn-outline-danger"
+                  name="clear_formula_override" value="skill:{{ row.id_key }}:1">
+            Clear Formula
+          </button>
+          <button class="btn btn-sm btn-outline-danger"
+                  name="clear_final_override" value="skill:{{ row.id_key }}:1">
+            Clear Final
+          </button>
+        </div>
+      </div>
+
+      {% if row.ability2 %}
+      <!-- 4) Formula / Final overrides for Ability 2 -->
+      <div class="col-md-4 mt-2">
+        <label class="form-label mb-1">{{ row.ability2 }} column override</label>
+        <input class="form-control form-control-sm mb-1"
+               name="ov_formula_{{ row.id_key }}_2"
+               placeholder='Formula (e.g. "+1" or "prof+half+dex_mod")'>
+        <div class="input-group input-group-sm mb-1">
+          <span class="input-group-text">Final</span>
+          <input type="number" class="form-control"
+                 name="ov_final_{{ row.id_key }}_2"
+                 placeholder="(number)">
+        </div>
+        <input class="form-control form-control-sm"
+               name="ov_reason_{{ row.id_key }}_2"
+               placeholder="Reason (required)">
+        <div class="mt-2 d-flex gap-2">
+          <button class="btn btn-sm btn-success"
+                  name="save_skill_override" value="{{ row.id_key }}:2">
+            Save Override
+          </button>
+          <button class="btn btn-sm btn-outline-danger"
+                  name="clear_formula_override" value="skill:{{ row.id_key }}:2">
+            Clear Formula
+          </button>
+          <button class="btn btn-sm btn-outline-danger"
+                  name="clear_final_override" value="skill:{{ row.id_key }}:2">
+            Clear Final
+          </button>
+        </div>
+      </div>
+      {% endif %}
+    </div>
     </div>
   </td>
 </tr>
 
+{% endwith %}
             {% endfor %}
           </tbody>
         </table>
@@ -1126,25 +1258,25 @@
                   <label class="form-label form-label-sm">Cantrips</label>
 <div class="mb-2">
   <label class="form-label mb-0">Cantrips cap</label>
-  <input type="number" name="cap_cantrips" class="form-control"
-         placeholder="{{ block.cantrips_max }}">
-  <small class="text-muted">Current (calculated): {{ block.cantrips_max }}</small>
+<input type="number" name="cap_cantrips" class="form-control"
+       placeholder="{{ b.cantrips_max }}">
+<small class="text-muted">Current (calculated): {{ b.cantrips_max }}</small>
 </div>                </div>
                 <div class="col-md-2">
                   <label class="form-label form-label-sm">Known</label>
 <div class="mb-2">
   <label class="form-label mb-0">Known cap</label>
-  <input type="number" name="cap_known" class="form-control"
-         placeholder="{{ block.known_max|default:'—' }}">
-  <small class="text-muted">Current: {{ block.known_max|default:'—' }}</small>
+<input type="number" name="cap_known" class="form-control"
+       placeholder="{{ b.known_max|default:'—' }}">
+<small class="text-muted">Current: {{ b.known_max|default:'—' }}</small>
 </div>              </div>
                 <div class="col-md-2">
                   <label class="form-label form-label-sm">Prepared</label>
 <div class="mb-2">
   <label class="form-label mb-0">Prepared cap</label>
-  <input type="number" name="cap_prepared" class="form-control"
-         placeholder="{{ block.prepared_max|default:'—' }}">
-  <small class="text-muted">Current: {{ block.prepared_max|default:'—' }}</small>
+<input type="number" name="cap_prepared" class="form-control"
+       placeholder="{{ b.prepared_max|default:'—' }}">
+<small class="text-muted">Current: {{ b.prepared_max|default:'—' }}</small>
 </div>        </div>
                 <div class="col-md-4">
                   <label class="form-label form-label-sm">Reason (required)</label>
@@ -1168,6 +1300,187 @@
     </main>
   </div> <!-- /.row -->
 </div> <!-- /.container -->
+<!-- ===== Shared Override Modal (Formula / Final / Tier) ===== -->
+<div class="modal fade" id="overrideModal" tabindex="-1" aria-labelledby="overrideModalLabel" aria-hidden="true">
+<div class="modal-dialog">
+  <form id="overrideForm" method="post" action="{% url 'characters:character_detail' character.pk %}" class="modal-content">
+
+      {% csrf_token %}
+      <div class="modal-header">
+        <h5 class="modal-title" id="overrideModalLabel">Edit Override</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <div class="modal-body">
+        <input type="hidden" name="override_submit" value="1">
+        <input type="hidden" name="override_key" id="ov_key">
+
+        <div class="mb-2">
+          <label class="form-label">Current total</label>
+          <input class="form-control form-control-sm" id="ov_calc" readonly>
+        </div>
+
+        <div class="mb-2">
+          <label class="form-label">Formula (optional)</label>
+          <input class="form-control form-control-sm" name="override_formula" id="ov_formula" placeholder='e.g. "+2" or "base+prof+half+str_mod"'>
+          <div class="form-text">Leave blank to clear the formula override.</div>
+        </div>
+
+        <div class="mb-2">
+          <label class="form-label">Final (optional)</label>
+          <input type="number" class="form-control form-control-sm" name="override_final" id="ov_final" placeholder="(number)">
+          <div class="form-text">Leave blank to clear the final override.</div>
+        </div>
+
+        <div class="mb-2">
+          <label class="form-label">Reason (required)</label>
+          <input class="form-control form-control-sm" name="override_reason" id="ov_reason" required>
+        </div>
+
+        <!-- Tier override section (only for keys starting with "prof:") -->
+        <div id="ov_tier_block" class="border-top pt-2 mt-3 d-none">
+          <div class="mb-2">
+            <label class="form-label">Proficiency Tier</label>
+            <select class="form-select form-select-sm" id="ov_tier_select"></select>
+            <div class="form-text">Use this to override the **tier** for this statistic.</div>
+          </div>
+          <div class="d-flex gap-2">
+            <input type="hidden" name="prof_code" id="ov_prof_code">
+            <input type="hidden" name="prof_tier_pk" id="ov_prof_tier_pk">
+            <input type="hidden" name="prof_tier_reason" id="ov_prof_reason">
+            <button type="submit" name="save_prof_tier_override" value="1" class="btn btn-sm btn-outline-primary">
+              Save Tier Override
+            </button>
+            <button type="submit" name="clear_prof_tier_override" value="" id="ov_tier_clear_btn" class="btn btn-sm btn-outline-danger">
+              Clear Tier Override
+            </button>
+          </div>
+        </div>
+
+        <!-- Optional debug formula viewer -->
+        <div class="mt-3">
+          <div id="ov_debug"></div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-primary">Save Formula / Final</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  // Abort gracefully if Bootstrap bundle didn't load
+  if (!window.bootstrap) {
+    console.error('Bootstrap bundle not loaded; cannot initialize override modal.');
+    return;
+  }
+
+  // Build Proficiency Levels JSON inline (from context)
+  const PROF_LEVELS = [
+    {% for pl in proficiency_levels %}
+      {"id": {{ pl.id }}, "name": "{{ pl.name|escapejs }}", "bonus": {{ pl.bonus|default:0 }} }{% if not forloop.last %},{% endif %}
+    {% endfor %}
+  ];
+
+  // Define renderDebug to avoid errors and show parts
+  function renderDebug(target, data) {
+    try {
+      if (!data) { target.innerHTML = ""; return; }
+      if (typeof data === 'string') data = JSON.parse(data);
+      const parts = data.vars || [];
+      let html = '<div class="small text-muted"><div><strong>Formula:</strong> ' + (data.formula || '') + '</div>';
+      html += '<div><strong>Values:</strong> ' + (data.values || '') + '</div>';
+      if (parts.length) {
+        html += '<div class="mt-1"><strong>Parts:</strong><ul class="mb-0">';
+        for (const p of parts) {
+          html += `<li>${(p.name||p.label||p.key||'part')}: ${p.value}${p.note? ' ('+p.note+')':''}</li>`;
+        }
+        html += '</ul></div>';
+      }
+      html += '</div>';
+      target.innerHTML = html;
+    } catch (e) {
+      target.innerHTML = '';
+    }
+  }
+
+  // Bind all ✎ buttons to open the modal (and show Tier block for "prof:*")
+  (function(){
+    const modalEl = document.getElementById('overrideModal');
+    if (!modalEl) return;
+
+    const bsModal = bootstrap.Modal.getOrCreateInstance(modalEl);
+    const keyEl   = document.getElementById('ov_key');
+    const calcEl  = document.getElementById('ov_calc');
+    const formEl  = document.getElementById('ov_formula');
+    const finalEl = document.getElementById('ov_final');
+    const reasonEl= document.getElementById('ov_reason');
+
+    // Tier section
+    const tierBlock   = document.getElementById('ov_tier_block');
+    const tierSelect  = document.getElementById('ov_tier_select');
+    const profCodeEl  = document.getElementById('ov_prof_code');
+    const profTierPkEl= document.getElementById('ov_prof_tier_pk');
+    const profReasonEl= document.getElementById('ov_prof_reason');
+    const tierClearBtn= document.getElementById('ov_tier_clear_btn');
+
+    const dbgEl = document.getElementById('ov_debug');
+
+    document.querySelectorAll('.edit-override').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const key     = btn.getAttribute('data-key') || '';
+        const calc    = btn.getAttribute('data-calc') || '';
+        const formula = btn.getAttribute('data-formula') || '';
+        const dbgAttr = btn.getAttribute('data-debug') || '';
+        const dbgElId = btn.getAttribute('data-debug-el') || '';
+        let dbg = dbgAttr;
+        if (!dbg && dbgElId) {
+          const srcEl = document.getElementById(dbgElId);
+          if (srcEl) dbg = srcEl.textContent || srcEl.innerText || '';
+        }
+
+        keyEl.value   = key;
+        calcEl.value  = calc;
+        formEl.value  = formula;
+        finalEl.value = '';
+        reasonEl.value= '';
+
+        renderDebug(dbgEl, dbg);
+
+        if (key.startsWith('prof:')) {
+          tierBlock.classList.remove('d-none');
+          tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
+            PROF_LEVELS.map(pl => `<option value="${pl.id}">${pl.name} (+${pl.bonus})</option>`).join('');
+          const code = key.split(':')[1] || '';
+          profCodeEl.value = code;
+          profTierPkEl.value = '';
+          profReasonEl.value = '';
+          tierClearBtn.value = code;
+        } else {
+          tierBlock.classList.add('d-none');
+          profCodeEl.value = '';
+          profTierPkEl.value = '';
+          profReasonEl.value = '';
+          tierClearBtn.value = '';
+        }
+
+        tierSelect.onchange = ()=> {
+          profTierPkEl.value = tierSelect.value;
+          profReasonEl.value = reasonEl.value || '';
+        };
+        reasonEl.oninput = ()=> {
+          if (profCodeEl.value) { profReasonEl.value = reasonEl.value; }
+        };
+
+        bsModal.show();
+      });
+    });
+  })();
+});
+</script>
 
 {# ======= MODALS (unchanged except for context vars already provided) ======= #}
 
@@ -1339,15 +1652,15 @@
                           <th data-sort="3">Level</th>
                           <th data-sort="4">
                             Requirements
-                        <div class="dropdown position-static d-inline ms-1" data-bs-auto-close="outside">
-                          <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown" data-bs-display="static">▾</button>
+<div class="dropdown d-inline ms-1" data-bs-auto-close="outside">                          
+  <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown" data-bs-display="static">▾</button>
                           <div class="dropdown-menu p-3 excel-menu" data-col="4" data-split="1" style="width:260px;"></div>
                         </div>
 
                           </th>
                           <th data-sort="5">
                             Tags
-                      <div class="dropdown position-static d-inline ms-1" data-bs-auto-close="outside">
+                      <div class="dropdown d-inline ms-1" data-bs-auto-close="outside">
                         <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown" data-bs-display="static">▾</button>
                         <div class="dropdown-menu p-3 excel-menu" data-col="4" data-split="1" style="width:260px;"></div>
                       </div>
@@ -1826,82 +2139,7 @@
 </div>
 
 
-<div class="modal fade" id="overrideModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-sm"><div class="modal-content">
-    <div class="modal-header">
-      <h5 class="modal-title">Set Override</h5>
-      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-    </div>
 
-    <form id="overrideForm" method="post" action="{% url 'characters:set_field_override' character.pk %}">
-      {% csrf_token %}
-      <div class="modal-body">
-        <input type="hidden" name="key" id="ov-key">
-
-<div class="mb-2">
-  <label class="form-label">Website calculation</label>
-  <input id="ov-calc" name="calc_display"
-         class="form-control form-control-sm"
-         inputmode="numeric" required aria-required="true"
-         readonly>
-  <input type="hidden" name="calc" id="ov-calc-hidden">
-  <div class="form-text">This is the current value calculated by the site.</div>
-</div>
-
-
-        <div class="mb-2">
-          <label class="form-label">Calculation details</label>
-          <div class="border rounded p-2 small">
-            <div><strong>Formula:</strong> <code id="ov-formula-view">—</code></div>
-            <div class="mt-1"><strong>With values:</strong> <code id="ov-values-view">—</code></div>
-            <div class="mt-2">
-              <table class="table table-sm mb-0" id="ov-vars-table">
-                <thead><tr><th>Variable</th><th class="text-end">Value</th><th>Note</th></tr></thead>
-                <tbody></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-<div class="mb-2">
-  <label class="form-label">Adjust by amount</label>
-  <div class="row g-2">
-    <div class="col-5">
-      <select id="ov-op" class="form-select form-select-sm">
-        <option value="+">+ Add</option>
-        <option value="-">− Subtract</option>
-      </select>
-    </div>
-    <div class="col-7">
-      <input type="number" id="ov-amt" class="form-control form-control-sm" placeholder="Amount">
-    </div>
-  </div>
-  <div class="small mt-1"><strong>Preview:</strong> <span id="ov-preview">—</span></div>
-  <div class="form-text">We’ll compute the override as: Website calculation (± amount).</div>
-</div>
-
-        <div class="mb-2">
-          <label class="form-label">Formula used (optional)</label>
-          <textarea name="formula" id="ov-formula" rows="2" class="form-control form-control-sm"
-            placeholder="Leave blank to keep the system’s formula"></textarea>
-        </div>
-
-        <div class="mb-2">
-          <label class="form-label">Override final number (optional)</label>
-          <input type="number" name="value" id="ov-val" class="form-control form-control-sm" step="1">
-        </div>
-
-        <div>
-          <label class="form-label">Reason</label>
-          <input name="note" id="ov-note" class="form-control form-control-sm" placeholder="Required" required>
-        </div>
-      </div>
-
-      <div class="modal-footer">
-        <button class="btn btn-primary btn-sm" type="submit">Save</button>
-      </div>
-    </form>
-  </div></div>
-</div>
 
 
 {% endblock %}
@@ -2208,15 +2446,7 @@ window.initFeatTable = function(opts){
   initFeatTable({ tableId: "class-feats-table",   searchId: "class-feat-filter"   });
 })();
   </script>
-<script>
-  document.addEventListener('click', function (e) {
-    const btn = e.target.closest('.toggle-skill-edit');
-    if (!btn) return;
-    const id = btn.getAttribute('data-target');
-    const row = document.getElementById(id);
-    if (row) row.classList.toggle('d-none');
-  });
-</script>
+
   <script>
     
   (function(){
@@ -2504,41 +2734,7 @@ function getCookie(name) {
     });
   });
 
-  // ── “Details” toggler (row or section) ─────────────────────────────────────
-document.addEventListener('click', (e) => {
-  const btn = e.target.closest('.edit-override');
-  if (!btn) return;
 
-  const key     = btn.getAttribute('data-key')     || '';
-  const calc    = btn.getAttribute('data-calc')    || '';
-  const formula = btn.getAttribute('data-formula') || '';
-
-  document.getElementById('ov-key').value       = key;
-  document.getElementById('ov-calc').value      = calc;
-  document.getElementById('ov-calc-hidden').value = calc;
-  document.getElementById('ov-formula').value   = formula; // user can edit
-  document.getElementById('ov-val').value       = '';
-  document.getElementById('ov-note').value      = '';
-  document.getElementById('ov-amt').value       = '';      // reset adjustor
-  document.getElementById('ov-op').value        = '+';     // default
-
-  let debug = null;
-  const dbgInline = btn.getAttribute('data-debug');
-  if (dbgInline) {
-    try { debug = JSON.parse(dbgInline); } catch(_) {}
-  } else {
-    const dbgId = btn.getAttribute('data-debug-el');
-    if (dbgId) {
-      const el = document.getElementById(dbgId);
-      if (el) { try { debug = JSON.parse(el.textContent); } catch(_){} }
-    }
-  }
-  renderDebug(debug, formula);
-
-  // show + compute preview
-  overrideModal.show();
-  if (typeof recalcPreview === 'function') recalcPreview();
-});
 
 })();
 </script>
@@ -2594,166 +2790,32 @@ document.addEventListener('click', (e) => {
   });
 })();
 </script>
-
 <script>
 (function(){
-  const overrideModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('overrideModal'));
-  const form = document.getElementById('overrideForm');
-
-  function renderDebug(debug, fallbackFormula){
-    document.getElementById('ov-formula-view').textContent = debug?.formula || fallbackFormula || '—';
-    document.getElementById('ov-values-view').textContent  = debug?.values  || '—';
-    const tbody = document.querySelector('#ov-vars-table tbody');
-    tbody.innerHTML = '';
-    (debug?.vars || []).forEach(v => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${v.name}</td><td class="text-end">${v.value}</td><td class="text-muted">${v.note||''}</td>`;
-      tbody.appendChild(tr);
-    });
-  }
-
-  document.addEventListener('click', (e) => {
-    const btn = e.target.closest('.edit-override');
+  // Force show the skills edit panel and close siblings
+  document.addEventListener('click', function(e){
+    const btn = e.target.closest('.skill-edit-btn');
     if (!btn) return;
 
-    const key     = btn.getAttribute('data-key')     || '';
-    const calc    = btn.getAttribute('data-calc')    || '';
-    const formula = btn.getAttribute('data-formula') || '';
+    const targetSel = btn.getAttribute('data-target');
+    const panel = document.querySelector(targetSel);
+    if (!panel) return;
 
-    document.getElementById('ov-key').value    = key;
-    document.getElementById('ov-calc').value   = calc;     // input (readonly)
-    document.getElementById('ov-calc-hidden').value = calc;
-    document.getElementById('ov-formula').value= formula;  // editable textarea
-    document.getElementById('ov-val').value    = '';
-    document.getElementById('ov-note').value   = '';
-
-    // Prefer inline JSON; fall back to element ID if provided.
-    let debug = null;
-    const dbgInline = btn.getAttribute('data-debug');
-    if (dbgInline) {
-      try { debug = JSON.parse(dbgInline); } catch(_) {}
-    } else {
-      const dbgId = btn.getAttribute('data-debug-el');
-      if (dbgId) {
-        const el = document.getElementById(dbgId);
-        if (el) { try { debug = JSON.parse(el.textContent); } catch(_){} }
-      }
-    }
-    renderDebug(debug, formula);
-    overrideModal.show();
-  });
-
-  // AJAX submit
-  function getCookie(name){
-    const m = document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)');
-    return m ? m.pop() : '';
-  }
-form.addEventListener('submit', async (e) => {
-  if (!document.getElementById('ov-calc').value.trim()){
-    e.preventDefault();
-    alert('Website calculation is missing.');
-    return;
-  }
-    try{
-      const resp = await fetch(form.action, {
-        method: 'POST',
-        headers: { 'X-CSRFToken': getCookie('csrftoken'), 'X-Requested-With': 'XMLHttpRequest' },
-        body: new FormData(form)
-      });
-      if (!resp.ok) throw new Error('Bad response');
-      location.reload();
-    } catch(_e){ alert('Failed to save override.'); }
-  });
-  function recalcPreview(){
-  const base = parseFloat(document.getElementById('ov-calc').value);
-  const amt  = parseFloat(document.getElementById('ov-amt').value);
-  const op   = document.getElementById('ov-op').value || '+';
-  const prev = document.getElementById('ov-preview');
-  const val  = document.getElementById('ov-val');
-  const fml  = document.getElementById('ov-formula');
-
-  if (!isNaN(base) && !isNaN(amt)){
-    const res = op === '-' ? (base - amt) : (base + amt);
-    prev.textContent = `${base} ${op} ${amt} = ${res}`;
-    val.value = String(res);                   // auto-fill the override
-    if (!fml.value) fml.value = `system ${op} ${amt}`; // helpful default
-  } else {
-    prev.textContent = '—';
-  }
-}
-
-['ov-op','ov-amt'].forEach(id => {
-  const el = document.getElementById(id);
-  if (el) el.addEventListener('input', recalcPreview);
-});
-
-// Also call after we inject the calc on button click:
-recalcPreview();
-
-})();
-</script>
-<script>
-(function(){
-  const modal = document.getElementById('overrideModal');
-  if (!modal) return;
-
-  function renderDebug(debug, fallbackFormula){
-    const f = document.getElementById('ov-debug-formula');
-    const v = document.getElementById('ov-debug-values');
-    const tb = document.getElementById('ov-debug-vars');
-    if (tb) tb.innerHTML = '';
-
-    if (f) f.textContent = (debug && debug.formula) || (fallbackFormula || '—');
-    if (v) v.textContent = (debug && debug.values)  || '—';
-
-    (debug && Array.isArray(debug.vars) ? debug.vars : []).forEach(x => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${x.name ?? ''}</td><td>${x.value ?? ''}</td><td class="text-muted">${x.note ?? ''}</td>`;
-      tb && tb.appendChild(tr);
+    const inst = bootstrap.Collapse.getOrCreateInstance(panel, { toggle: false });
+    // Close other open panels in the skills accordion
+    document.querySelectorAll('#skills-accordion .collapse.show').forEach(el => {
+      if (el !== panel) bootstrap.Collapse.getOrCreateInstance(el, { toggle: false }).hide();
     });
-  }
+    // Now force this one open
+    inst.show();
 
-  document.addEventListener('click', (e) => {
-    const btn = e.target.closest('.edit-override');
-    if (!btn) return;
-
-    // populate basics
-    const key     = btn.getAttribute('data-key')     || '';
-    const calc    = btn.getAttribute('data-calc')    || '';
-    const formula = btn.getAttribute('data-formula') || '';
-
-    const calcInput  = document.getElementById('ov-calc');
-    const calcHidden = document.getElementById('ov-calc-hidden');
-    if (calcInput)  calcInput.value  = calc;
-    if (calcHidden) calcHidden.value = calc;
-    const keyInput = document.getElementById('ov-key');
-    if (keyInput) keyInput.value = key;
-    const formTA = document.getElementById('ov-formula');
-    if (formTA) formTA.value = formula;
-
-    // load debug: inline first, else by element id
-    let debug = null;
-    const inline = btn.getAttribute('data-debug');
-    if (inline){
-      try { debug = JSON.parse(inline); } catch(_) {}
-    }
-    if (!debug){
-      const dbgId = btn.getAttribute('data-debug-el');
-      if (dbgId){
-        const el = document.getElementById(dbgId);
-        if (el){
-          try { debug = JSON.parse(el.textContent); } catch(_) {}
-        }
-      }
-    }
-
-    renderDebug(debug, formula);
-
-    // if you have a preview recompute, call it now
-    if (typeof recalcPreview === 'function') recalcPreview();
+    // Optional: scroll into view so the user sees it immediately
+    const row = panel.closest('tr');
+    if (row) row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   });
 })();
 </script>
+
 <script>
 document.addEventListener('DOMContentLoaded', function () {
   const el = document.getElementById('startingSkillPicks');
@@ -2850,24 +2912,11 @@ document.addEventListener('DOMContentLoaded', function () {
   updateCap();
 })();
 </script>
-{% if form.errors %}
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-  var el = document.getElementById('levelUpModal');
-  if (el) new bootstrap.Modal(el).show();
-});
-</script>
-<script>
-  // One-time setup for all feat tables
-  (function(){
-    if (typeof initFeatTable !== 'function') return;
-    initFeatTable({ tableId: "general-feats-table",       searchId: "general-feat-filter" });
-    initFeatTable({ tableId: "class-feats-table",         searchId: "class-feat-filter"   });
-    initFeatTable({ tableId: "skill-feats-table",         searchId: "skill-feat-filter"   });          // modal
-    initFeatTable({ tableId: "skill-feats-table-browse",  searchId: "skill-feat-filter-browse" });     // feats tab (if kept)
-  })();
-</script>
 
-{% endif %}
+
+
+
 
 {% endblock %}
+
+

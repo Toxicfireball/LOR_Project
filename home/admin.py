@@ -713,6 +713,21 @@ class MartialMasteryForm(forms.ModelForm):
         widget=forms.CheckboxSelectMultiple,
         help_text="Shown only if ‘Damage restriction’ is enabled."
     )
+
+    _RANGE_CHOICES = getattr(Weapon, "RANGE_CHOICES", None) or \
+                     Weapon._meta.get_field("range_type").choices
+    restrict_to_range = forms.BooleanField(
+        required=False,
+        label="Range restriction",
+        help_text="When checked, limit to selected range types below."
+    )
+    allowed_range_types = forms.MultipleChoiceField(
+        label="Allowed range types",
+        choices=_RANGE_CHOICES,
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        help_text="Shown only if ‘Range restriction’ is enabled."
+    )    
     trait_match_mode = forms.ChoiceField(
         choices=[("any", "ANY of the selected traits (OR)"),
                  ("all", "ALL selected traits (AND)")],
@@ -762,6 +777,9 @@ class MartialMasteryForm(forms.ModelForm):
         # class restriction: if on, require classes
         if cleaned.get("restrict_to_classes") and not cleaned.get("classes"):
             self.add_error("classes", "Select at least one class or uncheck ‘Class restriction’.")
+        if cleaned.get("restrict_to_range") and not cleaned.get("allowed_range_types"):
+            self.add_error("allowed_range_types", "Select at least one range type or uncheck ‘Range restriction’.")
+
         if cleaned.get("restrict_by_ability"):
             if not cleaned.get("required_ability"):
                 self.add_error("required_ability", "Pick an ability or uncheck ‘Ability restriction’.")
@@ -800,13 +818,16 @@ class MartialMasteryAdmin(SummernoteModelAdmin):
     list_display = (
         'name', 'level_required', 'points_cost', 'action_cost',
         'is_rare',
-        'all_classes', 'restrict_to_weapons', 'restrict_to_damage', 'restrict_to_traits','restrict_by_ability',
-        'restriction_summary', 
+        'all_classes',
+        'restrict_to_weapons', 'restrict_to_damage', 'restrict_to_range', 'restrict_to_traits', 'restrict_by_ability',
+        'restriction_summary',
     )
     list_filter  = (
         'is_rare',
-        'all_classes', 'restrict_to_weapons', 'restrict_to_damage', 'restrict_to_traits','restrict_by_ability'
+        'all_classes',
+        'restrict_to_weapons', 'restrict_to_damage', 'restrict_to_range', 'restrict_to_traits', 'restrict_by_ability'
     )
+
 
     fieldsets = [
         (None, {
@@ -823,11 +844,14 @@ class MartialMasteryAdmin(SummernoteModelAdmin):
             "fields": (
                 "restrict_to_weapons", "allowed_weapons",
                 "restrict_to_damage",  "allowed_damage_types",
+                # NEW — range restriction
+                "restrict_to_range",   "allowed_range_types",
                 "restrict_to_traits",  "allowed_traits", "trait_match_mode",
-                 "restrict_by_ability", "required_ability", "required_ability_score",
+                "restrict_by_ability", "required_ability", "required_ability_score",
                 "all_classes",  # hidden by form; kept here so admin saves it
             ),
         }),
+
     ]
 
     def restriction_summary(self, obj):
@@ -836,20 +860,21 @@ class MartialMasteryAdmin(SummernoteModelAdmin):
             parts.append(f"Weapons({obj.allowed_weapons.count()})")
         if getattr(obj, "restrict_to_damage", False):
             parts.append(f"Damage({len(obj.allowed_damage_types or [])})")
-        if obj.restrict_to_traits:
-            parts.append(f"Traits({obj.allowed_traits.count()})")
-        if getattr(obj, "restrict_by_ability", False):
-            parts.append(f"{getattr(obj, 'get_required_ability_display', lambda: 'Ability')()}≥{obj.required_ability_score or '?'}")            
-        if not obj.all_classes:
-            parts.append(f"Classes({obj.classes.count()})")
-
+        # NEW — range summary
+        if getattr(obj, "restrict_to_range", False):
+            labels = dict(getattr(Weapon, "RANGE_CHOICES", []) or Weapon._meta.get_field("range_type").choices)
+            chosen = ", ".join(labels.get(v, v) for v in (obj.allowed_range_types or [])) or "—"
+            parts.append(f"Range({chosen})")
         if obj.restrict_to_traits:
             mode = getattr(obj, "trait_match_mode", "any")
             mode_lbl = "ANY" if mode == "any" else "ALL"
             parts.append(f"Traits({obj.allowed_traits.count()} {mode_lbl})")
-
-
+        if getattr(obj, "restrict_by_ability", False):
+            parts.append(f"{getattr(obj, 'get_required_ability_display', lambda: 'Ability')()}≥{obj.required_ability_score or '?'}")
+        if not obj.all_classes:
+            parts.append(f"Classes({obj.classes.count()})")
         return ", ".join(parts) or "—"
+
     restriction_summary.short_description = "Restrictions"
 
     class Media:

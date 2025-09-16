@@ -7,8 +7,16 @@
   <title>{% block title %}…{% endblock %}</title>
 <style>
   /* dropdown visibility */
-  .dropdown-menu      { display: none; position: static; z-index: auto; }
-  .dropdown-menu.show { display: block; }
+.table thead, .table th {
+  overflow: visible;
+}
+
+/* ensure in-table filter menus appear above cards/tables */
+.excel-menu.dropdown-menu {
+  position: absolute;      /* let it float over */
+  z-index: 1080;           /* above cards but below modals */
+  inset: auto auto auto 0; /* default pop-in to the left edge */
+}
 
   .mobile-menu      { display: none; }
   .mobile-menu.show { display: block; }
