@@ -646,7 +646,7 @@ class BackgroundForm(forms.ModelForm):
     
         if commit:
             inst.save()
-    return inst
+        return inst
 # forms.py
 from django import forms
 from .models import ClassFeature, ClassFeat, RacialFeature  # adjust imports as in your project
