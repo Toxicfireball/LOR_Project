@@ -23,6 +23,7 @@ from .models import Spell, CharacterKnownSpell, CharacterPreparedSpell, Characte
 from django.db.models import Q
 from django.views.decorators.http import require_GET
 # ── helpers that read the LEVEL TRIGGER instead of JSON ───────────────────
+import uuid
 
 # put near the top of views.py (import re if not already)
 import re, math
@@ -373,9 +374,10 @@ def mastery_data(request):
         )
 
     # Action filter (single)
-    action = (request.GET.get("action") or "").strip()
-    if action:
-        qs = qs.filter(action_cost=action)
+    actions = request.GET.getlist("action")
+    if actions:
+        qs = qs.filter(action_cost__in=actions)
+
 
     # Rare
     if (request.GET.get("rare") or "").lower() in ("1","true","yes","on"):
@@ -3639,42 +3641,6 @@ def character_detail(request, pk):
             return redirect('characters:character_detail', pk=pk)
         return redirect('characters:character_detail', pk=pk)
 
-    # --- SKILL ROW ADJUSTMENT (formula delta, requires reason) ---
-    if request.method == "POST" and "save_skill_row" in request.POST and can_edit:
-        id_key = (request.POST.get("save_skill_row") or "").strip()
-        adj_raw = (request.POST.get(f"skadj_{id_key}") or "").strip()
-        note    = (request.POST.get(f"skadj_note_{id_key}") or "").strip()
-
-        # If left blank, treat as CLEAR (no reason required for clearing)
-        if adj_raw == "":
-            CharacterFieldOverride.objects.filter(character=character, key=f"skill_delta:{id_key}").delete()
-            CharacterFieldNote.objects.filter(character=character, key=f"skill_delta:{id_key}").delete()
-            messages.success(request, "Adjustment cleared.")
-            return redirect('characters:character_detail', pk=pk)
-
-        # Otherwise, enforce reason and number
-        if not note:
-            messages.error(request, f"Please provide a reason for changing “{id_key}”.")
-            return redirect('characters:character_detail', pk=pk)
-
-        try:
-            delta = int(adj_raw)
-        except (TypeError, ValueError):
-            messages.error(request, "Adjustment must be a number.")
-            return redirect('characters:character_detail', pk=pk)
-
-        CharacterFieldOverride.objects.update_or_create(
-            character=character,
-            key=f"skill_delta:{id_key}",
-            defaults={"value": str(delta)}
-        )
-        CharacterFieldNote.objects.update_or_create(
-            character=character,
-            key=f"skill_delta:{id_key}",
-            defaults={"note": note}
-        )
-        messages.success(request, "Adjustment saved.")
-        return redirect('characters:character_detail', pk=pk)
 
 
     # --- GENERIC OVERRIDE SAVE (Formula / Final) from the ✎ modal ---------------
@@ -3723,14 +3689,60 @@ def character_detail(request, pk):
 
         messages.success(request, "Override saved.")
         return redirect('characters:character_detail', pk=pk)
-    # --- CLEAR a per-skill Adjustment (delta) ----------------------------------
-    if request.method == "POST" and request.POST.get("clear_skill_adj") and can_edit:
-        id_key = (request.POST.get("clear_skill_adj") or "").strip()  # e.g. "sk_12" or "sub_45"
-        if id_key:
-            CharacterFieldOverride.objects.filter(character=character, key=f"skill_delta:{id_key}").delete()
-            CharacterFieldNote.objects.filter(character=character, key=f"skill_delta:{id_key}").delete()
-            messages.success(request, "Adjustment cleared.")
-        return redirect('characters:character_detail', pk=pk)
+    # --- SKILLS: additive adjustments with reasons (multi-entry) -------------------
+    if request.method == "POST" and can_edit and request.POST.get("skills_op"):
+        op = (request.POST.get("skills_op") or "").strip()
+        # add_delta: create a new unique override row "skill_delta:<id_key>:<uid>"
+        if op == "add_delta":
+            id_key = (request.POST.get("id_key") or "").strip()         # e.g. "sk_12" or "sub_45"
+            delta_s = (request.POST.get("delta") or "").strip()          # signed int: "+2" or "-1" or "2"
+            note    = (request.POST.get("note") or "").strip()
+            if not id_key:
+                messages.error(request, "Missing skill row key.")
+                return redirect('characters:character_detail', pk=pk)
+            if not note:
+                messages.error(request, "Reason is required.")
+                return redirect('characters:character_detail', pk=pk)
+            try:
+                # allow leading +/-
+                delta = int(eval(delta_s, {"__builtins__": {}}, {}))
+            except Exception:
+                messages.error(request, "Adjustment must be a whole number (e.g., -1, 0, +2).")
+                return redirect('characters:character_detail', pk=pk)
+            uid = uuid.uuid4().hex[:8]
+            k = f"skill_delta:{id_key}:{uid}"
+            CharacterFieldOverride.objects.update_or_create(
+                character=character, key=k, defaults={"value": str(delta)}
+            )
+            CharacterFieldNote.objects.update_or_create(
+                character=character, key=k, defaults={"note": note}
+            )
+            messages.success(request, "Adjustment added.")
+            return redirect('characters:character_detail', pk=pk)
+
+        # remove_delta: remove a specific past change
+        if op == "remove_delta":
+            mod_key = (request.POST.get("mod_key") or "").strip()        # must be full key "skill_delta:sk_12:abcd1234"
+            if not mod_key.startswith("skill_delta:"):
+                messages.error(request, "Invalid adjustment key.")
+                return redirect('characters:character_detail', pk=pk)
+            CharacterFieldOverride.objects.filter(character=character, key=mod_key).delete()
+            CharacterFieldNote.objects.filter(character=character, key=mod_key).delete()
+            messages.success(request, "Adjustment removed.")
+            return redirect('characters:character_detail', pk=pk)
+
+        # clear_deltas: remove all changes on a given row at once
+        if op == "clear_deltas":
+            id_key = (request.POST.get("id_key") or "").strip()
+            CharacterFieldOverride.objects.filter(
+                character=character, key__startswith=f"skill_delta:{id_key}:"
+            ).delete()
+            CharacterFieldNote.objects.filter(
+                character=character, key__startswith=f"skill_delta:{id_key}:"
+            ).delete()
+            messages.success(request, "All adjustments cleared for this skill.")
+            return redirect('characters:character_detail', pk=pk)
+
 
     manual_form = ManualGrantForm(request.POST or None) if can_edit else None
     # NEW: independent handler for “Manually Add Item”
@@ -4965,35 +4977,87 @@ def character_detail(request, pk):
                 row["refund_preview"] = LOR_UPGRADE_COST[new_name]
 
             all_skill_rows.append(row)
-  # Apply per-skill deltas stored in CharacterFieldOverride
-    _skill_deltas = {
-        o.key: int(o.value)
-        for o in CharacterFieldOverride.objects
-                .filter(character=character, key__startswith="skill_delta:")
-    }
+    # attach tier-change history strings to each row for the template
+
+    # --- NEW (attach tier-change history strings to each row for the template) ---
+    _hist_qs = CharacterFieldNote.objects.filter(
+        character=character, key__startswith="skill_prof_hist:"
+    ).values_list("key", "note")
+
+    _hist_by_idkey = {}
+    for k, v in _hist_qs:
+        parts = (k or "").split(":")
+        # k format: "skill_prof_hist:<id_key>:<uid>"
+        if len(parts) >= 3:
+            _hist_by_idkey.setdefault(parts[1], []).append(v)
+
+    for _r in all_skill_rows:
+        _r["prof_history"] = _hist_by_idkey.get(_r["id_key"], [])
+
+
+    hist_notes = list(
+        CharacterFieldNote.objects
+        .filter(character=character, key__startswith="skill_prof_hist:")
+        .values_list("key", "note")
+    )
+    by_skill_hist = {}
+    for k, v in hist_notes:
+        # k = "skill_prof_hist:<id_key>:<uid>"
+        parts = (k or "").split(":")
+        if len(parts) >= 3:
+            by_skill_hist.setdefault(parts[1], []).append((k, v))
 
     for row in all_skill_rows:
-        # Each row must already have row['id_key'] (used by the template Edit)
-        key = f"skill_delta:{row['id_key']}"
-        delta = _skill_deltas.get(key, 0)
+        row["prof_history"] = [v for (_k, v) in by_skill_hist.get(row["id_key"], [])]
 
-        # expose current adjustment back to the editor input
-        row['adjustment'] = delta
+    # Apply per-skill multi-entry deltas; expose list for UI removal/history
+    all_delta_rows = list(
+        CharacterFieldOverride.objects
+        .filter(character=character, key__startswith="skill_delta:")
+        .order_by("id")
+    )
+    notes_by_key = {
+        n.key: n.note for n in CharacterFieldNote.objects
+        .filter(character=character, key__startswith="skill_delta:")
+    }
 
-        if delta:
-            if row.get('total1') is not None:
-                row['total1'] = (row['total1'] or 0) + delta
-            if row.get('total2') is not None:
-                row['total2'] = (row['total2'] or 0) + delta
-            sign = "+" if delta >= 0 else ""
-            note_d = CharacterFieldNote.objects.filter(
-                character=character, key=f"skill_delta:{row['id_key']}"
-            ).values_list("note", flat=True).first() or ""
-            if row.get('formula1'):
-                row['formula1'] = f"{row['formula1']} {sign}{delta}{f' ({note_d})' if note_d else ''}"
-            if row.get('formula2'):
-                row['formula2'] = f"{row['formula2']} {sign}{delta}{f' ({note_d})' if note_d else ''}"
+    # group by id_key
+    from collections import defaultdict
+    deltas_map = defaultdict(list)  # id_key -> list[{"key": full_key, "value": int, "note": str}]
+    for o in all_delta_rows:
+        # expected pattern: "skill_delta:<id_key>:<uid>"
+        parts = (o.key or "").split(":")
+        if len(parts) >= 3:
+            id_key = parts[1]
+            note = (notes_by_key.get(o.key) or "").strip()
+            try:
+                val = int(o.value)
+            except Exception:
+                continue
+            deltas_map[id_key].append({"key": o.key, "value": val, "note": note})
 
+    for row in all_skill_rows:
+        mods = deltas_map.get(row["id_key"], [])
+        row["modifications"] = mods                 # for listing & removal UI
+        adj_total = sum(m["value"] for m in mods)
+        row["adjustment_total"] = adj_total         # optional display
+
+        if mods:
+            # apply to totals & append "(+X (reason))" segments in order
+            def _append(seg, val, note):
+                sgn = "+" if val >= 0 else ""
+                return f"{seg} {sgn}{val}{f' ({note})' if note else ''}"
+
+            if row.get("total1") is not None:
+                row["total1"] = (row["total1"] or 0) + adj_total
+                for m in mods:
+                    row["formula1"] = _append(row["formula1"], m["value"], m["note"])
+
+            if row.get("total2") is not None:
+                row["total2"] = (row["total2"] or 0) + adj_total
+                if row.get("formula2"):
+                    for m in mods:
+                        row["formula2"] = _append(row["formula2"], m["value"], m["note"])
 
     # ------- Handle "Save Skill Proficiencies" POST with reason required -------
     skill_prof_errors = []
@@ -5036,12 +5100,25 @@ def character_detail(request, pk):
                     rec.proficiency = new_prof
                     rec.save()
 
+
+
+
                 # log reason with CharacterFieldNote for audit
                 CharacterFieldNote.objects.update_or_create(
                     character=character,
                     key=f"skill_prof:{row['id_key']}",
                     defaults={"note": note},
                 )
+                    # --- NEW: persistent history entry (old -> new) ---
+                old_name = row.get("prof_name") or "Untrained"
+                new_name = (new_prof.name or "").title()
+                CharacterFieldNote.objects.update_or_create(
+                    character=character,
+                    key=f"skill_prof_hist:{row['id_key']}:{uuid.uuid4().hex[:8]}",
+                    defaults={"note": f"{old_name} → {new_name}: {note}"}
+                )
+
+
             return redirect("characters:character_detail", pk=pk)
 
 
@@ -6503,7 +6580,9 @@ def character_level_up(request, pk):
                     to_create = []
                     for sf in picked_features:
                         # determine which subclass this feature belongs to (expect exactly one)
-                        subs = list(sf.subclasses.filter(subclass_group=grp))
+                        # determine which subclass this feature belongs to (expect exactly one)
+                        subs = list(sf.subclasses.filter(group=grp))
+
                         if len(subs) != 1:
                             messages.error(request, f"Feature “{sf.name}” is not tied to exactly one subclass.")
                             return redirect('characters:character_detail', pk=pk)

@@ -22,11 +22,12 @@
       </div>
     </div>
 
-    {% if m.description %}
-      <div class="prose prose-sm mt-4">
-        {{ m.description|safe }}
-      </div>
-    {% endif %}
+{% if m.description %}
+  <div class="prose prose-sm richhtml mt-4">
+    {{ m.description|safe }}
+  </div>
+{% endif %}
+
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
       <div>

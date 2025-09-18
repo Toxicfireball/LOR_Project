@@ -60,6 +60,8 @@ SUMMERNOTE_CONFIG = {
     # Use an <iframe> so your site’s CSS won’t bleed into the editor
     "iframe": True,
     "summernote": {
+            'base_css': (),     # don’t inject BS3 CSS
+    'base_js': (),      # don’t inject BS3 JS
         "width": "100%",
         "height": "400px",
         # You can customize the toolbar here if you like:

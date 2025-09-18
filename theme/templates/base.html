@@ -6,23 +6,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}…{% endblock %}</title>
 <style>
-<<<<<<< HEAD
 /* dropdown visibility */
 .table thead, .table th {
   overflow: visible;
 }
-=======
-/* table headers */
-.table thead, .table th { overflow: visible; }
-
-/* app dropdowns: HIDDEN by default */
-.dropdown-menu,
-.mobile-menu { display: none; }
-
-/* visible only when toggled */
-.dropdown-menu.show,
-.mobile-menu.show { display: block; }
->>>>>>> 2f3ed11ed993aa66f203436a1924eec33804976d
 
 /* NEW: Hide all dropdown menus by default; show when toggled */
 .dropdown-menu { 
@@ -39,7 +26,6 @@
   inset: auto auto auto 0;
 }
 
-<<<<<<< HEAD
 /* mobile main menu */
 .mobile-menu      { display: none; }
 .mobile-menu.show { display: block; }
@@ -48,15 +34,8 @@
 @media (min-width: 768px) {
   nav .dropdown-menu { position: absolute; z-index: 70; margin-top: .5rem; }
 }
-
-=======
-/* desktop: fly-out positioning only on md+ */
-@media (min-width: 768px) {
-  nav .dropdown-menu { position: absolute; z-index: 70; margin-top: .5rem; }
-}
->>>>>>> 2f3ed11ed993aa66f203436a1924eec33804976d
+.collapse.show { display:block !important; height:auto !important; }
 </style>
-
 <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
 
   {% block extra_css %}{% endblock %}
@@ -218,7 +197,7 @@
         <a href="{% url 'characters:codex_races'   %}" class="block py-1 hover:underline">Races</a>
         <a href="{% url 'characters:codex_weapons' %}" class="block py-1 hover:underline">Weapons</a>
         <a href="{% url 'characters:codex_armor'   %}" class="block py-1 hover:underline">Armor</a>
-        <a href="{% url 'characters:codex_masteries' %}" class="block py-1 hover:underline">Masteries</a>
+        <a href="{% url 'characters:codex_masteries' %}" class="block py-1 hover:underline">Martial Masteries</a>
 
       </div>
 
@@ -307,7 +286,29 @@
   });
 </script>
 
+<script>
+document.addEventListener('click', function(e){
+  // Close any open Bootstrap dropdown if the click is outside both the toggle and the menu
+  document.querySelectorAll('.dropdown-menu.show').forEach(function(menu){
+    const toggle = menu.previousElementSibling && menu.previousElementSibling.matches('[data-bs-toggle="dropdown"]')
+      ? menu.previousElementSibling
+      : document.querySelector('[aria-expanded="true"][data-bs-toggle="dropdown"][aria-controls="'+(menu.id||'')+'"]');
 
+    const clickedInsideMenu  = menu.contains(e.target);
+    const clickedOnToggle    = toggle ? toggle.contains(e.target) : false;
+
+    // Allow "excel" filter menus to manage their own outside clicks (they set data-bs-auto-close="outside")
+    const isExcelMenu = menu.classList.contains('excel-menu') || menu.closest('.excel-menu');
+
+    if (!clickedInsideMenu && !clickedOnToggle && !isExcelMenu) {
+      try {
+        const dd = bootstrap.Dropdown.getOrCreateInstance(toggle || menu.parentElement.querySelector('[data-bs-toggle="dropdown"]'));
+        dd && dd.hide();
+      } catch(_) {}
+    }
+  });
+});
+</script>
   {% block extra_js %}{% endblock %}
 </body>
 </html>

@@ -14,25 +14,24 @@
 
 {% block content %}
 <style>
-.modal          { z-index: 2000 !important; }
-.modal-backdrop { z-index: 1990 !important; }
+  /* Modals on top of everything */
+  .modal { z-index: 2000 !important; }
+  .modal-backdrop { z-index: 1990 !important; }
 
-  .edit-pill {
-  border: 0; background: transparent; padding: 0 .25rem; font-size: .85rem;
-  color: #6c757d; cursor: pointer;
-}
-.edit-pill:hover { color: #0d6efd; text-decoration: underline; }
+  .edit-pill { border: 0; background: transparent; padding: 0 .25rem; font-size: .85rem; color: #6c757d; cursor: pointer; }
+  .edit-pill:hover { color: #0d6efd; text-decoration: underline; }
 
   .summernote-content p{ margin-bottom:.5rem; }
   .summernote-content ul, .summernote-content ol{ padding-left:1.25rem; margin-bottom:.5rem; }
   .summernote-content h1,.summernote-content h2,.summernote-content h3,
   .summernote-content h4,.summernote-content h5,.summernote-content h6{
-    margin: .75rem 0 .5rem;
-    font-size: inherit; font-weight: 600;
+    margin:.75rem 0 .5rem; font-size:inherit; font-weight:600;
   }
+
   table tbody tr.is-active { outline: 2px solid #0d6efd; }
+
   #general-feats-table tbody tr.is-selected { background: #fff9db; }
-  #general-feats-table tbody tr.is-active   { outline: 2px solid #0d6efd; }
+  #general-feats-table tbody tr.is-active { outline: 2px solid #0d6efd; }
 
   #asi-table tbody tr.table-warning { background: #fff9db; }
   #asi-table tbody tr.table-success { background: #e6ffed; }
@@ -40,30 +39,31 @@
   #skills-table { min-width: 720px; }
   #skills-table th, #skills-table td { white-space: nowrap; }
   #skills-table td:first-child { min-width: 220px; }
-</style>
-<style>
-  #skills-accordion .collapse.show { height: auto !important; display: block !important; }
-#skills-accordion .collapse     { overflow: visible; }
-.skill-picker .skill-list{max-height:340px;overflow:auto;padding:.25rem .25rem 0}
-.skill-picker .skill-item{display:flex;align-items:center;gap:.5rem;padding:.5rem .75rem;border-top:1px solid rgba(0,0,0,.05);cursor:pointer}
-.skill-picker .skill-item:first-child{border-top:0}
-.skill-picker .skill-item:hover{background:rgba(0,0,0,.03)}
-.skill-picker .skill-label{flex:1}
-.skill-picker .skill-item.disabled{opacity:.55;pointer-events:none}
-.skill-toolbar{border-bottom:1px solid rgba(0,0,0,.06)}
-</style>
-<style>
-  /* Skills edit panel: bypass Bootstrap collapse animation */
-  #skills-accordion .skill-edit-panel { display: none; }
-  #skills-accordion .skill-edit-panel.show { display: block; }
 
-  /* Safety: if Bootstrap briefly applies .collapsing, neutralize it */
-  #skills-accordion .collapsing {
-    height: auto !important;
-    overflow: visible !important;
-    transition: none !important;
-  }
+  /* ── Rebuilt Skills “collapse” (no Bootstrap dependency) ───────────────── */
+  #skills-accordion .skill-edit-panel { display: none; }
+  #skills-accordion .skill-edit-panel.is-open { display: block; }
+  #skills-accordion .skill-edit-panel { padding: .5rem; background: var(--bs-gray-200, #eee); }
+  /* Safety: neutralize any leftover Bootstrap state if present */
+  #skills-accordion .collapsing { height:auto !important; overflow:visible !important; transition:none !important; }
+
+  /* Details edit: also avoid Bootstrap collapse */
+  #detailsEdit { display:none; }
+  #detailsEdit.is-open { display:block; }
+
+  /* Skill picker */
+  .skill-picker .skill-list{max-height:340px;overflow:auto;padding:.25rem .25rem 0}
+  .skill-picker .skill-item{display:flex;align-items:center;gap:.5rem;padding:.5rem .75rem;border-top:1px solid rgba(0,0,0,.05);cursor:pointer}
+  .skill-picker .skill-item:first-child{border-top:0}
+  .skill-picker .skill-item:hover{background:rgba(0,0,0,.03)}
+  .skill-picker .skill-label{flex:1}
+  .skill-picker .skill-item.disabled{opacity:.55;pointer-events:none}
+  .skill-toolbar{border-bottom:1px solid rgba(0,0,0,.06)}
+  #detailsEdit.show { display:block !important; }
+#detailsEdit.show { display:block !important; }
+
 </style>
+
 
 {% if messages %}
   {% for m in messages %}
@@ -271,20 +271,23 @@
 <div class="d-flex align-items-center justify-content-between mb-2">
   <h5 class="mb-0">Details</h5>
   {% if can_edit %}
-<button id="toggle-details-edit" type="button" class="btn btn-sm btn-outline-secondary">
-  ✎ Edit
-</button>
-
+  <button
+    class="btn btn-sm btn-outline-secondary"
+    type="button"
+    data-bs-toggle="modal"
+    data-bs-target="#detailsEditModal"
+  >
+    ✎ Edit
+  </button>
   {% endif %}
 </div>
 
 {% if can_edit %}
   {{ details_form.media }}
-  <div id="detailsEdit" class="collapse">
+  <template id="detailsEditTemplate">
     <form method="post" novalidate>
       {% csrf_token %}
       {{ details_form.non_field_errors }}
-
       {% for field in details_form.visible_fields %}
         <div class="mb-3">
           <label class="form-label">{{ field.label }}</label>
@@ -294,13 +297,13 @@
                  placeholder="Reason (required if changed)">
         </div>
       {% endfor %}
-
       <button type="submit" name="update_details_submit" class="btn btn-primary">
         Save Details
       </button>
     </form>
-  </div>
+  </template>
 {% endif %}
+
 
 {# Always show the read view below; the edit form above is collapsed #}
 <div class="mb-4"><h6>Backstory</h6><div class="summernote-view">{{ character.backstory|safe|default:"—" }}</div></div>
@@ -579,8 +582,7 @@
       </div>
     {% endif %}
 
-<form id="skills-profs-form" method="post" action="{% url 'characters:character_detail' character.pk %}">
-  {% csrf_token %}
+
 
 
       <div class="table-responsive">
@@ -626,162 +628,150 @@
   {% note_icon "skill_delta:"|add:row.id_key %}
 </td>
 
-
-{% with sid=forloop.counter0|stringformat:"s"|add:"-"|add:row.id_key|slugify %}
+{% with sid='skill-'|add:row.id_key|slugify|add:'-'|add:forloop.counter|stringformat:"s" %}
 
 <td class="text-end">
-<button class="btn btn-sm btn-outline-secondary skill-edit-btn"
-        type="button"
-        data-target="#skedit-{{ sid }}">
-  Edit
-</button>
-
+  <button
+    class="btn btn-sm btn-outline-secondary open-skill-edit"
+    type="button"
+    data-sid="{{ sid }}"
+  >
+    Edit
+  </button>
 </td>
+
+
 
 
               </tr>
 
-<tr>
-  <td colspan="5" class="bg-dark-subtle p-0">
-    <div class="collapse p-2 skill-edit-panel"
-         id="skedit-{{ sid }}">
-<div class="mb-2 small text-muted">
-  <div>
-    <strong>Current formula (primary):</strong>
-    {{ row.formula1 }}
-    {% if row.adjustment %}
-      {% if row.adjustment >= 0 %}+{% endif %}{{ row.adjustment }}
-      {% if row.adjustment_reason %} (<em>{{ row.adjustment_reason }}</em>){% endif %}
-    {% endif %}
+{# Modal template for this row; no collapse anymore #}
+<template id="skedit-{{ sid }}-tpl">
+  <div class="p-1">
+    <div class="p-3 border rounded bg-light">
+
+      <!-- (1) Current formula used (primary & secondary), including applied changes -->
+      <div class="mb-3">
+        <div class="fw-bold mb-1">Current formula used</div>
+        <div class="small text-muted">This mirrors Combat’s calculation.</div>
+
+        <div class="mt-2">
+          <div><strong>{{ row.label }}</strong></div>
+
+          <div class="mt-1">
+            <div><em>Primary</em> — {{ row.formula1 }} <span class="text-muted">= {{ row.values1 }}</span></div>
+            <div class="mt-1"><strong>Total:</strong> {{ row.total1 }}</div>
+          </div>
+
+          {% if row.ability2 %}
+          <div class="mt-2">
+            <div><em>Secondary</em> — {{ row.formula2 }} <span class="text-muted">= {{ row.values2 }}</span></div>
+            <div class="mt-1"><strong>Total:</strong> {{ row.total2 }}</div>
+          </div>
+          {% endif %}
+        </div>
+
+        {% if row.modifications and row.modifications|length %}
+          <div class="mt-3">
+            <div class="fw-bold">Past adjustments</div>
+            <ul class="mb-2">
+              {% for m in row.modifications %}
+                <li>
+                  {{ m.value|floatformat:0 }}{% if m.note %} ({{ m.note }}){% endif %}
+                  <form method="post" action="{% url 'characters:character_detail' character.pk %}" class="d-inline">
+                    {% csrf_token %}
+                    <input type="hidden" name="skills_op" value="remove_delta">
+                    <input type="hidden" name="mod_key" value="{{ m.key }}">
+                    <button class="btn btn-link btn-sm text-danger p-0 ms-2"
+                            onclick="return confirm('Remove this adjustment?')">remove</button>
+                  </form>
+                </li>
+              {% endfor %}
+            </ul>
+
+            <form method="post" action="{% url 'characters:character_detail' character.pk %}">
+              {% csrf_token %}
+              <input type="hidden" name="skills_op" value="clear_deltas">
+              <input type="hidden" name="id_key" value="{{ row.id_key }}">
+              <button class="btn btn-sm btn-outline-danger">Clear all adjustments</button>
+            </form>
+          </div>
+        {% endif %}
+      </div>
+
+      <!-- (3) Add modification to formula -->
+      <div class="mb-4">
+        <div class="fw-bold mb-1">Add modification to formula</div>
+        <form method="post" action="{% url 'characters:character_detail' character.pk %}" class="row g-2">
+          {% csrf_token %}
+          <input type="hidden" name="skills_op" value="add_delta">
+          <input type="hidden" name="id_key" value="{{ row.id_key }}">
+          <div class="col-sm-3">
+            <input name="delta" type="number" class="form-control form-control-sm" placeholder="+/-">
+          </div>
+          <div class="col-sm-6">
+            <input name="note" type="text" class="form-control form-control-sm" placeholder="Reason (required)">
+          </div>
+          <div class="col-sm-3 text-end">
+            <button class="btn btn-sm btn-primary">Add</button>
+          </div>
+        </form>
+        {% if row.adjustment_total %}
+          <div class="small text-muted mt-1">
+            Current sum of adjustments: {{ row.adjustment_total|floatformat:0 }}
+          </div>
+        {% endif %}
+      </div>
+
+      <!-- (2) Proficiency tier changer + visible history -->
+      <div>
+        <div class="fw-bold mb-1">Proficiency tier</div>
+        <form method="post" action="{% url 'characters:character_detail' character.pk %}" class="row g-2 align-items-end">
+          {% csrf_token %}
+          <div class="col-sm-4">
+            <label class="form-label small">Tier</label>
+            <select class="form-select form-select-sm" name="sp_{{ row.id_key }}">
+              <option value="">— keep {{ row.prof_name }} —</option>
+              {% for pl in row.tier_choices %}
+                <option value="{{ pl.id }}" {% if pl.id == row.prof_id %}selected{% endif %}>
+                  {{ pl.name }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-sm-6">
+            <label class="form-label small">Reason</label>
+            <input type="text" class="form-control form-control-sm"
+                   name="sp_note_{{ row.id_key }}" placeholder="Why are you changing this?">
+          </div>
+          <div class="col-sm-2 text-end">
+            <button class="btn btn-sm btn-success" name="save_skill_profs_submit" value="1">Save</button>
+          </div>
+        </form>
+
+        {% if row.prof_history and row.prof_history|length %}
+          <div class="mt-2">
+            <div class="small text-muted">Previous tier changes:</div>
+            <ul class="small mb-0">
+              {% for h in row.prof_history %}
+                <li>{{ h }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+        {% endif %}
+      </div>
+
+    </div>
   </div>
-  {% if row.formula2 %}
-    <div>
-      <strong>Current formula (secondary):</strong>
-      {{ row.formula2 }}
-      {% if row.adjustment %}
-        {% if row.adjustment >= 0 %}+{% endif %}{{ row.adjustment }}
-        {% if row.adjustment_reason %} (<em>{{ row.adjustment_reason }}</em>){% endif %}
-      {% endif %}
-    </div>
-  {% endif %}
-</div>
+</template>
 
-    <div class="row g-2">
 
-      <!-- 1) Change PROFICIENCY TIER for this skill/subskill -->
-      <div class="col-md-4">
-        <label class="form-label mb-1">Tier</label>
-        <select name="sp_{{ row.id_key }}" class="form-select form-select-sm">
-          <option value="">— no change —</option>
-          {% for t in row.tier_choices %}
-            <option value="{{ t.id }}" {% if t.id == row.prof_id %}selected{% endif %}>{{ t.name }}</option>
-          {% endfor %}
-        </select>
-        <input name="sp_note_{{ row.id_key }}" class="form-control form-control-sm mt-1"
-               placeholder="Reason for tier change">
-        <button class="btn btn-sm btn-primary mt-2"
-                name="save_skill_profs_submit" value="1">
-          Update Tier
-        </button>
-      </div>
-
-      <!-- 2) Adjust by amount (+/-), with reason; also CLEAR -->
-      <div class="col-md-4">
-        <label class="form-label mb-1">Adjust by (applies to both columns)</label>
-        <div class="input-group input-group-sm">
-          <input type="number" class="form-control"
-                 name="skadj_{{ row.id_key }}"
-                 value="{{ row.adjustment|default:'' }}">
-          <input type="text" class="form-control"
-                 name="skadj_note_{{ row.id_key }}"
-                 placeholder="Reason (required)">
-        </div>
-        <div class="mt-2 d-flex gap-2">
-          <button class="btn btn-sm btn-warning"
-                  name="save_skill_row" value="{{ row.id_key }}">
-            Save Adjustment
-          </button>
-          <button class="btn btn-sm btn-outline-danger"
-                  name="clear_skill_adj" value="{{ row.id_key }}">
-            Remove Adjustment
-          </button>
-        </div>
-      </div>
-
-      <!-- 3) Formula / Final overrides for Ability 1 -->
-      <div class="col-md-4">
-        <label class="form-label mb-1">{{ row.ability1 }} column override</label>
-        <input class="form-control form-control-sm mb-1"
-               name="ov_formula_{{ row.id_key }}_1"
-               placeholder='Formula (e.g. "+2" or "prof+half+str_mod")'>
-        <div class="input-group input-group-sm mb-1">
-          <span class="input-group-text">Final</span>
-          <input type="number" class="form-control"
-                 name="ov_final_{{ row.id_key }}_1"
-                 placeholder="(number)">
-        </div>
-        <input class="form-control form-control-sm"
-               name="ov_reason_{{ row.id_key }}_1"
-               placeholder="Reason (required)">
-        <div class="mt-2 d-flex gap-2">
-          <button class="btn btn-sm btn-success"
-                  name="save_skill_override" value="{{ row.id_key }}:1">
-            Save Override
-          </button>
-          <button class="btn btn-sm btn-outline-danger"
-                  name="clear_formula_override" value="skill:{{ row.id_key }}:1">
-            Clear Formula
-          </button>
-          <button class="btn btn-sm btn-outline-danger"
-                  name="clear_final_override" value="skill:{{ row.id_key }}:1">
-            Clear Final
-          </button>
-        </div>
-      </div>
-
-      {% if row.ability2 %}
-      <!-- 4) Formula / Final overrides for Ability 2 -->
-      <div class="col-md-4 mt-2">
-        <label class="form-label mb-1">{{ row.ability2 }} column override</label>
-        <input class="form-control form-control-sm mb-1"
-               name="ov_formula_{{ row.id_key }}_2"
-               placeholder='Formula (e.g. "+1" or "prof+half+dex_mod")'>
-        <div class="input-group input-group-sm mb-1">
-          <span class="input-group-text">Final</span>
-          <input type="number" class="form-control"
-                 name="ov_final_{{ row.id_key }}_2"
-                 placeholder="(number)">
-        </div>
-        <input class="form-control form-control-sm"
-               name="ov_reason_{{ row.id_key }}_2"
-               placeholder="Reason (required)">
-        <div class="mt-2 d-flex gap-2">
-          <button class="btn btn-sm btn-success"
-                  name="save_skill_override" value="{{ row.id_key }}:2">
-            Save Override
-          </button>
-          <button class="btn btn-sm btn-outline-danger"
-                  name="clear_formula_override" value="skill:{{ row.id_key }}:2">
-            Clear Formula
-          </button>
-          <button class="btn btn-sm btn-outline-danger"
-                  name="clear_final_override" value="skill:{{ row.id_key }}:2">
-            Clear Final
-          </button>
-        </div>
-      </div>
-      {% endif %}
-    </div>
-    </div>
-  </td>
-</tr>
 
 {% endwith %}
             {% endfor %}
           </tbody>
         </table>
       </div>
-    </form>
   </div>
 </div>
 
@@ -1405,11 +1395,12 @@ document.addEventListener('DOMContentLoaded', function(){
       let html = '<div class="small text-muted"><div><strong>Formula:</strong> ' + (data.formula || '') + '</div>';
       html += '<div><strong>Values:</strong> ' + (data.values || '') + '</div>';
       if (parts.length) {
-        html += '<div class="mt-1"><strong>Parts:</strong><ul class="mb-0">';
-        for (const p of parts) {
-          html += `<li>${(p.name||p.label||p.key||'part')}: ${p.value}${p.note? ' ('+p.note+')':''}</li>`;
-        }
-        html += '</ul></div>';
+html += '<div class="mt-1"><strong>Parts:</strong><ul class="mb-0">';
+for (const p of parts) {
+  html += `<li>${(p.name || p.label || p.key || 'part')}: ${p.value}${p.note ? ' (' + p.note + ')' : ''}</li>`;
+}
+html += '</ul></div>';
+
       }
       html += '</div>';
       target.innerHTML = html;
@@ -1463,8 +1454,9 @@ document.addEventListener('DOMContentLoaded', function(){
 
         if (key.startsWith('prof:')) {
           tierBlock.classList.remove('d-none');
-          tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
-            PROF_LEVELS.map(pl => `<option value="${pl.id}">${pl.name} (+${pl.bonus})</option>`).join('');
+tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
+  PROF_LEVELS.map(pl => `<option value="${pl.id}">${pl.name} (+${pl.bonus})</option>`).join('');
+
           const code = key.split(':')[1] || '';
           profCodeEl.value = code;
           profTierPkEl.value = '';
@@ -1661,22 +1653,22 @@ document.addEventListener('DOMContentLoaded', function(){
                           <th data-sort="1">Feat</th>
                           <th data-sort="2">Description</th>
                           <th data-sort="3">Level</th>
-                          <th data-sort="4">
-                            Requirements
-<div class="dropdown d-inline ms-1" data-bs-auto-close="outside">                          
-  <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown" data-bs-display="static">▾</button>
-                          <div class="dropdown-menu p-3 excel-menu" data-col="4" data-split="1" style="width:260px;"></div>
-                        </div>
-
-                          </th>
-                          <th data-sort="5">
-                            Tags
-                      <div class="dropdown d-inline ms-1" data-bs-auto-close="outside">
-                        <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown" data-bs-display="static">▾</button>
-                        <div class="dropdown-menu p-3 excel-menu" data-col="4" data-split="1" style="width:260px;"></div>
-                      </div>
-
-                          </th>
+            <th data-sort="4">
+              Requirements
+              <div class="dropdown d-inline ms-1" data-bs-auto-close="outside">
+                <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown" data-bs-display="static">▾</button>
+<!-- RIGHT (Requirements is column 4) -->
+<div class="dropdown-menu p-3 excel-menu" data-col="4" data-split="1" style="width:260px;"></div>
+              </div>
+            </th>
+            <th data-sort="5">
+              Tags
+              <div class="dropdown d-inline ms-1" data-bs-auto-close="outside">
+                <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown" data-bs-display="static">▾</button>
+                <!-- CHANGE 4 → 5 here -->
+                <div class="dropdown-menu p-3 excel-menu" data-col="5" data-split="1" style="width:260px;"></div>
+              </div>
+            </th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1770,14 +1762,14 @@ document.addEventListener('DOMContentLoaded', function(){
                             Requirements
                             <div class="dropdown d-inline ms-1" data-bs-auto-close="outside">
                               <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown">▾</button>
-                              <div class="dropdown-menu p-3 excel-menu" data-col="4" data-split="1" style="width:260px;"></div>
+                            <div class="dropdown-menu p-3 excel-menu" data-col="4" data-split="1" style="width:260px;"></div>
                             </div>
                           </th>
                           <th data-sort="5">
                             Tags
                             <div class="dropdown d-inline ms-1" data-bs-auto-close="outside">
                               <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown">▾</button>
-                              <div class="dropdown-menu p-3 excel-menu" data-col="5" data-split="1" style="width:260px;"></div>
+                          <div class="dropdown-menu p-3 excel-menu" data-col="4" data-split="1" style="width:260px;"></div>
                             </div>
                           </th>
                         </tr>
@@ -2149,7 +2141,29 @@ document.addEventListener('DOMContentLoaded', function(){
   </div>
 </div>
 
+<div class="modal fade" id="detailsEditModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Edit Details</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="detailsEditModalBody"></div>
+    </div>
+  </div>
+</div>
 
+<div class="modal fade" id="skillEditModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Edit Skill</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="skillEditModalBody"></div>
+    </div>
+  </div>
+</div>
 
 
 
@@ -2167,25 +2181,59 @@ document.addEventListener('DOMContentLoaded', function(){
 
 {% block extra_js %}
 
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-
-
-
+ <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
-
 <script>
 document.addEventListener("DOMContentLoaded", function(){
-  // 1) Move modals to <body> BEFORE any show() happens
-  ['levelUpModal','editCharacterModal','editNumberModal','overrideModal'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el && el.parentElement !== document.body) document.body.appendChild(el);
-  });
+  ['levelUpModal','editCharacterModal','editNumberModal','overrideModal','detailsEditModal','skillEditModal']
+    .forEach(id => {
+      const el = document.getElementById(id);
+      if (el && el.parentElement !== document.body) document.body.appendChild(el);
+    });
 
-  // 2) Auto-open Level Up modal if hash matches (runs AFTER we moved it)
   if (window.location.hash === "#levelUpModal") {
     const el = document.getElementById("levelUpModal");
     bootstrap.Modal.getOrCreateInstance(el).show();
   }
+});
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const skillModalEl = document.getElementById('skillEditModal');
+  const skillBody = document.getElementById('skillEditModalBody');
+  if (!skillModalEl || !skillBody || !window.bootstrap) return;
+
+  const bsSkillModal = bootstrap.Modal.getOrCreateInstance(skillModalEl);
+
+  // Delegate clicks from any "Edit" button in the Skills table
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.open-skill-edit');
+    if (!btn) return;
+    const sid = btn.getAttribute('data-sid');
+    const tpl = document.getElementById(`skedit-${sid}-tpl`);
+    if (!tpl) return;
+
+    skillBody.innerHTML = '';
+    skillBody.appendChild(tpl.content.cloneNode(true));
+    bsSkillModal.show();
+  });
+});
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const detailsModalEl = document.getElementById('detailsEditModal');
+  if (!detailsModalEl) return;
+
+  detailsModalEl.addEventListener('show.bs.modal', () => {
+    const tpl = document.getElementById('detailsEditTemplate');
+    const body = document.getElementById('detailsEditModalBody');
+    if (tpl && body) {
+      body.innerHTML = ''; // clear old
+      body.appendChild(tpl.content.cloneNode(true));
+    }
+  });
 });
 </script>
 
@@ -2256,7 +2304,7 @@ document.addEventListener("DOMContentLoaded", function(){
       aInput.value    = slotA || slotB || "";
       bInput.value    = (mode === "1+1" || mode === "2") ? (slotB || slotA) : "";
 
-      function upText(k, inc){ return `${pretty(k)}: ${getBase(k)} → ${getBase(k)+inc}`; }
+   function upText(k, inc){ return `${pretty(k)}: ${getBase(k)} → ${getBase(k)+inc}`; }
       let txt = "—";
       if (mode === "2")       txt = upText(slotA, 2);
       else if (mode === "1+1")txt = `${upText(slotA,1)}; ${upText(slotB,1)}`;
@@ -2281,18 +2329,7 @@ document.addEventListener("DOMContentLoaded", function(){
   })();
   </script>
   {% endif %}
-<script>
-(function(){
-  const btn = document.getElementById('toggle-details-edit');
-  const target = document.getElementById('detailsEdit');
-  if (!btn || !target) return;
-  const inst = bootstrap.Collapse.getOrCreateInstance(target, { toggle: false });
-  btn.addEventListener('click', (e) => {
-    e.preventDefault();
-    inst.toggle();
-  });
-})();
-</script>
+
 
   <script>
   (function(){
@@ -2801,72 +2838,7 @@ function getCookie(name) {
   });
 })();
 </script>
-<script>
-(function () {
-<<<<<<< HEAD
-  // Open one skill panel at a time, no Bootstrap collapse at all
-  document.addEventListener('click', function (e) {
-    const btn = e.target.closest('.skill-edit-btn');
-    if (!btn) return;
 
-    const sel   = btn.getAttribute('data-target');
-    const panel = document.querySelector(sel);
-    if (!panel) return;
-
-    // Close any open panels
-    document.querySelectorAll('#skills-accordion .skill-edit-panel.show')
-      .forEach(p => { if (p !== panel) p.classList.remove('show'); });
-
-    // Open the requested one
-    panel.classList.add('show');
-=======
-  // 0) Stop Bootstrap from managing these panels
-  //    (removes collapse classes + inline styles if Bootstrap already touched them)
-  document.querySelectorAll('#skills-accordion .skill-edit-panel').forEach(p => {
-    // If a Collapse instance exists, dispose it
-    try {
-      const inst = bootstrap?.Collapse?.getInstance?.(p);
-      if (inst) inst.dispose();
-    } catch (_e) {}
-    p.classList.remove('collapse', 'collapsing', 'show');
-    p.style.removeProperty('height');
-    p.style.removeProperty('overflow');
-  });
-
-  // 1) Minimal CSS to show/hide without animation
-  const s = document.createElement('style');
-  s.textContent = `
-    #skills-accordion .skill-edit-panel { display: none; }
-    #skills-accordion .skill-edit-panel.is-open { display: block; }
-    /* if a leftover Bootstrap state sneaks in, neutralize it */
-    #skills-accordion .collapsing { height: auto !important; overflow: visible !important; transition: none !important; }
-    /* ensure readable text on the grey td */
-    #skills-accordion td.bg-dark-subtle, 
-    #skills-accordion td.bg-dark-subtle * { color: var(--bs-body-color) !important; }
-  `;
-  document.head.appendChild(s);
-
-  // 2) Toggle logic (no Bootstrap)
-  document.addEventListener('click', function (e) {
-    const btn = e.target.closest('.skill-edit-btn');
-    if (!btn) return;
-    const sel = btn.getAttribute('data-target');
-    const panel = sel && document.querySelector(sel);
-    if (!panel) return;
-
-    // Close others
-    document.querySelectorAll('#skills-accordion .skill-edit-panel.is-open')
-      .forEach(p => { if (p !== panel) p.classList.remove('is-open'); });
-
-    // Open target
-    panel.classList.add('is-open');
-
-    // Scroll into view
->>>>>>> 2f3ed11ed993aa66f203436a1924eec33804976d
-    panel.closest('tr')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  });
-})();
-</script>
 
 
 <script>
@@ -2965,6 +2937,7 @@ document.addEventListener('DOMContentLoaded', function () {
   updateCap();
 })();
 </script>
+
 
 
 

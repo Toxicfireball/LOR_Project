@@ -1,77 +1,52 @@
 {% extends "base.html" %}
 {% block title %}Codex · Martial Masteries{% endblock %}
 {% block content %}
+<style>
+    table thead.sticky { position: sticky; z-index: 10; }
+</style>
 <div class="max-w-7xl mx-auto">
   <h1 class="text-2xl font-bold mb-4">Martial Masteries</h1>
 
-  <!-- Filters -->
-  <div class="bg-white rounded-lg shadow p-4 mb-4">
-    <form id="filters" class="grid grid-cols-1 md:grid-cols-4 gap-4">
-      <div>
-        <label class="block text-sm font-medium">Search</label>
-        <input name="q" type="text" placeholder="Name / text…" class="mt-1 w-full border rounded px-3 py-2" />
-      </div>
+  <!-- Filter bar (checkbox-style) -->
+  <div class="bg-white rounded-lg shadow mb-3 sticky top-16 z-40">
+    <form id="filters" class="p-4">
+      <div class="flex flex-wrap items-end gap-4">
 
-      <div>
-        <label class="block text-sm font-medium">Class</label>
-        <select name="class" multiple class="mt-1 w-full border rounded px-3 py-2 h-28">
-          {% for c in classes %}
-          <option value="{{ c.id }}">{{ c.name }}</option>
-          {% endfor %}
-        </select>
-        <p class="text-xs text-gray-500 mt-1">Holds Ctrl/Cmd to multi-select</p>
-      </div>
-
-      <div>
-        <label class="block text-sm font-medium">Range Type</label>
-        <div class="mt-2 flex flex-wrap gap-2">
-          {% for r in range_choices %}
-          <label class="inline-flex items-center gap-2">
-            <input type="checkbox" name="range" value="{{ r.code }}" />
-            <span>{{ r.label }}</span>
-          </label>
-          {% endfor %}
+        <!-- Search -->
+        <div class="min-w-[16rem]">
+          <label class="block text-sm font-medium">Search</label>
+          <input name="q" type="text" placeholder="Name / text…"
+                 class="mt-1 w-full border rounded px-3 py-2" />
         </div>
 
-        <label class="block text-sm font-medium mt-3">Action</label>
-        <select name="action" class="mt-1 w-full border rounded px-3 py-2">
-          <option value="">Any</option>
-          {% for code,label in action_choices %}
-          <option value="{{ code }}">{{ label }}</option>
-          {% endfor %}
-        </select>
-      </div>
-
-      <div>
-        <label class="block text-sm font-medium">Damage Type</label>
-        <select name="damage" multiple class="mt-1 w-full border rounded px-3 py-2 h-28">
-          {% for d in damage_choices %}
-          <option value="{{ d.code }}">{{ d.label }}</option>
-          {% endfor %}
-        </select>
-
-        <label class="block text-sm font-medium mt-3">Weapon Traits</label>
-        <select name="trait" multiple class="mt-1 w-full border rounded px-3 py-2 h-28">
-          {% for t in traits %}
-          <option value="{{ t.id }}">{{ t.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-
-      <div class="md:col-span-4 grid grid-cols-1 md:grid-cols-4 gap-4">
+        <!-- Range -->
         <div>
-          <label class="block text-sm font-medium">Min Level</label>
-          <input name="level_min" type="number" min="0" class="mt-1 w-full border rounded px-3 py-2" />
+          <div class="text-sm font-medium">Range</div>
+          <div class="mt-1 flex flex-wrap gap-3">
+            {% for r in range_choices %}
+            <label class="inline-flex items-center gap-2">
+              <input type="checkbox" name="range" value="{{ r.code }}" />
+              <span>{{ r.label }}</span>
+            </label>
+            {% endfor %}
+          </div>
         </div>
+
+        <!-- Action (checkbox multi) -->
         <div>
-          <label class="block text-sm font-medium">Max Level</label>
-          <input name="level_max" type="number" min="0" class="mt-1 w-full border rounded px-3 py-2" />
+          <div class="text-sm font-medium">Action</div>
+          <div class="mt-1 flex flex-wrap gap-3 max-w-[22rem]">
+            {% for code,label in action_choices %}
+            <label class="inline-flex items-center gap-2">
+              <input type="checkbox" name="action" value="{{ code }}" />
+              <span>{{ label }}</span>
+            </label>
+            {% endfor %}
+          </div>
         </div>
-        <div>
-          <label class="block text-sm font-medium">Max Cost</label>
-          <input name="cost_max" type="number" min="0" class="mt-1 w-full border rounded px-3 py-2" />
-        </div>
-        <div class="flex items-end gap-6">
+
+        <!-- Flags -->
+        <div class="flex flex-col gap-2">
           <label class="inline-flex items-center gap-2">
             <input type="checkbox" name="rare" />
             <span>Rare only</span>
@@ -80,67 +55,178 @@
             <input type="checkbox" name="ability_gated" />
             <span>Ability-gated only</span>
           </label>
-          <button id="apply" type="submit" class="ml-auto px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-500">Apply</button>
+        </div>
+
+        <!-- Numeric -->
+        <div>
+          <label class="block text-sm font-medium">Min Level</label>
+          <input name="level_min" type="number" min="0" class="mt-1 w-28 border rounded px-3 py-2" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium">Max Level</label>
+          <input name="level_max" type="number" min="0" class="mt-1 w-28 border rounded px-3 py-2" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium">Max Cost</label>
+          <input name="cost_max" type="number" min="0" class="mt-1 w-28 border rounded px-3 py-2" />
+        </div>
+
+        <!-- Apply -->
+        <div class="ml-auto">
+          <button id="apply" type="submit"
+                  class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-500">
+            Apply
+          </button>
+        </div>
+      </div>
+
+      <!-- Secondary filters row: Classes / Damage / Traits as checkbox lists -->
+      <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+        <!-- Classes -->
+        <div>
+          <div class="text-sm font-medium mb-1">Classes</div>
+          <div class="border rounded p-2 max-h-40 overflow-auto space-y-1">
+            {% for c in classes %}
+            <label class="flex items-center gap-2">
+              <input type="checkbox" name="class" value="{{ c.id }}" />
+              <span class="text-sm">{{ c.name }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+
+        <!-- Damage types -->
+        <div>
+          <div class="text-sm font-medium mb-1">Damage Types</div>
+          <div class="border rounded p-2 max-h-40 overflow-auto space-y-1">
+            {% for d in damage_choices %}
+            <label class="flex items-center gap-2">
+              <input type="checkbox" name="damage" value="{{ d.code }}" />
+              <span class="text-sm">{{ d.label }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+
+        <!-- Weapon traits -->
+        <div>
+          <div class="text-sm font-medium mb-1">Weapon Traits</div>
+          <div class="border rounded p-2 max-h-40 overflow-auto space-y-1">
+            {% for t in traits %}
+            <label class="flex items-center gap-2">
+              <input type="checkbox" name="trait" value="{{ t.id }}" />
+              <span class="text-sm">{{ t.name }}</span>
+            </label>
+            {% endfor %}
+          </div>
         </div>
       </div>
     </form>
   </div>
 
-  <!-- Results -->
-  <div id="results" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+  <!-- Results table -->
+  <div class="bg-white rounded-lg shadow overflow-x-auto">
+    <table class="min-w-full text-sm">
+<thead class="bg-gray-50">
+        <tr class="text-left">
+          <th class="px-3 py-2 w-10">
+            <label class="sr-only">Select all</label>
+            <input id="select-all" type="checkbox" />
+          </th>
+          <th class="px-3 py-2">Name</th>
+          <th class="px-3 py-2">Level</th>
+          <th class="px-3 py-2">Cost</th>
+          <th class="px-3 py-2">Action</th>
+          <th class="px-3 py-2">Ability&nbsp;Req</th>
+          <th class="px-3 py-2">Classes</th>
+          <th class="px-3 py-2">Restrictions</th>
+        </tr>
+      </thead>
+      <tbody id="results-body" class="divide-y divide-gray-100">
+        <!-- rows injected here -->
+      </tbody>
+    </table>
+  </div>
 </div>
 
 <script>
   const $f = document.getElementById('filters');
-  const $results = document.getElementById('results');
+  const $tbody = document.getElementById('results-body');
 
   function asParams(form) {
     const fd = new FormData(form);
-    const p = new URLSearchParams();
-    for (const [k,v] of fd.entries()) {
-      if (!v) continue;
-      if (['class','range','damage','trait'].includes(k)) {
-        // multi-selects / checkboxes
-        (Array.isArray(fd.getAll(k)) ? fd.getAll(k) : [v]).forEach(val => p.append(k, val));
+    const p  = new URLSearchParams();
+
+    // Multi-valued filter names
+    const multis = ['class','range','damage','trait','action'];
+
+    // Gather all form fields, including checkboxes
+    for (const name of new Set(Array.from(fd.keys()))) {
+      const values = fd.getAll(name).filter(v => v !== '');
+      if (!values.length) continue;
+      if (multis.includes(name)) {
+        values.forEach(v => p.append(name, v));
       } else {
-        p.append(k,v);
+        // single value inputs
+        p.append(name, values[0]);
       }
     }
     return p.toString();
   }
 
+  function renderRows(items) {
+    if (!items.length) {
+      $tbody.innerHTML = `
+        <tr><td colspan="8" class="px-3 py-6 text-center text-gray-500">
+          No masteries match your filters.
+        </td></tr>`;
+      return;
+    }
+
+    $tbody.innerHTML = items.map(r => {
+      const rareBadge = r.rare ? `<span class="ml-2 px-2 py-0.5 text-xs rounded bg-purple-100 text-purple-700">Rare</span>` : '';
+      const ability = r.ability_req.on ? `${r.ability_req.ability} ${r.ability_req.score}` : '—';
+      const action  = r.action && r.action !== '—' ? r.action : '—';
+      const classes = (r.classes && r.classes.length) ? r.classes.join(', ') : 'Any';
+      const restr   = (r.restrictions && r.restrictions.length)
+        ? r.restrictions.map(x => `• ${x}`).join('<br/>')
+        : '—';
+
+      return `
+        <tr class="hover:bg-gray-50">
+          <td class="px-3 py-2 align-top">
+            <input type="checkbox" class="row-select" />
+          </td>
+          <td class="px-3 py-2 align-top">
+            <a href="${r.url}" class="text-blue-700 hover:underline font-medium">${r.name}</a>
+            ${rareBadge}
+          </td>
+          <td class="px-3 py-2 align-top">L${r.level}</td>
+          <td class="px-3 py-2 align-top">${r.cost}</td>
+          <td class="px-3 py-2 align-top">${action}</td>
+          <td class="px-3 py-2 align-top">${ability}</td>
+          <td class="px-3 py-2 align-top">${classes}</td>
+          <td class="px-3 py-2 align-top text-gray-700">${restr}</td>
+        </tr>`;
+    }).join('');
+
+    // hook up "select all"
+    const selectAll = document.getElementById('select-all');
+    if (selectAll) {
+      selectAll.checked = false;
+      selectAll.onchange = (e) => {
+        document.querySelectorAll('.row-select').forEach(cb => cb.checked = e.target.checked);
+      };
+    }
+  }
+
   async function load() {
-    $results.innerHTML = `<div class="col-span-full text-gray-500">Loading…</div>`;
+    $tbody.innerHTML = `<tr><td colspan="8" class="px-3 py-6 text-center text-gray-500">Loading…</td></tr>`;
     const qs = asParams($f);
     const url = `{% url 'characters:mastery_data' %}?` + qs;
     const resp = await fetch(url);
     const data = await resp.json();
-    if (!data.results.length) {
-      $results.innerHTML = `<div class="col-span-full text-gray-500">No masteries match your filters.</div>`;
-      return;
-    }
-    $results.innerHTML = data.results.map(r => `
-      <a href="${r.url}" class="block bg-white rounded-lg shadow hover:shadow-md transition p-4">
-        <div class="flex items-start justify-between">
-          <h2 class="font-semibold text-lg">${r.name}</h2>
-          <div class="flex gap-2">
-            ${r.rare ? `<span class="px-2 py-0.5 text-xs rounded bg-purple-100 text-purple-700">Rare</span>`:''}
-            <span class="px-2 py-0.5 text-xs rounded bg-gray-100">L${r.level}</span>
-            <span class="px-2 py-0.5 text-xs rounded bg-blue-100 text-blue-700">Cost ${r.cost}</span>
-          </div>
-        </div>
-        <div class="mt-2 flex flex-wrap gap-2">
-          ${r.action && r.action !== "—" ? `<span class="px-2 py-0.5 text-xs rounded bg-amber-100 text-amber-800">${r.action}</span>`:''}
-          ${r.ability_req.on ? `<span class="px-2 py-0.5 text-xs rounded bg-red-100 text-red-700">Req ${r.ability_req.ability} ${r.ability_req.score}</span>`:''}
-        </div>
-        <div class="mt-2 text-sm text-gray-600 line-clamp-3">
-          ${r.restrictions.length ? r.restrictions.map(x=>`<div>• ${x}</div>`).join('') : '<div>• No special restrictions</div>'}
-        </div>
-        <div class="mt-3 text-xs text-gray-500">
-          ${r.classes && r.classes.length ? 'Classes: ' + r.classes.join(', ') : 'Classes: Any'}
-        </div>
-      </a>
-    `).join('');
+    renderRows(data.results || []);
   }
 
   $f.addEventListener('submit', (e) => { e.preventDefault(); load(); });
