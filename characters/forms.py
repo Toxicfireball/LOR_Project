@@ -627,20 +627,26 @@ class BackgroundForm(forms.ModelForm):
 
     def save(self, commit=True):
         inst = super().save(commit=False)
-        inst.primary_selection_mode   = self.cleaned_data["primary_selection_mode"]
-        inst.secondary_selection_mode = self.cleaned_data["secondary_selection_mode"]
-
-        sel = self.cleaned_data["primary_selection"]
-        inst.primary_skill_type = ContentType.objects.get_for_model(sel)
-        inst.primary_skill_id   = sel.pk
-
-        sel2 = self.cleaned_data["secondary_selection"]
-        inst.secondary_skill_type = ContentType.objects.get_for_model(sel2)
-        inst.secondary_skill_id   = sel2.pk
-
+        inst.primary_selection_mode   = self.cleaned_data.get("primary_selection_mode")
+        inst.secondary_selection_mode = self.cleaned_data.get("secondary_selection_mode")
+    
+        sel = self.cleaned_data.get("primary_selection")
+        if sel:
+            inst.primary_skill_type = ContentType.objects.get_for_model(sel)
+            inst.primary_skill_id   = sel.pk
+    
+        sel2 = self.cleaned_data.get("secondary_selection")
+        if sel2:
+            inst.secondary_skill_type = ContentType.objects.get_for_model(sel2)
+            inst.secondary_skill_id   = sel2.pk
+        else:
+            # clear if omitted
+            inst.secondary_skill_type = None
+            inst.secondary_skill_id   = None
+    
         if commit:
             inst.save()
-        return inst
+    return inst
 # forms.py
 from django import forms
 from .models import ClassFeature, ClassFeat, RacialFeature  # adjust imports as in your project
