@@ -52,7 +52,18 @@
 .skill-picker .skill-item.disabled{opacity:.55;pointer-events:none}
 .skill-toolbar{border-bottom:1px solid rgba(0,0,0,.06)}
 </style>
+<style>
+  /* Skills edit panel: bypass Bootstrap collapse animation */
+  #skills-accordion .skill-edit-panel { display: none; }
+  #skills-accordion .skill-edit-panel.show { display: block; }
 
+  /* Safety: if Bootstrap briefly applies .collapsing, neutralize it */
+  #skills-accordion .collapsing {
+    height: auto !important;
+    overflow: visible !important;
+    transition: none !important;
+  }
+</style>
 
 {% if messages %}
   {% for m in messages %}
@@ -2791,30 +2802,27 @@ function getCookie(name) {
 })();
 </script>
 <script>
-(function(){
-  // Force show the skills edit panel and close siblings
-  document.addEventListener('click', function(e){
+(function () {
+  // Open one skill panel at a time, no Bootstrap collapse at all
+  document.addEventListener('click', function (e) {
     const btn = e.target.closest('.skill-edit-btn');
     if (!btn) return;
 
-    const targetSel = btn.getAttribute('data-target');
-    const panel = document.querySelector(targetSel);
+    const sel   = btn.getAttribute('data-target');
+    const panel = document.querySelector(sel);
     if (!panel) return;
 
-    const inst = bootstrap.Collapse.getOrCreateInstance(panel, { toggle: false });
-    // Close other open panels in the skills accordion
-    document.querySelectorAll('#skills-accordion .collapse.show').forEach(el => {
-      if (el !== panel) bootstrap.Collapse.getOrCreateInstance(el, { toggle: false }).hide();
-    });
-    // Now force this one open
-    inst.show();
+    // Close any open panels
+    document.querySelectorAll('#skills-accordion .skill-edit-panel.show')
+      .forEach(p => { if (p !== panel) p.classList.remove('show'); });
 
-    // Optional: scroll into view so the user sees it immediately
-    const row = panel.closest('tr');
-    if (row) row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    // Open the requested one
+    panel.classList.add('show');
+    panel.closest('tr')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   });
 })();
 </script>
+
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {

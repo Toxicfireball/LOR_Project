@@ -298,6 +298,155 @@ def global_search(request):
     return render(request, "global_search.html", context)
 
 
+from django.db.models import Prefetch, Q
+from django.http import JsonResponse
+from django.shortcuts import get_object_or_404, render
+from .models import (
+    MartialMastery, CharacterClass, Weapon, WeaponTrait
+)
+
+# ---- Codex: Martial Masteries (list) ----------------------------------------
+def mastery_list(request):
+    # Preload filter sources
+    classes = CharacterClass.objects.order_by("name").values("id", "name")
+    traits  = WeaponTrait.objects.order_by("name").values("id", "name")
+    # Weapon.DAMAGE_CHOICES = [('bludgeoning','Bludgeoning'), ...]
+    damage_choices = [{"code": c[0], "label": c[1]} for c in Weapon.DAMAGE_CHOICES]
+    range_choices  = [{"code": Weapon.MELEE, "label": "Melee"},
+                      {"code": Weapon.RANGED, "label": "Ranged"}]
+    # Action choices (kept local to avoid import gymnastics)
+    action_choices = [
+        ("action_1","One Action"), ("action_2","Two Actions"),
+        ("action_3","Three Actions"), ("reaction","Reaction"), ("free","Free Action"),
+    ]
+    return render(request, "codex/codex_masteries.html", {
+        "classes": list(classes),
+        "traits":  list(traits),
+        "damage_choices": damage_choices,
+        "range_choices":  range_choices,
+        "action_choices": action_choices,
+    })
+
+
+# ---- Data endpoint for dynamic filtering ------------------------------------
+def mastery_data(request):
+    qs = (MartialMastery.objects
+          .prefetch_related(
+              "classes",
+              "allowed_weapons",
+              "allowed_traits",
+          )
+          .order_by("level_required", "name"))
+
+    # Text search
+    q = (request.GET.get("q") or "").strip()
+    if q:
+        qs = qs.filter(Q(name__icontains=q) | Q(description__icontains=q))
+
+    # Class filter (multi)
+    class_ids = request.GET.getlist("class")
+    if class_ids:
+        qs = qs.filter(Q(all_classes=True) | Q(classes__id__in=class_ids)).distinct()
+
+    # Range filter (multi)
+    ranges = request.GET.getlist("range")
+    if ranges:
+        qs = qs.filter(
+            Q(restrict_to_range=False) |
+            Q(allowed_range_types__overlap=ranges)
+        )
+
+    # Trait filter (multi)
+    trait_ids = [int(t) for t in request.GET.getlist("trait") if t.isdigit()]
+    if trait_ids:
+        qs = qs.filter(
+            Q(restrict_to_traits=False) |
+            Q(allowed_traits__id__in=trait_ids)
+        ).distinct()
+
+    # Damage-type filter (multi)
+    dmgs = request.GET.getlist("damage")
+    if dmgs:
+        qs = qs.filter(
+            Q(restrict_to_damage=False) |
+            Q(allowed_damage_types__overlap=dmgs)
+        )
+
+    # Action filter (single)
+    action = (request.GET.get("action") or "").strip()
+    if action:
+        qs = qs.filter(action_cost=action)
+
+    # Rare
+    if (request.GET.get("rare") or "").lower() in ("1","true","yes","on"):
+        qs = qs.filter(is_rare=True)
+
+    # Ability gate present?
+    if (request.GET.get("ability_gated") or "").lower() in ("1","true","yes","on"):
+        qs = qs.filter(restrict_by_ability=True)
+
+    # Numeric ranges
+    def as_int(v, default=None):
+        try: return int(v)
+        except: return default
+
+    lvl_min = as_int(request.GET.get("level_min"))
+    lvl_max = as_int(request.GET.get("level_max"))
+    if lvl_min is not None: qs = qs.filter(level_required__gte=lvl_min)
+    if lvl_max is not None: qs = qs.filter(level_required__lte=lvl_max)
+
+    cost_max = as_int(request.GET.get("cost_max"))
+    if cost_max is not None:
+        qs = qs.filter(points_cost__lte=cost_max)
+
+    # Serialize
+    data = []
+    for m in qs:
+        restrict_bits = []
+        if m.restrict_to_range:
+            restrict_bits.append(f"Range: {', '.join(m.allowed_range_types or [])}")
+        if m.restrict_to_weapons:
+            names = list(m.allowed_weapons.values_list("name", flat=True)[:6])
+            extra = m.allowed_weapons.count() - len(names)
+            restrict_bits.append("Weapons: " + ", ".join(names) + (f" (+{extra} more)" if extra>0 else ""))
+        if m.restrict_to_traits:
+            names = list(m.allowed_traits.values_list("name", flat=True)[:6])
+            extra = m.allowed_traits.count() - len(names)
+            mode  = "ALL" if (m.trait_match_mode or "").lower()=="all" else "ANY"
+            restrict_bits.append(f"Traits ({mode}): " + ", ".join(names) + (f" (+{extra} more)" if extra>0 else ""))
+        if getattr(m, "restrict_to_damage", False):
+            restrict_bits.append("Damage: " + ", ".join(m.allowed_damage_types or []))
+
+        data.append({
+            "id": m.id,
+            "name": m.name,
+            "level": m.level_required,
+            "cost": m.points_cost,
+            "action": m.get_action_cost_display() if m.action_cost else "—",
+            "rare": m.is_rare,
+            "ability_req": {
+                "on": m.restrict_by_ability,
+                "ability": m.get_required_ability_display() if m.required_ability else None,
+                "score": m.required_ability_score,
+            },
+            "classes": list(m.classes.values_list("name", flat=True)),
+            "restrictions": restrict_bits,
+            "url":  request.build_absolute_uri(
+                        reverse("characters:mastery_detail", args=[m.pk])
+                    ),
+        })
+    return JsonResponse({"results": data})
+
+
+# ---- Detail page -------------------------------------------------------------
+def mastery_detail(request, pk):
+    m = get_object_or_404(
+        MartialMastery.objects
+            .prefetch_related("classes", "allowed_weapons", "allowed_traits"),
+        pk=pk
+    )
+    return render(request, "codex/mastery_detail.html", {"m": m})
+
 
 @require_GET
 @login_required

@@ -616,6 +616,7 @@ class BackgroundForm(forms.ModelForm):
     primary_selection   = CombinedSkillField(label="Primary Skill or SubSkill")
     secondary_selection = CombinedSkillField(label="Secondary Skill or SubSkill")
 
+
     class Meta:
         model  = Background
         fields = [
@@ -624,23 +625,37 @@ class BackgroundForm(forms.ModelForm):
           "secondary_ability","secondary_bonus","secondary_selection_mode","secondary_selection",
         ]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # 🔁 Always rebuild choices from the database at form render time
+        if "primary_selection" in self.fields:
+            self.fields["primary_selection"].widget.choices = build_combined_skill_choices()
+        if "secondary_selection" in self.fields:
+            self.fields["secondary_selection"].widget.choices = build_combined_skill_choices()
 
     def save(self, commit=True):
         inst = super().save(commit=False)
-        inst.primary_selection_mode   = self.cleaned_data["primary_selection_mode"]
-        inst.secondary_selection_mode = self.cleaned_data["secondary_selection_mode"]
+        inst.primary_selection_mode   = self.cleaned_data.get("primary_selection_mode")
+        inst.secondary_selection_mode = self.cleaned_data.get("secondary_selection_mode")
 
-        sel = self.cleaned_data["primary_selection"]
-        inst.primary_skill_type = ContentType.objects.get_for_model(sel)
-        inst.primary_skill_id   = sel.pk
+        sel = self.cleaned_data.get("primary_selection")
+        if sel:
+            inst.primary_skill_type = ContentType.objects.get_for_model(sel)
+            inst.primary_skill_id   = sel.pk
 
-        sel2 = self.cleaned_data["secondary_selection"]
-        inst.secondary_skill_type = ContentType.objects.get_for_model(sel2)
-        inst.secondary_skill_id   = sel2.pk
+        sel2 = self.cleaned_data.get("secondary_selection")
+        if sel2:
+            inst.secondary_skill_type = ContentType.objects.get_for_model(sel2)
+            inst.secondary_skill_id   = sel2.pk
+        else:
+            # clear if omitted
+            inst.secondary_skill_type = None
+            inst.secondary_skill_id   = None
 
         if commit:
             inst.save()
         return inst
+
 # forms.py
 from django import forms
 from .models import ClassFeature, ClassFeat, RacialFeature  # adjust imports as in your project
