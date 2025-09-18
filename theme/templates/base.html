@@ -6,10 +6,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}…{% endblock %}</title>
 <style>
+<<<<<<< HEAD
 /* dropdown visibility */
 .table thead, .table th {
   overflow: visible;
 }
+=======
+/* table headers */
+.table thead, .table th { overflow: visible; }
+
+/* app dropdowns: HIDDEN by default */
+.dropdown-menu,
+.mobile-menu { display: none; }
+
+/* visible only when toggled */
+.dropdown-menu.show,
+.mobile-menu.show { display: block; }
+>>>>>>> 2f3ed11ed993aa66f203436a1924eec33804976d
 
 /* NEW: Hide all dropdown menus by default; show when toggled */
 .dropdown-menu { 
@@ -21,11 +34,12 @@
 
 /* ensure in-table filter menus appear above cards/tables */
 .excel-menu.dropdown-menu {
-  position: absolute;      /* let it float over */
-  z-index: 1080;           /* above cards but below modals */
-  inset: auto auto auto 0; /* default pop-in to the left edge */
+  position: absolute;
+  z-index: 1080;
+  inset: auto auto auto 0;
 }
 
+<<<<<<< HEAD
 /* mobile main menu */
 .mobile-menu      { display: none; }
 .mobile-menu.show { display: block; }
@@ -35,6 +49,12 @@
   nav .dropdown-menu { position: absolute; z-index: 70; margin-top: .5rem; }
 }
 
+=======
+/* desktop: fly-out positioning only on md+ */
+@media (min-width: 768px) {
+  nav .dropdown-menu { position: absolute; z-index: 70; margin-top: .5rem; }
+}
+>>>>>>> 2f3ed11ed993aa66f203436a1924eec33804976d
 </style>
 
 <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
