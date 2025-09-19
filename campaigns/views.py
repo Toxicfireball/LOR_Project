@@ -3,7 +3,7 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponseForbidden, Http404
 from django.contrib import messages
-from characters.models import Character
+from characters.models import Character, ClassFeat, CharacterFeat
 from django.urls import reverse
 
 @login_required
@@ -30,7 +30,7 @@ def send_campaign_message(request, campaign_id):
     return redirect(f"{reverse('campaigns:campaign_detail', args=[campaign.id])}#messages")
 
 from .models import Campaign, CampaignMembership
-from .forms import CampaignCreationForm, AttachCharacterForm
+from .forms import CampaignCreationForm, AttachCharacterForm, AssignSkillFeatsForm
 from characters.models import Character
 # BEFORE imports
 # from .models import Campaign, CampaignMembership
@@ -138,7 +138,8 @@ def campaign_detail(request, campaign_id):
         context["pending_bgs"] = list(
             campaign.pending_backgrounds.filter(status="pending").order_by("-created_at")
         )
-
+    assign_skill_feats_form = AssignSkillFeatsForm(campaign=campaign)
+    context["assign_skill_feats_form"] = assign_skill_feats_form
     add_item_form = PartyItemForm()
     context["add_item_form"] = add_item_form
 
@@ -177,6 +178,38 @@ def approve_pending_bg(request, campaign_id, pb_id):
     pb.save(update_fields=["status","decided_at"])
     messages.success(request, f"Approved background '{bg.name}'.")
     return redirect("campaigns:campaign_detail", campaign_id=campaign.id)
+def assign_skill_feats(request, campaign_id):
+    if request.method != "POST":
+        raise Http404()
+    campaign = get_object_or_404(Campaign, id=campaign_id)
+    if not _is_gm(request.user, campaign):
+        return HttpResponseForbidden("GM only.")
+
+    form = AssignSkillFeatsForm(request.POST, campaign=campaign)
+    if not form.is_valid():
+        messages.error(request, "; ".join([str(e) for e in form.errors.get("__all__", [])]) or "Fix the errors below.")
+        return redirect(f"{reverse('campaigns:campaign_detail', args=[campaign.id])}#skillfeats")
+
+    feats = [f for f in [form.cleaned_data["feat1"], form.cleaned_data.get("feat2")] if f]
+    targets = (list(campaign.characters.all())
+               if form.cleaned_data.get("apply_to_all")
+               else [form.cleaned_data["character"]])
+
+    created = skipped = 0
+    for ch in targets:
+        for feat in feats:
+            if CharacterFeat.objects.filter(character=ch, feat=feat).exists():
+                skipped += 1
+                continue
+            CharacterFeat.objects.create(character=ch, feat=feat, level=ch.level or 0)
+            created += 1
+
+    if created:
+        messages.success(request, f"Granted {created} Skill Feat(s). Skipped {skipped} already owned.")
+    else:
+        messages.info(request, "No feats granted (likely duplicates).")
+
+    return redirect(f"{reverse('campaigns:campaign_detail', args=[campaign.id])}#skillfeats")
 
 @login_required
 def reject_pending_bg(request, campaign_id, pb_id):
