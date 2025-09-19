@@ -189,7 +189,27 @@ class CombinedSkillField(forms.Field):
         if prefix == "subskill":
             return SubSkill.objects.get(pk=pk)
         raise forms.ValidationError("Unknown selection")
+def build_combined_skill_choices():
+    """
+    Rebuild the combined choices list:
+      ["", "---------"] + ["skill-<id>", SkillName] + ["subskill-<id>", "Skill → Sub-skill"]
+    Safe during migrations.
+    """
+    try:
+        skill_qs = (Skill.objects.order_by("name")
+                    .values_list("pk", "name"))
+        skill_choices = [(f"skill-{pk}", name) for pk, name in skill_qs]
 
+        sub_qs = (SubSkill.objects
+                  .select_related("skill")
+                  .order_by("skill__name", "name")
+                  .values_list("pk", "skill__name", "name"))
+        sub_choices = [(f"subskill-{pk}", f"{skill_name} → {sub_name}")
+                       for pk, skill_name, sub_name in sub_qs]
+
+        return [("", "---------")] + skill_choices + sub_choices
+    except (OperationalError, ProgrammingError):
+        return [("", "---------")]
 class PreviewForm(forms.Form):
     base_class = forms.ModelChoiceField(
         queryset=CharacterClass.objects.order_by("name"),
@@ -604,6 +624,7 @@ class Meta:
 
 
 class BackgroundForm(forms.ModelForm):
+    # Synthetic/Special UI fields (NOT model fields)
     primary_selection_mode = forms.ChoiceField(
         choices=Background.SELECTION_MODES,
         label="Primary Skill → grant mode"
@@ -614,17 +635,17 @@ class BackgroundForm(forms.ModelForm):
         required=False
     )
     primary_selection   = CombinedSkillField(label="Primary Skill or SubSkill")
-    secondary_selection = CombinedSkillField(label="Secondary Skill or SubSkill")
-
+    secondary_selection = CombinedSkillField(label="Secondary Skill or SubSkill", required=False)
 
     class Meta:
         model  = Background
+        # ONLY actual model fields here
         fields = [
-          "code","name","description",
-          "primary_ability","primary_bonus","primary_selection_mode","primary_selection",
-          "secondary_ability","secondary_bonus","secondary_selection_mode","secondary_selection",
+            "code", "name", "description",
+            "primary_ability", "primary_bonus",
+            "secondary_ability", "secondary_bonus",
+            # Do NOT list the synthetic fields here
         ]
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # 🔁 Always rebuild choices from the database at form render time
