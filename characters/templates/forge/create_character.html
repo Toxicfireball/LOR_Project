@@ -434,6 +434,96 @@ racesData.forEach(r => {
         {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
       ));
     }
+// --- Add this helper near your other small helpers (inside DOMContentLoaded) ---
+function resetBackgroundUI() {
+  // clear internal bg state
+  resetBGState();
+  stats.forEach(s => backgroundModifiers[s] = 0);
+
+  // clear selects & choices
+  if (mainBgSelect)        mainBgSelect.value = "";
+  if (side1Select)         side1Select.value = "";
+  if (side2Select)         side2Select.value = "";
+  if (side1AbilitySelect)  side1AbilitySelect.value = "primary";
+  if (side1SkillSelect)    side1SkillSelect.value = "primary";
+  if (side2AbilitySelect)  side2AbilitySelect.value = "primary";
+  if (side2SkillSelect)    side2SkillSelect.value = "primary";
+  if (whichSideRadios && whichSideRadios.length) {
+    // default: Side 1 gives ability, Side 2 gives skill
+    Array.from(whichSideRadios).forEach(r => (r.checked = r.value === "1"));
+  }
+
+  // show only "Main only" section UI
+  if (side1Div) side1Div.style.display = "none";
+  if (side2Div) side2Div.style.display = "none";
+  if (bgComboRadios && bgComboRadios.length) {
+    Array.from(bgComboRadios).forEach(r => (r.checked = r.value === "0"));
+  }
+
+  // clear computed skills display + hidden field
+  document.getElementById("background-skill-display").innerHTML = "No skill proficiencies allocated yet.";
+  if (computedSkillsInput) computedSkillsInput.value = "{}";
+
+  // also reset any boosts (keeps “Add in Order” contract intact)
+  window.resetBoosts();
+
+  // re-render counters/table
+  updateDisplay();
+}
+
+// --- Replace your current window.resetBackground = ... with this: ---
+window.resetBackground = () => {
+  resetBackgroundUI();
+};
+
+// (optional but recommended) make Reset All also clear race/subrace & backgrounds
+window.resetCharacter = () => {
+  // clear race & subrace
+  raceSelect.value = "";
+  subraceSelect.innerHTML = "<option value=''>-- Select a Subrace --</option>";
+  subraceDiv.style.display = "none";
+
+  // clear any racial ASI allocations
+  racialASIBonus = {};
+  stats.forEach(s => {
+    const el = document.getElementById("racial-" + s.toLowerCase());
+    if (el) el.value = 0;
+    racialASIBonus[s] = 0;
+  });
+  document.getElementById("racial-allocation-section").style.display = "none";
+  document.getElementById("racial-points").innerText = "0";
+
+  // clear backgrounds & boosts and re-init base stats/counters
+  resetBackgroundUI();
+  stats.forEach(s => {
+    baseStats[s] = 8;
+    boostModifiers[s] = 0;
+    boostedStats[s] = false;
+  });
+  pointsRemaining = 12;
+  boostsRemaining = 5;
+  highBoostUsed = false;
+
+  // clear racial features pane
+  const racialFeaturesWrap = document.getElementById("racial-features");
+  const racialFeaturesBody = document.getElementById("racial-features-body");
+  if (racialFeaturesWrap && racialFeaturesBody) {
+    racialFeaturesWrap.style.display = "none";
+    racialFeaturesBody.innerHTML = "Select a race to see its features.";
+  }
+
+  updateDisplay();
+};
+
+// --- Also hook background reset when race/subrace changes ---
+raceSelect.addEventListener("change", () => {
+  // (existing code that rebuilds subrace list etc… stays)
+  resetBackgroundUI();   // <- NEW: nuke backgrounds when race changes
+});
+
+subraceSelect.addEventListener("change", () => {
+  resetBackgroundUI();   // <- NEW: if they swap subrace, clear backgrounds too
+});
 
 function featureCardHTML(f) {
   const kv = (f.details || [])

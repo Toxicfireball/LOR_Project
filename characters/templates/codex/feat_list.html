@@ -4,12 +4,7 @@
 {% block title %}feat_list{% endblock %}
 
 {% block content %}
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>Feats</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
   <style>
     :root { --b:#e5e7eb; --t:#111827; --bg:#ffffff; --muted:#6b7280; --hi:#2563eb; }
     * { box-sizing: border-box; }
@@ -30,17 +25,32 @@
     .muted { color:var(--muted); }
 
     /* Grid */
-    .table-wrap { overflow:auto; border:1px solid var(--b); border-radius:12px; }
+    .table-wrap { position:relative; overflow:visible; border:1px solid var(--b); border-radius:12px; }
     table { width:100%; border-collapse:collapse; }
     th, td { text-align:left; padding:12px 12px; border-bottom:1px solid var(--b); vertical-align:top; }
-    th { position:relative; font-size:14px; color:#111827; background:#f9fafb; }
+    th { position:relative; z-index:1; font-size:14px; color:#111827; background:#f9fafb; }
     tr:hover td { background:#fafafa; }
     .tag { font-size:12px; padding:2px 6px; border:1px solid var(--b); border-radius:999px; margin-right:6px; display:inline-block; }
     .cell-actions { white-space: nowrap; }
 
     /* Header popover menus */
     .filter-toggle { margin-left:8px; font-size:12px; color:var(--muted); cursor:pointer; user-select:none; }
-    .menu { position:absolute; top: calc(100% + 4px); left: 8px; z-index:20; background:#fff; border:1px solid var(--b); border-radius:12px; box-shadow:0 12px 30px rgba(0,0,0,.12); width:280px; max-height:320px; overflow:auto; padding:8px; display:none; }
+.menu {
+  position:absolute;
+  top: calc(100% + 6px);
+  left: 8px;
+  z-index: 1000;                       /* ensure it floats above the table */
+  background:#fff;
+  border:1px solid var(--b);
+  border-radius:12px;
+  box-shadow:0 12px 30px rgba(0,0,0,.18);
+  width: min(320px, calc(100vw - 32px));/* never overflow the viewport horizontally */
+  max-height:320px;
+  overflow:auto;
+  padding:8px;
+  display:none;
+}
+th[data-col="level"] .menu { left:auto; right:8px; }
     .menu.open { display:block; }
     .menu .hdr { display:flex; justify-content:space-between; align-items:center; position:sticky; top:0; background:#fff; padding:6px 4px; border-bottom:1px solid var(--b); }
     .menu .hdr button { border:none; background:none; color:var(--hi); cursor:pointer; font-weight:600; }
@@ -52,11 +62,10 @@
     .pill { font-size:12px; background:#eef2ff; border:1px solid #c7d2fe; padding:2px 8px; border-radius:999px; }
 
     /* Drawer */
-    .backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.25); backdrop-filter: blur(2px); z-index: 40; display:none; }
-    .backdrop.open { display:block; }
-    .drawer { position: fixed; top: 0; right: 0; height: 100%; width: min(560px, 92vw); background: #fff;
-              box-shadow: -12px 0 30px rgba(0,0,0,.15); padding: 20px 20px 40px; overflow: auto; z-index: 50;
-              border-left: 1px solid var(--b); transform: translateX(100%); transition: transform .22s ease; }
+.backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 940; display:none; }    
+.drawer { position: fixed; top: 0; right: 0; height: 100%; width: min(560px, 92vw); background: #fff;
+          box-shadow: -12px 0 30px rgba(0,0,0,.15); padding: 20px 20px 40px; overflow: auto; z-index: 950;
+          border-left: 1px solid var(--b); transform: translateX(100%); transition: transform .22s ease; }
     .drawer.open { transform: translateX(0%); }
     .drawer-close { position: sticky; top: 0; float: right; border: 1px solid var(--b); background: #f3f4f6; border-radius: 8px; padding: 4px 8px; cursor: pointer; }
     .d-name { margin: 6px 0 4px; }
@@ -70,7 +79,6 @@
     /* Small helpers */
     .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0; }
   </style>
-</head>
 <body>
 <div class="wrap">
   <h1 style="margin:0 0 8px;">Feats</h1>
@@ -547,6 +555,5 @@ async function boot(){
 
 boot();
 </script>
-</body>
-</html>
+
 {% endblock %}

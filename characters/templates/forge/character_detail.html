@@ -125,7 +125,21 @@
                 {% for a in abilities %}
                   <tr>
                     <td>{{ a.label }}</td>
-                    <td class="text-end">{{ a.score }}</td>
+<td class="text-end">
+  <span>{{ a.score }}</span>
+  {% if can_edit %}
+    <button
+      class="edit-pill edit-override"
+      type="button"
+      title="Override ability (formula or final)"
+      data-key="ability:{{ a.key }}"
+      data-calc="{{ a.score }}"
+      data-formula=""
+      data-debug-el="">
+      ✎
+    </button>
+  {% endif %}
+</td>
                     <td class="text-end">{{ a.mod_str }}</td>
                   </tr>
                 {% endfor %}
@@ -164,82 +178,61 @@
         <button class="btn btn-sm btn-primary" name="save_core_stats_submit" value="1">Save</button>
       </li>
 
-      <li class="list-group-item d-flex justify-content-between align-items-center">
-        <span>Armor</span>
-        <span class="d-flex align-items-center gap-2">
-          <strong>{{ derived.armor_total }}</strong>
-<button class="btn btn-xs btn-outline-secondary edit-override"
-        type="button"
-        data-key="prof:armor"
-        data-calc="{{ derived.armor_total }}"
-        data-formula=""
-        data-debug-el="dbg-armor">✎</button>
+<li class="list-group-item d-flex justify-content-between align-items-center">
+  <span>Armor</span>
+  <span class="d-flex align-items-center gap-2">
+    <strong>{{ derived.armor_total }}</strong>
+  </span>
+</li>
 
-        </span>
       </li>
 
-      <li class="list-group-item d-flex justify-content-between align-items-center">
-        <span>Dodge</span>
-        <span class="d-flex align-items-center gap-2">
-          <strong>{{ derived.dodge_total }}</strong>
-<button class="btn btn-xs btn-outline-secondary edit-override" type="button"
-        data-key="prof:dodge"      data-calc="{{ derived.dodge_total }}"      data-formula="" data-debug-el="dbg-dodge">✎</button>
+<li class="list-group-item d-flex justify-content-between align-items-center">
+  <span>Dodge</span>
+  <span class="d-flex align-items-center gap-2">
+    <strong>{{ derived.dodge_total }}</strong>
+  </span>
+</li>
 
-        </span>
-      </li>
 
-      <li class="list-group-item d-flex justify-content-between align-items-center">
-        <span>Reflex</span>
-        <span class="d-flex align-items-center gap-2">
-          <strong>{{ derived.reflex_total }}</strong>
-<button class="btn btn-xs btn-outline-secondary edit-override" type="button"
-        data-key="prof:reflex"     data-calc="{{ derived.reflex_total }}"     data-formula="" data-debug-el="dbg-reflex">✎</button>
+<li class="list-group-item d-flex justify-content-between align-items-center">
+  <span>Reflex</span>
+  <span class="d-flex align-items-center gap-2">
+    <strong>{{ derived.reflex_total }}</strong>
+  </span>
+</li>
 
-        </span>
-      </li>
+<li class="list-group-item d-flex justify-content-between align-items-center">
+  <span>Fortitude</span>
+  <span class="d-flex align-items-center gap-2">
+    <strong>{{ derived.fortitude_total }}</strong>
+  </span>
+</li>
 
-      <li class="list-group-item d-flex justify-content-between align-items-center">
-        <span>Fortitude</span>
-        <span class="d-flex align-items-center gap-2">
-          <strong>{{ derived.fortitude_total }}</strong>
-<button class="btn btn-xs btn-outline-secondary edit-override" type="button"
-        data-key="prof:fortitude"  data-calc="{{ derived.fortitude_total }}"  data-formula="" data-debug-el="dbg-fortitude">✎</button>
 
-        </span>
-      </li>
+<li class="list-group-item d-flex justify-content-between align-items-center">
+  <span>Will</span>
+  <span class="d-flex align-items-center gap-2">
+    <strong>{{ derived.will_total }}</strong>
+  </span>
+</li>
 
-      <li class="list-group-item d-flex justify-content-between align-items-center">
-        <span>Will</span>
-        <span class="d-flex align-items-center gap-2">
-          <strong>{{ derived.will_total }}</strong>
-<button class="btn btn-xs btn-outline-secondary edit-override" type="button"
-        data-key="prof:will"       data-calc="{{ derived.will_total }}"       data-formula="" data-debug-el="dbg-will">✎</button>
 
-        </span>
-      </li>
+<li class="list-group-item d-flex justify-content-between align-items-center">
+  <span>Perception</span>
+  <span class="d-flex align-items-center gap-2">
+    <strong>{{ derived.perception_total }}</strong>
+  </span>
+</li>
 
-      <li class="list-group-item d-flex justify-content-between align-items-center">
-        <span>Perception</span>
-        <span class="d-flex align-items-center gap-2">
-          <strong>{{ derived.perception_total }}</strong>
-<button class="btn btn-xs btn-outline-secondary edit-override" type="button"
-        data-key="prof:perception" data-calc="{{ derived.perception_total }}" data-formula="" data-debug-el="dbg-perception">✎</button>
 
-        </span>
-      </li>
+<li class="list-group-item d-flex justify-content-between align-items-center">
+  <span>Spell/DC</span>
+  <span class="d-flex align-items-center gap-2">
+    <strong>{{ spell_dc_main|default:"—" }}</strong>
+  </span>
+</li>
 
-      <li class="list-group-item d-flex justify-content-between align-items-center">
-        <span>Spell/DC</span>
-        <span class="d-flex align-items-center gap-2">
-          <strong>{{ spell_dc_main|default:"—" }}</strong>
-<button class="btn btn-xs btn-outline-secondary edit-override" type="button"
-        data-key="dc:main"
-        data-calc="{{ spell_dc_main|default:'' }}"
-        data-formula="{{ spell_dc_rows.0.formula|default:''|escape }}"
-        data-debug-el="dbg-dc">✎</button>
-
-        </span>
-      </li>
 
     </ul>
   </form>

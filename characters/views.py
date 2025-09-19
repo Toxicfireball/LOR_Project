@@ -3242,13 +3242,20 @@ def character_detail(request, pk):
             return LOR_TIER_ORDER[i+1] if i+1 < len(LOR_TIER_ORDER) else None
         except ValueError:
             return "Trained"  # safety
-
+    def _formula_override(key: str):
+        row = CharacterFieldOverride.objects.filter(character=character, key=f"formula:{key}").first()
+        return (row.value or "").strip() if row else None
     def _upgrade_cost(current_name):
         return LOR_UPGRADE_COST.get(current_name.title(), 1)
 
     def _min_level_to_reach(tier_name):
         return LOR_MIN_LEVEL_FOR.get(tier_name.title(), 99)
-
+    def _final_override(key: str):
+        row = CharacterFieldOverride.objects.filter(character=character, key=f"final:{key}").first()
+        try:
+            return int(row.value) if row and str(row.value).strip() != "" else None
+        except Exception:
+            return None
     # Switchable refund behavior: "step"=just the last step; "full"=all invested in current tier path
     RETRAIN_REFUND_MODE = "step"
 
@@ -3266,16 +3273,56 @@ def character_detail(request, pk):
         .select_related("racial_feature", "subclass")
         .order_by("level", "racial_feature__name")
 )
+    # Ability scores now support the same Formula/Final override pattern as Skills.
+    # Keys: "ability:<name>", e.g., "ability:strength"
     abilities = []
-    for label, score in ability_map.items():
+    for label, base in ability_map.items():
+        key   = label.lower()           # "strength"
+        score = int(base)
+
+        # 1) Optional FORMULA override (supports relative "+2" or absolute "12")
+        expr = _formula_override(f"ability:{key}")  # reads "formula:ability:<key>"
+        if expr:
+            s = expr.strip()
+            try:
+                ctx = {
+                    # baseline + all six scores/mods for convenience
+                    "base": base,
+                    "strength": character.strength, "dexterity": character.dexterity,
+                    "constitution": character.constitution, "intelligence": character.intelligence,
+                    "wisdom": character.wisdom, "charisma": character.charisma,
+                    "str_mod": _abil_mod(character.strength), "dex_mod": _abil_mod(character.dexterity),
+                    "con_mod": _abil_mod(character.constitution), "int_mod": _abil_mod(character.intelligence),
+                    "wis_mod": _abil_mod(character.wisdom), "cha_mod": _abil_mod(character.charisma),
+                    "level": character.level,
+                    "floor": math.floor, "ceil": math.ceil, "min": min, "max": max, "int": int, "round": round,
+                }
+                if s[:1] in {"+", "-"}:
+                    adj = int(eval(_normalize_formula(s), {"__builtins__": {}}, ctx))
+                    score = int(base) + adj
+                else:
+                    score = int(eval(_normalize_formula(s), {"__builtins__": {}}, ctx))
+            except Exception:
+                # ignore bad formula; keep system value
+                pass
+
+        # 2) Optional FINAL override
+        final = _final_override(f"ability:{key}")    # reads "final:ability:<key>"
+        if final is not None:
+            try:
+                score = int(final)
+            except Exception:
+                pass
+
         m = _abil_mod(score)
         abilities.append({
-            "label": label,           # "Strength"
-            "key": label.lower(),     # "strength" (used by your editable helper)
-            "score": score,           # 15
-            "mod": m,                 # 2
+            "label": label,
+            "key": key,
+            "score": score,
+            "mod": m,
             "mod_str": f"{'+' if m >= 0 else ''}{m}",
         })
+
     skill_proficiencies = list(character.skill_proficiencies.all())
     skill_proficiencies.sort(key=lambda sp: (getattr(sp.selected_skill, "name", "") or "").lower())
 
@@ -3461,16 +3508,9 @@ def character_detail(request, pk):
     if _spell_redirect:
         return _spell_redirect
 
-    def _formula_override(key: str):
-        row = CharacterFieldOverride.objects.filter(character=character, key=f"formula:{key}").first()
-        return (row.value or "").strip() if row else None
 
-    def _final_override(key: str):
-        row = CharacterFieldOverride.objects.filter(character=character, key=f"final:{key}").first()
-        try:
-            return int(row.value) if row and str(row.value).strip() != "" else None
-        except Exception:
-            return None
+
+
 
 
 
@@ -4253,17 +4293,19 @@ def character_detail(request, pk):
 
     # E) SKILL feats (if/when you add a field) – only feat_type=Skill + race filter
     if "skill_feat_pick" in level_form.fields:
-        sf_qs = level_form.fields["skill_feat_pick"].queryset or ClassFeat.objects.none()
-        # Base type/race filter
-        sf_qs = sf_qs.filter(feat_type__iexact="Skill").filter(race_q)
+        fld = level_form.fields["skill_feat_pick"]
+        base_qs = fld.queryset or ClassFeat.objects.all()  # fallback
 
-        # Optional: restrict to class membership/tags if your data uses them (mirrors class_feat rules)
+        # Restrict to skill-feats + race/subrace first
+        sf_qs = base_qs.filter(feat_type__iexact="Skill").filter(race_q)
+
+        # Optional: restrict by class membership/tags (mirrors class_feat rules)
         target_cls = posted_cls if request.method == 'POST' else preview_cls
         if target_cls:
             class_tags = [t.lower() for t in target_cls.tags.values_list("name", flat=True)]
             tokens = [target_cls.name] + class_tags
             if "spellcaster" in class_tags: tokens += ["spellcaster", "spellcasting", "caster"]
-            if "martial" in class_tags: tokens += ["martial"]
+            if "martial" in class_tags:     tokens += ["martial"]
             token_res = [rf'(^|[,;/\s]){re.escape(tok)}([,;/\s]|$)' for tok in tokens if tok]
             any_token_re = "(" + ")|(".join(token_res) + ")" if token_res else None
             if any_token_re:
@@ -4274,21 +4316,30 @@ def character_detail(request, pk):
                     Q(class_name__exact="") | Q(class_name__isnull=True)
                 )
 
-        sf_qs = sf_qs.order_by("name")
-        level_form.fields["skill_feat_pick"].queryset = sf_qs
+        # Apply the filtered queryset to the field
+        fld.queryset = sf_qs.order_by("name")
+
+        # If no options are available, DO NOT require a pick
+        # (picks comes from ClassSkillFeatGrant; keep it from the block that built the field)
+        picks_required = bool(skill_grant and int(skill_grant.num_picks or 0) > 0)
+        if not sf_qs.exists():
+            fld.required = False
+            fld.help_text = "No skill feats available at this level for your race/tags."
+        else:
+            # Keep it required only when we actually have options and a pick is granted
+            fld.required = picks_required
 
         # Convenience: auto-select if exactly one option and a pick is required
-        picks_required = getattr(skill_grant, "num_picks", 0) and int(skill_grant.num_picks) > 0
         if request.method == "POST" and picks_required and sf_qs.count() == 1 and not request.POST.getlist("skill_feat_pick"):
             _post = request.POST.copy()
             only_id = str(sf_qs.first().pk)
-            # ModelChoiceField posts a single value; MultipleChoice posts list
-            if isinstance(level_form.fields["skill_feat_pick"], forms.ModelMultipleChoiceField):
+            if isinstance(fld, forms.ModelMultipleChoiceField):
                 _post.setlist("skill_feat_pick", [only_id])
             else:
                 _post["skill_feat_pick"] = only_id
             request.POST = _post
             level_form.data = _post
+
     # --- INLINE save for a skill's Formula / Final (primary/secondary) -------------
     if request.method == "POST" and request.POST.get("save_skill_override") and can_edit:
         packed = (request.POST.get("save_skill_override") or "").strip()  # e.g. "sk_12:1"
@@ -6729,21 +6780,25 @@ def character_level_up(request, pk):
             .filter(character_class=posted_cls, at_level=cls_level_for_validate)
             .first()
         )
-        if skill_grant and "skill_feat_pick" in level_form.fields:
+        if skill_grant and "skill_feat_pick" not in level_form.fields:
             picks = int(skill_grant.num_picks or 0)
-            if picks > 0:
-                picked = level_form.cleaned_data.get("skill_feat_pick")
-                # Normalize to a list
-                if isinstance(level_form.fields["skill_feat_pick"], forms.ModelMultipleChoiceField):
-                    picked_feats = list(picked)
-                    if len(picked_feats) != picks:
-                        level_form.add_error("skill_feat_pick", f"Pick exactly {picks} skill feat(s).")
-                        return redirect('characters:character_detail', pk=pk)
-                else:
-                    picked_feats = [picked] if picked else []
-                    if len(picked_feats) != picks:
-                        level_form.add_error("skill_feat_pick", f"Pick exactly {picks} skill feat(s).")
-                        return redirect('characters:character_detail', pk=pk)
+            if picks <= 0:
+                # Don’t add a field at all when there are no picks this level.
+                pass
+            elif picks == 1:
+                level_form.fields["skill_feat_pick"] = forms.ModelChoiceField(
+                    queryset=ClassFeat.objects.all(),
+                    required=True,
+                    label="Skill Feat",
+                )
+            else:
+                level_form.fields["skill_feat_pick"] = forms.ModelMultipleChoiceField(
+                    queryset=ClassFeat.objects.all(),
+                    required=True,
+                    label=f"Pick {picks} Skill Feat(s)",
+                    widget=forms.CheckboxSelectMultiple,
+                )
+
 
                 # Persist as CharacterFeat at the *new* total level
                 next_total_level = character.level + 1
