@@ -16,7 +16,129 @@ from django_select2.forms import HeavySelect2Widget
 from .models import CharacterSubSkillProficiency, CharacterClass, CharacterClassProgress
 from django.core.exceptions import ValidationError
 from django import forms
-from .models import ClassSkillFeatGrant, CharacterClass, MartialMastery, ClassFeat, Race, Subrace, ClassFeature, ClassSubclass, Background, FeatureOption, UniversalLevelFeature, RacialFeature
+from .models import ClassSkillFeatGrant,PendingBackground, CharacterClass, MartialMastery, ClassFeat, Race, Subrace, ClassFeature, ClassSubclass, Background, FeatureOption, UniversalLevelFeature, RacialFeature
+
+# characters/forms.py
+from django import forms
+from django.contrib.contenttypes.models import ContentType
+from django.db.models import Q
+from campaigns.models import Campaign
+from .models import Background, PendingBackground, Skill, SubSkill
+
+ABILITY_CHOICES = Background._meta.get_field("primary_ability").choices
+# characters/forms.py
+from django import forms
+from django.contrib.contenttypes.models import ContentType
+from campaigns.models import Campaign
+from .models import PendingBackground, Skill, SubSkill, Background
+
+ABILITY_CHOICES = Background._meta.get_field("primary_ability").choices
+
+class PendingBackgroundInlineForm(forms.ModelForm):
+    """
+    Minimal proposal: Primary/Secondary Skill + Primary/Secondary ability only.
+    Each selected skill must be either a Skill or a SubSkill (not both).
+    Constraint: At most one selected skill may be 'advanced'.
+    """
+    campaign = forms.ModelChoiceField(queryset=Campaign.objects.none(), required=True)
+
+    # Primary / Secondary skill selection (skill OR subskill)
+    primary_skill_kind   = forms.ChoiceField(choices=[("skill","Skill"),("subskill","SubSkill")], required=True)
+    primary_skill_choice = forms.IntegerField(required=True)
+
+    secondary_skill_kind   = forms.ChoiceField(choices=[("skill","Skill"),("subskill","SubSkill")], required=True)
+    secondary_skill_choice = forms.IntegerField(required=True)
+
+    # Ability scores (no bonuses here; your system applies +2/+1 separately)
+    primary_ability   = forms.ChoiceField(choices=ABILITY_CHOICES, required=True)
+    secondary_ability = forms.ChoiceField(choices=ABILITY_CHOICES, required=True)
+
+    # Optional: simple identifiers
+    code = forms.SlugField(max_length=64, required=True)
+    name = forms.CharField(max_length=128, required=True)
+
+    class Meta:
+        model  = PendingBackground
+        fields = [
+            "campaign", "code", "name",
+            "primary_ability", "secondary_ability",
+            # we'll set *_skill_type/id in clean()
+        ]
+
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        # limit to user’s campaigns
+        from campaigns.models import CampaignMembership
+        self.fields["campaign"].queryset = Campaign.objects.filter(
+            campaignmembership__user=user
+        ).distinct().order_by("name")
+
+    def clean(self):
+        cleaned = super().clean()
+
+        # Resolve Skill/SubSkill selections → ContentType + id
+        ct_skill = ContentType.objects.get_for_model(Skill)
+        ct_sub   = ContentType.objects.get_for_model(SubSkill)
+
+        def resolve(kind, pk):
+            if kind == "skill":
+                obj = Skill.objects.filter(pk=pk).first()
+                if not obj:
+                    raise forms.ValidationError("Invalid primary/secondary Skill.")
+                return obj, ct_skill, obj.id, bool(obj.is_advanced)
+            elif kind == "subskill":
+                obj = SubSkill.objects.select_related("skill").filter(pk=pk).first()
+                if not obj:
+                    raise forms.ValidationError("Invalid primary/secondary SubSkill.")
+                # a SubSkill is advanced if its parent Skill is advanced
+                return obj, ct_sub, obj.id, bool(obj.skill.is_advanced)
+            raise forms.ValidationError("Invalid skill kind.")
+
+        # Primary
+        p_obj, p_ct, p_id, p_advanced = resolve(
+            cleaned.get("primary_skill_kind"),
+            cleaned.get("primary_skill_choice"),
+        )
+        # Secondary
+        s_obj, s_ct, s_id, s_advanced = resolve(
+            cleaned.get("secondary_skill_kind"),
+            cleaned.get("secondary_skill_choice"),
+        )
+
+        # Enforce: at most one advanced skill total
+        if p_advanced and s_advanced:
+            raise forms.ValidationError("Only one selected skill may be Advanced.")
+
+        # Stash resolved pointers for save()
+        cleaned["primary_skill_type"]   = p_ct
+        cleaned["primary_skill_id"]     = p_id
+        cleaned["secondary_skill_type"] = s_ct
+        cleaned["secondary_skill_id"]   = s_id
+
+        return cleaned
+
+    def save(self, commit=True, requested_by=None):
+        obj = super().save(commit=False)
+        obj.requested_by = requested_by
+        # Map resolved fields
+        obj.primary_skill_type   = self.cleaned_data["primary_skill_type"]
+        obj.primary_skill_id     = self.cleaned_data["primary_skill_id"]
+        obj.secondary_skill_type = self.cleaned_data["secondary_skill_type"]
+        obj.secondary_skill_id   = self.cleaned_data["secondary_skill_id"]
+
+        # Minimal defaults for unused fields on PendingBackground
+        obj.primary_bonus = 2
+        obj.secondary_bonus = 1
+        obj.primary_selection_mode = getattr(PendingBackground, "primary_selection_mode", "all") or "all"
+        obj.secondary_selection_mode = getattr(PendingBackground, "secondary_selection_mode", "all") or "all"
+        obj.description = ""  # keep empty; you asked for minimal fields
+
+        if commit:
+            obj.save()
+        return obj
+
+
+
 class CharacterCreationForm(forms.ModelForm):
     # — pick race by its slug/code, not by PK
     race = forms.ModelChoiceField(
@@ -670,6 +792,64 @@ class BackgroundForm(forms.ModelForm):
             inst.secondary_skill_id   = sel2.pk
         else:
             # clear if omitted
+            inst.secondary_skill_type = None
+            inst.secondary_skill_id   = None
+
+        if commit:
+            inst.save()
+        return inst
+class PendingBackgroundRequestForm(forms.ModelForm):
+    # match admin UI fields
+    primary_selection_mode = forms.ChoiceField(
+        choices=Background.SELECTION_MODES, label="Primary Skill → grant mode"
+    )
+    secondary_selection_mode = forms.ChoiceField(
+        choices=Background.SELECTION_MODES, label="Secondary Skill → grant mode", required=False
+    )
+    primary_selection   = CombinedSkillField(label="Primary Skill or SubSkill")
+    secondary_selection = CombinedSkillField(label="Secondary Skill or SubSkill", required=False)
+
+    class Meta:
+        model  = PendingBackground
+        fields = [
+            "campaign",  # optional
+            "code", "name", "description",
+            "primary_ability", "primary_bonus",
+            "secondary_ability", "secondary_bonus",
+        ]
+
+    def __init__(self, *args, **kwargs):
+        user = kwargs.pop("user", None)
+        super().__init__(*args, **kwargs)
+        # choices rebuilt dynamically
+        self.fields["primary_selection"].widget.choices = build_combined_skill_choices()
+        self.fields["secondary_selection"].widget.choices = build_combined_skill_choices()
+
+        # players shouldn’t be forced to pick a campaign; if you want to restrict, filter here
+        if "campaign" in self.fields:
+            from campaigns.models import Campaign, CampaignMembership
+            qs = Campaign.objects.all()
+            if user:
+                # show only campaigns the user is a member of
+                qs = Campaign.objects.filter(campaignmembership__user=user).distinct()
+            self.fields["campaign"].queryset = qs
+            self.fields["campaign"].required = False
+
+    def save(self, commit=True):
+        inst = super().save(commit=False)
+        inst.primary_selection_mode   = self.cleaned_data.get("primary_selection_mode")
+        inst.secondary_selection_mode = self.cleaned_data.get("secondary_selection_mode")
+
+        sel = self.cleaned_data.get("primary_selection")
+        if sel:
+            inst.primary_skill_type = ContentType.objects.get_for_model(sel)
+            inst.primary_skill_id   = sel.pk
+
+        sel2 = self.cleaned_data.get("secondary_selection")
+        if sel2:
+            inst.secondary_skill_type = ContentType.objects.get_for_model(sel2)
+            inst.secondary_skill_id   = sel2.pk
+        else:
             inst.secondary_skill_type = None
             inst.secondary_skill_id   = None
 

@@ -21,6 +21,35 @@
     padding: 0;
     line-height: 1.6;
   }
+/* Modal */
+.modal { position: fixed; inset: 0; display: none; z-index: 1000; }
+.modal[aria-hidden="false"] { display: block; }
+.modal__backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.35); }
+.modal__dialog {
+  position: relative;
+  max-width: 720px;
+  margin: 5vh auto;
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 15px 40px rgba(0,0,0,.2);
+  overflow: hidden;
+}
+.modal__header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding: 12px 16px; background:#f7f7fb; border-bottom:1px solid #eee;
+}
+.modal__close { background:transparent; border:0; font-size:1.25rem; line-height:1; cursor:pointer; padding:4px 8px; }
+.modal__body { padding: 16px; }
+.modal__footer { display:flex; align-items:center; justify-content:space-between; gap:.75rem; padding: 12px 16px; border-top:1px solid #eee; }
+
+.grid2 { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.grid2 label { font-weight:600; }
+.grid2 input, .grid2 select { margin-top:6px; }
+
+.btn-primary { background:#007BFF; color:#fff; border:0; padding:.6rem 1rem; border-radius:8px; cursor:pointer; }
+.btn-primary:hover { background:#005fd1; }
+
+.form-error { color:#b00020; font-size:.95rem; min-height:1.2em; }
 
   /* Container and form layout */
   form#characterForm {
@@ -217,29 +246,49 @@
   <!-- Will store subclass picks keyed by feature id -->
   <input type="hidden" name="racial_subclass_picks" id="racial_subclass_picks" value="{}">
   <input type="hidden" name="race_option_picks" id="race_option_picks" value="{}">
+<div class="section light">
+  <h3>How Background Choices Work</h3>
+  <ul style="margin:0 0 0 18px;">
+    <li><strong>Total Budget:</strong> No matter the combination, you end with <strong>+3 ability bonus</strong> (split over up to two abilities) and <strong>two skill/tool proficiencies</strong>.</li>
+    <li><strong>Main Only:</strong> You gain the Main’s <em>Primary</em> (+2) and <em>Secondary</em> (+1) ability bonuses, plus both the Main’s <em>Primary</em> and <em>Secondary</em> skill/tool proficiencies.</li>
+    <li><strong>Main + 1 Side:</strong> You keep the Main’s full Primary benefits. From the Side you choose <em>either</em> +1 to an ability (from its Primary or Secondary ability) <em>or</em> one of its skill/tool proficiencies (Primary or Secondary).</li>
+    <li><strong>Main + 2 Sides:</strong> You keep the Main’s full Primary benefits. Then choose <em>one</em> +1 ability bonus from either Side (from that Side’s Primary or Secondary ability) <em>and</em> choose <em>one</em> skill/tool proficiency from either Side (Primary or Secondary).</li>
+    <li><strong>Stacking Limits:</strong> The same ability or the same skill/tool can be applied at most <strong>twice</strong> total. If a choice would exceed that limit, it’s ignored and (if possible) replaced by your Main’s Secondary ability bonus.</li>
+  </ul>
+</div>
 
   <!-- Backgrounds -->
   <div class="section">
+    
     <h3>Background Combination</h3>
     <label><input type="radio" name="bg_combo" value="0" checked> Main Background Only</label>
     <label><input type="radio" name="bg_combo" value="1"> Main + 1 Side Background</label>
     <label><input type="radio" name="bg_combo" value="2"> Main + 2 Side Backgrounds</label>
   </div>
   
-  <div class="section">
-    <h3>Main Background</h3>
-    <label for="main_background">Select Main Background:</label>
+<div class="section">
+  <h3>Main Background</h3>
+<p class="small-note" style="margin:4px 0 10px;">
+  Don’t see your background?
+  <button type="button" id="toggle-proposal" style="padding:.25rem .5rem;border:1px solid #ccc;background:#fafafa;">
+    Propose a custom background to a campaign…
+  </button>
+</p>
 
-<select
-  id="main_background"
-  name="main_background"
-  required
-  style="width:100%; padding:8px;"
->
+
+
+
+  <label for="main_background">Select Main Background:</label>
+  <select
+    id="main_background"
+    name="main_background"
+    style="width:100%; padding:8px;"
+  >
     <option value="">-- Select Main Background --</option>
-    </select>
-    <p>(In Main-only mode, you get both primary (+2) and secondary (+1) benefits.)</p>
-  </div>
+  </select>
+  <p>(In Main-only mode, you get both primary (+2) and secondary (+1) benefits.)</p>
+</div>
+
 
   <div id="side_bg1_container" class="section" style="display:none;">
     <h3>Side Background</h3>
@@ -320,10 +369,116 @@
   <!-- Backstory -->
   <div style="margin-bottom:20px;"><label for="backstory">Backstory:</label><textarea name="backstory" id="backstory" rows="4"></textarea></div>
 
-  <div style="text-align:center;"><button type="submit">Finish Stage 1 &amp; Create Character</button></div>
+  <input type="hidden" name="action" id="formAction" value="create">
+<div style="text-align:center; display:flex; gap:.5rem; justify-content:center;">
+  <button type="submit" onclick="document.getElementById('formAction').value='draft'">Save Draft</button>
+  <button type="submit" onclick="document.getElementById('formAction').value='create'">Finish Stage 1 &amp; Create Character</button>
+</div>
+
 </form>
+<!-- Minimal + clean modal (NOT nested in characterForm) -->
+<div id="proposal-modal" class="modal" aria-hidden="true">
+  <div class="modal__backdrop" id="proposal-backdrop"></div>
+  <div class="modal__dialog" role="dialog" aria-modal="true" aria-labelledby="proposal-title">
+    <div class="modal__header">
+      <h4 id="proposal-title">Propose Background</h4>
+      <button type="button" class="modal__close" id="close-proposal" aria-label="Close">×</button>
+    </div>
+
+    <form method="post" action="{% url 'characters:propose_background_inline' %}" id="proposalForm" class="modal__body">
+      {% csrf_token %}
+
+      <div class="grid2">
+        <label>
+          Campaign
+          <select name="campaign" id="proposal_campaign" required></select>
+        </label>
+
+        <label>
+          Code
+          <input type="text" name="code" required placeholder="e.g. street_urchin">
+        </label>
+
+        <label>
+          Name
+          <input type="text" name="name" required>
+        </label>
+
+        <label>
+          Primary Ability
+          <select name="primary_ability" id="primary_ability" required>
+            <option value="strength">Strength</option>
+            <option value="dexterity">Dexterity</option>
+            <option value="constitution">Constitution</option>
+            <option value="intelligence">Intelligence</option>
+            <option value="wisdom">Wisdom</option>
+            <option value="charisma">Charisma</option>
+          </select>
+        </label>
+
+        <label>
+          Secondary Ability
+          <select name="secondary_ability" id="secondary_ability" required>
+            <option value="strength">Strength</option>
+            <option value="dexterity">Dexterity</option>
+            <option value="constitution">Constitution</option>
+            <option value="intelligence">Intelligence</option>
+            <option value="wisdom">Wisdom</option>
+            <option value="charisma">Charisma</option>
+          </select>
+        </label>
+
+        <!-- Primary Skill -->
+        <label>
+          Primary Skill Type
+          <select name="primary_skill_kind" id="p_kind" required>
+            <option value="skill">Skill</option>
+            <option value="subskill">SubSkill</option>
+          </select>
+        </label>
+        <label>
+          Primary Skill / SubSkill
+          <select name="primary_skill_choice" id="p_choice" required>
+            <option value="">-- select --</option>
+          </select>
+        </label>
+
+        <!-- Secondary Skill -->
+        <label>
+          Secondary Skill Type
+          <select name="secondary_skill_kind" id="s_kind" required>
+            <option value="skill">Skill</option>
+            <option value="subskill">SubSkill</option>
+          </select>
+        </label>
+        <label>
+          Secondary Skill / SubSkill
+          <select name="secondary_skill_choice" id="s_choice" required>
+            <option value="">-- select --</option>
+          </select>
+        </label>
+      </div>
+
+      <p class="small-note" id="proposal-rule">
+        Only <strong>one</strong> of the two chosen skills may be <em>Advanced</em>. Each choice must be a <em>Skill</em> or a <em>SubSkill</em>.
+      </p>
+
+      <div class="modal__footer">
+        <span class="form-error" id="proposal-error" aria-live="polite"></span>
+        <button type="submit" class="btn-primary">Submit to GM</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+
+
+
 <script id="races-data" type="application/json">{{ races_json|safe }}</script>
 <script id="backgrounds-data" type="application/json">{{ backgrounds_json|safe }}</script>
+<script id="skills-data" type="application/json">{{ skills_json|safe }}</script>
+<script id="subskills-data" type="application/json">{{ subskills_json|safe }}</script>
+<script id="user-campaigns-data" type="application/json">{{ user_campaigns_json|safe }}</script>
 
 <script>
 (function () {
@@ -1073,7 +1228,6 @@ const s = backgroundsData.find(b=>b.code===skillEl.value);            addSkill(s
     //
     window.adjustStat    = adjustStat;
     window.applyBoost    = applyBoost;
-    window.resetBackground = () => { stats.forEach(s=>backgroundModifiers[s]=0); updateDisplay(); };
     window.resetBoosts   = () => { stats.forEach(s=>{boostModifiers[s]=0;boostedStats[s]=false;}); boostsRemaining=5; highBoostUsed=false; updateDisplay(); };
     window.resetCharacter= initializeCharacter;
 
@@ -1106,13 +1260,6 @@ subraceSelect.addEventListener("change", () => {
 });
 
 
-subraceSelect.addEventListener("change",()=>{
-  applyRacialSlots();
-  updateDisplay();
-
-  // NEW
-  loadRaceFeatures();
-});
 
 
     // background combo → show/hide side selects
@@ -1176,6 +1323,123 @@ loadRaceFeatures(); // NEW
     // finally initial render
     updateDisplay();
   });
+</script>
+<script id="skills-data" type="application/json">{{ skills_json|safe }}</script>
+<script id="subskills-data" type="application/json">{{ subskills_json|safe }}</script>
+<script id="user-campaigns-data" type="application/json">{{ user_campaigns_json|safe }}</script>
+
+
+<script>
+(function(){
+  // Data from server
+  const campaigns = JSON.parse(document.getElementById('user-campaigns-data').textContent || '[]');
+  const skills    = JSON.parse(document.getElementById('skills-data').textContent || '[]');       // [{id, name, is_advanced}]
+  const subskills = JSON.parse(document.getElementById('subskills-data').textContent || '[]');   // [{id, name, skill__name, skill__is_advanced}]
+
+  // Elements
+  const openBtn   = document.getElementById('toggle-proposal');
+  const modal     = document.getElementById('proposal-modal');
+  const backdrop  = document.getElementById('proposal-backdrop');
+  const closeBtn  = document.getElementById('close-proposal');
+  const form      = document.getElementById('proposalForm');
+
+  const campSel   = document.getElementById('proposal_campaign');
+
+  const pKind     = document.getElementById('p_kind');
+  const pChoice   = document.getElementById('p_choice');
+  const sKind     = document.getElementById('s_kind');
+  const sChoice   = document.getElementById('s_choice');
+
+  const errorBox  = document.getElementById('proposal-error');
+
+  // Helpers
+  function openModal(){ modal.setAttribute('aria-hidden','false'); }
+  function closeModal(){ modal.setAttribute('aria-hidden','true'); errorBox.textContent = ''; }
+
+  function fillCampaigns() {
+    if (!campSel) return;
+    campSel.innerHTML = '<option value="">-- Select Campaign --</option>';
+    campaigns.forEach(c => campSel.add(new Option(c.name, c.id)));
+  }
+
+  function fillChoices(kindSel, targetSel) {
+    if (!kindSel || !targetSel) return;
+    targetSel.innerHTML = '<option value="">-- select --</option>';
+    const kind = kindSel.value;
+
+    if (kind === 'skill') {
+      skills.forEach(s => targetSel.add(new Option(
+        (s.is_advanced ? '★ ' : '') + s.name,
+        'skill:' + s.id
+      )));
+    } else {
+      subskills.forEach(su => targetSel.add(new Option(
+        (su["skill__is_advanced"] ? '★ ' : '') + su["skill__name"] + ' – ' + su.name,
+        'subskill:' + su.id
+      )));
+    }
+  }
+
+  function isAdvancedChoice(value) {
+    if (!value) return false;
+    const [kind, idStr] = value.split(':');
+    const id = Number(idStr);
+    if (kind === 'skill') {
+      const sk = skills.find(s => s.id === id);
+      return !!(sk && sk.is_advanced);
+    }
+    if (kind === 'subskill') {
+      const su = subskills.find(su => su.id === id);
+      return !!(su && su["skill__is_advanced"]);
+    }
+    return false;
+  }
+
+  function kindsMatchValue(kindSel, value) {
+    if (!value) return false;
+    const [kind] = value.split(':');
+    return (kindSel.value === kind); // "skill" vs "subskill"
+  }
+
+  // Events: open/close
+  if (openBtn) openBtn.addEventListener('click', openModal);
+  if (closeBtn) closeBtn.addEventListener('click', closeModal);
+  if (backdrop) backdrop.addEventListener('click', closeModal);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+
+  // Select population
+  fillCampaigns();
+  fillChoices(pKind, pChoice);
+  fillChoices(sKind, sChoice);
+
+  pKind.addEventListener('change', () => fillChoices(pKind, pChoice));
+  sKind.addEventListener('change', () => fillChoices(sKind, sChoice));
+
+  // Validation (enforce your rules)
+  form.addEventListener('submit', (e) => {
+    errorBox.textContent = '';
+
+    // Ensure chosen values align with their types (Skill/SubSkill)
+    if (!kindsMatchValue(pKind, pChoice.value)) {
+      e.preventDefault();
+      errorBox.textContent = 'Primary selection does not match its type.';
+      return;
+    }
+    if (!kindsMatchValue(sKind, sChoice.value)) {
+      e.preventDefault();
+      errorBox.textContent = 'Secondary selection does not match its type.';
+      return;
+    }
+
+    // Only one Advanced allowed across the two
+    const advancedCount = (isAdvancedChoice(pChoice.value) ? 1 : 0) + (isAdvancedChoice(sChoice.value) ? 1 : 0);
+    if (advancedCount > 1) {
+      e.preventDefault();
+      errorBox.textContent = 'Only one of the two skills may be Advanced.';
+      return;
+    }
+  });
+})();
 </script>
 
 

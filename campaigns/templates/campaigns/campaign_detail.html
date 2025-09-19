@@ -20,6 +20,13 @@
         </div>
       </div>
       <div class="shrink-0">
+        {% if is_member %}
+  <a class="inline-flex items-center mt-2 px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50"
+     href="{% url 'characters:propose_background' %}?campaign={{ campaign.id }}">
+    Propose Custom Background
+  </a>
+{% endif %}
+
         {% if not is_member %}
           <a class="inline-flex items-center px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700"
              href="{% url 'campaigns:join_campaign' campaign.id %}">
@@ -261,6 +268,28 @@
         {% endfor %}
       </ul>
     </section>
+{% if is_gm and pending_bgs %}
+<div class="section">
+  <h3>Pending Backgrounds</h3>
+  <ul>
+    {% for pb in pending_bgs %}
+      <li style="margin:.5rem 0;">
+        <strong>{{ pb.name }}</strong> ({{ pb.code }}) — by {{ pb.requested_by }}
+        <form method="post" action="{% url 'campaigns:approve_pending_bg' campaign.id pb.id %}" style="display:inline;">
+          {% csrf_token %}
+          <button type="submit">Approve</button>
+        </form>
+        <form method="post" action="{% url 'campaigns:reject_pending_bg' campaign.id pb.id %}" style="display:inline;">
+          {% csrf_token %}
+          <input type="text" name="gm_note" placeholder="Reason (optional)" style="width:200px;">
+          <button type="submit">Reject</button>
+        </form>
+      </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
 
     <!-- Messages -->
     <section id="messages" class="tab-panel hidden">

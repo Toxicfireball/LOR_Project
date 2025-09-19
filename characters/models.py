@@ -462,6 +462,12 @@ class Subrace(BaseRace):
 # Core Character
 # ------------------------------------------------------------------------------
 class Character(models.Model):
+
+    STATUS_CHOICES = (
+        ("draft", "Draft"),
+        ("active", "Active"),
+    )
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="active")
     user               = models.ForeignKey(User, on_delete=models.CASCADE, related_name='characters')
     name               = models.CharField(max_length=255)
     # Stage 1 fields
@@ -618,6 +624,51 @@ class Character(models.Model):
               .order_by('tier', 'mastery_rank', 'name'))
 
         return allowed_cap, qs
+class PendingBackground(models.Model):
+    """Player-proposed background awaiting GM approval. Mirrors Background fields 1:1."""
+    # link it to a campaign optionally; GM of that campaign can approve
+    campaign = models.ForeignKey(
+        'campaigns.Campaign', null=False, blank=False, on_delete=models.CASCADE, related_name='pending_backgrounds'
+    )
+
+    requested_by = models.ForeignKey('auth.User', on_delete=models.CASCADE, related_name='pending_backgrounds')
+
+    # same shape as Background (use your actual field names)
+    code = models.SlugField(max_length=64, unique=True)
+    name = models.CharField(max_length=128)
+    description = models.TextField(blank=True)
+
+    primary_ability = models.CharField(max_length=32, choices=Background._meta.get_field('primary_ability').choices)
+    primary_bonus   = models.IntegerField(default=2)
+    secondary_ability = models.CharField(max_length=32, choices=Background._meta.get_field('secondary_ability').choices, blank=True)
+    secondary_bonus   = models.IntegerField(default=1)
+
+    # skill selections (ContentType + id), same approach as Background
+    primary_skill_type   = models.ForeignKey(ContentType, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+    primary_skill_id     = models.PositiveIntegerField(null=True, blank=True)
+    secondary_skill_type = models.ForeignKey(ContentType, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+    secondary_skill_id   = models.PositiveIntegerField(null=True, blank=True)
+
+    # mirror your selection_mode strings if present
+    primary_selection_mode   = models.CharField(max_length=16, default=getattr(Background, 'DEFAULT_MODE', 'fixed'))
+    secondary_selection_mode = models.CharField(max_length=16, blank=True, default=getattr(Background, 'DEFAULT_MODE', 'fixed'))
+
+    # workflow
+    STATUS = (("pending","Pending"),("approved","Approved"),("rejected","Rejected"))
+    status = models.CharField(max_length=12, choices=STATUS, default="pending")
+    gm_note = models.TextField(blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):  # pragma: no cover
+        base = f"{self.name} ({self.code})"
+        if self.campaign_id:
+            base += f" @ {self.campaign.name}"
+        return base
 
 class RaceTag(models.Model):
     name = models.CharField(max_length=50, unique=True)

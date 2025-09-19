@@ -983,23 +983,7 @@
 <div class="tab-pane fade" id="tab-all">
   <div class="card p-3">
     <h5 class="mb-3">All Abilities</h5>
-    {% if racial_feature_rows %}
-  <section class="panel">
-    <h3>Racial Features</h3>
-    {% for row in racial_feature_rows %}
-      <div class="feature">
-        <div class="feature__title">
-          {{ row.racial_feature.name }}
-          {% if row.subclass %} — <em>{{ row.subclass.name }}</em>{% endif %}
-        </div>
-        <div class="feature__details">
-          {# if you have a details helper, use it; otherwise show description #}
-          {{ row.racial_feature.description|safe }}
-        </div>
-      </div>
-    {% endfor %}
-  </section>
-{% endif %}
+
 
     {% if all_rows %}
       <ul class="list-group">
@@ -2187,6 +2171,48 @@ document.addEventListener("DOMContentLoaded", function(){
     const el = document.getElementById("levelUpModal");
     bootstrap.Modal.getOrCreateInstance(el).show();
   }
+});
+</script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  // Event delegation for any "Details" toggle button
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.toggle-desc');
+    if (!btn) return;
+
+    // Find the closest container that logically owns its details block
+    // (works for <li>, table cells/rows, etc.)
+    const container = btn.closest('li, td, tr, .list-group-item, .card, .card-body, .tab-pane') || document;
+
+    // Prefer a details block within the same container
+    let panel = container.querySelector('.desc-body');
+
+    // Fallback: if the immediate sibling after the button is the panel
+    if (!panel && btn.nextElementSibling && btn.nextElementSibling.classList.contains('desc-body')) {
+      panel = btn.nextElementSibling;
+    }
+    // Fallback #2: walk up to a common parent and look for the next .desc-body
+    if (!panel) {
+      let p = btn.parentElement;
+      while (p && p !== container && !panel) {
+        if (p.nextElementSibling && p.nextElementSibling.classList?.contains('desc-body')) {
+          panel = p.nextElementSibling;
+          break;
+        }
+        p = p.parentElement;
+      }
+    }
+
+    if (!panel) return; // nothing to toggle
+
+    panel.classList.toggle('d-none');
+
+    // Optional: flip button label between Details/Hide
+    const shown = !panel.classList.contains('d-none');
+    const orig = btn.getAttribute('data-label') || 'Details';
+    const alt  = btn.getAttribute('data-label-alt') || 'Hide';
+    btn.textContent = shown ? alt : orig;
+  });
 });
 </script>
 

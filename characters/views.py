@@ -1,5 +1,8 @@
 from django.shortcuts import render
 from django.contrib import messages
+from django.utils import timezone
+from .models import PendingBackground
+from .forms import PendingBackgroundRequestForm
 
 from django.db.models import Case, When, IntegerField
 # Create your views here.
@@ -2372,8 +2375,13 @@ def create_character(request):
     """
     
     if request.method == 'POST':
+        action = (request.POST.get("action") or "create").strip().lower()  # "draft" or "create"
         form = CharacterCreationForm(request.POST)
         if form.is_valid():
+            # Build but don't save yet; we want to apply background math first.
+            character = form.save(commit=False)
+            character.user = request.user
+            character.status = "draft" if action == "draft" else "active"
             # Build but don't save yet; we want to apply background math first.
             character = form.save(commit=False)
             character.user = request.user
@@ -2618,7 +2626,12 @@ def create_character(request):
                 # Don’t fail the create flow; just surface a warning.
                 messages.warning(request, "Some skill proficiency data could not be read; backgrounds were applied correctly.")
 
+            if action == "draft":
+                messages.success(request, "Draft saved. You can finalize later.")
+            else:
+                messages.success(request, "Character created.")
             return redirect('characters:character_list')
+
 
         # Form invalid: explain instead of “resetting”
         messages.error(request, "Please correct the errors below. Your inputs are preserved.")
@@ -2697,11 +2710,25 @@ def create_character(request):
                 'skill':   _skill_label(bg.secondary_skill),
             }
         })
+    skills = list(Skill.objects.order_by("name").values("id","name","is_advanced"))
+    subskills = list(
+        SubSkill.objects.select_related("skill")
+        .order_by("skill__name","name")
+        .values("id","name","skill_id","skill__name","skill__is_advanced")
+    )
+    user_campaigns = list(
+        Campaign.objects.filter(campaignmembership__user=request.user)
+        .distinct().values("id","name")
+    )
+    # then extend your context
     context = {
+        
         'form':             form,
         'races_json':       json.dumps(races,       cls=DjangoJSONEncoder),
         'backgrounds_json': json.dumps(backgrounds, cls=DjangoJSONEncoder),
-        # NEW: endpoint the page will call to load features
+        'skills_json':      json.dumps(skills,      cls=DjangoJSONEncoder),       # ← NEW
+        'subskills_json':   json.dumps(subskills,   cls=DjangoJSONEncoder),       # ← NEW
+        'user_campaigns_json': json.dumps(user_campaigns, cls=DjangoJSONEncoder), # ← NEW
     }
     return render(request, 'forge/create_character.html', context)
 
@@ -2717,7 +2744,46 @@ from .forms import LevelUpForm
 # ─────────────────────────────────────────────────────────────────────────────
 # Per-item proficiency resolution: highest tier across all your class levels
 # ─────────────────────────────────────────────────────────────────────────────
-from django.db.models import Q
+# characters/views.py
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import redirect
+from django.contrib import messages
+from django.http import Http404
+from campaigns.models import CampaignMembership
+from .forms import PendingBackgroundInlineForm
+from .models import Background, PendingBackground
+
+@login_required
+def propose_background_inline(request):
+    if request.method != "POST":
+        raise Http404()
+
+    form = PendingBackgroundInlineForm(request.POST, user=request.user)
+    if not form.is_valid():
+        for f, errs in form.errors.items():
+            for e in errs:
+                messages.error(request, f"{f}: {e}")
+        return redirect("characters:create_character")
+
+    campaign = form.cleaned_data["campaign"]
+    # must belong to the campaign
+    if not CampaignMembership.objects.filter(campaign=campaign, user=request.user).exists():
+        messages.error(request, "You must be a member of that campaign to propose a background to it.")
+        return redirect("characters:create_character")
+
+    # code uniqueness vs. approved and other pending
+    code = form.cleaned_data["code"]
+    if Background.objects.filter(code=code).exists():
+        messages.error(request, "That code is already used by an approved background.")
+        return redirect("characters:create_character")
+    if PendingBackground.objects.filter(code=code).exclude(status="rejected").exists():
+        messages.error(request, "There is already a pending/approved proposal with this code.")
+        return redirect("characters:create_character")
+
+    pb = form.save(requested_by=request.user)
+    messages.success(request, f"Background '{pb.name}' submitted to {pb.campaign.name} for GM approval.")
+    return redirect("characters:create_character")
+
 
 def _best_tier_obj(tiers):
     """Return the tier with the highest bonus; tiers can be None."""
@@ -5172,70 +5238,97 @@ def character_detail(request, pk):
 
             return redirect("characters:character_detail", pk=pk)
 
+    # 1) Activation map (works for any content type)
+    acts = CharacterActivation.objects.filter(character=character)
+    act_map = {(a.content_type_id, a.object_id): a.is_active for a in acts}
 
+    # 2) Content types
+    ct_classfeat     = ContentType.objects.get_for_model(ClassFeat)
+    ct_classfeature  = ContentType.objects.get_for_model(ClassFeature)
+    # infer the racial feature model from the CharacterFeature FK to avoid hard-coding
+    racial_model     = CharacterFeature._meta.get_field('racial_feature').related_model
+    ct_racialfeature = ContentType.objects.get_for_model(racial_model)
 
-    # ---- FEATS & FEATURES (owned) ----
-    owned_feats = (
+    # 3) Feats (unchanged buckets preserved)
+    owned_feats_qs = (
         character.feats
         .select_related('feat')
         .order_by('level', 'feat__name')
     )
+    owned_feats = list(owned_feats_qs)
 
     general_feats = [cf for cf in owned_feats if (cf.feat.feat_type or "").strip().lower() == "general"]
     class_feats   = [cf for cf in owned_feats if (cf.feat.feat_type or "").strip().lower() == "class"]
     other_feats   = [cf for cf in owned_feats if (cf.feat.feat_type or "").strip().lower() not in ("general","class")]
 
-    owned_features = (
-        character.features
-        .select_related('feature','racial_feature','subclass','option')
-        .order_by('level')
-    )
-    # Activation state map
-    acts = CharacterActivation.objects.filter(character=character)
-    act_map = {(a.content_type_id, a.object_id): a.is_active for a in acts}
-
-    ct_classfeat   = ContentType.objects.get_for_model(ClassFeat)
-    ct_classfeature= ContentType.objects.get_for_model(ClassFeature)
-
-    owned_feats = list(CharacterFeat.objects.filter(character=character).select_related("feat"))
-    owned_features = list(
-        CharacterFeature.objects
-        .filter(character=character, feature__isnull=False)
-        .select_related("feature", "feature__character_class", "subclass")
-    )
-
     feat_rows = [{
-        "ctype": ct_classfeat.id,
-        "obj_id": cf.feat.id,
-        "label": cf.feat.name,
-        "meta":  f"Lv {cf.level}",
-        "active": act_map.get((ct_classfeat.id, cf.feat.id), False),
+        "ctype":   ct_classfeat.id,
+        "obj_id":  cf.feat.id,
+        "label":   cf.feat.name,
+        "meta":    f"Lv {cf.level}",
+        "level":   cf.level,
+        "active":  act_map.get((ct_classfeat.id, cf.feat.id), False),
         "note_key": f"cfeat:{cf.id}",
-        "desc": (getattr(cf.feat, "description", "") or getattr(cf.feat, "summary", "") or ""),
-        "details": _feat_details_map(cf.feat),   # ← add this
+        "desc":    (getattr(cf.feat, "description", "") or getattr(cf.feat, "summary", "") or ""),
+        "details": _feat_details_map(cf.feat) if '_feat_details_map' in globals() else None,
     } for cf in owned_feats if cf.feat_id]
 
+    # 4) OWNED FEATURES (pull ALL once; do NOT drop racial ones)
+    owned_features_qs = (
+        character.features
+        .select_related('feature', 'feature__character_class', 'racial_feature', 'subclass', 'option')
+        .order_by('level', 'feature__name', 'racial_feature__name')
+    )
+    owned_features = list(owned_features_qs)
+
+    # 5) Build ONE unified `feature_rows` that contains BOTH types
     feature_rows = []
     for cfeat in owned_features:
-        label = cfeat.feature.name
-        meta  = []
-        if cfeat.feature.character_class_id:
-            meta.append(cfeat.feature.character_class.name)
-        if cfeat.subclass_id:
-            meta.append(cfeat.subclass.name)
-        feature_rows.append({
-            "ctype": ct_classfeature.id,
-            "obj_id": cfeat.feature.id,
-            "label": label,
-            "meta":  " / ".join(m for m in meta if m) or "",
-            "active": act_map.get((ct_classfeature.id, cfeat.feature.id), False),
-            "note_key": f"cfeature:{cfeat.id}",
-            "desc": (getattr(cfeat.feature, "description", "") or getattr(cfeat.feature, "summary", "") or ""),
-            "details": _feature_details_map(cfeat.feature),  # ← add this
-        })
+        # Class Feature entry
+        if cfeat.feature_id:
+            fobj = cfeat.feature
+            meta_bits = []
+            if fobj.character_class_id:
+                meta_bits.append(fobj.character_class.name)
+            if cfeat.subclass_id:
+                meta_bits.append(cfeat.subclass.name)
+            feature_rows.append({
+                "kind":    "class",                         # helpful tag for templates
+                "ctype":   ct_classfeature.id,
+                "obj_id":  fobj.id,
+                "label":   fobj.name,
+                "meta":    " / ".join(m for m in meta_bits if m) or "",
+                "level":   cfeat.level,
+                "active":  act_map.get((ct_classfeature.id, fobj.id), False),
+                "note_key": f"cfeature:{cfeat.id}",
+                "desc":    (getattr(fobj, "description", "") or getattr(fobj, "summary", "") or ""),
+                "details": _feature_details_map(fobj) if '_feature_details_map' in globals() else None,
+            })
+            continue
 
+        # Racial Feature entry
+        if cfeat.racial_feature_id:
+            rf = cfeat.racial_feature
+            meta_bits = []
+            if cfeat.subclass_id:
+                meta_bits.append(cfeat.subclass.name)
+            feature_rows.append({
+                "kind":    "racial",                        # helpful tag for templates
+                "ctype":   ct_racialfeature.id,
+                "obj_id":  rf.id,
+                "label":   rf.name,
+                "meta":    " / ".join(m for m in meta_bits if m) or "",
+                "level":   cfeat.level,
+                "active":  act_map.get((ct_racialfeature.id, rf.id), False),
+                "note_key": f"cracialfeature:{cfeat.id}",
+                "desc":    (getattr(rf, "description", "") or getattr(rf, "summary", "") or ""),
+                "details": None,
+            })
+            continue
 
+        # (If you store other variants on CharacterFeature, add more branches here.)
 
+    # 6) Combined/activation views (unchanged)
     all_rows     = feat_rows + feature_rows
     active_rows  = [r for r in all_rows if r["active"]]
     passive_rows = [r for r in all_rows if not r["active"]]
@@ -6780,34 +6873,6 @@ def character_level_up(request, pk):
             .filter(character_class=posted_cls, at_level=cls_level_for_validate)
             .first()
         )
-        if skill_grant and "skill_feat_pick" not in level_form.fields:
-            picks = int(skill_grant.num_picks or 0)
-            if picks <= 0:
-                # Don’t add a field at all when there are no picks this level.
-                pass
-            elif picks == 1:
-                level_form.fields["skill_feat_pick"] = forms.ModelChoiceField(
-                    queryset=ClassFeat.objects.all(),
-                    required=True,
-                    label="Skill Feat",
-                )
-            else:
-                level_form.fields["skill_feat_pick"] = forms.ModelMultipleChoiceField(
-                    queryset=ClassFeat.objects.all(),
-                    required=True,
-                    label=f"Pick {picks} Skill Feat(s)",
-                    widget=forms.CheckboxSelectMultiple,
-                )
-
-
-                # Persist as CharacterFeat at the *new* total level
-                next_total_level = character.level + 1
-                for feat_obj in picked_feats:
-                    CharacterFeat.objects.get_or_create(
-                        character=character,
-                        feat=feat_obj,
-                        defaults={"level": next_total_level}
-                    )
 
         # --- Skill points grant for THIS level-up ---
         pts = int(getattr(picked_cls, "skill_points_per_level", 0) or 0)
@@ -6918,5 +6983,106 @@ class PreviewForm(forms.Form):
             'id': 'preview_class_select'
         })
     )
+@login_required
+def propose_background(request):
+    """Player files a custom background request (awaiting GM approval)."""
+    if request.method == "POST":
+        form = PendingBackgroundRequestForm(request.POST, user=request.user)
+        if form.is_valid():
+            pb = form.save(commit=False)
+            pb.requested_by = request.user
+            pb.status = "pending"
+            pb.save()
+            messages.success(request, "Custom background submitted for GM approval.")
+            return redirect("characters:create_character")
+    else:
+        form = PendingBackgroundRequestForm(user=request.user)
+    return render(request, "forge/propose_background.html", {"form": form})
+
+
+@login_required
+def approve_pending_background(request, pb_id):
+    """
+    Decide a PendingBackground.
+    - If tied to a campaign, only a GM of that campaign may decide.
+    - POST with action in {"approve","reject"} (optionally "request_changes") and optional gm_note.
+    - On approve: create (or update) a real Background with the same code.
+    """
+    pb = get_object_or_404(PendingBackground, id=pb_id)
+
+    # Require GM for campaign-scoped proposals
+    if getattr(pb, "campaign_id", None):
+        from campaigns.views import _is_gm
+        if not _is_gm(request.user, pb.campaign):
+            return HttpResponseForbidden("GM only.")
+
+    if request.method != "POST":
+        return HttpResponseForbidden("POST only.")
+
+    action = (request.POST.get("action") or "").strip().lower()
+    note   = request.POST.get("gm_note", "") or ""
+
+    if action not in {"approve", "reject", "request_changes"}:
+        messages.error(request, "Invalid action.")
+        if pb.campaign_id:
+            return redirect("campaigns:campaign_detail", campaign_id=pb.campaign_id)
+        return redirect("characters:create_character")
+
+    pb.gm_note    = note
+    pb.decided_at = timezone.now()
+
+    if action == "approve":
+        from .models import Background
+        from django.contrib.contenttypes.models import ContentType
+
+        # Create or update the global Background with the same code.
+        # (If you want campaign-scoped publishing instead, say so and I’ll adjust.)
+        bg, _created = Background.objects.get_or_create(code=pb.code)
+
+        # Map allowed selection mode values (defensive; your Background choices are: all/pick_one/pick_two/pick_three)
+        valid_modes = {c[0] for c in Background._meta.get_field("primary_selection_mode").choices}
+        prim_mode = pb.primary_selection_mode if pb.primary_selection_mode in valid_modes else "all"
+        sec_mode  = pb.secondary_selection_mode if pb.secondary_selection_mode in valid_modes else "all"
+
+        # Assign simple fields
+        bg.name                = pb.name
+        bg.description         = pb.description
+        bg.primary_ability     = pb.primary_ability
+        bg.primary_bonus       = pb.primary_bonus
+        bg.secondary_ability   = pb.secondary_ability
+        bg.secondary_bonus     = pb.secondary_bonus
+        bg.primary_selection_mode   = prim_mode
+        bg.secondary_selection_mode = sec_mode
+
+        # Assign GenericFKs (skill/tool) if present
+        def set_gfk(prefix: str):
+            ctf = getattr(pb, f"{prefix}_skill_type")
+            obj_id = getattr(pb, f"{prefix}_skill_id")
+            if ctf_id := (ctf.id if isinstance(ctf, ContentType) else (ctf.pk if ctf else None)):
+                setattr(bg, f"{prefix}_skill_type_id", ctf_id)
+                setattr(bg, f"{prefix}_skill_id", obj_id)
+            else:
+                setattr(bg, f"{prefix}_skill_type", None)
+                setattr(bg, f"{prefix}_skill_id", None)
+
+        set_gfk("primary")
+        set_gfk("secondary")
+
+        bg.save()
+
+        pb.status = "approved"
+        messages.success(request, f"Approved and published background “{pb.name}”.")
+    elif action == "reject":
+        pb.status = "rejected"
+        messages.info(request, "Background rejected.")
+    else:
+        pb.status = "rejected"  # treat request_changes as a soft reject for now
+        messages.info(request, "Change requested. Marked as needs changes.")
+
+    pb.save(update_fields=["status", "gm_note", "decided_at"])
+
+    if getattr(pb, "campaign_id", None):
+        return redirect("campaigns:campaign_detail", campaign_id=pb.campaign_id)
+    return redirect("characters:create_character")
 
 from django.http import HttpResponse

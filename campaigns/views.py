@@ -117,6 +117,7 @@ def campaign_detail(request, campaign_id):
     note_form = CampaignNoteForm(user=request.user, campaign=campaign, is_gm=is_gm)
     message_form = MessageForm(campaign=campaign, user=request.user)
 
+    # … earlier context building …
     context = {
         "campaign": campaign,
         "memberships": memberships,
@@ -132,10 +133,65 @@ def campaign_detail(request, campaign_id):
         "note_form": note_form,
         "message_form": message_form,
     }
+
+    if is_gm:
+        context["pending_bgs"] = list(
+            campaign.pending_backgrounds.filter(status="pending").order_by("-created_at")
+        )
+
     add_item_form = PartyItemForm()
-    context.update({"add_item_form": add_item_form})
+    context["add_item_form"] = add_item_form
+
     return render(request, "campaigns/campaign_detail.html", context)
+
+
 # campaigns/views.py
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from characters.models import PendingBackground, Background
+
+@login_required
+def approve_pending_bg(request, campaign_id, pb_id):
+    campaign = get_object_or_404(Campaign, pk=campaign_id)
+    if not _is_gm(request.user, campaign):
+        return HttpResponseForbidden("GM only.")
+    pb = get_object_or_404(PendingBackground, pk=pb_id, campaign=campaign)
+    if request.method != "POST": raise Http404()
+
+    # Create/overwrite approved Background with same code
+    bg, _ = Background.objects.update_or_create(
+        code=pb.code,
+        defaults=dict(
+            name=pb.name,
+            description=pb.description,
+            primary_ability=pb.primary_ability, primary_bonus=pb.primary_bonus,
+            secondary_ability=pb.secondary_ability, secondary_bonus=pb.secondary_bonus,
+            primary_selection_mode=pb.primary_selection_mode,
+            secondary_selection_mode=pb.secondary_selection_mode,
+            primary_skill_type=pb.primary_skill_type, primary_skill_id=pb.primary_skill_id,
+            secondary_skill_type=pb.secondary_skill_type, secondary_skill_id=pb.secondary_skill_id,
+        )
+    )
+    pb.status = "approved"
+    pb.decided_at = timezone.now()
+    pb.save(update_fields=["status","decided_at"])
+    messages.success(request, f"Approved background '{bg.name}'.")
+    return redirect("campaigns:campaign_detail", campaign_id=campaign.id)
+
+@login_required
+def reject_pending_bg(request, campaign_id, pb_id):
+    campaign = get_object_or_404(Campaign, pk=campaign_id)
+    if not _is_gm(request.user, campaign):
+        return HttpResponseForbidden("GM only.")
+    pb = get_object_or_404(PendingBackground, pk=pb_id, campaign=campaign)
+    if request.method != "POST": raise Http404()
+    note = request.POST.get("gm_note","").strip()
+    pb.status = "rejected"
+    pb.gm_note = note
+    pb.decided_at = timezone.now()
+    pb.save(update_fields=["status","gm_note","decided_at"])
+    messages.info(request, f"Rejected background '{pb.name}'.")
+    return redirect("campaigns:campaign_detail", campaign_id=campaign.id)
 
 @login_required
 def add_party_item(request, campaign_id):

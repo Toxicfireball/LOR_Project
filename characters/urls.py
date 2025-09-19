@@ -71,5 +71,8 @@ path("codex/armor/",   views.armor_list,  name="codex_armor"),
     ),
 path("search/", views.global_search, name="global_search"),
     # Select2 autocomplete
+        path("propose-background/", views.propose_background_inline, name="propose_background_inline"),
     path("autocomplete/classfeats/", views.ClassFeatAutocomplete.as_view(), name="classfeat_autocomplete"),
+        path("backgrounds/propose/", views.propose_background, name="propose_background"),
+    path("backgrounds/<int:pb_id>/approve/", views.approve_pending_background, name="approve_pending_background"),
 ]

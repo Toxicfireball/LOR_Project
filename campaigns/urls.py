@@ -13,6 +13,8 @@ urlpatterns = [
     path("<int:campaign_id>/leave/", views.leave_campaign, name="leave_campaign"),
     path("<int:campaign_id>/inventory/add/", views.add_party_item, name="add_party_item"),
     # NEW
+        path("<int:campaign_id>/bg/<int:pb_id>/approve/", views.approve_pending_bg, name="approve_pending_bg"),
+    path("<int:campaign_id>/bg/<int:pb_id>/reject/",  views.reject_pending_bg,  name="reject_pending_bg"),
     path("<int:campaign_id>/notes/add/", views.add_campaign_note, name="add_campaign_note"),
     path("<int:campaign_id>/messages/send/", views.send_campaign_message, name="send_campaign_message"),
 ]

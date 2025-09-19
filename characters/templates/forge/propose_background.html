@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Propose a Custom Background{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto my-6">
+  <!-- Header -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200">
+    <div class="p-5 border-b border-gray-200">
+      <h1 class="text-xl font-bold">Propose a Custom Background</h1>
+      <p class="text-sm text-gray-600 mt-1">
+        Submit a background for GM approval. Once approved, it becomes selectable like any other background.
+        If you’re in a campaign, pick it below so that campaign’s GM can review it.
+      </p>
+    </div>
+
+    <!-- Errors -->
+    {% if form.errors %}
+      <div class="mx-5 mt-4 mb-2 p-3 rounded-md bg-red-50 border border-red-200 text-sm text-red-800">
+        <strong>There are errors in your submission:</strong>
+        <ul class="list-disc ml-5 mt-2">
+          {% for field in form %}
+            {% for error in field.errors %}
+              <li><strong>{{ field.label }}:</strong> {{ error }}</li>
+            {% endfor %}
+          {% endfor %}
+          {% for error in form.non_field_errors %}
+            <li>{{ error }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+
+    <!-- Form -->
+    <form method="post" class="p-5 space-y-6">
+      {% csrf_token %}
+
+      <!-- Campaign (optional) -->
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1" for="{{ form.campaign.id_for_label }}">
+          Campaign (optional)
+        </label>
+        {{ form.campaign }}
+        <p class="text-xs text-gray-500 mt-1">
+          If set, only a GM of this campaign can approve it. Leave blank for a general background request.
+        </p>
+      </div>
+
+      <!-- Identity -->
+      <div class="grid md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1" for="{{ form.name.id_for_label }}">
+            Name
+          </label>
+          {{ form.name }}
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1" for="{{ form.code.id_for_label }}">
+            Code (unique)
+          </label>
+          {{ form.code }}
+          <p class="text-xs text-gray-500 mt-1">Used internally (e.g. <code>street_urchin</code>).</p>
+        </div>
+      </div>
+
+      <!-- Description -->
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1" for="{{ form.description.id_for_label }}">
+          Description
+        </label>
+        {{ form.description }}
+      </div>
+
+      <!-- Ability Bonuses -->
+      <fieldset class="border border-gray-200 rounded-md">
+        <legend class="px-2 text-sm font-semibold text-gray-700">Ability Bonuses</legend>
+        <div class="p-4 grid md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1" for="{{ form.primary_ability.id_for_label }}">
+              Primary Ability (&plus;2 recommended)
+            </label>
+            {{ form.primary_ability }}
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1" for="{{ form.primary_bonus.id_for_label }}">
+              Primary Bonus
+            </label>
+            {{ form.primary_bonus }}
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1" for="{{ form.secondary_ability.id_for_label }}">
+              Secondary Ability (&plus;1 recommended)
+            </label>
+            {{ form.secondary_ability }}
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1" for="{{ form.secondary_bonus.id_for_label }}">
+              Secondary Bonus
+            </label>
+            {{ form.secondary_bonus }}
+          </div>
+        </div>
+        <p class="px-4 pb-4 text-xs text-gray-500">
+          Final character creation rules still enforce “total +3 spread over up to two abilities” with stacking max 2.
+        </p>
+      </fieldset>
+
+      <!-- Skills / Tools -->
+      <fieldset class="border border-gray-200 rounded-md">
+        <legend class="px-2 text-sm font-semibold text-gray-700">Skill / Tool Proficiencies</legend>
+        <div class="p-4 grid md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1" for="{{ form.primary_skill_type.id_for_label }}">
+              Primary Skill Type
+            </label>
+            {{ form.primary_skill_type }}
+            <p class="text-xs text-gray-500 mt-1">Choose whether the primary proficiency is a Skill or SubSkill.</p>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1" for="{{ form.primary_skill_id.id_for_label }}">
+              Primary Skill / SubSkill ID
+            </label>
+            {{ form.primary_skill_id }}
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1" for="{{ form.secondary_skill_type.id_for_label }}">
+              Secondary Skill Type
+            </label>
+            {{ form.secondary_skill_type }}
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1" for="{{ form.secondary_skill_id.id_for_label }}">
+              Secondary Skill / SubSkill ID
+            </label>
+            {{ form.secondary_skill_id }}
+          </div>
+        </div>
+
+        <div class="px-4 pb-4 grid md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1" for="{{ form.primary_selection_mode.id_for_label }}">
+              Primary Selection Mode
+            </label>
+            {{ form.primary_selection_mode }}
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1" for="{{ form.secondary_selection_mode.id_for_label }}">
+              Secondary Selection Mode
+            </label>
+            {{ form.secondary_selection_mode }}
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- Submit -->
+      <div class="flex items-center justify-between pt-2">
+        <div class="text-xs text-gray-500">
+          After you submit, the status will be <strong>Pending</strong>. A GM can approve or reject it with a note.
+        </div>
+        <div class="space-x-2">
+          <a href="{% url 'characters:create_character' %}" class="inline-flex items-center px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">
+            Cancel
+          </a>
+          <button class="inline-flex items-center px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700" type="submit">
+            Submit for Approval
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <!-- Help block -->
+  <div class="mt-4 text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-xl p-4">
+    <h2 class="font-semibold mb-1">How approvals work</h2>
+    <ul class="list-disc ml-5 space-y-1">
+      <li>Only GMs of the selected campaign (if any) can approve this background.</li>
+      <li>Until approval, you can still join a campaign and save your character as a <strong>Draft</strong>.</li>
+      <li>Once approved, the background becomes selectable on the character creation page.</li>
+    </ul>
+  </div>
+</div>
+{% endblock %}
