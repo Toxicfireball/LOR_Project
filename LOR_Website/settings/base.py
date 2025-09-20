@@ -40,20 +40,19 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django_select2',
+    "accounts.apps.AccountsConfig",   # ✅ keep this
 
     # Tailwind + theme
-
     'tailwind',
     'theme',
 
     # Your apps
     'home',
-    'accounts',
     'campaigns',
     'characters.apps.CharactersConfig',
-    
     "django_summernote",
 ]
+
 X_FRAME_OPTIONS = "SAMEORIGIN"
 TAILWIND_APP_NAME = "theme"
 SUMMERNOTE_CONFIG = {
@@ -132,7 +131,6 @@ TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
 
-ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 
 # ─── STATIC & MEDIA ──────────────────────────────────────────────────────────────
 STATIC_URL = '/static/'
@@ -144,3 +142,31 @@ MEDIA_URL  = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+def _split_csv(env_val: str) -> list[str]:
+    return [x.strip() for x in env_val.split(",") if x.strip()]
+
+# Defaults we always want present
+_DEFAULT_HOSTS = ["localhost", "127.0.0.1", "www.lorbuilder.com", "lorbuilder.com"]
+# Merge env + defaults, then de-dupe while preserving order
+_env_hosts = _split_csv(os.getenv("ALLOWED_HOSTS", ""))
+ALLOWED_HOSTS = []
+for h in _env_hosts + _DEFAULT_HOSTS:
+    if h not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(h)
+
+# CSRF_TRUSTED_ORIGINS must be absolute (scheme + host). Keep env-friendly but ensure your domains are present.
+_env_csrf = _split_csv(os.getenv("CSRF_TRUSTED_ORIGINS", ""))  # allow comma list like "https://foo,https://bar"
+_required_csrf = ["https://www.lorbuilder.com", "https://lorbuilder.com"]
+CSRF_TRUSTED_ORIGINS = []
+for origin in _env_csrf + _required_csrf:
+    if origin not in CSRF_TRUSTED_ORIGINS:
+        CSRF_TRUSTED_ORIGINS.append(origin)
+
+# Email/links — keep env with sane defaults
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "LoR Builder <no-reply@lorbuilder.com>")
+SITE_DOMAIN = os.getenv("SITE_DOMAIN", "www.lorbuilder.com")
+SITE_SCHEME = os.getenv("SITE_SCHEME", "https")
+
+# Resend API key from env (unchanged style)
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")

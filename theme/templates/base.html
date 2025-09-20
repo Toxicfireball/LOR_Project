@@ -126,11 +126,49 @@
               </div>
             </div>
 
-            <form action="{% url 'accounts:logout' %}" method="post" class="inline-flex items-center space-x-4">
-              <span>Hello, {{ user.username }}</span>
-              {% csrf_token %}
-              <button type="submit" class="hover:underline">Logout</button>
-            </form>
+<!-- User dropdown -->
+<div class="relative">
+  <button id="user-toggle" class="flex items-center gap-2 hover:underline focus:outline-none">
+    <span class="font-medium">{{ user.username }}</span>
+    {% with meta=user.email_meta %}
+      {% if meta and meta.is_verified %}
+        <span class="ml-1 text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">Verified</span>
+      {% else %}
+        <span class="ml-1 text-[11px] px-2 py-0.5 rounded bg-yellow-600 text-white">Unverified</span>
+      {% endif %}
+    {% endwith %}
+    <svg class="ml-1 h-4 w-4 fill-current opacity-70" viewBox="0 0 20 20"><path d="M5.5 7l4.5 4.5L14.5 7z"/></svg>
+  </button>
+
+  <div id="user-menu"
+       class="dropdown-menu absolute right-0 mt-2 bg-white text-gray-900 rounded shadow-lg py-2 w-56">
+    <div class="px-4 py-2 text-xs text-gray-500">
+      {{ user.email|default:"(no email set)" }}
+    </div>
+
+    {% with meta=user.email_meta %}
+      {% if meta and meta.is_verified %}
+        <a href="{% url 'accounts:change_email' %}" class="block px-4 py-2 hover:bg-gray-100">
+          Change email
+        </a>
+      {% else %}
+        <a href="{% url 'accounts:request_verification' %}" class="block px-4 py-2 hover:bg-gray-100">
+          Verify email (send link)
+        </a>
+        <a href="{% url 'accounts:change_email' %}" class="block px-4 py-2 hover:bg-gray-100">
+          Use a different email
+        </a>
+      {% endif %}
+    {% endwith %}
+
+    <div class="border-t my-2"></div>
+    <form action="{% url 'accounts:logout' %}" method="post" class="px-4">
+      {% csrf_token %}
+      <button type="submit" class="w-full text-left hover:bg-gray-100 px-0 py-2">Sign out</button>
+    </form>
+  </div>
+</div>
+
           {% else %}
             <a href="{% url 'accounts:login'    %}" class="hover:underline">Login</a>
             <a href="{% url 'accounts:register' %}" class="hover:underline">Register</a>
@@ -172,12 +210,7 @@
       <div id="mobile-forge-menu" class="dropdown-menu pl-4">
         <a href="{% url 'characters:create_character' %}" class="block py-1 hover:underline">Create Character</a>
         <a href="{% url 'characters:character_list' %}"   class="block py-1 hover:underline">View Characters</a>
-        {% if user.is_authenticated %}
-          <a href="{% url 'accounts:submit_model' 'characters' 'classfeat' %}"
-             class="block py-1 hover:underline">
-            Suggest New Feature
-          </a>
-        {% endif %}
+
       </div>
 
       <div class="border-t border-gray-600 my-1"></div>
@@ -223,13 +256,49 @@
           <a href="{% url 'characters:character_list' %}" class="block py-1 hover:underline">Characters</a>
         </div>
 
-        <div class="border-t border-gray-600 my-1"></div>
-        <form action="{% url 'accounts:logout' %}" method="post" class="block py-1">
-          {% csrf_token %}
-          <button type="submit" class="w-full text-left hover:underline">
-            Logout ({{ user.username }})
-          </button>
-        </form>
+<!-- Campaigns submenu (unchanged) -->
+<button id="mobile-campaigns-toggle" ...>...</button>
+<div id="mobile-campaigns-menu" class="dropdown-menu pl-4">...</div>
+
+<div class="border-t border-gray-600 my-1"></div>
+
+<!-- Account actions -->
+<div class="pl-0">
+  <div class="text-xs text-gray-300 mb-1">
+    {{ user.email|default:"(no email set)" }}
+    {% with meta=user.email_meta %}
+      {% if meta and meta.is_verified %}
+        · <span class="bg-green-700 px-1 py-0.5 rounded">Verified</span>
+      {% else %}
+        · <span class="bg-yellow-700 px-1 py-0.5 rounded">Unverified</span>
+      {% endif %}
+    {% endwith %}
+  </div>
+
+  {% with meta=user.email_meta %}
+    {% if meta and meta.is_verified %}
+      <a href="{% url 'accounts:change_email' %}" class="block py-1 hover:underline">
+        Change email
+      </a>
+    {% else %}
+      <a href="{% url 'accounts:request_verification' %}" class="block py-1 hover:underline">
+        Verify email (send link)
+      </a>
+      <a href="{% url 'accounts:change_email' %}" class="block py-1 hover:underline">
+        Use a different email
+      </a>
+    {% endif %}
+  {% endwith %}
+</div>
+
+<div class="border-t border-gray-600 my-1"></div>
+<form action="{% url 'accounts:logout' %}" method="post" class="block py-1">
+  {% csrf_token %}
+  <button type="submit" class="w-full text-left hover:underline">
+    Logout ({{ user.username }})
+  </button>
+</form>
+
       {% else %}
         <div class="border-t border-gray-600 my-1"></div>
         <a href="{% url 'accounts:login'    %}" class="block py-1 hover:underline">Login</a>
@@ -244,7 +313,7 @@
 
 <script>
   document.addEventListener('DOMContentLoaded', () => {
-    const desktopIds = ['forge','codex','campaigns'];
+    const desktopIds = ['forge','codex','campaigns','user'];
     desktopIds.forEach(id => {
       const toggle = document.getElementById(id + '-toggle');
       const menu   = document.getElementById(id + '-menu');

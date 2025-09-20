@@ -30,6 +30,58 @@ import uuid
 
 # put near the top of views.py (import re if not already)
 import re, math
+# Common text-ish field names we’ll traverse one hop for relations (FK/M2M).
+_COMMON_RELATED_TEXT_NAMES = ["name","title","code","slug","description","label","caption","excerpt","content","notes","summary"]
+
+def _collect_search_targets(model):
+    """
+    Return (text_fields, cast_fields, related_lookups) for a model.
+
+    - text_fields: direct Char/Text-like field names (searchable with __i* lookups)
+    - cast_fields: every other concrete field name (ints, dates, bool, JSON, Array, FK id)
+                   we will Cast() to text so we can __icontains them
+    - related_lookups: one-hop lookups into common text fields of related objects
+                       (e.g. 'character_class__name', 'tags__name')
+    """
+    text_fields, cast_fields, related_lookups = [], [], []
+
+    for f in model._meta.get_fields():
+        # skip reverse/auto non-concrete artifacts
+        if getattr(f, "auto_created", False) and not getattr(f, "concrete", False):
+            continue
+        if not getattr(f, "concrete", False):
+            continue
+
+        # M2M: allow searching the related object's usual text fields
+        if f.many_to_many:
+            related_lookups.extend([f"{f.name}__{n}" for n in _COMMON_RELATED_TEXT_NAMES])
+            continue
+
+        # FKs / O2Os: search typical related text fields + the raw *_id via cast
+        if f.is_relation:
+            related_lookups.extend([f"{f.name}__{n}" for n in _COMMON_RELATED_TEXT_NAMES])
+            # underlying column name (e.g., character_class_id)
+            if hasattr(f, "attname"):
+                cast_fields.append(f.attname)
+            continue
+
+        # Direct field types
+        if isinstance(
+            f,
+            (
+                models.CharField,
+                models.TextField,
+                models.SlugField,
+                models.EmailField,
+                models.URLField,
+            ),
+        ):
+            text_fields.append(f.name)
+        else:
+            # everything else: ints, dates, bool, JSONField, ArrayField, etc.
+            cast_fields.append(f.name)
+
+    return text_fields, cast_fields, related_lookups
 
 def _normalize_formula(expr: str) -> str:
     """Make data-entry formulas Python-evaluable."""
@@ -191,20 +243,31 @@ def _detail_url(obj):
     except Exception:
         return None
 
-def _search_model(model, code_fields, name_fields, query, limit_each=30):
+def _search_model(model, query, limit_each=30):
     """
     Rank order within a model:
-      1) exact code   (rank 0)
-      2) startswith   (rank 1)
-      3) icontains    (rank 2)
+      1) iexact        (rank 0)
+      2) istartswith   (rank 1)
+      3) icontains     (rank 2)
     Dedup across the three passes.
+
+    NOTE: Searches ALL fields on the model:
+      - direct text fields
+      - every other concrete field via Cast(... as CharField)
+      - one-hop related text fields on FKs/M2Ms (name/title/code/slug/description/...)
     """
+    text_fields, cast_fields, related_lookups = _collect_search_targets(model)
+
+    # Build annotations for cast-fields so we can i*contains on non-text columns.
+    annotations = {f"__s__{fname}": Cast(F(fname), output_field=models.CharField())
+                   for fname in cast_fields}
+
     seen = set()
     items = []
 
     def push(obj, rank):
         key = (obj.__class__.__name__, obj.pk)
-        if key in seen: 
+        if key in seen:
             return
         seen.add(key)
         items.append({
@@ -215,29 +278,33 @@ def _search_model(model, code_fields, name_fields, query, limit_each=30):
             "rank": rank,
         })
 
-    # 1) exact code
-    if code_fields:
+    def run_pass(op, rank):
+        # op: "__iexact", "__istartswith", or "__icontains"
         q = Q()
-        for f in code_fields:
-            q |= Q(**{f + "__iexact": query})
-        for obj in model.objects.filter(q)[:limit_each]:
-            push(obj, 0)
+        # direct text fields
+        for f in text_fields:
+            q |= Q(**{f + op: query})
+        # related hop (FK/M2M name/title/...)
+        for f in related_lookups:
+            q |= Q(**{f + op: query})
+        # casted non-text fields via their annotation keys
+        for ann_key in annotations.keys():
+            q |= Q(**{ann_key + op: query})
 
-    # 2) startswith (code + name)
-    if name_fields or code_fields:
-        q = Q()
-        for f in code_fields + name_fields:
-            q |= Q(**{f + "__istartswith": query})
-        for obj in model.objects.filter(q)[:limit_each]:
-            push(obj, 1)
+        if not q.children:
+            return
 
-    # 3) contains (code + name)
-    if name_fields or code_fields:
-        q = Q()
-        for f in code_fields + name_fields:
-            q |= Q(**{f + "__icontains": query})
-        for obj in model.objects.filter(q)[:limit_each]:
-            push(obj, 2)
+        qs = model.objects.all()
+        if annotations:
+            qs = qs.annotate(**annotations)
+
+        for obj in qs.filter(q).distinct()[:limit_each]:
+            push(obj, rank)
+
+    # 1) exact, 2) startswith, 3) contains
+    run_pass("__iexact", 0)
+    run_pass("__istartswith", 1)
+    run_pass("__icontains", 2)
 
     # Stable sort by rank then display text
     items.sort(key=lambda x: (x["rank"], x["display"].lower()))
@@ -248,42 +315,39 @@ def global_search(request):
 
     # What we search (easy to extend)
     SEARCHABLES = [
-        # label, model, code_fields, name_fields
-        ("Features",            ClassFeature,    ["code"],        ["name"]),
-        ("Classes",             CharacterClass,  ["class_ID"],    ["name"]),
-        ("Subclass Groups",     SubclassGroup,   ["code"],        ["name"]),
-        ("Subclasses",          ClassSubclass,   ["code"],        ["name"]),
-        ("Races",               Race,            ["code"],        ["name"]),
-        ("Subraces",            Subrace,         ["code"],        ["name"]),
-        ("Backgrounds",         Background,      ["code"],        ["name"]),
-        ("Languages",           Language,        ["code"],        ["name"]),
-        ("Resource Types",      ResourceType,    ["code"],        ["name"]),
-        ("Wearable Slots",      WearableSlot,    ["code"],        ["name"]),
-        ("Skills",              Skill,           [],              ["name"]),
-        ("Sub-skills",          SubSkill,        [],              ["name"]),
-        ("Weapons",             Weapon,          [],              ["name"]),
-        ("Armor",               Armor,           [],              ["name"]),
-        ("Weapon Traits",       WeaponTrait,     [],              ["name"]),
-        ("Armor Traits",        ArmorTrait,      [],              ["name"]),
-        ("Spells",              Spell,           [],              ["name"]),
-        ("Feats",               ClassFeat,       [],              ["name"]),
-        ("Martial Masteries",   MartialMastery,  [],              ["name"]),
-        ("Rulebooks",           Rulebook,        [],              ["name"]),
-        ("Rulebook Pages",      RulebookPage,    [],              ["title"]),
-        ("Loremaster Articles", LoremasterArticle, ["slug"],      ["title"]),
+        # label, model
+        ("Features",            ClassFeature),
+        ("Classes",             CharacterClass),
+        ("Subclass Groups",     SubclassGroup),
+        ("Subclasses",          ClassSubclass),
+        ("Races",               Race),
+        ("Subraces",            Subrace),
+        ("Backgrounds",         Background),
+        ("Languages",           Language),
+        ("Resource Types",      ResourceType),
+        ("Wearable Slots",      WearableSlot),
+        ("Skills",              Skill),
+        ("Sub-skills",          SubSkill),
+        ("Weapons",             Weapon),
+        ("Armor",               Armor),
+        ("Weapon Traits",       WeaponTrait),
+        ("Armor Traits",        ArmorTrait),
+        ("Spells",              Spell),
+        ("Feats",               ClassFeat),
+        ("Martial Masteries",   MartialMastery),
+        ("Rulebooks",           Rulebook),
+        ("Rulebook Pages",      RulebookPage),
+        ("Loremaster Articles", LoremasterArticle),
     ]
 
     results = []
     total_count = 0
 
     if query:
-        for label, model, code_fields, name_fields in SEARCHABLES:
-            model_items = _search_model(model, code_fields, name_fields, query)
+        for label, model, *_ in SEARCHABLES:  # *_ keeps backward-compat if any tuples still longer
+            model_items = _search_model(model, query, limit_each=30)
             if model_items:
-                results.append({
-                    "label": label,
-                    "items": model_items,
-                })
+                results.append({"label": label, "items": model_items})
                 total_count += len(model_items)
 
     # Pull exact-code hits (rank 0) to a top “Exact code matches” section
@@ -295,8 +359,8 @@ def global_search(request):
 
     context = {
         "q": query,
-        "top_exact": top_exact,     # flattened, rank==0
-        "groups": results,          # grouped sections (rank-mixed)
+        "top_exact": top_exact,
+        "groups": results,
         "total_count": total_count,
     }
     return render(request, "global_search.html", context)
@@ -7544,4 +7608,3 @@ def approve_pending_background(request, pb_id):
         return redirect("campaigns:campaign_detail", campaign_id=pb.campaign_id)
     return redirect("characters:create_character")
 
-from django.http import HttpResponse

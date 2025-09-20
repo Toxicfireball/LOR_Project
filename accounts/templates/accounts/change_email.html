@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Change email{% endblock %}
+
+{% block content %}
+<div class="container" style="max-width: 520px;">
+  <div class="card shadow-sm mt-5">
+    <div class="card-body p-4">
+      <h1 class="h5 mb-3">Change your email</h1>
+      <form method="post">
+        {% csrf_token %}
+        <div class="mb-3">
+          <label class="form-label">New email</label>
+          <input name="new_email" type="email" class="form-control" required>
+        </div>
+        <button class="btn btn-primary">Verify new email</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

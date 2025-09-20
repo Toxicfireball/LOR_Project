@@ -628,7 +628,7 @@ class PendingBackground(models.Model):
     """Player-proposed background awaiting GM approval. Mirrors Background fields 1:1."""
     # link it to a campaign optionally; GM of that campaign can approve
     campaign = models.ForeignKey(
-        'campaigns.Campaign', null=False, blank=False, on_delete=models.CASCADE, related_name='pending_backgrounds'
+        'campaigns.Campaign', null=True, blank=True, on_delete=models.CASCADE, related_name='pending_backgrounds'
     )
 
     requested_by = models.ForeignKey('auth.User', on_delete=models.CASCADE, related_name='pending_backgrounds')

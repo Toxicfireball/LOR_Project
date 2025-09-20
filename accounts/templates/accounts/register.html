@@ -1,25 +1,34 @@
-<!-- accounts/templates/accounts/register.html -->
 {% extends "base.html" %}
-
-{% block title %}
-  Register
-{% endblock %}
+{% block title %}Register{% endblock %}
 
 {% block content %}
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Register</title>
-</head>
-<body>
-  <h2>Register</h2>
-  <form method="post">
-    {% csrf_token %}
-    {{ form.as_p }}
-    <button type="submit">Sign Up</button>
-  </form>
-  <p>Already have an account? <a href="{% url 'accounts:login' %}">Log in here</a>.</p>
-</body>
-</html>
+<div class="container" style="max-width: 520px;">
+  <div class="card shadow-sm mt-5">
+    <div class="card-body p-4">
+      <h1 class="h4 mb-3 text-center">Create your account</h1>
+
+      <form method="post" novalidate>
+        {% csrf_token %}
+        {% if form.non_field_errors %}
+          <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+        {% endif %}
+
+        {% for field in form %}
+          <div class="mb-3">
+            <label class="form-label">{{ field.label }}</label>
+            {{ field }}
+            {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+            {{ field.errors }}
+          </div>
+        {% endfor %}
+
+        <button type="submit" class="btn btn-primary w-100">Sign Up</button>
+      </form>
+
+      <div class="text-center mt-3">
+        Already have an account? <a href="{% url 'accounts:login' %}">Log in</a>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
