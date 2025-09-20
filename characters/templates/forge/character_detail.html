@@ -1627,12 +1627,16 @@ class="btn btn-sm btn-outline-secondary edit-override"
   </div>
 </div>
 <script>
-  function openDetails(title, html) {
-    document.getElementById('detailsModalTitle').textContent = title || 'Details';
-    document.getElementById('detailsModalBody').innerHTML = html || '';
-    const m = new bootstrap.Modal(document.getElementById('detailsModal'));
-    m.show();
+function openDetails(title, html) {
+  const modalEl = document.getElementById('detailsModal');
+  if (modalEl && modalEl.parentElement !== document.body) {
+    document.body.appendChild(modalEl); // ensure it's not trapped inside a tab/card
   }
+  document.getElementById('detailsModalTitle').textContent = title || 'Details';
+  document.getElementById('detailsModalBody').innerHTML = html || '';
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('detailsModal')).show();
+}
+
 </script>
 
 <!-- ===== Shared Override Modal (Formula / Final / Tier) ===== -->
@@ -2519,7 +2523,7 @@ tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
   <script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
 <script>
 document.addEventListener("DOMContentLoaded", function(){
-  ['levelUpModal','editCharacterModal','editNumberModal','overrideModal','detailsEditModal','skillEditModal','mmDetailsModal']
+  ['levelUpModal','editCharacterModal','editNumberModal','overrideModal','detailsEditModal','skillEditModal','mmDetailsModal','detailsModal']
     .forEach(id => {
       const el = document.getElementById(id);
       if (el && el.parentElement !== document.body) document.body.appendChild(el);
