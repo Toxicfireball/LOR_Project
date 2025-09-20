@@ -3835,7 +3835,7 @@ def _mm_details(m):
     if lvl_text:  pairs.append(("Level prerequisite", lvl_text))
     if restrict:  pairs.append(("Restrictions", restrict))
     return pairs
-    
+
     def _mm_level_prereq(m):
         """Integer level prerequisite if present/parsable, else None."""
         val = getattr(m, "level_prerequisite", None)
