@@ -1063,26 +1063,46 @@
               {% csrf_token %}
               <input type="hidden" name="mm_op" value="unlearn">
               <table class="table table-sm table-striped align-middle">
-                <thead>
-                  <tr>
-                    <th style="width:34px;"></th>
-                    <th>Name</th>
-                    <th>Tags</th>
-                    <th>Prerequisites</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for r in martial_mastery_known %}
-                    <tr>
-                      <td><input type="checkbox" name="pick[]" value="{{ r.id }}"></td>
-                      <td class="fw-semibold">{{ r.name }}</td>
-                      <td>{{ r.tags|default:"—" }}</td>
-                      <td>{{ r.prereq|default:"—" }}</td>
-                    </tr>
-                  {% empty %}
-                    <tr><td colspan="4" class="text-muted">None learned yet.</td></tr>
-                  {% endfor %}
-                </tbody>
+              <thead>
+  <tr>
+    <th style="width:34px;"></th>
+    <th>Name</th>
+    <th>Tags</th>
+    <th>Prerequisites</th>
+    <th style="width:80px;"></th>
+  </tr>
+</thead>
+<tbody>
+  {% for r in martial_mastery_known %}
+    <tr>
+      <td><input type="checkbox" name="pick[]" value="{{ r.id }}"></td>
+      <td class="fw-semibold">{{ r.name }}</td>
+      <td>{{ r.tags|default:"—" }}</td>
+      <td>{{ r.prereq|default:"—" }}</td>
+      <td class="text-end">
+        <button class="btn btn-sm btn-link p-0 toggle-desc" type="button">Details</button>
+      </td>
+    </tr>
+    <tr class="d-none desc-body">
+      <td colspan="5">
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered mb-0">
+            <tbody>
+              {% for k,v in r.details %}
+                <tr>
+                  <th class="text-nowrap" style="width:180px;">{{ k }}</th>
+                  <td>{% if k == "Description" %}{{ v|safe }}{% else %}{{ v|default:"—" }}{% endif %}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="5" class="text-muted">None learned yet.</td></tr>
+  {% endfor %}
+</tbody>
               </table>
               {% if can_edit %}
                 <button class="btn btn-sm btn-outline-danger">Unlearn selected</button>
@@ -1100,29 +1120,49 @@
               {% csrf_token %}
               <input type="hidden" name="mm_op" value="learn">
               <table class="table table-sm table-hover align-middle">
-                <thead>
-                  <tr>
-                    <th style="width:34px;"></th>
-                    <th>Name</th>
-                    <th>Tags</th>
-                    <th>Details</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for r in martial_mastery_available %}
-                    <tr class="{% if not martial_mastery_ctx.can_learn_more %}table-secondary{% endif %}">
-                      <td>
-                        <input type="checkbox" name="pick[]" value="{{ r.id }}"
-                               {% if not martial_mastery_ctx.can_learn_more %}disabled{% endif %}>
-                      </td>
-                      <td class="fw-semibold">{{ r.name }}</td>
-                      <td>{{ r.tags|default:"—" }}</td>
-                      <td class="text-muted">{{ r.summary|default:"—" }}</td>
-                    </tr>
-                  {% empty %}
-                    <tr><td colspan="4" class="text-muted">No masteries available.</td></tr>
-                  {% endfor %}
-                </tbody>
+            
+            
+            <thead>
+  <tr>
+    <th style="width:34px;"></th>
+    <th>Name</th>
+    <th>Tags</th>
+    <th style="width:80px;"></th>
+  </tr>
+</thead>
+<tbody>
+  {% for r in martial_mastery_available %}
+    <tr class="{% if not martial_mastery_ctx.can_learn_more %}table-secondary{% endif %}">
+      <td>
+        <input type="checkbox" name="pick[]" value="{{ r.id }}"
+               {% if not martial_mastery_ctx.can_learn_more %}disabled{% endif %}>
+      </td>
+      <td class="fw-semibold">{{ r.name }}</td>
+      <td>{{ r.tags|default:"—" }}</td>
+      <td class="text-end">
+        <button class="btn btn-sm btn-link p-0 toggle-desc" type="button">Details</button>
+      </td>
+    </tr>
+    <tr class="d-none desc-body">
+      <td colspan="4">
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered mb-0">
+            <tbody>
+              {% for k,v in r.details %}
+                <tr>
+                  <th class="text-nowrap" style="width:180px;">{{ k }}</th>
+                  <td>{% if k == "Description" %}{{ v|safe }}{% else %}{{ v|default:"—" }}{% endif %}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="4" class="text-muted">No masteries available.</td></tr>
+  {% endfor %}
+</tbody>
               </table>
               {% if can_edit %}
                 <button class="btn btn-sm btn-success"
