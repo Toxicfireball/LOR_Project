@@ -56,7 +56,12 @@
   .skill-picker .skill-label{flex:1}
   .skill-picker .skill-item.disabled{opacity:.55;pointer-events:none}
   .skill-toolbar{border-bottom:1px solid rgba(0,0,0,.06)}
-  #detailsEdit.show { display:block !important; }
+#detailsEdit.show { display:block !important; }
+
+/* FIX top gap inside tabs */
+.tab-content { padding-top: 0 !important; }
+.tab-pane > .card:first-child,
+.tab-pane > .card:first-of-type { margin-top: 0 !important; }
 
 </style>
 
@@ -181,7 +186,6 @@
   </span>
 </li>
 
-      </li>
 
 <li class="list-group-item d-flex justify-content-between align-items-center">
   <span>Dodge</span>
@@ -249,9 +253,18 @@
 <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-active"       type="button">Active</button></li>
 <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-passive"      type="button">Passive</button></li>
 <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-all"          type="button">All</button></li>
+  <li class="nav-item" role="presentation" {% if not show_martial_mastery_tab %}hidden{% endif %}>
+    <button class="nav-link" id="martial-mastery-tab"
+            data-bs-toggle="tab" data-bs-target="#martial-mastery"
+            type="button" role="tab">
+      Martial Mastery
+    </button>
+  </li>
+
 {% if show_spellcasting_tab %}
   <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-spellcasting" type="button">Spellcasting</button></li>
 {% endif %}
+
       </ul>
 
       <div class="tab-content pt-3">
@@ -473,7 +486,7 @@
   </select>
 </div>
 
-        </div>
+ 
       </form>
 
       {% if attacks_detailed %}
@@ -556,7 +569,7 @@
     {% endwith %}
   {% endif %}
 {% endwith %}
-
+</div>
       
 
         <!-- SKILLS TAB -->
@@ -671,140 +684,148 @@
 </td>
 
 
-
+{% endwith %}
 
               </tr>
 
-{# Modal template for this row; no collapse anymore #}
-<template id="skedit-{{ sid }}-tpl">
-  <div class="p-1">
-    <div class="p-3 border rounded bg-light">
-
-      <!-- (1) Current formula used (primary & secondary), including applied changes -->
-      <div class="mb-3">
-        <div class="fw-bold mb-1">Current formula used</div>
-        <div class="small text-muted">This mirrors Combat’s calculation.</div>
-
-        <div class="mt-2">
-          <div><strong>{{ row.label }}</strong></div>
-
-          <div class="mt-1">
-            <div><em>Primary</em> — {{ row.formula1 }} <span class="text-muted">= {{ row.values1 }}</span></div>
-            <div class="mt-1"><strong>Total:</strong> {{ row.total1 }}</div>
-          </div>
-
-          {% if row.ability2 %}
-          <div class="mt-2">
-            <div><em>Secondary</em> — {{ row.formula2 }} <span class="text-muted">= {{ row.values2 }}</span></div>
-            <div class="mt-1"><strong>Total:</strong> {{ row.total2 }}</div>
-          </div>
-          {% endif %}
-        </div>
-
-        {% if row.modifications and row.modifications|length %}
-          <div class="mt-3">
-            <div class="fw-bold">Past adjustments</div>
-            <ul class="mb-2">
-              {% for m in row.modifications %}
-                <li>
-                  {{ m.value|floatformat:0 }}{% if m.note %} ({{ m.note }}){% endif %}
-                  <form method="post" action="{% url 'characters:character_detail' character.pk %}" class="d-inline">
-                    {% csrf_token %}
-                    <input type="hidden" name="skills_op" value="remove_delta">
-                    <input type="hidden" name="mod_key" value="{{ m.key }}">
-                    <button class="btn btn-link btn-sm text-danger p-0 ms-2"
-                            onclick="return confirm('Remove this adjustment?')">remove</button>
-                  </form>
-                </li>
-              {% endfor %}
-            </ul>
-
-            <form method="post" action="{% url 'characters:character_detail' character.pk %}">
-              {% csrf_token %}
-              <input type="hidden" name="skills_op" value="clear_deltas">
-              <input type="hidden" name="id_key" value="{{ row.id_key }}">
-              <button class="btn btn-sm btn-outline-danger">Clear all adjustments</button>
-            </form>
-          </div>
-        {% endif %}
-      </div>
-
-      <!-- (3) Add modification to formula -->
-      <div class="mb-4">
-        <div class="fw-bold mb-1">Add modification to formula</div>
-        <form method="post" action="{% url 'characters:character_detail' character.pk %}" class="row g-2">
-          {% csrf_token %}
-          <input type="hidden" name="skills_op" value="add_delta">
-          <input type="hidden" name="id_key" value="{{ row.id_key }}">
-          <div class="col-sm-3">
-            <input name="delta" type="number" class="form-control form-control-sm" placeholder="+/-">
-          </div>
-          <div class="col-sm-6">
-            <input name="note" type="text" class="form-control form-control-sm" placeholder="Reason (required)">
-          </div>
-          <div class="col-sm-3 text-end">
-            <button class="btn btn-sm btn-primary">Add</button>
-          </div>
-        </form>
-        {% if row.adjustment_total %}
-          <div class="small text-muted mt-1">
-            Current sum of adjustments: {{ row.adjustment_total|floatformat:0 }}
-          </div>
-        {% endif %}
-      </div>
-
-      <!-- (2) Proficiency tier changer + visible history -->
-      <div>
-        <div class="fw-bold mb-1">Proficiency tier</div>
-        <form method="post" action="{% url 'characters:character_detail' character.pk %}" class="row g-2 align-items-end">
-          {% csrf_token %}
-          <div class="col-sm-4">
-            <label class="form-label small">Tier</label>
-            <select class="form-select form-select-sm" name="sp_{{ row.id_key }}">
-              <option value="">— keep {{ row.prof_name }} —</option>
-              {% for pl in row.tier_choices %}
-                <option value="{{ pl.id }}" {% if pl.id == row.prof_id %}selected{% endif %}>
-                  {{ pl.name }}
-                </option>
-              {% endfor %}
-            </select>
-          </div>
-          <div class="col-sm-6">
-            <label class="form-label small">Reason</label>
-            <input type="text" class="form-control form-control-sm"
-                   name="sp_note_{{ row.id_key }}" placeholder="Why are you changing this?">
-          </div>
-          <div class="col-sm-2 text-end">
-            <button class="btn btn-sm btn-success" name="save_skill_profs_submit" value="1">Save</button>
-          </div>
-        </form>
-
-        {% if row.prof_history and row.prof_history|length %}
-          <div class="mt-2">
-            <div class="small text-muted">Previous tier changes:</div>
-            <ul class="small mb-0">
-              {% for h in row.prof_history %}
-                <li>{{ h }}</li>
-              {% endfor %}
-            </ul>
-          </div>
-        {% endif %}
-      </div>
-
-    </div>
-  </div>
-</template>
 
 
 
-{% endwith %}
+
+
             {% endfor %}
           </tbody>
         </table>
-      </div>
-  </div>
+<!-- Skill edit templates (one per row), kept outside the table -->
+<div class="d-none" id="skill-edit-templates">
+  {% for row in skills_rows %}
+    {% with sid='skill-'|add:row.id_key|slugify|add:'-'|add:forloop.counter|stringformat:"s" %}
+      <template id="skedit-{{ sid }}-tpl">
+        <div class="p-1">
+          <div class="p-3 border rounded bg-light">
+
+            <!-- (1) Current formula used (primary & secondary), including applied changes -->
+            <div class="mb-3">
+              <div class="fw-bold mb-1">Current formula used</div>
+              <div class="small text-muted">This mirrors Combat’s calculation.</div>
+
+              <div class="mt-2">
+                <div><strong>{{ row.label }}</strong></div>
+
+                <div class="mt-1">
+                  <div><em>Primary</em> — {{ row.formula1 }} <span class="text-muted">= {{ row.values1 }}</span></div>
+                  <div class="mt-1"><strong>Total:</strong> {{ row.total1 }}</div>
+                </div>
+
+                {% if row.ability2 %}
+                <div class="mt-2">
+                  <div><em>Secondary</em> — {{ row.formula2 }} <span class="text-muted">= {{ row.values2 }}</span></div>
+                  <div class="mt-1"><strong>Total:</strong> {{ row.total2 }}</div>
+                </div>
+                {% endif %}
+              </div>
+
+              {% if row.modifications and row.modifications|length %}
+                <div class="mt-3">
+                  <div class="fw-bold">Past adjustments</div>
+                  <ul class="mb-2">
+                    {% for m in row.modifications %}
+                      <li>
+                        {{ m.value|floatformat:0 }}{% if m.note %} ({{ m.note }}){% endif %}
+                        <form method="post" action="{% url 'characters:character_detail' character.pk %}" class="d-inline">
+                          {% csrf_token %}
+                          <input type="hidden" name="skills_op" value="remove_delta">
+                          <input type="hidden" name="mod_key" value="{{ m.key }}">
+                          <button class="btn btn-link btn-sm text-danger p-0 ms-2"
+                                  onclick="return confirm('Remove this adjustment?')">remove</button>
+                        </form>
+                      </li>
+                    {% endfor %}
+                  </ul>
+
+                  <form method="post" action="{% url 'characters:character_detail' character.pk %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="skills_op" value="clear_deltas">
+                    <input type="hidden" name="id_key" value="{{ row.id_key }}">
+                    <button class="btn btn-sm btn-outline-danger">Clear all adjustments</button>
+                  </form>
+                </div>
+              {% endif %}
+            </div>
+
+            <!-- (3) Add modification to formula -->
+            <div class="mb-4">
+              <div class="fw-bold mb-1">Add modification to formula</div>
+              <form method="post" action="{% url 'characters:character_detail' character.pk %}" class="row g-2">
+                {% csrf_token %}
+                <input type="hidden" name="skills_op" value="add_delta">
+                <input type="hidden" name="id_key" value="{{ row.id_key }}">
+                <div class="col-sm-3">
+                  <input name="delta" type="number" class="form-control form-control-sm" placeholder="+/-">
+                </div>
+                <div class="col-sm-6">
+                  <input name="note" type="text" class="form-control form-control-sm" placeholder="Reason (required)">
+                </div>
+                <div class="col-sm-3 text-end">
+                  <button class="btn btn-sm btn-primary">Add</button>
+                </div>
+              </form>
+              {% if row.adjustment_total %}
+                <div class="small text-muted mt-1">
+                  Current sum of adjustments: {{ row.adjustment_total|floatformat:0 }}
+                </div>
+              {% endif %}
+            </div>
+
+            <!-- (2) Proficiency tier changer + visible history -->
+            <div>
+              <div class="fw-bold mb-1">Proficiency tier</div>
+              <form method="post" action="{% url 'characters:character_detail' character.pk %}" class="row g-2 align-items-end">
+                {% csrf_token %}
+                <div class="col-sm-4">
+                  <label class="form-label small">Tier</label>
+                  <select class="form-select form-select-sm" name="sp_{{ row.id_key }}">
+                    <option value="">— keep {{ row.prof_name }} —</option>
+                    {% for pl in row.tier_choices %}
+                      <option value="{{ pl.id }}" {% if pl.id == row.prof_id %}selected{% endif %}>
+                        {{ pl.name }}
+                      </option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="col-sm-6">
+                  <label class="form-label small">Reason</label>
+                  <input type="text" class="form-control form-control-sm"
+                         name="sp_note_{{ row.id_key }}" placeholder="Why are you changing this?">
+                </div>
+                <div class="col-sm-2 text-end">
+                  <button class="btn btn-sm btn-success" name="save_skill_profs_submit" value="1">Save</button>
+                </div>
+              </form>
+
+              {% if row.prof_history and row.prof_history|length %}
+                <div class="mt-2">
+                  <div class="small text-muted">Previous tier changes:</div>
+                  <ul class="small mb-0">
+                    {% for h in row.prof_history %}
+                      <li>{{ h }}</li>
+                    {% endfor %}
+                  </ul>
+                </div>
+              {% endif %}
+            </div>
+
+          </div>
+        </div>
+      </template>
+    {% endwith %}
+  {% endfor %}
 </div>
 
+
+
+
+</div>
 
 
 
@@ -916,58 +937,55 @@
 </script>
 
 
-        <!-- ACTIVE/PASSIVE TAB -->
 <!-- ACTIVE TAB -->
 <div class="tab-pane fade" id="tab-active">
   <div class="card p-3">
     <h5 class="mb-3">Active Abilities</h5>
-    {% if active_rows %}
-<ul class="list-group">
-  {% for r in active_rows %}
-    <li class="list-group-item">
-      <div class="d-flex justify-content-between align-items-center">
-        <div>
-          {{ r.label }}
-          {% if r.meta %}<small class="text-muted">— {{ r.meta }}</small>{% endif %}
-          {% note_icon r.note_key %}
-        </div>
-        <div class="d-flex align-items-center gap-2">
-          <input class="form-control form-control-sm act-note" placeholder="Note (optional)">
-          <button class="btn btn-sm btn-outline-success toggle-activation"
-                  data-ctype="{{ r.ctype }}" data-obj="{{ r.obj_id }}" data-active="1">Active</button>
-          <button class="btn btn-sm btn-outline-secondary toggle-activation"
-                  data-ctype="{{ r.ctype }}" data-obj="{{ r.obj_id }}" data-active="0">Set Passive</button>
-          <button class="btn btn-sm btn-link p-0 toggle-desc" type="button">Details</button>
-        </div>
-      </div>
-      <div class="d-none desc-body mt-2">
-        {% if r.desc %}
-          <div class="summernote-content mb-2">{{ r.desc|safe }}</div>
-        {% endif %}
-        <div class="table-responsive">
-          <table class="table table-sm table-bordered mb-0">
-            <tbody>
-              {% for k,v in r.details %}
-                <tr>
-                  <th class="text-nowrap" style="width:180px;">{{ k }}</th>
-                  <td>{% if k == "Description" %}{{ v|safe }}{% else %}{{ v }}{% endif %}</td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </li>
-  {% endfor %}
-</ul>
 
+    {# Show Martial Masteries if any; otherwise show the empty state #}
+    {% if martial_mastery_known %}
+      <ul class="list-group">
+        {% for mm in martial_mastery_known %}
+          <li class="list-group-item">
+            <div class="d-flex justify-content-between align-items-center">
+              <div>
+                {{ mm.name }}
+                <span class="badge text-bg-info ms-2">Martial Mastery</span>
+              </div>
+              <div class="d-flex align-items-center gap-2">
+                <button class="btn btn-sm btn-link p-0 toggle-desc" type="button">Details</button>
+              </div>
+            </div>
+            <div class="d-none desc-body mt-2">
+              {% if mm.description %}
+                <div class="summernote-content mb-2">{{ mm.description|safe }}</div>
+              {% elif mm.summary %}
+                <div class="summernote-content mb-2">{{ mm.summary|safe }}</div>
+              {% endif %}
+              <div class="table-responsive">
+                <table class="table table-sm table-bordered mb-0">
+                  <tbody>
+                    <tr>
+                      <th class="text-nowrap" style="width:180px;">Tags</th>
+                      <td>{{ mm.tags|default:"—" }}</td>
+                    </tr>
+                    <tr>
+                      <th class="text-nowrap" style="width:180px;">Prerequisites</th>
+                      <td>{{ mm.prereq|default:"—" }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
     {% else %}
       <p class="mb-0 text-muted">None marked Active.</p>
     {% endif %}
   </div>
-
-
 </div>
+
 
 <!-- PASSIVE TAB -->
 <div class="tab-pane fade" id="tab-passive">
@@ -976,43 +994,159 @@
     {% if passive_rows %}
       <ul class="list-group">
         {% for r in passive_rows %}
-          <li class="list-group-item d-flex justify-content-between align-items-center">
-            <div>
-              {{ r.label }}
-              {% if r.meta %}<small class="text-muted">— {{ r.meta }}</small>{% endif %}
-              {% note_icon r.note_key %}
-            </div>
-            <div class="d-flex align-items-center gap-2">
-              <input class="form-control form-control-sm act-note" placeholder="Note (optional)">
-              <button class="btn btn-sm btn-outline-primary toggle-activation"
-                      data-ctype="{{ r.ctype }}" data-obj="{{ r.obj_id }}" data-active="1">Set Active</button>
-              <button class="btn btn-sm btn-outline-secondary toggle-activation"
-                      data-ctype="{{ r.ctype }}" data-obj="{{ r.obj_id }}" data-active="0">Passive</button>
-            </div>
-            <div class="d-none desc-body mt-2">
-  {% if r.desc %}
-    <div class="summernote-content mb-2">{{ r.desc|safe }}</div>
-  {% endif %}
-  <div class="table-responsive">
-    <table class="table table-sm table-bordered mb-0">
-      <tbody>
-        {% for k,v in r.details %}
-          <tr>
-            <th class="text-nowrap" style="width:180px;">{{ k }}</th>
-            <td>{% if k == "Description" %}{{ v|safe }}{% else %}{{ v }}{% endif %}</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+<li class="list-group-item">
+  <div class="d-flex justify-content-between align-items-center">
+    <div>
+      {{ r.label }}
+      {% if r.meta %}<small class="text-muted">— {{ r.meta }}</small>{% endif %}
+      {% note_icon r.note_key %}
+    </div>
+    <div class="d-flex align-items-center gap-2">
+      <input class="form-control form-control-sm act-note" placeholder="Note (optional)">
+      <button class="btn btn-sm btn-outline-primary toggle-activation"
+              data-ctype="{{ r.ctype }}" data-obj="{{ r.obj_id }}" data-active="1">Set Active</button>
+      <button class="btn btn-sm btn-outline-secondary toggle-activation"
+              data-ctype="{{ r.ctype }}" data-obj="{{ r.obj_id }}" data-active="0">Passive</button>
+      <!-- NEW: Details toggle -->
+      <button class="btn btn-sm btn-link p-0 toggle-desc" type="button">Details</button>
+    </div>
   </div>
-</div>
-          </li>
+  <!-- Keep details panel as a sibling under the header row (easier to find/toggle) -->
+  <div class="d-none desc-body mt-2">
+    {% if r.desc %}
+      <div class="summernote-content mb-2">{{ r.desc|safe }}</div>
+    {% endif %}
+    <div class="table-responsive">
+      <table class="table table-sm table-bordered mb-0">
+        <tbody>
+          {% for k,v in r.details %}
+            <tr>
+              <th class="text-nowrap" style="width:180px;">{{ k }}</th>
+              <td>{% if k == "Description" %}{{ v|safe }}{% else %}{{ v }}{% endif %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</li>
+
         {% endfor %}
       </ul>
     {% else %}
       <p class="mb-0 text-muted">None marked Passive.</p>
     {% endif %}
   </div>
+</div>
+<div class="tab-pane fade" id="martial-mastery" role="tabpanel" aria-labelledby="martial-mastery-tab">
+  {% if show_martial_mastery_tab %}
+    <div class="card my-3">
+      <div class="card-header fw-bold d-flex justify-content-between align-items-center">
+        <span>Martial Mastery — Points & Slots</span>
+        {% if can_edit %}
+        <form method="post" class="d-flex align-items-center gap-2 mb-0" action="{% url 'characters:character_detail' character.pk %}">
+          {% csrf_token %}
+          <input type="hidden" name="mm_op" value="set_caps">
+          <label class="mb-0">Points</label>
+          <input type="number" name="mm_points" value="{{ martial_mastery_ctx.total_points }}" class="form-control form-control-sm" style="width:110px;">
+          <label class="mb-0 ms-2">Known Cap</label>
+          <input type="number" name="mm_known_cap" value="{{ martial_mastery_ctx.total_known_cap }}" class="form-control form-control-sm" style="width:110px;">
+          <button class="btn btn-sm btn-primary ms-2">Save</button>
+        </form>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <h6 class="mb-2">Known Masteries ({{ martial_mastery_ctx.known_count }})</h6>
+            <form method="post" action="{% url 'characters:character_detail' character.pk %}">
+              {% csrf_token %}
+              <input type="hidden" name="mm_op" value="unlearn">
+              <table class="table table-sm table-striped align-middle">
+                <thead>
+                  <tr>
+                    <th style="width:34px;"></th>
+                    <th>Name</th>
+                    <th>Tags</th>
+                    <th>Prerequisites</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for r in martial_mastery_known %}
+                    <tr>
+                      <td><input type="checkbox" name="pick[]" value="{{ r.id }}"></td>
+                      <td class="fw-semibold">{{ r.name }}</td>
+                      <td>{{ r.tags|default:"—" }}</td>
+                      <td>{{ r.prereq|default:"—" }}</td>
+                    </tr>
+                  {% empty %}
+                    <tr><td colspan="4" class="text-muted">None learned yet.</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+              {% if can_edit %}
+                <button class="btn btn-sm btn-outline-danger">Unlearn selected</button>
+              {% endif %}
+            </form>
+          </div>
+          <div class="col-md-6">
+            <h6 class="mb-2">
+              Available Masteries
+              {% if martial_mastery_ctx.total_known_cap and not martial_mastery_ctx.can_learn_more %}
+                <span class="badge bg-secondary">Cap reached</span>
+              {% endif %}
+            </h6>
+            <form method="post" action="{% url 'characters:character_detail' character.pk %}">
+              {% csrf_token %}
+              <input type="hidden" name="mm_op" value="learn">
+              <table class="table table-sm table-hover align-middle">
+                <thead>
+                  <tr>
+                    <th style="width:34px;"></th>
+                    <th>Name</th>
+                    <th>Tags</th>
+                    <th>Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for r in martial_mastery_available %}
+                    <tr class="{% if not martial_mastery_ctx.can_learn_more %}table-secondary{% endif %}">
+                      <td>
+                        <input type="checkbox" name="pick[]" value="{{ r.id }}"
+                               {% if not martial_mastery_ctx.can_learn_more %}disabled{% endif %}>
+                      </td>
+                      <td class="fw-semibold">{{ r.name }}</td>
+                      <td>{{ r.tags|default:"—" }}</td>
+                      <td class="text-muted">{{ r.summary|default:"—" }}</td>
+                    </tr>
+                  {% empty %}
+                    <tr><td colspan="4" class="text-muted">No masteries available.</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+              {% if can_edit %}
+                <button class="btn btn-sm btn-success"
+                        {% if not martial_mastery_ctx.can_learn_more %}disabled{% endif %}>
+                  Learn selected
+                </button>
+              {% endif %}
+            </form>
+          </div>
+        </div>
+        {% if martial_mastery_ctx.by_feature %}
+          <hr>
+          <small class="text-muted">
+            Entitlements: 
+            {% for e in martial_mastery_ctx.by_feature %}
+              <span class="me-3">• {{ e.feature_name }}{% if e.class_name %} ({{ e.class_name }}){% endif %}: {{ e.points }} pts / {{ e.known_cap }} known</span>
+            {% endfor %}
+          </small>
+        {% endif %}
+      </div>
+    </div>
+  {% else %}
+    <div class="alert alert-secondary my-3">No martial mastery features on this character.</div>
+  {% endif %}
 </div>
 
 <!-- ALL TAB -->
@@ -1782,7 +1916,7 @@ tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
                             Tags
                             <div class="dropdown d-inline ms-1" data-bs-auto-close="outside">
                               <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown">▾</button>
-                          <div class="dropdown-menu p-3 excel-menu" data-col="4" data-split="1" style="width:260px;"></div>
+                          <div class="dropdown-menu p-3 excel-menu" data-col="5" data-split="1" style="width:260px;"></div>
                             </div>
                           </th>
                         </tr>

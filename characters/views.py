@@ -3,7 +3,8 @@ from django.contrib import messages
 from django.utils import timezone
 from .models import PendingBackground
 from .forms import PendingBackgroundRequestForm
-
+from django.db.models import Q, F
+from django.db.models.functions import Cast
 from django.db.models import Case, When, IntegerField
 # Create your views here.
 # characters/views.py
@@ -32,6 +33,25 @@ import uuid
 import re, math
 # Common text-ish field names we’ll traverse one hop for relations (FK/M2M).
 _COMMON_RELATED_TEXT_NAMES = ["name","title","code","slug","description","label","caption","excerpt","content","notes","summary"]
+def _text_names_for(related_model):
+    """
+    Return the subset of our 'common' names that actually exist on related_model
+    and are texty (Char/Text/Slug/Email/URL).
+    """
+    ok = set()
+    if not related_model:  # safety
+        return []
+    for rf in related_model._meta.get_fields():
+        if not getattr(rf, "concrete", False):
+            continue
+        from django.db import models as _m
+        if isinstance(
+            rf,
+            (_m.CharField, _m.TextField, _m.SlugField, _m.EmailField, _m.URLField),
+        ):
+            if rf.name in _COMMON_RELATED_TEXT_NAMES:
+                ok.add(rf.name)
+    return sorted(ok)
 
 def _collect_search_targets(model):
     """
@@ -53,15 +73,17 @@ def _collect_search_targets(model):
             continue
 
         # M2M: allow searching the related object's usual text fields
-        if f.many_to_many:
-            related_lookups.extend([f"{f.name}__{n}" for n in _COMMON_RELATED_TEXT_NAMES])
+        if f.many_to_many and getattr(f, "related_model", None):
+            names = _text_names_for(f.related_model)
+            related_lookups.extend([f"{f.name}__{n}" for n in names])
             continue
 
-        # FKs / O2Os: search typical related text fields + the raw *_id via cast
-        if f.is_relation:
-            related_lookups.extend([f"{f.name}__{n}" for n in _COMMON_RELATED_TEXT_NAMES])
-            # underlying column name (e.g., character_class_id)
-            if hasattr(f, "attname"):
+        # FKs / O2Os: search only fields that actually exist on the related model,
+        # and also allow filtering on the raw *_id via cast.
+        if f.is_relation and getattr(f, "related_model", None):
+            names = _text_names_for(f.related_model)
+            related_lookups.extend([f"{f.name}__{n}" for n in names])
+            if hasattr(f, "attname"):  # e.g., character_class_id
                 cast_fields.append(f.attname)
             continue
 
@@ -196,6 +218,150 @@ from .models import (
     Spell, ClassFeat, MartialMastery,
     Rulebook, RulebookPage, LoremasterArticle,ClassSkillFeatGrant
 )
+from django.utils.html import escape
+import re
+
+def _is_nonempty(v):
+    return v not in (None, "", [], {}, ())
+
+def _pretty_label(name: str) -> str:
+    return name.replace("_", " ").title()
+
+def _stringify(value):
+    """
+    Convert any field value to a short, human-friendly string for display.
+    - FK: use str(related)
+    - M2M: join up to 8 related names (then “…+N”)
+    - JSON/Array: JSON-ish repr but trimmed
+    """
+    try:
+        # M2M QuerySet
+        if hasattr(value, "all") and callable(value.all):
+            items = [str(x) for x in value.all()[:9]]
+            if len(items) == 9:
+                items[-1] = items[-1] + " …"
+            return ", ".join(items)
+        # Normal value (including FK instance or primitive)
+        s = str(value)
+        return s
+    except Exception:
+        return str(value)
+
+def _safe_highlight(text: str, needle: str) -> str:
+    """
+    Case-insensitive highlight of `needle` within `text`, HTML-escaped first.
+    """
+    if not text:
+        return ""
+    t = escape(str(text))
+    if not needle:
+        return t
+    # Build case-insensitive regex, escape needle
+    pat = re.compile(re.escape(needle), re.IGNORECASE)
+    return pat.sub(lambda m: f"<mark>{escape(m.group(0))}</mark>", t)
+
+def _object_field_dump(obj):
+    """
+    Return list[{"field": name, "label": Pretty, "value": raw, "render": html}] for ALL non-empty concrete fields,
+    and include one-hop FK/M2M text fields (name/title/code/slug/description/label/caption/excerpt/content/notes/summary).
+    """
+    fields_out = []
+    model = obj.__class__
+
+    # direct concrete fields (including *_id)
+    for f in model._meta.get_fields():
+        if not getattr(f, "concrete", False) or getattr(f, "auto_created", False):
+            continue
+
+        try:
+            if f.many_to_many:
+                val = getattr(obj, f.name)
+                if not val.exists():
+                    continue
+                s = _stringify(val)
+                if _is_nonempty(s):
+                    fields_out.append({
+                        "field": f.name,
+                        "label": _pretty_label(f.name),
+                        "value": s,
+                    })
+                continue
+
+            # normal / FK / O2O
+            val = getattr(obj, f.name)
+            if not _is_nonempty(val):
+                continue
+            s = _stringify(val)
+            if _is_nonempty(s):
+                fields_out.append({
+                    "field": f.name,
+                    "label": _pretty_label(f.name),
+                    "value": s,
+                })
+        except Exception:
+            # ignore any problematic field
+            continue
+
+    # One-hop related text fields for FK/O2O/M2M (only if they exist)
+    common = {"name","title","code","slug","description","label","caption","excerpt","content","notes","summary"}
+    for f in model._meta.get_fields():
+        if not getattr(f, "concrete", False):
+            continue
+
+        rel_model = getattr(f, "related_model", None)
+        if not rel_model:
+            continue
+
+        names = []
+        for rf in rel_model._meta.get_fields():
+            if getattr(rf, "concrete", False) and rf.name in common:
+                from django.db import models as _m
+                if isinstance(rf, (_m.CharField,_m.TextField,_m.SlugField,_m.EmailField,_m.URLField)):
+                    names.append(rf.name)
+
+        if not names:
+            continue
+
+        try:
+            if f.many_to_many:
+                rel_qs = getattr(obj, f.name).all()
+                if not rel_qs.exists():
+                    continue
+                # Build combined “field__name: value; field__slug: value …”
+                for n in names:
+                    # Collect values for n across the M2M set
+                    vals = [getattr(r, n, None) for r in rel_qs]
+                    vals = [str(v) for v in vals if _is_nonempty(v)]
+                    if vals:
+                        fields_out.append({
+                            "field": f"{f.name}__{n}",
+                            "label": _pretty_label(f"{f.name} {n}"),
+                            "value": ", ".join(vals[:10]) + (" …" if len(vals) > 10 else ""),
+                        })
+            else:
+                rel = getattr(obj, f.name, None)
+                if rel:
+                    for n in names:
+                        rv = getattr(rel, n, None)
+                        if _is_nonempty(rv):
+                            fields_out.append({
+                                "field": f"{f.name}__{n}",
+                                "label": _pretty_label(f"{f.name} {n}"),
+                                "value": str(rv),
+                            })
+        except Exception:
+            continue
+
+    # Dedup by (field, value)
+    seen = set()
+    uniq = []
+    for d in fields_out:
+        k = (d["field"], d["value"])
+        if k in seen:
+            continue
+        seen.add(k)
+        uniq.append(d)
+    return uniq
 
 def _display_text(obj):
     # Prefer human-friendly main field
@@ -251,10 +417,9 @@ def _search_model(model, query, limit_each=30):
       3) icontains     (rank 2)
     Dedup across the three passes.
 
-    NOTE: Searches ALL fields on the model:
-      - direct text fields
-      - every other concrete field via Cast(... as CharField)
-      - one-hop related text fields on FKs/M2Ms (name/title/code/slug/description/...)
+    We now also:
+      - Include which fields matched (“matched_in” with match type)
+      - Include a full dump of all non-empty fields for the object (“kv_all”)
     """
     text_fields, cast_fields, related_lookups = _collect_search_targets(model)
 
@@ -270,24 +435,48 @@ def _search_model(model, query, limit_each=30):
         if key in seen:
             return
         seen.add(key)
+
+        # Full non-empty field dump for this object
+        kv_all = _object_field_dump(obj)
+
+        # Determine which fields matched (by simple in/startswith/exact on the dumped strings)
+        matched = []
+        q_lc = query.lower()
+        for row in kv_all:
+            val = row["value"]
+            val_lc = str(val).lower()
+
+            # rank-aware mark
+            if rank == 0 and val_lc == q_lc:
+                matched.append({"field": row["field"], "label": row["label"], "match": "exact"})
+            elif rank == 1 and val_lc.startswith(q_lc):
+                matched.append({"field": row["field"], "label": row["label"], "match": "starts-with"})
+            elif rank == 2 and q_lc in val_lc:
+                matched.append({"field": row["field"], "label": row["label"], "match": "contains"})
+
+        # Add pre-highlighted HTML for **all** fields (so UI can show everything with marks)
+        for row in kv_all:
+            row["render"] = _safe_highlight(row["value"], query)
+
         items.append({
             "pk": obj.pk,
             "display": _display_text(obj),
             "code": _code_text(obj),
             "url": _detail_url(obj),
             "rank": rank,
+            "matched_in": matched,   # list of {field,label,match}
+            "kv_all": kv_all,        # list of {field,label,value,render}
         })
 
     def run_pass(op, rank):
-        # op: "__iexact", "__istartswith", or "__icontains"
         q = Q()
-        # direct text fields
+        # direct text
         for f in text_fields:
             q |= Q(**{f + op: query})
-        # related hop (FK/M2M name/title/...)
+        # related
         for f in related_lookups:
             q |= Q(**{f + op: query})
-        # casted non-text fields via their annotation keys
+        # casted non-text via annotation
         for ann_key in annotations.keys():
             q |= Q(**{ann_key + op: query})
 
@@ -306,7 +495,7 @@ def _search_model(model, query, limit_each=30):
     run_pass("__istartswith", 1)
     run_pass("__icontains", 2)
 
-    # Stable sort by rank then display text
+    # sort
     items.sort(key=lambda x: (x["rank"], x["display"].lower()))
     return items
 
@@ -2204,48 +2393,77 @@ from itertools import groupby
 from operator import attrgetter
 
 
+from operator import attrgetter  # ← ensure this import exists
+
 def race_detail(request, pk):
     race = get_object_or_404(Race, pk=pk)
 
+    # 1) Pull fresh rows & fully realize once (avoids multi-iteration weirdness)
     feats_qs = (
         race.features
         .select_related('character_class', 'subrace')
-        .prefetch_related('gain_subskills', 'race_options__grants_feature', 'spell_slot_rows')
+        .prefetch_related(
+            'gain_subskills',
+            'race_options__grants_feature',
+            'spell_slot_rows',
+        )
         .order_by('name')
     )
+    features = list(feats_qs)  # ← realize
 
-    # (A) Universal = no subrace & no class
-    universal_features = [f for f in feats_qs if not f.subrace_id and not f.character_class_id]
+    # 2) Buckets
+    # (A) Universal: no subrace & no class
+    universal_features = [f for f in features if not f.subrace_id and not f.character_class_id]
 
-    # (B) By Class = has class, but NOT tied to subrace
-    class_map = {}
-    for f in feats_qs:
+    # (B) By Class: has class, but NOT tied to subrace
+    #     Use PK as the dict key; carry the instance alongside
+    class_map = {}  # cls_id -> {"obj": cls, "items": [features]}
+    for f in features:
         if f.character_class_id and not f.subrace_id:
-            class_map.setdefault(f.character_class, []).append(f)
+            cid = f.character_class_id
+            if cid not in class_map:
+                class_map[cid] = {"obj": f.character_class, "items": []}
+            class_map[cid]["items"].append(f)
 
-    # (C) By Subrace = any feature where subrace is set (this is now the “subrace feature”)
-    subrace_map = {}
-    for f in feats_qs:
+    # (C) By Subrace: any feature with a subrace
+    subrace_map = {}  # sr_id -> {"obj": sr, "items": [features]}
+    for f in features:
         if f.subrace_id:
-            subrace_map.setdefault(f.subrace, []).append(f)
+            sid = f.subrace_id
+            if sid not in subrace_map:
+                subrace_map[sid] = {"obj": f.subrace, "items": []}
+            subrace_map[sid]["items"].append(f)
 
-    # Sort buckets
+    # 3) Sort buckets
     universal_features.sort(key=attrgetter('name'))
+
     for bucket in class_map.values():
-        bucket.sort(key=attrgetter('name'))
+        bucket["items"].sort(key=attrgetter('name'))
     for bucket in subrace_map.values():
-        bucket.sort(key=attrgetter('name'))
+        bucket["items"].sort(key=attrgetter('name'))
+
+    # 4) Build template-friendly lists of tuples:
+    #    [(<Class instance>, [features...]), ...] and same for subraces
+    class_features_by_class = sorted(
+        [(v["obj"], v["items"]) for v in class_map.values()],
+        key=lambda kv: kv[0].name
+    )
+    subrace_features_by_subrace = sorted(
+        [(v["obj"], v["items"]) for v in subrace_map.values()],
+        key=lambda kv: kv[0].name
+    )
 
     context = {
-        'race': race,
-        'universal_features': universal_features,
-        'class_features_by_class': sorted(class_map.items(), key=lambda kv: kv[0].name),
-        'subrace_features_by_subrace': sorted(subrace_map.items(), key=lambda kv: kv[0].name),
-        'subraces': race.subraces.all().order_by('name'),
-        'languages': race.languages.all().order_by('name'),
-        'tags': race.tags.all().order_by('name'),
+        "race": race,
+        "universal_features": universal_features,
+        "class_features_by_class": class_features_by_class,
+        "subrace_features_by_subrace": subrace_features_by_subrace,
+        "subraces": race.subraces.all().order_by("name"),
+        "languages": race.languages.all().order_by("name"),
+        "tags": race.tags.all().order_by("name"),
     }
-    return render(request, 'codex/race_detail.html', context)
+    return render(request, "codex/race_detail.html", context)
+
 
 # characters/views.py
 
@@ -3485,6 +3703,185 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
     # If none of the POST branches early-returned, fall through normally:
     return (spellcasting_blocks, spell_selection_blocks, None)
 
+# ─────────────────────────────────────────────────────────────────────────────
+# NEW: Martial Mastery tab builder
+# ─────────────────────────────────────────────────────────────────────────────
+from django.db import transaction
+from django.contrib import messages
+from django.shortcuts import redirect
+from characters.models import MartialMastery as Mastery, CharacterMartialMastery as Pick
+# …other imports you already have…
+def _build_martial_mastery_tab(request, character, can_edit):
+    # --- 0) Ensure relations exist ------------------------------------------------
+    if not hasattr(character, "martial_masteries"):
+        return (None, [], [], None)
+
+    # Allow us to refer to the actual through/model classes safely
+    Pick = character.martial_masteries.model
+    Mastery = Pick._meta.get_field("mastery").remote_field.model
+
+    # ---- 1) Entitlement calc (DEFINE THESE) -------------------------------------
+    # Gather owned martial-mastery features
+    owned_mm_features = list(
+        ClassFeature.objects
+        .filter(kind="martial_mastery", character_features__character=character)
+        .select_related("character_class")
+        .distinct()
+    )
+
+    # helper(s)
+    def _abil_mod(score: int) -> int:
+        return (int(score) - 10) // 2
+
+    # class-level tokens: e.g. fighter_level, wizard_level, etc.
+    class_level_ctx = {}
+    for prog in character.class_progress.select_related("character_class"):
+        token = re.sub(r'[^a-z0-9_]', '', (prog.character_class.name or '')
+                       .strip().lower().replace(' ', '_'))
+        if token:
+            class_level_ctx[f"{token}_level"] = int(prog.levels or 0)
+
+    def _eval_mm(expr: str) -> int:
+        if not expr:
+            return 0
+        try:
+            ctx = {
+                "level": character.level,
+                "strength": character.strength, "dexterity": character.dexterity,
+                "constitution": character.constitution, "intelligence": character.intelligence,
+                "wisdom": character.wisdom, "charisma": character.charisma,
+                "str_mod": _abil_mod(character.strength), "dex_mod": _abil_mod(character.dexterity),
+                "con_mod": _abil_mod(character.constitution), "int_mod": _abil_mod(character.intelligence),
+                "wis_mod": _abil_mod(character.wisdom), "cha_mod": _abil_mod(character.charisma),
+                "floor": math.floor, "ceil": math.ceil, "min": min, "max": max,
+                "round": round, "int": int,
+            }
+            ctx.update(class_level_ctx)
+            return max(0, int(eval(expr, {"__builtins__": {}}, ctx)))
+        except Exception:
+            return 0
+
+    # totals from features
+    default_points = 0
+    default_known  = 0
+    by_feature = []
+    for ft in owned_mm_features:
+        pts   = _eval_mm(getattr(ft, "martial_points_formula", None))
+        know  = _eval_mm(getattr(ft, "available_masteries_formula", None))
+        default_points += pts
+        default_known  += know
+        by_feature.append({
+            "feature_id": ft.id,
+            "feature_name": ft.name,
+            "class_name": ft.character_class.name if ft.character_class_id else "",
+            "points": pts,
+            "known_cap": know,
+        })
+
+    # user overrides (free edit)
+    ov_points = CharacterFieldOverride.objects.filter(
+        character=character, key="martial_points"
+    ).values_list("value", flat=True).first()
+    ov_known  = CharacterFieldOverride.objects.filter(
+        character=character, key="martial_known_cap"
+    ).values_list("value", flat=True).first()
+
+    try:
+        points = int(ov_points) if ov_points not in (None, "") else default_points
+    except ValueError:
+        points = default_points
+
+    try:
+        knowncap = int(ov_known) if ov_known not in (None, "") else default_known
+    except ValueError:
+        knowncap = default_known
+    # convention: 0 cap = unlimited
+    knowncap = int(knowncap)
+    # ---- 2) Build current known/available lists + handle POST ---------------
+    # Points model: each known mastery costs 1 point unless you add a 'cost' field later
+    Pick = character.martial_masteries.model
+    Mastery = Pick._meta.get_field("mastery").remote_field.model
+
+    # Known masteries (as ids + queryset)
+    known_ids = set(
+        Pick.objects.filter(character=character).values_list("mastery_id", flat=True)
+    )
+    known_qs = Mastery.objects.filter(pk__in=known_ids).order_by("name")
+    known_count = known_qs.count()
+
+    # Remaining points/cap (knowncap==0 means unlimited cap)
+    points_spent = known_count  # 1 point per mastery by default
+    points_left = max(0, int(points) - int(points_spent))
+    cap_left = (None if int(knowncap) == 0 else max(0, int(knowncap) - known_count))
+
+    # Rows for the template
+    mm_known_rows = [{
+        "id": m.id,
+        "name": getattr(m, "name", str(m)),
+        "desc": (getattr(m, "description", "") or getattr(m, "summary", "") or ""),
+        "tags": getattr(m, "tags", "") or "",
+    } for m in known_qs]
+
+    avail_qs = Mastery.objects.exclude(pk__in=known_ids).order_by("name")
+    mm_avail_rows = [{
+        "id": m.id,
+        "name": getattr(m, "name", str(m)),
+        "desc": (getattr(m, "description", "") or getattr(m, "summary", "") or ""),
+        "tags": getattr(m, "tags", "") or "",
+        "can_learn_now": (points_left > 0) and (cap_left is None or cap_left > 0),
+    } for m in avail_qs]
+
+    # Context block used by the header/card in your template
+    mm_ctx = {
+        "points_total": int(points),
+        "points_spent": int(points_spent),
+        "points_left":  int(points_left),
+        "known_cap":    (None if int(knowncap) == 0 else int(knowncap)),
+        "known_count":  int(known_count),
+        "cap_left":     (None if int(knowncap) == 0 else int(cap_left)),
+        "by_feature":   by_feature,   # from entitlement calc above
+    }
+
+    # ---- 3) POST ops: learn / unlearn (id list comes in pick[]) --------------
+    if request.method == "POST" and can_edit and request.POST.get("mm_op") in {"learn", "unlearn"}:
+        op = request.POST.get("mm_op")
+        ids = [int(x) for x in request.POST.getlist("pick[]") if str(x).isdigit()]
+        if not ids:
+            messages.error(request, "Select at least one mastery.")
+            return (mm_ctx, mm_avail_rows, mm_known_rows, redirect('characters:character_detail', pk=character.pk))
+
+        if op == "learn":
+            # enforce points/cap
+            want = len(ids)
+            allowed_by_points = max(0, points_left)
+            allowed_by_cap = (want if mm_ctx["known_cap"] is None else max(0, min(want, mm_ctx["cap_left"])))
+            allowed = min(want, allowed_by_points, allowed_by_cap if mm_ctx["known_cap"] is not None else want)
+            if allowed <= 0:
+                messages.error(request, "No mastery points or cap remaining.")
+                return (mm_ctx, mm_avail_rows, mm_known_rows, redirect('characters:character_detail', pk=character.pk))
+
+            to_learn = ids[:allowed]
+            for mid in to_learn:
+                if mid in known_ids:
+                    continue
+                Pick.objects.get_or_create(character=character, mastery_id=mid)
+            if allowed < want:
+                messages.warning(request, f"Learned {allowed} mastery(ies); ran out of points/cap for the rest.")
+            else:
+                messages.success(request, f"Learned {allowed} mastery(ies).")
+
+        elif op == "unlearn":
+            deleted = Pick.objects.filter(character=character, mastery_id__in=ids).delete()[0]
+            if deleted:
+                messages.success(request, f"Unlearned {deleted} mastery(ies).")
+            else:
+                messages.info(request, "Nothing to unlearn.")
+
+        return (mm_ctx, mm_avail_rows, mm_known_rows, redirect('characters:character_detail', pk=character.pk))
+
+    # ---- 4) Return tuple for caller -------------------------------------------
+    return (mm_ctx, mm_avail_rows, mm_known_rows, None)
+
 
 @login_required
 def character_detail(request, pk):
@@ -3816,6 +4213,12 @@ def character_detail(request, pk):
     if _spell_redirect:
         return _spell_redirect
 
+    # --- NEW: Martial Mastery tab (points + slots + learn/unlearn) -----------
+    martial_mastery_ctx, mm_avail_rows, mm_known_rows, _mm_redirect = _build_martial_mastery_tab(
+        request, character, can_edit
+    )
+    if _mm_redirect:
+        return _mm_redirect
 
 
 
@@ -5967,14 +6370,39 @@ def character_detail(request, pk):
     # Active/Passive tab:
     # — features with “Active” trait (activity_type == 'active' in your model)
     active_candidates = list(ClassFeature.objects
-                             .filter(character_features__character=character,
-                                     activity_type="active")
-                             .distinct())
+                            .filter(character_features__character=character,
+                                    activity_type="active")
+                            .distinct())
     passive_candidates = list(ClassFeature.objects
-                              .filter(character_features__character=character,
-                                      activity_type="passive")
-                              .distinct())
+                            .filter(character_features__character=character,
+                                    activity_type="passive")
+                                .distinct())
+    def _feature_row(fobj):
+        return {
+            "id":        fobj.id,
+            "name":      getattr(fobj, "name", "—"),
+            "desc":      (getattr(fobj, "description", "") or getattr(fobj, "summary", "") or ""),
+            "tags":      getattr(fobj, "tags", "") or "",
+            "kind":      "feature",
+            "is_passive": (getattr(fobj, "activity_type", "") == "passive"),
+        }
 
+    feature_rows_active  = [_feature_row(f) for f in active_candidates]
+    feature_rows_passive = [_feature_row(f) for f in passive_candidates]
+
+    # ── NEW: push ALL known Martial Masteries into the Active tab
+    mastery_rows = []
+    if hasattr(character, "martial_masteries"):
+        for m in character.martial_masteries.select_related("mastery").all():
+            mm = getattr(m, "mastery", m)  # through-table safe
+            mastery_rows.append({
+                "id":   getattr(mm, "id", None),
+                "name": getattr(mm, "name", "—"),
+                "desc": (getattr(mm, "description", "") or getattr(mm, "summary", "") or ""),
+                "tags": getattr(mm, "tags", "") or "",
+                "kind": "martial_mastery",
+                "is_passive": False,  # always shown under Active
+            })
     # — spells (known + prepared) summarized against your spell slot tables
     spell_tables = spellcasting_blocks  # you already build this earlier
     known_spells = list(character.known_spells.select_related("spell").all())
@@ -6008,12 +6436,14 @@ def character_detail(request, pk):
     }
 
     active_passive_tab = {
-        "features_active":   active_candidates,
-        "features_passive":  passive_candidates,
+        # use normalized rows
+        "feature_rows_active":  (feature_rows_active + mastery_rows),
+        "feature_rows_passive": feature_rows_passive,
+
+        # keep the rest as-is for your other panes
         "spell_tables":      spell_tables,
         "known_spells":      known_spells,
         "prepared_spells":   prepared_spells,
-        "masteries":         masteries,
         "activations_map":   activations_map,
         "actions_text": True,
     }
@@ -6321,6 +6751,10 @@ def character_detail(request, pk):
     "armor_list": armor_list,
     "selected_armor": selected_armor,
     "spell_rank_blocks": spell_rank_blocks,
+        "show_martial_mastery_tab": bool(martial_mastery_ctx),
+        "martial_mastery_ctx": martial_mastery_ctx,
+        "martial_mastery_available": mm_avail_rows,
+        "martial_mastery_known": mm_known_rows,
 
 
 
