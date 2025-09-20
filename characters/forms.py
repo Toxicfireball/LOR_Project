@@ -440,29 +440,6 @@ class LevelUpForm(forms.Form):
             race_q |= Q(race__iregex="(" + ")|(".join(token_res) + ")")
 
         # Skill Feat (if this class & level grant one)
-        if preview_cls and ClassSkillFeatGrant.objects.filter(
-            character_class=preview_cls, at_level=next_level
-        ).exists():
-            # inside LevelUpForm.__init__
-            q = (ClassFeat.objects
-                .filter(feat_type__istartswith="Skill")
-                .filter(
-                    Q(level_prerequisite__isnull=True) |      # ← add this
-                    Q(level_prerequisite__exact="") |
-                    Q(level_prerequisite__iregex=rf'(^|[,;/\s]){next_level}([,;/\s]|$)')
-                )
-                .filter(race_q)
-                .exclude(pk__in=character.feats.values_list("feat__pk", flat=True))
-                .order_by("name"))
-
-            if q.exists():
-                self.fields["skill_feat"].queryset = q
-                self.fields["skill_feat"].required = True
-                self.fields["skill_feat"].widget = forms.Select(attrs={"class": "d-none"})
-            else:
-                self.fields.pop("skill_feat", None)
-        else:
-            self.fields.pop("skill_feat", None)
 
         if character.level == 0:
             qs = CharacterClass.objects.order_by("name")

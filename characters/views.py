@@ -2359,6 +2359,62 @@ def level_down(request, pk):
         # (E) Safety net: purge anything that somehow sits above new level
         CharacterFeature.objects.filter(character=character, level__gt=character.level).delete()
         CharacterFeat.objects.filter(character=character, level__gt=character.level).delete()
+        # (F) Skills rollback/reset
+        # 1) Remove skill-point awards that sit above the new level
+        CharacterSkillPointTx.objects.filter(
+            character=character, at_level__gt=character.level
+        ).delete()
+
+        # 2) If we hit level 0, nuke all skill state (back to fresh, level-0)
+        if character.level <= 0:
+            # These rows being absent means "Untrained" everywhere in your UI
+            CharacterSkillProficiency.objects.filter(character=character).delete()
+
+            # Clear any per-skill overrides/deltas/history so nothing lingers
+            CharacterFieldOverride.objects.filter(
+                character=character,
+                key__regex=r'^(formula:skill:|final:skill:|skill_delta:)'
+            ).delete()
+            CharacterFieldNote.objects.filter(
+                character=character,
+                key__regex=r'^(skill_prof:|skill_prof_hist:|skill_delta:|formula:skill:|final:skill:)'
+            ).delete()
+
+        else:
+            # 3) Clamp prof tiers that are illegal at the new total level
+            #    LOR rules: Trained@0, Expert@3, Master@7, Legendary@14
+            LOR_TIER_ORDER   = ["Untrained","Trained","Expert","Master","Legendary"]
+            LOR_MIN_LEVEL_FOR = {"Trained":0, "Expert":3, "Master":7, "Legendary":14}
+
+            # Build a quick name→row map (case-insensitive)
+            all_pl = { (pl.name or "").title(): pl
+                       for pl in ProficiencyLevel.objects.all() }
+
+            def _max_allowed_tier_name(lvl: int) -> str:
+                allowed = "Untrained"
+                for name in LOR_TIER_ORDER[1:]:
+                    if lvl >= LOR_MIN_LEVEL_FOR[name]:
+                        allowed = name
+                return allowed
+
+            allowed_name = _max_allowed_tier_name(character.level)
+            allowed_idx  = LOR_TIER_ORDER.index(allowed_name)
+
+            for sp in CharacterSkillProficiency.objects.select_related("proficiency").filter(character=character):
+                curr_name = (sp.proficiency.name if sp.proficiency_id else "Untrained").title()
+                curr_idx  = LOR_TIER_ORDER.index(curr_name) if curr_name in LOR_TIER_ORDER else 0
+
+                if curr_idx > allowed_idx:
+                    # Drop to the highest legal tier for the new level
+                    if allowed_name == "Untrained":
+                        # Clean slate = delete row to render as Untrained
+                        sp.delete()
+                    else:
+                        # Set to allowed tier (pick any matching row for that tier name)
+                        new_pl = all_pl.get(allowed_name)
+                        if new_pl:
+                            sp.proficiency = new_pl
+                            sp.save(update_fields=["proficiency"])
 
     return redirect('characters:character_detail', pk=pk)
 
@@ -3308,6 +3364,34 @@ def character_detail(request, pk):
             return LOR_TIER_ORDER[i+1] if i+1 < len(LOR_TIER_ORDER) else None
         except ValueError:
             return "Trained"  # safety
+
+    def _prev_tier_name(current_name):
+        try:
+            i = LOR_TIER_ORDER.index(current_name.title())
+            return LOR_TIER_ORDER[i-1] if i-1 >= 0 else None
+        except ValueError:
+            return None
+
+    def _log_skill_point_tx(character, delta_int: int, note: str):
+        """
+        Robustly create a CharacterSkillPointTx row even if the model uses
+        different field names (amount/delta/points, reason/note).
+        """
+        tx = CharacterSkillPointTx(character=character)
+        # amount field variants
+        if hasattr(tx, "amount"):
+            tx.amount = int(delta_int)
+        elif hasattr(tx, "delta"):
+            tx.delta = int(delta_int)
+        elif hasattr(tx, "points"):
+            tx.points = int(delta_int)
+        # note field variants
+        if hasattr(tx, "reason"):
+            tx.reason = note
+        elif hasattr(tx, "note"):
+            tx.note = note
+        tx.save()
+
     def _formula_override(key: str):
         row = CharacterFieldOverride.objects.filter(character=character, key=f"formula:{key}").first()
         return (row.value or "").strip() if row else None
@@ -3414,6 +3498,10 @@ def character_detail(request, pk):
     except CharacterClass.DoesNotExist:
         preview_cls = default_cls
 
+    # ↓↓↓ NEW: make sure posted_cls exists on GET paths too
+    posted_cls = preview_cls  # will be overwritten in the POST branch below
+
+
 
     subclass_groups = list(
     preview_cls.subclass_groups
@@ -3518,6 +3606,7 @@ def character_detail(request, pk):
 
     # decide which set drives validation (POST: posted class; GET: preview)
     data = request.POST if request.method == 'POST' else request.GET
+
     if request.method == 'POST':
         posted_cls_id = data.get('base_class')
         try:
@@ -3798,10 +3887,11 @@ def character_detail(request, pk):
     # --- SKILLS: additive adjustments with reasons (multi-entry) -------------------
     if request.method == "POST" and can_edit and request.POST.get("skills_op"):
         op = (request.POST.get("skills_op") or "").strip()
+
         # add_delta: create a new unique override row "skill_delta:<id_key>:<uid>"
         if op == "add_delta":
-            id_key = (request.POST.get("id_key") or "").strip()         # e.g. "sk_12" or "sub_45"
-            delta_s = (request.POST.get("delta") or "").strip()          # signed int: "+2" or "-1" or "2"
+            id_key = (request.POST.get("id_key") or "").strip()
+            delta_s = (request.POST.get("delta") or "").strip()
             note    = (request.POST.get("note") or "").strip()
             if not id_key:
                 messages.error(request, "Missing skill row key.")
@@ -3810,7 +3900,6 @@ def character_detail(request, pk):
                 messages.error(request, "Reason is required.")
                 return redirect('characters:character_detail', pk=pk)
             try:
-                # allow leading +/-
                 delta = int(eval(delta_s, {"__builtins__": {}}, {}))
             except Exception:
                 messages.error(request, "Adjustment must be a whole number (e.g., -1, 0, +2).")
@@ -3826,9 +3915,9 @@ def character_detail(request, pk):
             messages.success(request, "Adjustment added.")
             return redirect('characters:character_detail', pk=pk)
 
-        # remove_delta: remove a specific past change
+        # remove_delta
         if op == "remove_delta":
-            mod_key = (request.POST.get("mod_key") or "").strip()        # must be full key "skill_delta:sk_12:abcd1234"
+            mod_key = (request.POST.get("mod_key") or "").strip()
             if not mod_key.startswith("skill_delta:"):
                 messages.error(request, "Invalid adjustment key.")
                 return redirect('characters:character_detail', pk=pk)
@@ -3837,7 +3926,7 @@ def character_detail(request, pk):
             messages.success(request, "Adjustment removed.")
             return redirect('characters:character_detail', pk=pk)
 
-        # clear_deltas: remove all changes on a given row at once
+        # clear_deltas
         if op == "clear_deltas":
             id_key = (request.POST.get("id_key") or "").strip()
             CharacterFieldOverride.objects.filter(
@@ -3847,6 +3936,143 @@ def character_detail(request, pk):
                 character=character, key__startswith=f"skill_delta:{id_key}:"
             ).delete()
             messages.success(request, "All adjustments cleared for this skill.")
+            return redirect('characters:character_detail', pk=pk)
+
+        # === NEW: spend points to upgrade a skill tier ============================
+        if op == "upgrade_tier":
+            id_key = (request.POST.get("id_key") or "").strip()  # "sk_<id>" or "sub_<id>"
+            if not id_key:
+                messages.error(request, "Missing skill row key.")
+                return redirect('characters:character_detail', pk=pk)
+
+            # Resolve target object + current proficiency
+            is_sub = id_key.startswith("sub_")
+            obj_id = int((id_key.split("_", 1)[1] or "0"))
+            model  = SubSkill if is_sub else Skill
+            ct     = ContentType.objects.get_for_model(model)
+            try:
+                target = model.objects.get(pk=obj_id)
+            except model.DoesNotExist:
+                messages.error(request, "Skill not found.")
+                return redirect('characters:character_detail', pk=pk)
+
+            sp_row = CharacterSkillProficiency.objects.filter(
+                character=character, selected_skill_type=ct, selected_skill_id=obj_id
+            ).select_related("proficiency").first()
+            current_pl   = getattr(sp_row, "proficiency", None)
+            current_name = (current_pl.name if current_pl else "Untrained").title()
+            next_name    = _next_tier_name(current_name)
+
+            if not next_name:
+                messages.info(request, f"{target} is already at Legendary.")
+                return redirect('characters:character_detail', pk=pk)
+
+            # Level gate
+            min_lvl = _min_level_to_reach(next_name)
+            if character.level < min_lvl:
+                messages.error(request, f"Requires level {min_lvl} to reach {next_name}.")
+                return redirect('characters:character_detail', pk=pk)
+
+            # Cost + balance
+            cost = _upgrade_cost(current_name)
+            bal  = CharacterSkillPointTx.balance_for(character)
+            if bal < cost:
+                messages.error(request, f"Not enough skill points (need {cost}, have {bal}).")
+                return redirect('characters:character_detail', pk=pk)
+
+            # Apply upgrade
+            new_pl = ProficiencyLevel.objects.filter(name__iexact=next_name).order_by("bonus").first()
+            if not new_pl:
+                messages.error(request, "Target proficiency tier not found.")
+                return redirect('characters:character_detail', pk=pk)
+
+            rec, _ = CharacterSkillProficiency.objects.get_or_create(
+                character=character, selected_skill_type=ct, selected_skill_id=obj_id,
+                defaults={"proficiency": new_pl}
+            )
+            if rec.proficiency_id != new_pl.id:
+                rec.proficiency = new_pl
+                rec.save()
+
+            # Spend points (negative delta)
+            _log_skill_point_tx(character, -cost, f"Upgrade {id_key}: {current_name} → {next_name} (cost {cost})")
+
+            # History note (audit)
+            CharacterFieldNote.objects.update_or_create(
+                character=character,
+                key=f"skill_prof_hist:{id_key}:{uuid.uuid4().hex[:8]}",
+                defaults={"note": f"{current_name} → {next_name}: spent {cost} point(s)"}
+            )
+
+            messages.success(request, f"{target} upgraded to {next_name} (−{cost} SP).")
+            return redirect('characters:character_detail', pk=pk)
+
+        # === NEW: retrain one tier down during downtime (refund) =================
+        if op == "retrain_tier":
+            id_key = (request.POST.get("id_key") or "").strip()
+            if not id_key:
+                messages.error(request, "Missing skill row key.")
+                return redirect('characters:character_detail', pk=pk)
+
+            is_sub = id_key.startswith("sub_")
+            obj_id = int((id_key.split("_", 1)[1] or "0"))
+            model  = SubSkill if is_sub else Skill
+            ct     = ContentType.objects.get_for_model(model)
+            try:
+                target = model.objects.get(pk=obj_id)
+            except model.DoesNotExist:
+                messages.error(request, "Skill not found.")
+                return redirect('characters:character_detail', pk=pk)
+
+            sp_row = CharacterSkillProficiency.objects.filter(
+                character=character, selected_skill_type=ct, selected_skill_id=obj_id
+            ).select_related("proficiency").first()
+            current_pl   = getattr(sp_row, "proficiency", None)
+            current_name = (current_pl.name if current_pl else "Untrained").title()
+
+            if current_name == "Untrained":
+                messages.info(request, f"{target} is already Untrained.")
+                return redirect('characters:character_detail', pk=pk)
+
+            prev_name = _prev_tier_name(current_name)
+            if not prev_name:
+                messages.info(request, "No lower tier to retrain to.")
+                return redirect('characters:character_detail', pk=pk)
+
+            # Refund (default “step” mode; switchable via RETRAIN_REFUND_MODE)
+            if RETRAIN_REFUND_MODE == "full":
+                # Sum the steps invested to reach current tier from Untrained
+                i_cur = LOR_TIER_ORDER.index(current_name)
+                refund = 0
+                for i in range(0, i_cur):  # Untrained(0)→...→current(i_cur)
+                    refund += LOR_UPGRADE_COST[LOR_TIER_ORDER[i]]
+            else:
+                # Step-only: refund the cost of the step we are undoing
+                refund = LOR_UPGRADE_COST[prev_name]
+
+            new_pl = ProficiencyLevel.objects.filter(name__iexact=prev_name).order_by("bonus").first()
+            if not new_pl:
+                messages.error(request, "Target proficiency tier not found.")
+                return redirect('characters:character_detail', pk=pk)
+
+            rec, _ = CharacterSkillProficiency.objects.get_or_create(
+                character=character, selected_skill_type=ct, selected_skill_id=obj_id,
+                defaults={"proficiency": new_pl}
+            )
+            if rec.proficiency_id != new_pl.id:
+                rec.proficiency = new_pl
+                rec.save()
+
+            # Refund points (positive delta)
+            _log_skill_point_tx(character, refund, f"Retrain {id_key}: {current_name} → {prev_name} (refund {refund})")
+
+            CharacterFieldNote.objects.update_or_create(
+                character=character,
+                key=f"skill_prof_hist:{id_key}:{uuid.uuid4().hex[:8]}",
+                defaults={"note": f"{current_name} → {prev_name}: retrain refund {refund} point(s)"}
+            )
+
+            messages.success(request, f"Retrained {target} to {prev_name} (+{refund} SP).")
             return redirect('characters:character_detail', pk=pk)
 
 
@@ -3903,6 +4129,36 @@ def character_detail(request, pk):
 
             return redirect('characters:character_detail', pk=pk)
         # invalid form -> fall through to render with errors
+    # ── (C.1) Normalize table POST keys -> "skill_feat_pick" ───────────────────
+    skill_grant = (
+        ClassSkillFeatGrant.objects
+        .filter(character_class=posted_cls, at_level=cls_level_for_validate)
+        .first()
+    )
+
+    post = request.POST.copy()
+    if skill_grant:
+        picks = int(skill_grant.num_picks or 0)
+
+        # Accept any of these from the UI
+        picked_vals = (
+            post.getlist("skill_feat_pick") or
+            post.getlist("skill_feat_pick[]") or
+            post.getlist("pick[]")  # e.g. reused from spell tables
+        )
+
+        # If your UI encodes "id|something", keep only the id
+        cleaned = [v.split("|", 1)[0] for v in picked_vals]
+
+        if cleaned:
+            if picks <= 1:
+                post["skill_feat_pick"] = cleaned[0]
+            else:
+                post.setlist("skill_feat_pick", cleaned)
+
+    # Use the normalized payload to bind the form later
+    request.POST = post
+    data = request.POST if request.method == 'POST' else request.GET
 
 
     level_form = LevelUpForm(
@@ -3913,7 +4169,8 @@ def character_detail(request, pk):
         preview_cls=preview_cls,             # keep for UI preview
         grants_class_feat=_grants_class_feat_at
     )
-
+    level_form.fields.pop('skill_feat', None)
+    level_form.fields.pop('skill_feat_pick', None)
     # Add the field *only* when the validated class/level needs it
     if _grants_class_feat_at and "class_feat_pick" not in level_form.fields:
         level_form.fields["class_feat_pick"] = forms.ModelChoiceField(
@@ -3924,6 +4181,7 @@ def character_detail(request, pk):
 
     # ── NEW: Skill Feat picker(s) when the selected class grants them at this level ──
     # Determine the target class/level we are validating against
+
     target_cls = posted_cls if request.method == 'POST' else preview_cls
     skill_grant = (
         ClassSkillFeatGrant.objects
@@ -3931,15 +4189,15 @@ def character_detail(request, pk):
         .first()
     )
 
-    if skill_grant and "skill_feat_pick" not in level_form.fields:
+    if skill_grant:
         picks = int(skill_grant.num_picks or 0)
         base_qs = ClassFeat.objects.all()  # will be filtered to feat_type='Skill' below
+
         if picks <= 1:
             level_form.fields["skill_feat_pick"] = forms.ModelChoiceField(
                 queryset=base_qs,
                 required=(picks > 0),
-                label="Skill Feat",
-                help_text=(None if picks > 0 else "No skill-feat pick at this level.")
+                label="Skill Feat"
             )
         else:
             level_form.fields["skill_feat_pick"] = forms.ModelMultipleChoiceField(
@@ -3948,7 +4206,6 @@ def character_detail(request, pk):
                 label=f"Pick {picks} Skill Feat(s)",
                 widget=forms.CheckboxSelectMultiple
             )
-
 
 
     # INIT HERE so we can append immediately below
@@ -6085,11 +6342,16 @@ def character_level_up(request, pk):
     first_prog = class_progress.first()
     default_cls = first_prog.character_class if first_prog else CharacterClass.objects.order_by("name").first()
 
+    # >>> ADD THESE TWO LINES (defensive init)
+    posted_cls = default_cls
     posted_cls_id = request.POST.get('base_class')
+
     try:
         posted_cls = CharacterClass.objects.get(pk=int(posted_cls_id))
     except (TypeError, ValueError, CharacterClass.DoesNotExist):
+        # if invalid/missing, keep default_cls
         posted_cls = default_cls
+
 
     cls_level_for_validate = _class_level_after_pick(character, posted_cls)
 
@@ -6127,6 +6389,36 @@ def character_level_up(request, pk):
     target_cls = posted_cls
     cls_after  = cls_level_for_validate
     cls_name   = target_cls.name
+    # ── (C.1) Normalize table POST keys -> "skill_feat_pick" ───────────────────
+    skill_grant = (
+        ClassSkillFeatGrant.objects
+        .filter(character_class=posted_cls, at_level=cls_level_for_validate)
+        .first()
+    )
+
+    post = request.POST.copy()
+    if skill_grant:
+        picks = int(skill_grant.num_picks or 0)
+
+        # Accept any of these from the UI
+        picked_vals = (
+            post.getlist("skill_feat_pick") or
+            post.getlist("skill_feat_pick[]") or
+            post.getlist("pick[]")  # e.g. reused from spell tables
+        )
+
+        # If your UI encodes "id|something", keep only the id
+        cleaned = [v.split("|", 1)[0] for v in picked_vals]
+
+        if cleaned:
+            if picks <= 1:
+                post["skill_feat_pick"] = cleaned[0]
+            else:
+                post.setlist("skill_feat_pick", cleaned)
+
+    # Use the normalized payload to bind the form later
+    request.POST = post
+    data = request.POST if request.method == 'POST' else request.GET
 
     # ── (D) Build LevelUpForm with the exact same options/fields ────────────
     level_form = LevelUpForm(
@@ -6153,23 +6445,62 @@ def character_level_up(request, pk):
         .filter(character_class=posted_cls, at_level=cls_level_for_validate)
         .first()
     )
-    if skill_grant and "skill_feat_pick" not in level_form.fields:
-        picks = int(skill_grant.num_picks or 0)
-        base_qs = ClassFeat.objects.all()  # will be filtered to feat_type='Skill' below
-        if picks <= 1:
-            level_form.fields["skill_feat_pick"] = forms.ModelChoiceField(
-                queryset=base_qs,
-                required=(picks > 0),
-                label="Skill Feat",
-                help_text=(None if picks > 0 else "No skill-feat pick at this level.")
+    # ── (D.3) Restrict & finalize the SKILL feat field (mirrors character_detail) ──
+    if "skill_feat_pick" in level_form.fields:
+        fld = level_form.fields["skill_feat_pick"]
+        base_qs = fld.queryset or ClassFeat.objects.all()
+
+        # Race/subrace filter
+        race_names = []
+        if character.race and getattr(character.race, "name", None):
+            race_names.append(character.race.name)
+        if getattr(character, "subrace", None) and getattr(character.subrace, "name", None):
+            race_names.append(character.subrace.name)
+
+        race_q = Q(race__exact="") | Q(race__isnull=True)
+        if race_names:
+            token_res = [rf'(^|[,;/\s]){re.escape(n)}([,;/\s]|$)' for n in race_names]
+            race_q |= Q(race__iregex="(" + ")|(".join(token_res) + ")")
+
+        # Class membership/tags filter
+        class_tags = [t.lower() for t in posted_cls.tags.values_list("name", flat=True)]
+        tokens = [posted_cls.name] + class_tags
+        if "spellcaster" in class_tags: tokens += ["spellcaster", "spellcasting", "caster"]
+        if "martial" in class_tags:     tokens += ["martial"]
+
+        any_token_re = "(" + ")|(".join(
+            rf'(^|[,;/\s]){re.escape(tok)}([,;/\s]|$)' for tok in tokens if tok
+        ) + ")" if tokens else None
+
+        sf_qs = base_qs.filter(feat_type__iexact="Skill").filter(race_q)
+        if any_token_re:
+            sf_qs = sf_qs.filter(
+                Q(class_name__iregex=any_token_re) |
+                Q(tags__iregex=any_token_re) |
+                Q(class_name__regex=r'(?i)\b(all|any)\s+classes?\b') |
+                Q(class_name__exact="") | Q(class_name__isnull=True)
             )
+
+        fld.queryset = sf_qs.order_by("name")
+
+        picks_required = bool(skill_grant and int(skill_grant.num_picks or 0) > 0)
+        if not sf_qs.exists():
+            fld.required = False
+            fld.help_text = "No skill feats available at this level for your race/tags."
         else:
-            level_form.fields["skill_feat_pick"] = forms.ModelMultipleChoiceField(
-                queryset=base_qs,
-                required=(picks > 0),
-                label=f"Pick {picks} Skill Feat(s)",
-                widget=forms.CheckboxSelectMultiple
-            )
+            fld.required = picks_required
+
+        # If exactly one option and a pick is required, auto-select it
+        # (prevents “required” error even if the UI didn’t send it)
+        if picks_required and sf_qs.count() == 1 and not request.POST.getlist("skill_feat_pick"):
+            only_id = str(sf_qs.first().pk)
+            if isinstance(fld, forms.ModelMultipleChoiceField):
+                post.setlist("skill_feat_pick", [only_id])
+            else:
+                post["skill_feat_pick"] = only_id
+            request.POST = post
+            level_form.data = post
+
 
 
     # ── (E) RECREATE the same subclass/trigger dynamic fields ───────────────
@@ -6467,13 +6798,52 @@ def character_level_up(request, pk):
 
     # E) SKILL feats (if/when you add a field) – only feat_type=Skill + race filter
     if "skill_feat_pick" in level_form.fields:
-        sf_qs = level_form.fields["skill_feat_pick"].queryset
-        if sf_qs is not None:
-            level_form.fields["skill_feat_pick"].queryset = (
-                sf_qs.filter(feat_type__iexact="Skill")
-                    .filter(race_q)
-                    .order_by("name")
-            )
+        fld = level_form.fields["skill_feat_pick"]
+        base_qs = fld.queryset or ClassFeat.objects.all()  # fallback
+
+        # Restrict to skill-feats + race/subrace first
+        sf_qs = base_qs.filter(feat_type__iexact="Skill").filter(race_q)
+
+        # Optional: restrict by class membership/tags (same as character_detail)
+        target_cls = posted_cls
+        if target_cls:
+            class_tags = [t.lower() for t in target_cls.tags.values_list("name", flat=True)]
+            tokens = [target_cls.name] + class_tags
+            if "spellcaster" in class_tags: tokens += ["spellcaster", "spellcasting", "caster"]
+            if "martial" in class_tags:     tokens += ["martial"]
+            token_res = [rf'(^|[,;/\s]){re.escape(tok)}([,;/\s]|$)' for tok in tokens if tok]
+            any_token_re = "(" + ")|(".join(token_res) + ")" if token_res else None
+            if any_token_re:
+                sf_qs = sf_qs.filter(
+                    Q(class_name__iregex=any_token_re) |
+                    Q(tags__iregex=any_token_re) |
+                    Q(class_name__regex=r'(?i)\b(all|any)\s+classes?\b') |
+                    Q(class_name__exact="") | Q(class_name__isnull=True)
+                )
+
+        # Apply the filtered queryset to the field
+        fld.queryset = sf_qs.order_by("name")
+
+        # Keep required=True only if a pick is actually granted *and* there are options
+        picks_required = bool(skill_grant and int(skill_grant.num_picks or 0) > 0)
+        if not sf_qs.exists():
+            fld.required = False
+            fld.help_text = "No skill feats available at this level for your race/tags."
+        else:
+            fld.required = picks_required
+
+        # Convenience: auto-select if exactly one option and a pick is required
+        if picks_required and request.method == "POST" and sf_qs.count() == 1 and not request.POST.getlist("skill_feat_pick"):
+            _post = request.POST.copy()
+            only_id = str(sf_qs.first().pk)
+            if isinstance(fld, forms.ModelMultipleChoiceField):
+                _post.setlist("skill_feat_pick", [only_id])
+            else:
+                _post["skill_feat_pick"] = only_id
+            request.POST = _post
+            level_form.data = _post
+
+
 
     #
     # (Paste your current code for those three sections here, replacing
