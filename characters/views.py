@@ -2415,6 +2415,95 @@ def level_down(request, pk):
                         if new_pl:
                             sp.proficiency = new_pl
                             sp.save(update_fields=["proficiency"])
+        # (F) Skills rollback/reset
+        # 1) Remove skill-point awards/spends that sit above the new level
+        CharacterSkillPointTx.objects.filter(
+            character=character, at_level__gt=character.level
+        ).delete()
+
+        # 1b) (Optional) If you ever created SP tx exactly at this level for the
+        #     "level up" we just rolled back, also purge those issued at the
+        #     previous top level (lvl). Comment this in if that's your data model.
+        # CharacterSkillPointTx.objects.filter(
+        #     character=character, at_level=lvl
+        # ).delete()
+
+        # 2) If we hit level 0, nuke all skill state (back to fresh, level-0)
+        if character.level <= 0:
+            ...
+        else:
+            # 3) Clamp prof tiers that are illegal at the new total level
+            ...
+            # (existing tier-gate clamp code stays as-is)
+
+            # 4) Ensure the remaining SP balance is not negative after level-down.
+            #    If it is, greedily downgrade highest tiers until balance >= 0.
+
+            # ---- helpers: cost tables (upgrade costs → refunds on downgrade)
+            UPGRADE_COST = {"Untrained": 0, "Trained": 1, "Expert": 2, "Master": 3, "Legendary": 5}
+            ORDER = ["Untrained", "Trained", "Expert", "Master", "Legendary"]
+            REFUND = {  # refund gained when stepping down one tier
+                ("Legendary", "Master"): 5,
+                ("Master", "Expert"): 3,
+                ("Expert", "Trained"): 2,
+                ("Trained", "Untrained"): 1,
+            }
+
+            # ---- current SP balance after removing tx > new level
+            # NOTE: assumes CharacterSkillPointTx has signed "amount" (+awards, -spends).
+            sp_balance = (CharacterSkillPointTx.objects
+                          .filter(character=character)
+                          .aggregate(models.Sum('amount'))['amount__sum']) or 0
+
+            if sp_balance < 0:
+                # Build a mutable list of profs we can downgrade (above Untrained)
+                profs = list(
+                    CharacterSkillProficiency.objects
+                    .select_related('proficiency')
+                    .filter(character=character, proficiency__isnull=False)
+                )
+
+                # Sort by *highest* tier first so we refund big chunks early.
+                def tier_idx(pl_name: str) -> int:
+                    nm = (pl_name or "Untrained").title()
+                    return ORDER.index(nm) if nm in ORDER else 0
+
+                profs.sort(key=lambda sp: tier_idx(sp.proficiency.name), reverse=True)
+
+                # Greedily downgrade until balance >= 0 or everything is Untrained
+                notes = []
+                for sp in profs:
+                    if sp_balance >= 0:
+                        break
+
+                    curr_name = (sp.proficiency.name or "Untrained").title()
+                    curr_i = tier_idx(curr_name)
+                    while curr_i > 0 and sp_balance < 0:
+                        # step down one tier
+                        next_name = ORDER[curr_i - 1]
+                        sp_balance += REFUND[(ORDER[curr_i], next_name)]  # refund
+                        curr_i -= 1
+
+                        if curr_i == 0:
+                            # Drop row entirely to represent Untrained
+                            sp.delete()
+                            notes.append(f"{sp.skill.name if hasattr(sp, 'skill') else 'Skill'} → Untrained (auto-downgrade)")
+                            break
+                        else:
+                            # Set to the new allowed tier
+                            new_pl = ProficiencyLevel.objects.filter(name__iexact=ORDER[curr_i]).first()
+                            if new_pl:
+                                sp.proficiency = new_pl
+                                sp.save(update_fields=["proficiency"])
+                                notes.append(f"{sp.skill.name if hasattr(sp, 'skill') else 'Skill'} → {ORDER[curr_i]} (auto-downgrade)")
+
+                # Optional: store a single note explaining what happened
+                if notes:
+                    CharacterFieldNote.objects.create(
+                        character=character,
+                        key="skill_prof_hist:auto_downgrade",
+                        note=f"Auto-downgraded after level down to fit SP balance: " + "; ".join(notes)
+                    )
 
     return redirect('characters:character_detail', pk=pk)
 
