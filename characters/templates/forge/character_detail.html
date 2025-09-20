@@ -128,7 +128,7 @@
                   <tr>
                     <td>{{ a.label }}</td>
 <td class="text-end">
-  <span>{{ a.score }}</span>
+  <span data-ability-score="{{ a.key|lower }}">{{ a.score }}</span>
   {% if can_edit %}
     <button
       class="edit-pill edit-override"
@@ -142,7 +142,8 @@
     </button>
   {% endif %}
 </td>
-                    <td class="text-end">{{ a.mod_str }}</td>
+<td class="text-end" data-ability-mod="{{ a.key|lower }}">{{ a.mod_str }}</td>
+
                   </tr>
                 {% endfor %}
               </tbody>
@@ -943,9 +944,43 @@ class="btn btn-sm btn-outline-secondary edit-override"
   <div class="card p-3">
     <h5 class="mb-3">Active Abilities</h5>
 
-    {# Show Martial Masteries if any; otherwise show the empty state #}
-    {% if martial_mastery_known %}
+    {% if active_rows or martial_mastery_known %}
       <ul class="list-group">
+        {% for r in active_rows %}
+          <li class="list-group-item">
+            <div class="d-flex justify-content-between align-items-center">
+              <div>
+                {{ r.label }}
+                {% if r.meta %}<small class="text-muted">— {{ r.meta }}</small>{% endif %}
+                {% note_icon r.note_key %}
+              </div>
+              <div class="d-flex align-items-center gap-2">
+                <input class="form-control form-control-sm act-note" placeholder="Note (optional)">
+                <button class="btn btn-sm btn-outline-secondary toggle-activation"
+                        data-ctype="{{ r.ctype }}" data-obj="{{ r.obj_id }}" data-active="0">Set Passive</button>
+                <button class="btn btn-sm btn-link p-0 toggle-desc" type="button">Details</button>
+              </div>
+            </div>
+            <div class="d-none desc-body mt-2">
+              {% if r.desc %}<div class="summernote-content mb-2">{{ r.desc|safe }}</div>{% endif %}
+              {% if r.details %}
+                <div class="table-responsive">
+                  <table class="table table-sm table-bordered mb-0">
+                    <tbody>
+                      {% for k,v in r.details %}
+                        <tr>
+                          <th class="text-nowrap" style="width:180px;">{{ k }}</th>
+                          <td>{% if k == "Description" %}{{ v|safe }}{% else %}{{ v }}{% endif %}</td>
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              {% endif %}
+            </div>
+          </li>
+        {% endfor %}
+
         {% for mm in martial_mastery_known %}
           <li class="list-group-item">
             <div class="d-flex justify-content-between align-items-center">
@@ -958,22 +993,13 @@ class="btn btn-sm btn-outline-secondary edit-override"
               </div>
             </div>
             <div class="d-none desc-body mt-2">
-              {% if mm.description %}
-                <div class="summernote-content mb-2">{{ mm.description|safe }}</div>
-              {% elif mm.summary %}
-                <div class="summernote-content mb-2">{{ mm.summary|safe }}</div>
-              {% endif %}
+              {% if mm.description %}<div class="summernote-content mb-2">{{ mm.description|safe }}</div>
+              {% elif mm.summary %}<div class="summernote-content mb-2">{{ mm.summary|safe }}</div>{% endif %}
               <div class="table-responsive">
                 <table class="table table-sm table-bordered mb-0">
                   <tbody>
-                    <tr>
-                      <th class="text-nowrap" style="width:180px;">Tags</th>
-                      <td>{{ mm.tags|default:"—" }}</td>
-                    </tr>
-                    <tr>
-                      <th class="text-nowrap" style="width:180px;">Prerequisites</th>
-                      <td>{{ mm.prereq|default:"—" }}</td>
-                    </tr>
+                    <tr><th class="text-nowrap" style="width:180px;">Tags</th><td>{{ mm.tags|default:"—" }}</td></tr>
+                    <tr><th class="text-nowrap" style="width:180px;">Prerequisites</th><td>{{ mm.prereq|default:"—" }}</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -986,6 +1012,7 @@ class="btn btn-sm btn-outline-secondary edit-override"
     {% endif %}
   </div>
 </div>
+
 
 
 <!-- PASSIVE TAB -->
@@ -3033,6 +3060,22 @@ function getCookie(name) {
   });
 })();
 </script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('[data-ability-mod]').forEach(modCell => {
+    const key = modCell.getAttribute('data-ability-mod');
+    const scoreEl = document.querySelector('[data-ability-score="'+key+'"]');
+    if (!scoreEl) return;
+    const n = parseInt(scoreEl.textContent, 10);
+    if (Number.isFinite(n)) {
+      const mod = Math.floor((n - 10) / 2);
+      const s = (mod >= 0 ? '+' : '') + mod;
+      if (modCell.textContent.trim() !== s) modCell.textContent = s;
+    }
+  });
+});
+</script>
+
 <script>
 (function(){
   // ── Tabs (robust if target panel is missing) ───────────────────────────────

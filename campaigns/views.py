@@ -178,6 +178,7 @@ def approve_pending_bg(request, campaign_id, pb_id):
     pb.save(update_fields=["status","decided_at"])
     messages.success(request, f"Approved background '{bg.name}'.")
     return redirect("campaigns:campaign_detail", campaign_id=campaign.id)
+@login_required
 def assign_skill_feats(request, campaign_id):
     if request.method != "POST":
         raise Http404()

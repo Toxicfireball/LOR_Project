@@ -3926,6 +3926,52 @@ def _mm_level_prereq(m):
         return None
 
 
+# views/characters.py (or wherever character_detail lives)
+from django.apps import apps
+from django.db.models import Q
+
+def _inventory_context(character):
+    """
+    Returns a context dict for the Inventory tab:
+      - currency: gold/silver/copper fields from Character (defaults to 0)
+      - inventory_items: items already owned by this character
+      - party_pool_items: campaign 'party' items that are not yet claimed
+    This is defensive against missing models/fields.
+    """
+    # currency (defaults to 0 if the fields don't exist yet)
+    gold   = getattr(character, "gold", 0) or 0
+    silver = getattr(character, "silver", 0) or 0
+    copper = getattr(character, "copper", 0) or 0
+
+    # character inventory items (expects reverse related name 'inventory_items')
+    my_items = []
+    inv_qs = getattr(character, "inventory_items", None)
+    if hasattr(inv_qs, "all"):
+        my_items = list(inv_qs.all().order_by("name"))
+
+    # party pool items (unclaimed items at the campaign level)
+    party_pool = []
+    if getattr(character, "campaign_id", None):
+        try:
+            CampaignItem = apps.get_model("campaigns", "CampaignItem")
+            party_pool = list(
+            CampaignItem.objects.filter(
+                Q(assigned_to="party") | Q(assigned_to__isnull=True),
+                campaign=character.campaign,
+                claimed_by__isnull=True,
+                is_archived=False,
+            ).order_by("name")
+            )
+        except LookupError:
+            # If the app/model doesn't exist yet, just show nothing.
+            party_pool = []
+
+    return {
+        "show_inventory_tab": True,
+        "inventory_currency": {"gold": gold, "silver": silver, "copper": copper},
+        "inventory_items": my_items,
+        "party_pool_items": party_pool,
+    }
 
 
 import ast
@@ -4410,7 +4456,18 @@ def character_detail(request, pk):
             "mod": m,
             "mod_str": f"{'+' if m >= 0 else ''}{m}",
         })
+    # === Use overridden ability scores everywhere below ===
+    ABIL_SCORES = {a["key"]: int(a["score"]) for a in abilities}
+    ABIL_MODS   = {k: _abil_mod(v) for k, v in ABIL_SCORES.items()}
 
+    def abil_score(name: str) -> int:
+        n = (name or "").lower()
+        return int(ABIL_SCORES.get(n, getattr(character, n, 10)))
+
+    def abil_mod(name: str) -> int:
+        n = (name or "").lower()
+        return int(ABIL_MODS.get(n, _abil_mod(getattr(character, n, 10))))
+    
     skill_proficiencies = list(character.skill_proficiencies.all())
     skill_proficiencies.sort(key=lambda sp: (getattr(sp.selected_skill, "name", "") or "").lower())
 
@@ -4698,7 +4755,30 @@ def character_detail(request, pk):
         CharacterDetailsForm(request.POST or None, instance=character)
         if can_edit else CharacterDetailsForm(instance=character)
     )
- 
+    # === NEW: General character edit (name, backstory, description, etc.) ===
+    if request.method == "POST" and "edit_character_submit" in request.POST and can_edit:
+        edit_form = CharacterCreationForm(request.POST, instance=character)
+        if edit_form.is_valid():
+            changed = edit_form.changed_data
+            missing = [field for field in changed if not (request.POST.get(f"note__{field}") or "").strip()]
+            if missing:
+                for f in missing:
+                    edit_form.add_error(None, f"Please provide a reason for changing “{f}”.")
+            else:
+                character = edit_form.save()
+                # persist/update notes (note__<fieldname>)
+                for key, note in request.POST.items():
+                    if key.startswith("note__"):
+                        k = key[6:]
+                        note = (note or "").strip()
+                        if note:
+                            CharacterFieldNote.objects.update_or_create(
+                                character=character, key=k, defaults={"note": note}
+                            )
+                        else:
+                            CharacterFieldNote.objects.filter(character=character, key=k).delete()
+                return redirect('characters:character_detail', pk=pk)
+
     # -- Details editor (requires a reason per changed field) ----------------------
     if request.method == "POST" and "update_details_submit" in request.POST and can_edit:
         details_form = CharacterDetailsForm(request.POST, instance=character)
@@ -5863,10 +5943,11 @@ def character_detail(request, pk):
     armor_list = list(Armor.objects.all().order_by('type','name').values('id','name','armor_value'))
     # Use overrides to determine equipped armor/value BEFORE computing derived stats
 
-    str_mod = _abil_mod(character.strength)
-    dex_mod = _abil_mod(character.dexterity)
-    con_mod = _abil_mod(character.constitution)
-    wis_mod = _abil_mod(character.wisdom)
+    str_mod = abil_mod("strength")
+    dex_mod = abil_mod("dexterity")
+    con_mod = abil_mod("constitution")
+    wis_mod = abil_mod("wisdom")
+
     # pick a “primary class” = most levels; may be None
     primary_cp = max(class_progress, key=lambda cp: cp.levels, default=None)
     key_abil_names = []
@@ -5944,14 +6025,14 @@ def character_detail(request, pk):
         # context for user formulas
         ctx = {
             "base": base_const, "prof": prof, "half": half,
-            "strength": _abil_mod(character.strength), "dexterity": _abil_mod(character.dexterity),
-            "constitution": _abil_mod(character.constitution), "intelligence": _abil_mod(character.intelligence),
-            "wisdom": _abil_mod(character.wisdom), "charisma": _abil_mod(character.charisma),
-            "str_mod": _abil_mod(character.strength), "dex_mod": _abil_mod(character.dexterity),
-            "con_mod": _abil_mod(character.constitution), "int_mod": _abil_mod(character.intelligence),
-            "wis_mod": _abil_mod(character.wisdom), "cha_mod": _abil_mod(character.charisma),
+            "strength": abil_score("strength"), "dexterity": abil_score("dexterity"),
+            "constitution": abil_score("constitution"), "intelligence": abil_score("intelligence"),
+            "wisdom": abil_score("wisdom"), "charisma": abil_score("charisma"),
+            "str_mod": abil_mod("strength"), "dex_mod": abil_mod("dexterity"),
+            "con_mod": abil_mod("constitution"), "int_mod": abil_mod("intelligence"),
+            "wis_mod": abil_mod("wisdom"), "cha_mod": abil_mod("charisma"),
             "level": character.level, "floor": math.floor, "ceil": math.ceil, "min": min, "max": max, "int": int, "round": round,
-        }
+                }
 
         # (3) apply a per-stat formula override if present
         used_formula = " + ".join(formula_h)
@@ -6096,12 +6177,12 @@ def character_detail(request, pk):
     # Build Spell/DC values from key abilities, then produce rows for the template
     derived["spell_dcs"] = []
     for abil in key_abil_names:
-        score = getattr(character, abil.lower(), 10)
-        mod   = _abil_mod(score)
+        mod = abil_mod(abil)
         derived["spell_dcs"].append({
             "ability": abil,
             "value": 10 + mod + prof_dc + hl_if_trained("dc"),
         })
+
     # Build DC rows from the actual spellcasting features we just computed
     spell_dc_rows = []
 
@@ -6153,8 +6234,9 @@ def character_detail(request, pk):
     for sk in Skill.objects.prefetch_related("subskills").order_by("name"):
         abil1 = sk.ability       # e.g. "strength"
         abil2 = sk.secondary_ability  # may be None
-        a1_mod = _abil_mod(getattr(character, abil1, 10))
-        a2_mod = _abil_mod(getattr(character, abil2, 10)) if abil2 else None
+        a1_mod = abil_mod(abil1)
+        a2_mod = abil_mod(abil2) if abil2 else None
+
 
         # display each subskill; if none exist, show the skill itself
         subs = list(sk.subskills.all())
@@ -6206,14 +6288,14 @@ def character_detail(request, pk):
 
             ctx = {
                 "prof": row["prof_bonus"], "half": row["half"], "level": character.level,
-                "strength": _abil_mod(character.strength), "dexterity": _abil_mod(character.dexterity),
-                "constitution": _abil_mod(character.constitution), "intelligence": _abil_mod(character.intelligence),
-                "wisdom": _abil_mod(character.wisdom), "charisma": _abil_mod(character.charisma),
-                "str_mod": _abil_mod(character.strength), "dex_mod": _abil_mod(character.dexterity),
-                "con_mod": _abil_mod(character.constitution), "int_mod": _abil_mod(character.intelligence),
-                "wis_mod": _abil_mod(character.wisdom), "cha_mod": _abil_mod(character.charisma),
+                "strength": abil_score("strength"), "dexterity": abil_score("dexterity"),
+                "constitution": abil_score("constitution"), "intelligence": abil_score("intelligence"),
+                "wisdom": abil_score("wisdom"), "charisma": abil_score("charisma"),
+                "str_mod": abil_mod("strength"), "dex_mod": abil_mod("dexterity"),
+                "con_mod": abil_mod("constitution"), "int_mod": abil_mod("intelligence"),
+                "wis_mod": abil_mod("wisdom"), "cha_mod": abil_mod("charisma"),
                 "floor": math.floor, "ceil": math.ceil, "min": min, "max": max, "int": int, "round": round,
-            }
+                        }
 
             def _note_for(k):
                 n = CharacterFieldNote.objects.filter(character=character, key=k).first()
@@ -6519,7 +6601,10 @@ def character_detail(request, pk):
                 "active":  act_map.get((ct_racialfeature.id, rf.id), False),
                 "note_key": f"cracialfeature:{cfeat.id}",
                 "desc":    (getattr(rf, "description", "") or getattr(rf, "summary", "") or ""),
-                "details": None,
+"details": (_feature_details_map(rf) if '_feature_details_map' in globals() else {
+    "tags": getattr(rf, "tags", "") or "",
+    "activity": getattr(rf, "activity_type", "") or "",
+}),
             })
             continue
 
@@ -6534,26 +6619,30 @@ def character_detail(request, pk):
     prof_weapon = prof_by_code.get("weapon", {"modifier": 0})["modifier"]
     dc_ability = None
     if primary_cp:
-        # you said: only one; if data has 2, pick the first deterministically
         dc_ability = primary_cp.character_class.key_abilities.first()
     if dc_ability:
         abil_name = (dc_ability.name or "").lower()
-        abil_mod  = _abil_mod(getattr(character, abil_name, 10))
-        derived["spell_dc_main"] = 10 + abil_mod + prof_by_code.get("dc", {"modifier":0})["modifier"] + hl_if_trained("dc")
+        # avoid shadowing the function name:
+        abil_mod_val = abil_mod(abil_name)
+
+        derived["spell_dc_main"] = 10 + abil_mod_val + prof_by_code.get("dc", {"modifier": 0})["modifier"] + hl_if_trained("dc")
         derived["spell_dc_ability"] = abil_name.title()
     else:
-        derived["spell_dc_main"] = 10 + prof_by_code.get("dc", {"modifier":0})["modifier"] + hl_if_trained("dc")
+        derived["spell_dc_main"] = 10 + prof_by_code.get("dc", {"modifier": 0})["modifier"] + hl_if_trained("dc")
         derived["spell_dc_ability"] = "—"
+
+
     # keep what you already have that sets derived["spell_dc_main"] and derived["spell_dc_ability"]
     half_dc   = hl_if_trained("dc")
     abil_name = derived.get("spell_dc_ability") or "Ability"
-    abil_mod  = _abil_mod(getattr(character, (abil_name or "").lower(), 10)) if abil_name != "—" else 0
+    # use the override-aware helper; also avoid the name 'abil_mod'
+    abil_mod_val = (abil_mod(abil_name.lower()) if abil_name not in (None, "—") else 0)
     prof_dc   = prof_by_code.get("dc", {"modifier": 0})["modifier"]
 
     spell_dc_rows = [{
         "label":   f"Spell/DC ({abil_name})",
         "formula": "10 + prof + ½ level + ability mod",
-        "values":  f"10 + {_fmt(prof_dc)} + {_fmt(half_dc)} + {_fmt(abil_mod)}",
+        "values":  f"10 + {_fmt(prof_dc)} + {_fmt(half_dc)} + {_fmt(abil_mod_val)}",
         "total":   derived["spell_dc_main"],
         "calc": {
             "formula": "10 + prof + half + abil",
@@ -6561,11 +6650,12 @@ def character_detail(request, pk):
                 {"key":"base","label":"Base","value":10},
                 {"key":"prof","label":"Proficiency","value":prof_dc,"note":prof_by_code.get("dc",{}).get("tier_name","")},
                 {"key":"half","label":"½ level","value":half_dc},
-                {"key":"abil","label":"Ability mod","value":abil_mod,"note":abil_name},
+                {"key":"abil","label":"Ability mod","value":abil_mod_val,"note":abil_name},
             ],
             "total": derived["spell_dc_main"],
         },
     }]
+
 
     # --- Equip pickers (Combat tab) ---
     weapons_list = list(
@@ -6579,8 +6669,9 @@ def character_detail(request, pk):
     equipped_alt  = by_slot.get(2)
 
     # ability mods for math
-    str_mod = _abil_mod(character.strength)
-    dex_mod = _abil_mod(character.dexterity)
+    str_mod = abil_mod("strength")
+    dex_mod = abil_mod("dexterity")
+
 
     # --- Build attack lines per equipped weapon (show both choices when allowed) ---
     attacks_detailed = []
@@ -6689,19 +6780,34 @@ def character_detail(request, pk):
         "other":   other_feats,
     }
 
-    # Active/Passive tab:
-    # — features with “Active” trait (activity_type == 'active' in your model)
-    active_candidates = list(ClassFeature.objects
-                            .filter(character_features__character=character,
-                                    activity_type="active")
-                            .distinct())
-    passive_candidates = list(ClassFeature.objects
-                            .filter(character_features__character=character,
-                                    activity_type="passive")
-                                .distinct())
+    active_candidates  = list(
+        ClassFeature.objects
+            .filter(character_features__character=character, activity_type="active")
+            .distinct()
+    )
+    passive_candidates = list(
+        ClassFeature.objects
+            .filter(character_features__character=character, activity_type="passive")
+            .distinct()
+    )
+
+    racial_model = CharacterFeature._meta.get_field('racial_feature').related_model
+
+    racial_active  = list(
+        racial_model.objects
+            .filter(racial_character_features__character=character, activity_type="active")
+            .distinct()
+    )
+    racial_passive = list(
+        racial_model.objects
+            .filter(racial_character_features__character=character, activity_type="passive")
+            .distinct()
+    )
+
+    # --- define helpers BEFORE using them ---
     def _feature_row(fobj):
         return {
-            "id":        fobj.id,
+            "id":        getattr(fobj, "id", None),
             "name":      getattr(fobj, "name", "—"),
             "desc":      (getattr(fobj, "description", "") or getattr(fobj, "summary", "") or ""),
             "tags":      getattr(fobj, "tags", "") or "",
@@ -6709,10 +6815,17 @@ def character_detail(request, pk):
             "is_passive": (getattr(fobj, "activity_type", "") == "passive"),
         }
 
-    feature_rows_active  = [_feature_row(f) for f in active_candidates]
-    feature_rows_passive = [_feature_row(f) for f in passive_candidates]
+    def _racial_row(fobj):
+        return {
+            "id":   getattr(fobj, "id", None),
+            "name": getattr(fobj, "name", "—"),
+            "desc": (getattr(fobj, "description", "") or getattr(fobj, "summary", "") or ""),
+            "tags": getattr(fobj, "tags", "") or "",
+            "kind": "racial_feature",
+            "is_passive": (getattr(fobj, "activity_type", "") == "passive"),
+        }
 
-    # ── NEW: push ALL known Martial Masteries into the Active tab
+    # ── Martial Mastery rows (optional; keep if available) ──
     mastery_rows = []
     if hasattr(character, "martial_masteries"):
         for m in character.martial_masteries.select_related("mastery").all():
@@ -6725,6 +6838,18 @@ def character_detail(request, pk):
                 "kind": "martial_mastery",
                 "is_passive": False,
             })
+
+    # ── Build once, in one place ──
+    feature_rows_active  = (
+        [_feature_row(f) for f in active_candidates]
+        + [_racial_row(f) for f in racial_active]
+        + mastery_rows
+    )
+    feature_rows_passive = (
+        [_feature_row(f) for f in passive_candidates]
+        + [_racial_row(f) for f in racial_passive]
+    )
+
 
     # — spells (known + prepared) summarized against your spell slot tables
     spell_tables = spellcasting_blocks  # you already build this earlier
@@ -6973,27 +7098,47 @@ def character_detail(request, pk):
 
         return redirect('characters:character_detail', pk=pk)
     # ── Martial Mastery numeric overrides ────────────────────────────────────────
-    if request.method == "POST" and request.POST.get("override_submit") == "1":
-        key = request.POST.get("override_key", "")
-        final = request.POST.get("override_final")  # string or ""
-        note  = request.POST.get("override_reason", "")
-        # we only care about mm:* here; existing code can keep handling others
+    # ── Martial Mastery numeric overrides (use CharacterFieldOverride/Note) ───────
+    if request.method == "POST" and request.POST.get("override_submit") == "1" and can_edit:
+        key = (request.POST.get("override_key") or "").strip()
+        final_s = (request.POST.get("override_final") or "").strip()
+        note  = (request.POST.get("override_reason") or "").strip()
+
+        # Only intercept the MM keys; all other keys are already handled earlier.
         if key in ("mm:points_total", "mm:known_cap"):
-            from .models import CharacterOverride  # your generic override store
-            ov, _ = CharacterOverride.objects.update_or_create(
-                character=character, key=key,
-                defaults={"final": (int(final) if final else None), "note": note or ""}
-            )
+            # Store like the rest of your system: "final:<key>" holds the number,
+            # and the note is recorded alongside it.
+            okey = f"final:{key}"
+
+            if final_s == "":
+                CharacterFieldOverride.objects.filter(character=character, key=okey).delete()
+                CharacterFieldNote.objects.filter(character=character, key=okey).delete()
+            else:
+                try:
+                    final_i = int(final_s)
+                except ValueError:
+                    messages.error(request, "Final value must be a whole number.")
+                    return redirect("characters:character_detail", pk=character.pk)
+
+                CharacterFieldOverride.objects.update_or_create(
+                    character=character, key=okey, defaults={"value": str(final_i)}
+                )
+                # Save the reason (note is optional here; keep behavior consistent)
+                CharacterFieldNote.objects.update_or_create(
+                    character=character, key=okey, defaults={"note": note}
+                )
+
             return redirect("characters:character_detail", pk=character.pk)
 
-    if request.method == "POST" and request.POST.get("martial_op") == "reset_points_override":
-        from .models import CharacterOverride
-        CharacterOverride.objects.filter(character=character, key="mm:points_total").delete()
+
+    if request.method == "POST" and request.POST.get("martial_op") == "reset_points_override" and can_edit:
+        CharacterFieldOverride.objects.filter(character=character, key="final:mm:points_total").delete()
+        CharacterFieldNote.objects.filter(character=character, key="final:mm:points_total").delete()
         return redirect("characters:character_detail", pk=character.pk)
 
-    if request.method == "POST" and request.POST.get("martial_op") == "reset_known_cap_override":
-        from .models import CharacterOverride
-        CharacterOverride.objects.filter(character=character, key="mm:known_cap").delete()
+    if request.method == "POST" and request.POST.get("martial_op") == "reset_known_cap_override" and can_edit:
+        CharacterFieldOverride.objects.filter(character=character, key="final:mm:known_cap").delete()
+        CharacterFieldNote.objects.filter(character=character, key="final:mm:known_cap").delete()
         return redirect("characters:character_detail", pk=character.pk)
 
     # --- Martial Mastery: learn / unlearn -----------------------------------------
@@ -7089,7 +7234,57 @@ def character_detail(request, pk):
             return redirect('characters:character_detail', pk=pk)
 
     skill_points_balance = CharacterSkillPointTx.balance_for(character)
+    if request.method == "POST":
+        # Save currency
+        if request.POST.get("inventory_op") == "save_currency":
+            if hasattr(character, "gold"):
+                character.gold   = int(request.POST.get("gold", 0) or 0)
+            if hasattr(character, "silver"):
+                character.silver = int(request.POST.get("silver", 0) or 0)
+            if hasattr(character, "copper"):
+                character.copper = int(request.POST.get("copper", 0) or 0)
+            character.save(update_fields=[f for f in ("gold","silver","copper") if hasattr(character, f)])
+            messages.success(request, "Currency updated.")
+            return redirect("characters:character_detail", character.pk)
 
+        # Add a free-typed item to the character
+        if request.POST.get("inventory_op") == "add_item":
+            name = (request.POST.get("item_name") or "").strip()
+            qty  = int(request.POST.get("item_qty") or 1)
+            if name and hasattr(character, "inventory_items"):
+                InventoryItem = character.inventory_items.model  # expects FK to Character
+                InventoryItem.objects.create(character=character, name=name, quantity=qty)
+                messages.success(request, f"Added item: {name} ×{qty}.")
+            return redirect("characters:character_detail", character.pk)
+
+        # Collect a party item (move from campaign pool to character)
+        if request.POST.get("inventory_op") == "collect_campaign_item":
+            try:
+                CampaignItem = apps.get_model("campaigns", "CampaignItem")
+                ci = CampaignItem.objects.select_for_update().get(
+                    pk=int(request.POST.get("campaign_item_id")),
+                    campaign=character.campaign,
+                    claimed_by__isnull=True,
+                    is_archived=False,
+                )
+            except Exception:
+                messages.error(request, "That item is no longer available.")
+                return redirect("characters:character_detail", character.pk)
+
+            # Mark claimed & optionally clone into character inventory
+            ci.claimed_by = character
+            ci.save(update_fields=["claimed_by"])
+
+            if hasattr(character, "inventory_items"):
+                InventoryItem = character.inventory_items.model
+                InventoryItem.objects.create(
+                    character=character,
+                    name=getattr(ci, "name", "Item"),
+                    quantity=getattr(ci, "quantity", 1),
+                    from_campaign_item=ci if "from_campaign_item" in [f.name for f in InventoryItem._meta.fields] else None,
+                )
+            messages.success(request, "Collected party item.")
+            return redirect("characters:character_detail", character.pk)
     # ── 6) RENDER character_detail.html ───────────────────────────────────
     return render(request, 'forge/character_detail.html', {
         "spell_table_by_rank": rows_by_rank,
@@ -7125,6 +7320,7 @@ def character_detail(request, pk):
         'racial_feature_rows': racial_feature_rows,
         'manual_form': manual_form,
         "starting_skill_flat": starting_skill_flat,
+         **_inventory_context(character),
 
         'manual_grants': character.manual_grants.select_related('content_type').all(),
             'field_overrides': field_overrides,
