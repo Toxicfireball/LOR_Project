@@ -19,6 +19,11 @@ from .models import Character, Skill  , RaceFeatureOption
 from campaigns.models import Campaign
 from django.db import models
 import math
+from django.shortcuts import render, get_object_or_404, redirect
+from django.db.models import Q
+# ⬇️ add these (module-level!)
+from .models import CharacterMartialMastery, MartialMastery
+
 from django.views.decorators.http import require_POST
 from django.http import JsonResponse, HttpResponseBadRequest
 FIVE_TIERS = ["Untrained", "Trained", "Expert", "Master", "Legendary"]
@@ -28,6 +33,144 @@ from django.db.models import Q
 from django.views.decorators.http import require_GET
 # ── helpers that read the LEVEL TRIGGER instead of JSON ───────────────────
 import uuid
+from .utils import parse_formula
+def _mm_cost(m) -> int:
+    """Return the point cost for a mastery."""
+    raw = getattr(m, "points_cost", None)
+    try:
+        return max(0, int(raw))
+    except Exception:
+        # Fallback if your data stores the cost elsewhere or as text.
+        # Adjust this parser if you have a different field.
+        return 1
+def ensure_character_mastery(character, mastery_or_id, level=None):
+    mastery_id = mastery_or_id.id if hasattr(mastery_or_id, "id") else int(mastery_or_id)
+    return CharacterMartialMastery.objects.update_or_create(
+        character=character,
+        mastery_id=mastery_id,
+        defaults={"level_picked": int(level if level is not None else (character.level or 0))},
+    )
+
+
+def _mm_cost(m) -> int:
+    """Return the point cost for a mastery (fallback 1)."""
+    raw = getattr(m, "points_cost", None)
+    try:
+        return max(0, int(raw))
+    except Exception:
+        return 1
+
+def _mm_actions_required(m) -> str:
+    """
+    Human label for actions required, matching the admin list display.
+    Works with: action_cost (choices), actions_required, action.
+    """
+    # Preferred: model choices label (e.g., "Two Actions")
+    if hasattr(m, "get_action_cost_display") and getattr(m, "action_cost", None):
+        return m.get_action_cost_display() or ""
+    # Fallbacks for older data
+    return getattr(m, "actions_required", "") or getattr(m, "action", "") or ""
+
+def _mm_level_prereq(m):
+    """
+    Integer level prerequisite if parsable, else None.
+    Supports: level_required (model), level, level_prerequisite.
+    """
+    for fld in ("level_required", "level", "level_prerequisite"):
+        val = getattr(m, fld, None)
+        if val not in (None, ""):
+            try:
+                return int(val)
+            except Exception:
+                pass
+    return None
+
+def _mm_restrictions_label(m) -> str:
+    """
+    Mirrors the admin 'restriction_summary' so the table shows the same text.
+    """
+    parts = []
+
+    # Weapons (count)
+    if getattr(m, "restrict_to_weapons", False):
+        try:
+            parts.append(f"Weapons({m.allowed_weapons.count()})")
+        except Exception:
+            parts.append("Weapons")
+
+    # Damage types (count)
+    if getattr(m, "restrict_to_damage", False):
+        try:
+            parts.append(f"Damage({len(m.allowed_damage_types or [])})")
+        except Exception:
+            parts.append("Damage")
+
+    # Range (labels)
+    if getattr(m, "restrict_to_range", False):
+        labels = {}
+        try:
+            from characters.models import Weapon
+            labels = dict(getattr(Weapon, "RANGE_CHOICES", []) or Weapon._meta.get_field("range_type").choices)
+        except Exception:
+            pass
+        chosen = ", ".join(labels.get(v, v) for v in (getattr(m, "allowed_range_types", None) or [])) or "—"
+        parts.append(f"Range({chosen})")
+
+    # Traits (count + mode)
+    if getattr(m, "restrict_to_traits", False):
+        mode = getattr(m, "trait_match_mode", "any")
+        mode_lbl = "ANY" if mode == "any" else "ALL"
+        try:
+            parts.append(f"Traits({m.allowed_traits.count()} {mode_lbl})")
+        except Exception:
+            parts.append(f"Traits({mode_lbl})")
+
+    # Ability gate
+    if getattr(m, "restrict_by_ability", False):
+        try:
+            abil = m.get_required_ability_display()
+        except Exception:
+            abil = getattr(m, "required_ability", "") or "Ability"
+        parts.append(f"{abil}≥{getattr(m, 'required_ability_score', '') or '?'}")
+
+    # Class restriction (if not all classes)
+    if hasattr(m, "all_classes") and not getattr(m, "all_classes"):
+        try:
+            parts.append(f"Classes({m.classes.count()})")
+        except Exception:
+            parts.append("Classes")
+
+    return ", ".join(parts) or "—"
+
+
+
+
+def _mm_details(m):
+    """List[(label,value)] for non-empty fields, matching table labels."""
+    desc_html = getattr(m, "description", "") or getattr(m, "summary", "") or ""
+    tags      = getattr(m, "tags", "") or ""
+    prereq    = getattr(m, "prereq", "") or getattr(m, "prerequisites", "") or ""
+    restrict  = getattr(m, "restrictions", "") or getattr(m, "restriction", "") or ""
+
+    # Prefer `level`, fall back to `level_prerequisite`
+    lvl_raw = getattr(m, "level", None)
+    if lvl_raw in (None, ""):
+        lvl_raw = getattr(m, "level_prerequisite", None)
+    try:
+        lvl_text = str(int(lvl_raw)) if lvl_raw not in (None, "") else ""
+    except Exception:
+        lvl_text = (str(lvl_raw) or "").strip()
+
+    pairs = []
+    if desc_html: pairs.append(("Description", desc_html))
+    if tags:      pairs.append(("Tags", tags))
+    if prereq:    pairs.append(("Prerequisites", prereq))
+    if lvl_text:  pairs.append(("Level", lvl_text))                 # <- label your HTML uses
+    pairs.append(("Points Cost", str(_mm_cost(m))))                 # <- always present
+    ar = _mm_actions_required(m)
+    if ar:        pairs.append(("Actions Required", ar))            # <- if present
+    if restrict:  pairs.append(("Restrictions", restrict))
+    return pairs
 
 # put near the top of views.py (import re if not already)
 import re, math
@@ -1459,76 +1602,77 @@ def _char_or_403(request, pk: int) -> Character:
     if not request.user.is_superuser and c.user_id != request.user.id:
         raise HttpResponseForbidden("Not your character.")
     return c
+import ast, math
+from typing import Any, Dict
 
-def _safe_eval(expr: str, variables: Dict[str, Any]) -> int:
+# Safe functions you allow inside formulas
+_ALLOWED_FUNCS = {
+    "min": min,
+    "max": max,
+    "floor": math.floor,
+    "ceil": math.ceil,
+    "round": round,
+    "int": int,
+    "abs": abs,
+}
+
+def _safe_eval(expr: str, vars: Dict[str, Any]) -> int:
     """
-    Super-small “safe eval”: allow only ints, + - * // / % ** ( ) and variable names
-    present in `variables`. Supports ceil/floor and friendly 'round up/down' variants.
-    Returns an int >= 0.
+    Evaluates a tiny arithmetic expression against `vars` and _ALLOWED_FUNCS.
+    Supports + - * / // % ** unary +/- and calls to allowed functions.
+    Returns an int (floors floats).
     """
     if not expr:
         return 0
+    node = ast.parse(expr, mode="eval")
 
-    # Normalize friendly syntax to valid Python function names
-    s = expr.strip()
-    s = re.sub(r'\bround\s*up\s*\(', 'ceil(', s, flags=re.I)
-    s = re.sub(r'\bround\s*down\s*\(', 'floor(', s, flags=re.I)
-    s = re.sub(r'\bround_up\s*\(', 'ceil(', s, flags=re.I)
-    s = re.sub(r'\bround_down\s*\(', 'floor(', s, flags=re.I)
-
-    node = ast.parse(s, mode="eval")
-
-    allowed_nodes = (
-        ast.Expression, ast.BinOp, ast.UnaryOp,
-        ast.Num, ast.Constant, ast.Load, ast.Name,
-        ast.Add, ast.Sub, ast.Mult, ast.FloorDiv, ast.Div, ast.Mod, ast.Pow,
-        ast.USub, ast.UAdd, ast.Call
+    allowed = (
+        ast.Expression, ast.BinOp, ast.UnaryOp, ast.Num, ast.Name,
+        ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod,
+        ast.Pow, ast.USub, ast.UAdd, ast.Call, ast.Load, ast.Attribute,
     )
-    allowed_funcs = {
-        "floor": lambda x: int(math.floor(x)),
-        "ceil":  lambda x: int(math.ceil(x)),
-        "min":   min,
-        "max":   max,
-        "round": lambda x: int(round(x)),
-    }
+
+    def _walk(n):
+        if not isinstance(n, allowed):
+            raise ValueError("Illegal expression")
+        for c in ast.iter_child_nodes(n):
+            _walk(c)
+
+    _walk(node)
+
+    scope = {**vars, **_ALLOWED_FUNCS}
 
     def _eval(n):
-        if not isinstance(n, allowed_nodes):
-            raise ValueError("Illegal expression.")
-        if isinstance(n, ast.Expression):
-            return _eval(n.body)
-        if isinstance(n, ast.Num):
-            return n.n
-        if isinstance(n, ast.Constant):
-            if isinstance(n.value, (int, float)): return n.value
-            raise ValueError("Illegal literal.")
-        if isinstance(n, ast.Name):
-            return int(variables.get(n.id, 0))
+        if isinstance(n, ast.Expression): return _eval(n.body)
+        if isinstance(n, ast.Num):        return n.n
         if isinstance(n, ast.BinOp):
-            left, right = _eval(n.left), _eval(n.right)
-            if isinstance(n.op, ast.Add):      return left + right
-            if isinstance(n.op, ast.Sub):      return left - right
-            if isinstance(n.op, ast.Mult):     return left * right
-            if isinstance(n.op, ast.FloorDiv): return left // right
-            if isinstance(n.op, ast.Div):      return left / right   
-            if isinstance(n.op, ast.Mod):      return left % right
-            if isinstance(n.op, ast.Pow):      return int(pow(left, right))
+            l, r = _eval(n.left), _eval(n.right)
+            if isinstance(n.op, ast.Add):      return l + r
+            if isinstance(n.op, ast.Sub):      return l - r
+            if isinstance(n.op, ast.Mult):     return l * r
+            if isinstance(n.op, ast.Div):      return l / r
+            if isinstance(n.op, ast.FloorDiv): return l // r
+            if isinstance(n.op, ast.Mod):      return l % r
+            if isinstance(n.op, ast.Pow):      return l ** r
         if isinstance(n, ast.UnaryOp):
-            val = _eval(n.operand)
-            if isinstance(n.op, ast.UAdd): return +val
-            if isinstance(n.op, ast.USub): return -val
+            v = _eval(n.operand)
+            if isinstance(n.op, ast.UAdd): return +v
+            if isinstance(n.op, ast.USub): return -v
+        if isinstance(n, ast.Name):
+            if n.id not in scope: raise ValueError(f"Unknown var {n.id}")
+            return scope[n.id]
         if isinstance(n, ast.Call):
-            if not isinstance(n.func, ast.Name): raise ValueError("Illegal call.")
-            fname = n.func.id
-            if fname not in allowed_funcs:      raise ValueError(f"Illegal function {fname}.")
+            fn = _eval(n.func)
             args = [_eval(a) for a in n.args]
-            return int(allowed_funcs[fname](*args))
-        raise ValueError("Illegal expression.")
+            return fn(*args)
+        raise ValueError("Unsupported expression node")
 
+    out = _eval(node)
     try:
-        return max(0, int(_eval(node)))
+        return int(out)
     except Exception:
-        return 0
+        return int(math.floor(float(out)))
+
 
 
 def _ability_mod(score: int) -> int:
@@ -1976,9 +2120,12 @@ def pick_martial_mastery(request, pk):
         return HttpResponseBadRequest("Invalid mastery_id")
 
     CharacterMartialMastery.objects.get_or_create(
-        character=character, mastery=mm,
-        defaults={"level_picked": character.level}
+        character=character,
+        mastery_id=mm.id,   # or: mastery=mm
+        defaults={"level_picked": character.level},
     )
+
+
     return JsonResponse({"ok": True})
 
 @login_required
@@ -2171,7 +2318,6 @@ def subclass_group_list(request):
 
 from collections import OrderedDict
 
-from characters.models import CharacterClass, ClassFeature, ClassSubclass, SubclassGroup, ClassLevel, ClassLevelFeature
 def weapon_list(request):
     trait_values_qs = WeaponTraitValue.objects.select_related("trait").order_by("trait__name")
     weapons = (
@@ -3709,220 +3855,420 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
 from django.db import transaction
 from django.contrib import messages
 from django.shortcuts import redirect
-from characters.models import MartialMastery as Mastery, CharacterMartialMastery as Pick
 # …other imports you already have…
-def _build_martial_mastery_tab(request, character, can_edit):
-    # --- 0) Ensure relations exist ------------------------------------------------
-    if not hasattr(character, "martial_masteries"):
-        return (None, [], [], None)
 
-    # Allow us to refer to the actual through/model classes safely
-    Pick = character.martial_masteries.model
-    Mastery = Pick._meta.get_field("mastery").remote_field.model
+# ──────────────────────────────────────────────────────────────────────────────
+# Martial Mastery helpers + tab builder
+# Returns: (mm_ctx: dict|None, mm_avail_rows: list, mm_known_rows: list, redirect_or_none)
+# ──────────────────────────────────────────────────────────────────────────────
 
-    # ---- 1) Entitlement calc (DEFINE THESE) -------------------------------------
-    # Gather owned martial-mastery features
-    owned_mm_features = list(
+import math, re
+from django.shortcuts import redirect
+from django.contrib import messages
+from django.db import transaction
+
+# Models referenced (import where appropriate in your module):
+# from .models import (
+#     CharacterFieldOverride, ClassFeature
+# )
+# ...and your character has a related manager/through table: character.martial_masteries
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _abil_mod(score: int) -> int:
+    try:
+        return (int(score) - 10) // 2
+    except Exception:
+        return 0
+
+def _safe_eval_int(expr: str, ctx: dict) -> int:
+    """Evaluate a tiny arithmetic formula to an int; return 0 on any error."""
+    if not expr:
+        return 0
+    try:
+        return int(eval(str(expr), {"__builtins__": {}}, dict(ctx)))
+    except Exception:
+        return 0
+
+def _class_level_tokens(character) -> dict:
+    """
+    Build tokens like 'fighter_level' -> 3 from character.class_progress.
+    Lowercase, spaces→'_', non [a-z0-9_] removed.
+    """
+    tokens = {}
+    for prog in character.class_progress.select_related("character_class"):
+        name = (prog.character_class.name or "").strip().lower().replace(" ", "_")
+        name = re.sub(r"[^a-z0-9_]", "", name)
+        if name:
+            tokens[f"{name}_level"] = int(prog.levels or 0)
+    return tokens
+
+def _mm_cost(m) -> int:
+    """Point cost to learn this mastery; default 1 when missing/invalid."""
+    raw = getattr(m, "points_cost", None)
+    try:
+        v = int(raw)
+        return v if v >= 0 else 1
+    except Exception:
+        return 1
+
+
+
+def _mm_level_prereq(m):
+    """Integer level prerequisite if parsable, else None."""
+    val = getattr(m, "level", None)
+    if val in (None, ""):
+        val = getattr(m, "level_prerequisite", None)
+    try:
+        return int(val)
+    except Exception:
+        return None
+
+
+
+
+import ast
+from typing import Any, Dict, Iterable, List, Tuple
+
+from django.db import transaction
+from django.contrib import messages
+from django.shortcuts import get_object_or_404, redirect
+
+# Safe, tiny expression evaluator for formulas like "floor(class_level/2)+1"
+
+def _safe_eval(expr: str, vars: Dict[str, Any]) -> int:
+    if not expr:
+        return 0
+    node = ast.parse(expr, mode="eval")
+    allowed = (ast.Expression, ast.BinOp, ast.UnaryOp, ast.Num, ast.Name,
+               ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod,
+               ast.Pow, ast.USub, ast.UAdd, ast.Call, ast.Load)
+    def _walk(n):
+        if not isinstance(n, allowed):
+            raise ValueError("Illegal expression")
+        for c in ast.iter_child_nodes(n):
+            _walk(c)
+    _walk(node)
+    def _eval(n):
+        if isinstance(n, ast.Expression): return _eval(n.body)
+        if isinstance(n, ast.Num):        return n.n
+        if isinstance(n, ast.BinOp):
+            l, r = _eval(n.left), _eval(n.right)
+            if isinstance(n.op, ast.Add):      return l + r
+            if isinstance(n.op, ast.Sub):      return l - r
+            if isinstance(n.op, ast.Mult):     return l * r
+            if isinstance(n.op, ast.Div):      return l / r
+            if isinstance(n.op, ast.FloorDiv): return l // r
+            if isinstance(n.op, ast.Mod):      return l % r
+            if isinstance(n.op, ast.Pow):      return l ** r
+        if isinstance(n, ast.UnaryOp):
+            v = _eval(n.operand)
+            if isinstance(n.op, ast.UAdd): return +v
+            if isinstance(n.op, ast.USub): return -v
+        if isinstance(n, ast.Name):
+            if n.id not in vars: raise ValueError(f"Unknown var {n.id}")
+            return vars[n.id]
+        if isinstance(n, ast.Call):
+            fn = _eval(n.func)
+            args = [_eval(a) for a in n.args]
+            return fn(*args)
+        return 0
+    scope = {**vars, **_ALLOWED_FUNCS}
+    return int(_eval(node))
+def _coalesce_int(v, d=0):
+    try:
+        return int(v if v is not None else d)
+    except Exception:
+        return d
+def _mm_level(mm):
+    return _coalesce_int(getattr(mm, "level_required", 0), 0)
+
+def _mm_actions(mm):
+    # uses Django choices display for ACTION_TYPES
+    try:
+        return mm.get_action_cost_display() or "—"
+    except Exception:
+        return "—"
+
+def _mm_restrictions(mm):
+    bits = []
+    # ability gate
+    if getattr(mm, "restrict_by_ability", False):
+        abil = (getattr(mm, "required_ability", "") or "").replace("_", " ").title()
+        req  = getattr(mm, "required_ability_score", None)
+        if abil and req:
+            bits.append(f"Requires {abil} ≥ {req}")
+    # range gate
+    if getattr(mm, "restrict_to_range", False):
+        rng = ", ".join((mm.allowed_range_types or [])) or "—"
+        bits.append(f"Range: {rng}")
+    # weapon list
+    if getattr(mm, "restrict_to_weapons", False):
+        names = list(mm.allowed_weapons.values_list("name", flat=True))
+        bits.append("Weapons: " + (", ".join(names) if names else "—"))
+    # trait gate
+    if getattr(mm, "restrict_to_traits", False):
+        names = list(mm.allowed_traits.values_list("name", flat=True))
+        mode  = "ANY" if getattr(mm, "trait_match_mode", "any") == "any" else "ALL"
+        bits.append(f"Traits ({mode}): " + (", ".join(names) if names else "—"))
+    # damage-type gate
+    if getattr(mm, "restrict_to_damage", False):
+        bits.append("Damage types: " + (", ".join(mm.allowed_damage_types or []) or "—"))
+    return " ; ".join(bits) or "—"
+
+# ── Main tab builder ──────────────────────────────────────────────────────────
+def build_martial_mastery_context(character, class_progress) -> Dict[str, Any]:
+    """
+    Creates:
+      - show_martial_mastery_tab
+      - martial_mastery_ctx
+      - martial_mastery_known
+      - martial_mastery_available
+    """
+    from .models import MartialMastery, ClassFeature  # adapt if your paths differ
+
+    # 1) Collect MM entitlements from class features
+    total_level = sum(cp.levels for cp in class_progress)
+    class_levels = {cp.character_class.slug: cp.levels for cp in class_progress if getattr(cp.character_class, "slug", None)}
+    by_feature = []
+    tot_points = 0
+    tot_known  = 0
+
+    # Any feature with kind == 'martial_mastery' contributes points/known slots
+    char_classes = [cp.character_class for cp in class_progress]
+    feats_qs = (
         ClassFeature.objects
-        .filter(kind="martial_mastery", character_features__character=character)
-        .select_related("character_class")
+        .filter(kind="martial_mastery")
+        .filter(Q(character_class__in=char_classes) | Q(character_class__isnull=True))
         .distinct()
     )
+    for f in feats_qs:
+        # Accept either constants or formulas on the feature
+        pf  = (getattr(f, "martial_points_formula", "") or "").strip()
+        kf  = (getattr(f, "available_masteries_formula", "") or "").strip()
+        pc  = 0
+        kc  = 0
 
-    # helper(s)
-    def _abil_mod(score: int) -> int:
-        return (int(score) - 10) // 2
+        # --- Build the same eval context the spell-table uses ---
+        def _abil(score: int) -> int: return (score - 10) // 2
 
-    # class-level tokens: e.g. fighter_level, wizard_level, etc.
-    class_level_ctx = {}
-    for prog in character.class_progress.select_related("character_class"):
-        token = re.sub(r'[^a-z0-9_]', '', (prog.character_class.name or '')
-                       .strip().lower().replace(' ', '_'))
-        if token:
-            class_level_ctx[f"{token}_level"] = int(prog.levels or 0)
+        ctx = {}
+        # class-level tokens: fighter_level, war_priest_level, etc.
+        for prog in class_progress:
+            token = re.sub(r'[^a-z0-9_]', '', (prog.character_class.name or '')
+                        .strip().lower().replace(' ', '_'))
+            if token:
+                ctx[f"{token}_level"] = int(prog.levels or 0)
 
-    def _eval_mm(expr: str) -> int:
-        if not expr:
-            return 0
+        # aliases used in some data
+        ctx["level"] = int(sum(cp.levels for cp in class_progress) or 0)   # total level
+        ctx["total_level"] = ctx["level"]                                  # alias
+
+        # ability scores + modifiers (same as spell-table block)
+        ctx.update({
+            "strength_score":     int(character.strength),
+            "dexterity_score":    int(character.dexterity),
+            "constitution_score": int(character.constitution),
+            "intelligence_score": int(character.intelligence),
+            "wisdom_score":       int(character.wisdom),
+            "charisma_score":     int(character.charisma),
+
+            "strength": _abil(character.strength),
+            "dexterity": _abil(character.dexterity),
+            "constitution": _abil(character.constitution),
+            "intelligence": _abil(character.intelligence),
+            "wisdom": _abil(character.wisdom),
+            "charisma": _abil(character.charisma),
+
+            "str_mod": _abil(character.strength),
+            "dex_mod": _abil(character.dexterity),
+            "con_mod": _abil(character.constitution),
+            "int_mod": _abil(character.intelligence),
+            "wis_mod": _abil(character.wisdom),
+            "cha_mod": _abil(character.charisma),
+
+            # math helpers / round-up aliases (mirror spell table)
+            "floor": math.floor, "ceil": math.ceil, "min": min, "max": max,
+            "int": int, "round": round,
+            "round_up": math.ceil, "roundup": math.ceil, "ceiling": math.ceil,
+        })
+        # --- same normalizer the spell table uses ---
+        def _normalize_formula(expr: str) -> str:
+            if not expr:
+                return ""
+            e = expr.strip().lower()
+            # caret to python power
+            e = e.replace("^", "**")
+            # common whitespace cleanup
+            e = re.sub(r"\s+", " ", e)
+            # optional: normalize commas to plus (rare in data)
+            e = e.replace(",", " + ")
+            # handle "round up/down" by turning "x / n round up" -> "ceil((x)/n)"
+            e = re.sub(r"\bround\s+up\b", "ceil", e)    # simple alias safety
+            e = re.sub(r"\bround\s+down\b", "floor", e)
+            # pattern: "<expr> / <n> ceil"  -> "ceil((<expr>)/<n>)"
+            e = re.sub(r"(.+?)\s*/\s*([0-9]+)\s+ceil\b", r"ceil((\1)/\2)", e)
+            e = re.sub(r"(.+?)\s*/\s*([0-9]+)\s+floor\b", r"floor((\1)/\2)", e)
+            return e
+
+        def _eval(expr: str):
+            if not expr:
+                return 0
+            try:
+                expr = _normalize_formula(expr)  # same normalizer the spell table uses
+                val = eval(expr, {"__builtins__": {}}, ctx)
+                return int(val)
+            except Exception:
+                return 0
+
+        points = pc if pc else _eval(pf)
+        known  = kc if kc else _eval(kf)
+
+        # Per-feature overrides (optional)
         try:
-            ctx = {
-                "level": character.level,
-                "strength": character.strength, "dexterity": character.dexterity,
-                "constitution": character.constitution, "intelligence": character.intelligence,
-                "wisdom": character.wisdom, "charisma": character.charisma,
-                "str_mod": _abil_mod(character.strength), "dex_mod": _abil_mod(character.dexterity),
-                "con_mod": _abil_mod(character.constitution), "int_mod": _abil_mod(character.intelligence),
-                "wis_mod": _abil_mod(character.wisdom), "cha_mod": _abil_mod(character.charisma),
-                "floor": math.floor, "ceil": math.ceil, "min": min, "max": max,
-                "round": round, "int": int,
-            }
-            ctx.update(class_level_ctx)
-            return max(0, int(eval(expr, {"__builtins__": {}}, ctx)))
+            from .models import CharacterOverride
+            slug = re.sub(r'[^a-z0-9_]+', '-', f.name.strip().lower())
+            ovp = CharacterOverride.objects.filter(character=character, key=f"mm:feature:{slug}:points").values_list("final", flat=True).first()
+            ovk = CharacterOverride.objects.filter(character=character, key=f"mm:feature:{slug}:known").values_list("final", flat=True).first()
+            if ovp is not None: points = int(ovp)
+            if ovk is not None: known  = int(ovk)
         except Exception:
-            return 0
+            pass
 
-    # totals from features
-    default_points = 0
-    default_known  = 0
-    by_feature = []
-    for ft in owned_mm_features:
-        pts   = _eval_mm(getattr(ft, "martial_points_formula", None))
-        know  = _eval_mm(getattr(ft, "available_masteries_formula", None))
-        default_points += pts
-        default_known  += know
+
+
+
+
+
+        tot_points += points
+        tot_known  += known
+
         by_feature.append({
-            "feature_id": ft.id,
-            "feature_name": ft.name,
-            "class_name": ft.character_class.name if ft.character_class_id else "",
-            "points": pts,
-            "known_cap": know,
+            "feature_name": f.name,
+            "class_name": getattr(f, "character_class", None).name if getattr(f, "character_class", None) else "",
+            "points": points,
+            "known_cap": known,
+            "points_formula": pf or (str(pc) if pc else ""),
+            "known_formula":  kf or (str(kc) if kc else ""),
+            "points_values":  str(points) if pf else "",
+            "known_values":   str(known)  if kf else "",
         })
 
-    # user overrides (free edit)
-    ov_points = CharacterFieldOverride.objects.filter(
-        character=character, key="martial_points"
-    ).values_list("value", flat=True).first()
-    ov_known  = CharacterFieldOverride.objects.filter(
-        character=character, key="martial_known_cap"
-    ).values_list("value", flat=True).first()
+    show_tab = (tot_points > 0 or tot_known > 0 or feats_qs.exists())
 
-    try:
-        points = int(ov_points) if ov_points not in (None, "") else default_points
-    except ValueError:
-        points = default_points
-
-    try:
-        knowncap = int(ov_known) if ov_known not in (None, "") else default_known
-    except ValueError:
-        knowncap = default_known
-    # convention: 0 cap = unlimited
-    knowncap = int(knowncap)
-    # ---- 2) Build current known/available lists + handle POST ---------------
-    # Points model: each known mastery costs 1 point unless you add a 'cost' field later
-    Pick = character.martial_masteries.model
-    Mastery = Pick._meta.get_field("mastery").remote_field.model
-
-    # Known masteries (as ids + queryset)
-    known_ids = set(
-        Pick.objects.filter(character=character).values_list("mastery_id", flat=True)
+    # 2) What is already known?
+    # Always resolve to MartialMastery rows
+    known_qs = MartialMastery.objects.filter(
+        id__in=character.martial_masteries.values_list("mastery_id", flat=True)
     )
-    known_qs = Mastery.objects.filter(pk__in=known_ids).order_by("name")
-    known_count = known_qs.count()
 
-    # Remaining points/cap (knowncap==0 means unlimited cap)
-    points_spent = known_count  # 1 point per mastery by default
-    points_left = max(0, int(points) - int(points_spent))
-    cap_left = (None if int(knowncap) == 0 else max(0, int(knowncap) - known_count))
 
-    def _mm_details(m):
-        """Return a list of (label, value) for non-empty mastery fields."""
-        desc_html = getattr(m, "description", "") or getattr(m, "summary", "") or ""
-        tags      = getattr(m, "tags", "") or ""
-        prereq    = getattr(m, "prereq", "") or getattr(m, "prerequisites", "") or ""
-        lvl_raw   = getattr(m, "level_prerequisite", None)
-        restrict  = getattr(m, "restrictions", "") or getattr(m, "restriction", "") or ""
-    
-        # Normalize level text (keep None/"" out of the table)
-        try:
-            lvl_text = str(int(lvl_raw)) if lvl_raw is not None and str(lvl_raw).strip() != "" else ""
-        except Exception:
-            lvl_text = (str(lvl_raw) or "").strip()
-    
-        pairs = []
-        if desc_html: pairs.append(("Description", desc_html))
-        if tags:      pairs.append(("Tags", tags))
-        if prereq:    pairs.append(("Prerequisites", prereq))
-        if lvl_text:  pairs.append(("Level prerequisite", lvl_text))
-        if restrict:  pairs.append(("Restrictions", restrict))
-        return pairs
-    
-    def _mm_level_prereq(m):
-        """Integer level prerequisite if present/parsable, else None."""
-        val = getattr(m, "level_prerequisite", None)
-        try:
-            return int(val)
-        except Exception:
-            return None
-    
-    mm_known_rows = [{
-        "id": m.id,
-        "name": getattr(m, "name", str(m)),
-        "tags": getattr(m, "tags", "") or "",
-        "prereq": getattr(m, "prereq", "") or getattr(m, "prerequisites", "") or "",
-        "summary": (getattr(m, "summary", "") or getattr(m, "description", "") or ""),
-        "details": _mm_details(m),
-    } for m in known_qs]
-    
-    # Auto-filter by character level (only show masteries you qualify for).
-    avail_qs = Mastery.objects.exclude(pk__in=known_ids).order_by("name")
-    avail_filtered = [
-        m for m in avail_qs
-        if (_mm_level_prereq(m) is None or _mm_level_prereq(m) <= int(getattr(character, "level", 0) or 0))
-    ]
-    
-    mm_avail_rows = [{
-        "id": m.id,
-        "name": getattr(m, "name", str(m)),
-        "tags": getattr(m, "tags", "") or "",
-        "summary": (getattr(m, "summary", "") or getattr(m, "description", "") or ""),
-        "details": _mm_details(m),
-        "can_learn_now": (points_left > 0) and (cap_left is None or cap_left > 0),
-    } for m in avail_filtered]
-    
-    # Context block used by the header/card in your template
-    mm_ctx = {
-        "points_total": int(points),
-        "points_spent": int(points_spent),
-        "points_left":  int(points_left),
-        "known_cap":    (None if int(knowncap) == 0 else int(knowncap)),
-        "known_count":  int(known_count),
-        "cap_left":     (None if int(knowncap) == 0 else int(cap_left)),
-        "by_feature":   by_feature,
+    known_rows = []
+    known_ids  = set()
+    spent_points = 0
+    for mm in known_qs:
+        row = {
+            "id": mm.id,
+            "name": mm.name,
+            "points_cost": _coalesce_int(getattr(mm, "points_cost", 0), 0),
+            "actions_required": _mm_actions(mm),
+            "level": _mm_level(mm),
+            "restrictions": _mm_restrictions(mm),
+            "details": [
+                ("Description", getattr(mm, "description", "") or getattr(mm, "summary", "") or "—"),
+                ("Tags", getattr(mm, "tags", "") or "—"),
+                ("Prerequisites", _mm_restrictions(mm)),
+            ],
+        }
+
+        known_rows.append(row)
+        known_ids.add(mm.id)
+        spent_points += _coalesce_int(mm.points_cost, 0)
+
+    # Apply numeric overrides (if any)
+    known_count = len(known_ids)
+    try:
+        from .models import CharacterOverride
+        ov_points = CharacterOverride.objects.filter(character=character, key="mm:points_total").values_list("final", flat=True).first()
+        ov_known  = CharacterOverride.objects.filter(character=character, key="mm:known_cap").values_list("final", flat=True).first()
+    except Exception:
+        ov_points = ov_known = None
+
+    if ov_points is not None:
+        tot_points = int(ov_points)
+    if ov_known is not None:
+        tot_known = int(ov_known)  # 0 remains "∞" in the UI
+
+    points_left    = max(0, tot_points - spent_points)
+    # NEW (0 means you cannot learn any more)
+    can_learn_more = (tot_known > 0) and (known_count < tot_known)
+
+
+
+    # 3) Available list (meets level + class)
+    char_classes = [cp.character_class for cp in class_progress]
+    char_class_ids = {c.id for c in char_classes}
+    char_class_slugs = {getattr(c, "slug", "") for c in char_classes}
+
+    # base pool: everything not already known
+    pool = MartialMastery.objects.exclude(id__in=known_ids)
+
+    def meets_class(mm) -> bool:
+        # use the real M2M field name
+        if hasattr(mm, "classes"):
+            ids = set(mm.classes.values_list("id", flat=True))
+            return not ids or bool(ids & char_class_ids)
+        return True
+
+    def meets_level(mm) -> bool:
+        return total_level >= _mm_level(mm)
+
+
+    available_rows = []
+    for mm in pool:
+        if not meets_level(mm):   # must meet level
+            continue
+        if not meets_class(mm):   # must meet class
+            continue
+        cost = _coalesce_int(mm.points_cost, 0)
+        can_now = (points_left >= cost) and can_learn_more
+        available_rows.append({
+            "id": mm.id,
+            "name": mm.name,
+            "points_cost": cost,
+            "actions_required": _mm_actions(mm),
+            "level": _mm_level(mm),
+            "restrictions": _mm_restrictions(mm),
+
+            "details": [
+                ("Description", getattr(mm, "description", "") or getattr(mm, "summary", "") or "—"),
+                ("Tags", getattr(mm, "tags", "—")),
+                ("Prerequisites",  _mm_restrictions(mm)),
+            ],
+            "can_learn_now": can_now,
+        })
+
+    ctx = {
+        "show_martial_mastery_tab": show_tab,
+        "martial_mastery_ctx": {
+            "total_points": tot_points,
+            "total_known_cap": tot_known,
+            "points_left": points_left,
+            "known_count": known_count,
+            "can_learn_more": can_learn_more,
+            # pretty prints for the top boxes:
+            "formula_points": " + ".join([e["points_formula"] for e in by_feature if e["points_formula"]]) or " + ".join([str(e["points"]) for e in by_feature]) or "0",
+            "values_points":  " + ".join([str(e["points"]) for e in by_feature]) if by_feature else "",
+            "formula_known":  " + ".join([e["known_formula"] for e in by_feature if e["known_formula"]]) or " + ".join([str(e["known_cap"]) for e in by_feature]) or "0",
+            "values_known":   " + ".join([str(e["known_cap"]) for e in by_feature]) if by_feature else "",
+            "by_feature": by_feature,
+        },
+        "martial_mastery_known": known_rows,
+        "martial_mastery_available": available_rows,
     }
-    # Back-compat for template keys (your template references these)
-    mm_ctx["total_points"]     = mm_ctx["points_total"]
-    mm_ctx["total_known_cap"]  = mm_ctx["known_cap"]
-    mm_ctx["can_learn_more"]   = (mm_ctx["known_cap"] is None) or (int(mm_ctx["cap_left"] or 0) > 0)
+    return ctx
 
-    # ---- 3) POST ops: learn / unlearn (id list comes in pick[]) --------------
-    if request.method == "POST" and can_edit and request.POST.get("mm_op") in {"learn", "unlearn"}:
-        op = request.POST.get("mm_op")
-        ids = [int(x) for x in request.POST.getlist("pick[]") if str(x).isdigit()]
-        if not ids:
-            messages.error(request, "Select at least one mastery.")
-            return (mm_ctx, mm_avail_rows, mm_known_rows, redirect('characters:character_detail', pk=character.pk))
-
-        if op == "learn":
-            # enforce points/cap
-            want = len(ids)
-            allowed_by_points = max(0, points_left)
-            allowed_by_cap = (want if mm_ctx["known_cap"] is None else max(0, min(want, mm_ctx["cap_left"])))
-            allowed = min(want, allowed_by_points, allowed_by_cap if mm_ctx["known_cap"] is not None else want)
-            if allowed <= 0:
-                messages.error(request, "No mastery points or cap remaining.")
-                return (mm_ctx, mm_avail_rows, mm_known_rows, redirect('characters:character_detail', pk=character.pk))
-
-            to_learn = ids[:allowed]
-            for mid in to_learn:
-                if mid in known_ids:
-                    continue
-                Pick.objects.get_or_create(character=character, mastery_id=mid)
-            if allowed < want:
-                messages.warning(request, f"Learned {allowed} mastery(ies); ran out of points/cap for the rest.")
-            else:
-                messages.success(request, f"Learned {allowed} mastery(ies).")
-
-        elif op == "unlearn":
-            deleted = Pick.objects.filter(character=character, mastery_id__in=ids).delete()[0]
-            if deleted:
-                messages.success(request, f"Unlearned {deleted} mastery(ies).")
-            else:
-                messages.info(request, "Nothing to unlearn.")
-
-        return (mm_ctx, mm_avail_rows, mm_known_rows, redirect('characters:character_detail', pk=character.pk))
-
-    # ---- 4) Return tuple for caller -------------------------------------------
-    return (mm_ctx, mm_avail_rows, mm_known_rows, None)
 
 
 @login_required
@@ -4074,6 +4420,8 @@ def character_detail(request, pk):
     total_level     = character.level
     subrace_name    = (character.subrace.name 
                        if getattr(character, 'subrace', None) else None)
+    mm_ctx = build_martial_mastery_context(character, class_progress)
+
 
     # ── 2) Determine which class we’re leveling in / previewing ───────────
     next_level = total_level + 1
@@ -4256,14 +4604,8 @@ def character_detail(request, pk):
         return _spell_redirect
 
     # --- NEW: Martial Mastery tab (points + slots + learn/unlearn) -----------
-    martial_mastery_ctx, mm_avail_rows, mm_known_rows, _mm_redirect = _build_martial_mastery_tab(
-        request, character, can_edit
-    )
-    if _mm_redirect:
-        return _mm_redirect
-
-
-
+    mm_ctx = build_martial_mastery_context(character, class_progress)
+    
 
 
 
@@ -6302,39 +6644,8 @@ def character_detail(request, pk):
         "notes": "",
     }
     # --- Martial Mastery entitlement (from owned martial_mastery features) ---
-    def _eval_mm(expr, cp_map):
-        if not expr: return 0
-        try:
-            ctx = {
-                "level": character.level,
-                "strength": character.strength, "dexterity": character.dexterity, "constitution": character.constitution,
-                "intelligence": character.intelligence, "wisdom": character.wisdom, "charisma": character.charisma,
-                "str_mod": _abil_mod(character.strength), "dex_mod": _abil_mod(character.dexterity),
-                "con_mod": _abil_mod(character.constitution), "int_mod": _abil_mod(character.intelligence),
-                "wis_mod": _abil_mod(character.wisdom), "cha_mod": _abil_mod(character.charisma),
-                "floor": math.floor, "ceil": math.ceil, "min": min, "max": max, "round": round, "int": int,
-            }
-            ctx.update(cp_map)
-            return int(eval(expr, {"__builtins__": {}}, ctx))
-        except Exception:
-            return 0
-    def _build_spellcasting_summary(char):
-        blocks = []
-        for feature, cls, cls_level in _active_spell_tables(char):
-            origin = (feature.spell_list or "").lower()
-            slots_map = _slot_totals_by_origin_and_rank(char).get(origin, {})
-            max_rank = max([r for r in range(1, 11) if (slots_map.get(r, 0) or 0) > 0] or [1])
 
-            totals = _formula_totals(char)[origin]
-            blocks.append({
-                "klass": cls,                       # used as b.klass.name in template
-                "list": origin,                     # shown as {{ b.list }}
-                "slots": [int(slots_map.get(r, 0)) for r in range(1, max_rank+1)],
-                "cantrips": int(totals["cantrips_known"] or 0),
-                "known": int(totals["spells_known"] or 0),
-                "prepared": int(totals["spells_prepared_cap"] or 0),
-            })
-        return blocks
+
 
 
     # Build class-level tokens like "wizard_level": 3, "fighter_level": 2
@@ -6351,32 +6662,7 @@ def character_detail(request, pk):
         ).select_related("character_class").distinct()
     )
 
-    # IMPORTANT: only build the entitlement if the character actually owns a martial_mastery feature
-    martial_mastery_ctx = None
-    if owned_mm_features:
-        mm_entries = []
-        total_mm_points = 0
-        total_mm_known_cap = 0
-        for ft in owned_mm_features:
-            pts   = _eval_mm(getattr(ft, "martial_points_formula", None), _class_levels_ctx)
-            known = _eval_mm(getattr(ft, "available_masteries_formula", None), _class_levels_ctx)
-            total_mm_points    += max(0, pts)
-            total_mm_known_cap += max(0, known)
-            mm_entries.append({
-                "feature_id": ft.id,
-                "feature_name": ft.name,
-                "class_name": ft.character_class.name if ft.character_class_id else "",
-                "points": pts,
-                "known_cap": known,
-            })
 
-        martial_mastery_ctx = {
-            "total_points": total_mm_points,
-            "total_known_cap": total_mm_known_cap,
-            "by_feature": mm_entries,
-            "known_list": [m.mastery for m in character.martial_masteries.select_related("mastery").all()]
-                        if hasattr(character, "martial_masteries") else [],
-        }
 
     # Combat tab (defense/offense split)
     combat_blocks = {
@@ -6392,13 +6678,7 @@ def character_detail(request, pk):
             "weapons": attacks_detailed,
         },
     }
-    # Add this block only when entitlement exists
-    if martial_mastery_ctx:
-        combat_blocks["martial_mastery"] = {
-            "total_points": martial_mastery_ctx["total_points"],
-            "total_known_cap": martial_mastery_ctx["total_known_cap"],
-            "known_names": [getattr(k, "name", str(k)) for k in martial_mastery_ctx["known_list"]],
-        }
+
 
 
 
@@ -6436,15 +6716,16 @@ def character_detail(request, pk):
     mastery_rows = []
     if hasattr(character, "martial_masteries"):
         for m in character.martial_masteries.select_related("mastery").all():
-            mm = getattr(m, "mastery", m)  # through-table safe
+            mm_obj = getattr(m, "mastery", m)
             mastery_rows.append({
-                "id":   getattr(mm, "id", None),
-                "name": getattr(mm, "name", "—"),
-                "desc": (getattr(mm, "description", "") or getattr(mm, "summary", "") or ""),
-                "tags": getattr(mm, "tags", "") or "",
+                "id":   getattr(mm_obj, "id", None),
+                "name": getattr(mm_obj, "name", "—"),
+                "desc": (getattr(mm_obj, "description", "") or getattr(mm_obj, "summary", "") or ""),
+                "tags": getattr(mm_obj, "tags", "") or "",
                 "kind": "martial_mastery",
-                "is_passive": False,  # always shown under Active
+                "is_passive": False,
             })
+
     # — spells (known + prepared) summarized against your spell slot tables
     spell_tables = spellcasting_blocks  # you already build this earlier
     known_spells = list(character.known_spells.select_related("spell").all())
@@ -6489,9 +6770,7 @@ def character_detail(request, pk):
         "activations_map":   activations_map,
         "actions_text": True,
     }
-    # Attach only if present
-    if martial_mastery_ctx:
-        active_passive_tab["martial_mastery_entitlement"] = martial_mastery_ctx
+
 
     # Build combined flat list for checkboxes (labels sorted A→Z)
     starting_skill_flat = []
@@ -6501,28 +6780,7 @@ def character_detail(request, pk):
         starting_skill_flat.append({"id_key": f"sub_{s['id']}", "label": s["label"]})
     starting_skill_flat.sort(key=lambda x: (x["label"] or "").lower())
 
-    # ----- include in context -----
-    extra_ctx = {
-        "finals_left": finals_left,
-        "weapons_list": weapons_list,
-        "equipped_weapon_1": by_slot.get(1).weapon if by_slot.get(1) else None,
-        "equipped_weapon_2": by_slot.get(2).weapon if by_slot.get(2) else None,
-        "equipped_weapon_3": by_slot.get(3).weapon if by_slot.get(3) else None,
-        "attacks_detailed": attacks_detailed,
-        "details_placeholders": details_placeholders,
-        "combat_blocks": combat_blocks,
-        "feats_tab": feats_tab,
-        "active_passive_tab": active_passive_tab,
-    }
 
-    context_updates = {
-        'weapons_list': weapons_list,
-        'equipped_weapon_main': equipped_main.weapon if equipped_main else None,
-        'equipped_weapon_alt':  equipped_alt.weapon  if equipped_alt  else None,
-        'attacks_detailed': attacks_detailed,
-        'spell_dc_main': derived.get("spell_dc_main"),
-        'spell_dc_ability': derived.get("spell_dc_ability"),
-    }
     # include in your final render(...) call:
     # ---- Final aliases for context (fix NameErrors) ----
     rows = defense_rows
@@ -6714,7 +6972,121 @@ def character_detail(request, pk):
             return redirect('characters:character_detail', pk=pk)
 
         return redirect('characters:character_detail', pk=pk)
+    # ── Martial Mastery numeric overrides ────────────────────────────────────────
+    if request.method == "POST" and request.POST.get("override_submit") == "1":
+        key = request.POST.get("override_key", "")
+        final = request.POST.get("override_final")  # string or ""
+        note  = request.POST.get("override_reason", "")
+        # we only care about mm:* here; existing code can keep handling others
+        if key in ("mm:points_total", "mm:known_cap"):
+            from .models import CharacterOverride  # your generic override store
+            ov, _ = CharacterOverride.objects.update_or_create(
+                character=character, key=key,
+                defaults={"final": (int(final) if final else None), "note": note or ""}
+            )
+            return redirect("characters:character_detail", pk=character.pk)
 
+    if request.method == "POST" and request.POST.get("martial_op") == "reset_points_override":
+        from .models import CharacterOverride
+        CharacterOverride.objects.filter(character=character, key="mm:points_total").delete()
+        return redirect("characters:character_detail", pk=character.pk)
+
+    if request.method == "POST" and request.POST.get("martial_op") == "reset_known_cap_override":
+        from .models import CharacterOverride
+        CharacterOverride.objects.filter(character=character, key="mm:known_cap").delete()
+        return redirect("characters:character_detail", pk=character.pk)
+
+    # --- Martial Mastery: learn / unlearn -----------------------------------------
+    if request.method == "POST" and can_edit and request.POST.get("martial_op"):
+        from .models import MartialMastery
+        op = (request.POST.get("martial_op") or "").strip()
+        picks = request.POST.getlist("pick[]")  # values are MartialMastery ids
+        # Fresh context for authoritative caps & points
+        mm = build_martial_mastery_context(character, class_progress)
+        ctx      = mm["martial_mastery_ctx"]
+        known    = {row["id"] for row in mm["martial_mastery_known"]}
+        available= {row["id"]: row for row in mm["martial_mastery_available"]}
+
+        if op == "learn":
+            if not picks:
+                messages.error(request, "Select at least one mastery to learn.")
+                return redirect('characters:character_detail', pk=pk)
+
+            # Filter to actually-available rows
+            pick_ids = [int(p) for p in picks if p.isdigit()]
+            chosen   = [available[i] for i in pick_ids if i in available]
+            if not chosen:
+                messages.error(request, "Nothing eligible to learn.")
+                return redirect('characters:character_detail', pk=pk)
+
+            # Enforce points + slots
+            total_cost = sum(int(r["points_cost"] or 0) for r in chosen)
+            points_left = int(ctx["points_left"] or 0)
+            known_cap   = int(ctx["total_known_cap"] or 0)  # 0 means unlimited in builder’s logic
+            known_cnt   = int(ctx["known_count"] or 0)
+
+            # slots left: unlimited if cap==0 else cap-known_cnt
+            slots_left = (10**9 if known_cap == 0 else max(0, known_cap - known_cnt))
+            if total_cost > points_left:
+                messages.error(request, f"Not enough Martial Mastery points (need {total_cost}, have {points_left}).")
+                return redirect('characters:character_detail', pk=pk)
+            if len(chosen) > slots_left:
+                messages.error(request, f"Not enough Martial Mastery slots (need {len(chosen)}, have {slots_left}).")
+                return redirect('characters:character_detail', pk=pk)
+
+            # Save (support both direct M2M or through-table)
+            try:
+                # Direct M2M
+                objs = list(MartialMastery.objects.filter(id__in=[r["id"] for r in chosen]))
+
+                to_create = []
+                for mm_obj in objs:
+                    exists = CharacterMartialMastery.objects.filter(
+                        character=character,
+                        mastery_id=mm_obj.id
+                    ).exists()
+                    if not exists:
+                        to_create.append(CharacterMartialMastery(
+                            character=character,
+                            mastery=mm_obj,
+                            level_picked=character.level,
+                        ))
+
+
+                if to_create:
+                    CharacterMartialMastery.objects.bulk_create(to_create)
+
+            except Exception:
+                # Through table fallback
+                for r in chosen:
+                        CharacterMartialMastery.objects.get_or_create(
+                            character=character,
+                            mastery_id=r["id"],
+                            defaults={"level_picked": character.level},
+                        )
+
+            messages.success(request, f"Learned {len(chosen)} martial mastery trait(s).")
+            return redirect('characters:character_detail', pk=pk)
+
+        if op == "unlearn":
+            if not picks:
+                messages.error(request, "Select at least one mastery to unlearn.")
+                return redirect('characters:character_detail', pk=pk)
+
+            ids = [int(p) for p in picks if p.isdigit() and int(p) in known]
+            if not ids:
+                messages.error(request, "Nothing to unlearn.")
+                return redirect('characters:character_detail', pk=pk)
+
+            try:
+                character.martial_masteries.remove(*ids)
+            except Exception:
+                CharacterMartialMastery.objects.filter(
+                    character=character,
+                    mastery_id__in=ids
+                ).delete()
+            messages.success(request, f"Unlearned {len(ids)} martial mastery trait(s).")
+            return redirect('characters:character_detail', pk=pk)
 
     skill_points_balance = CharacterSkillPointTx.balance_for(character)
 
@@ -6793,10 +7165,12 @@ def character_detail(request, pk):
     "armor_list": armor_list,
     "selected_armor": selected_armor,
     "spell_rank_blocks": spell_rank_blocks,
-        "show_martial_mastery_tab": bool(martial_mastery_ctx),
-        "martial_mastery_ctx": martial_mastery_ctx,
-        "martial_mastery_available": mm_avail_rows,
-        "martial_mastery_known": mm_known_rows,
+
+"show_martial_mastery_tab": mm_ctx["show_martial_mastery_tab"],
+"martial_mastery_ctx": mm_ctx["martial_mastery_ctx"],
+"martial_mastery_known": mm_ctx["martial_mastery_known"],
+"martial_mastery_available": mm_ctx["martial_mastery_available"],
+
 
 
 

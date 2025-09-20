@@ -11,6 +11,7 @@
 
 {% block content %}
 <style>
+  #martial-mastery .mm-head { min-height: 2rem; }
   /* Modals on top of everything */
   .modal { z-index: 2000 !important; }
   .modal-backdrop { z-index: 1990 !important; }
@@ -381,7 +382,7 @@
 
 
 <button
-  class="btn btn-xs btn-outline-secondary edit-override"
+class="btn btn-sm btn-outline-secondary edit-override"
   type="button"
   data-key="prof:{{ r.code }}"
   data-calc="{{ r.total_s }}"
@@ -1008,8 +1009,18 @@
       <button class="btn btn-sm btn-outline-secondary toggle-activation"
               data-ctype="{{ r.ctype }}" data-obj="{{ r.obj_id }}" data-active="0">Passive</button>
       <!-- NEW: Details toggle -->
-      <button class="btn btn-sm btn-link p-0 toggle-desc" type="button">Details</button>
-    </div>
+  <button type="button" class="btn btn-sm btn-outline-primary"
+          onclick="openDetails('{{ r.label|escapejs }}', `
+            <dl class='row'>
+              {% for k,v in r.details %}
+                <dt class='col-sm-3'>{{ k }}</dt>
+                <dd class='col-sm-9'>{{ v|linebreaksbr }}</dd>
+              {% endfor %}
+            </dl>
+          `)">
+    Details
+  </button>    
+</div>
   </div>
   <!-- Keep details panel as a sibling under the header row (easier to find/toggle) -->
   <div class="d-none desc-body mt-2">
@@ -1038,154 +1049,266 @@
     {% endif %}
   </div>
 </div>
+
 <div class="tab-pane fade" id="martial-mastery" role="tabpanel" aria-labelledby="martial-mastery-tab">
   {% if show_martial_mastery_tab %}
-    <div class="card my-3">
-      <div class="card-header fw-bold d-flex justify-content-between align-items-center">
-        <span>Martial Mastery — Points & Slots</span>
+    <div class="row g-3">
+      <!-- Summary card -->
+      <div class="col-12 col-lg-6">
+        <div class="card">
+          <div class="card-header">Martial Mastery — Summary</div>
+          <div class="card-body">
+           <div class="row text-center g-2 align-items-start">
+
+<div class="col-6">
+<div class="h6 mb-1 d-flex justify-content-center align-items-center gap-2 mm-head">
+<span class="text-nowrap">Points</span>
+    {% if can_edit %}
+      <button class="edit-pill edit-override"
+              type="button"
+              title="Override total martial points"
+              data-key="mm:points_total"
+              data-calc="{{ martial_mastery_ctx.total_points }}"
+              data-formula="">
+        ✎
+      </button>
+      <form method="post" action="{% url 'characters:character_detail' character.pk %}" class="d-inline">
+        {% csrf_token %}
+        <input type="hidden" name="martial_op" value="reset_points_override">
+        <button class="btn btn-sm btn-outline-secondary">Reset</button>
+      </form>
+    {% endif %}
+  </div>
+  <div class="display-6">{{ martial_mastery_ctx.total_points }}</div>
+  <div class="small text-muted">
+    {{ martial_mastery_ctx.formula_points }}
+    {% if martial_mastery_ctx.values_points %}<br><code>{{ martial_mastery_ctx.values_points }}</code>{% endif %}
+  </div>
+</div>
+
+<div class="col-6">
+<div class="h6 mb-1 d-flex justify-content-center align-items-center gap-2 mm-head">
+<span class="text-nowrap">Known Cap</span>
+    {% if can_edit %}
+      <button class="edit-pill edit-override"
+              type="button"
+              title="Override known cap"
+              data-key="mm:known_cap"
+              data-calc="{{ martial_mastery_ctx.total_known_cap }}"
+              data-formula="">
+        ✎
+      </button>
+      <form method="post" action="{% url 'characters:character_detail' character.pk %}" class="d-inline">
+        {% csrf_token %}
+        <input type="hidden" name="martial_op" value="reset_known_cap_override">
+        <button class="btn btn-sm btn-outline-secondary">Reset</button>
+      </form>
+    {% endif %}
+  </div>
+<div class="display-6">{{ martial_mastery_ctx.total_known_cap }}</div>
+  <div class="small text-muted">
+    {{ martial_mastery_ctx.formula_known }}
+    {% if martial_mastery_ctx.values_known %}<br><code>{{ martial_mastery_ctx.values_known }}</code>{% endif %}
+  </div>
+</div>
+
+            </div>
+            <hr>
+            <!-- Per-feature breakdown (optional) -->
+            {% if martial_mastery_ctx.by_feature %}
+              <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                  <thead>
+                    <tr>
+                      <th>Feature</th>
+                      <th>Class</th>
+                      <th class="text-end">Points</th>
+                      <th class="text-end">Known</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for row in martial_mastery_ctx.by_feature %}
+<tr>
+  <td>{{ row.feature_name }}</td>
+  <td>{{ row.class_name }}</td>
+  <td class="text-end">
+    {{ row.points }}
+    {% if can_edit %}
+      <button class="edit-pill edit-override"
+              type="button"
+              title="Override points from this feature"
+              data-key="mm:feature:{{ row.feature_name|slugify }}:points"
+              data-calc="{{ row.points }}"
+              data-formula="">✎</button>
+    {% endif %}
+  </td>
+  <td class="text-end">
+    {{ row.known_cap }}
+    {% if can_edit %}
+      <button class="edit-pill edit-override"
+              type="button"
+              title="Override known from this feature"
+              data-key="mm:feature:{{ row.feature_name|slugify }}:known"
+              data-calc="{{ row.known_cap }}"
+              data-formula="">✎</button>
+    {% endif %}
+  </td>
+</tr>
+
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <!-- Known list -->
+      <div class="col-12">
+        <div class="card">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <span>Known Martial Mastery</span>
+            {% if can_edit and martial_mastery_known %}
+            <form method="post" class="m-0">
+              {% csrf_token %}
+              <input type="hidden" name="martial_op" value="unlearn">
+              <!-- when you click Unlearn, the checked ids from the table below are posted -->
+              <button class="btn btn-outline-danger btn-sm" type="submit">Unlearn Selected</button>
+            </form>
+            {% endif %}
+          </div>
+          <div class="card-body p-0">
+            <div class="table-responsive">
+              <table class="table table-striped align-middle m-0">
+                <thead>
+                  <tr>
+                    {% if can_edit %}<th style="width:36px"></th>{% endif %}
+                    <th>Name</th>
+                    <th class="text-end">Level</th>
+                    <th class="text-end">Points</th>
+                    <th class="text-end">Action</th>
+                    <th>Restrictions</th>
+                    <th style="width:60px"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for r in martial_mastery_known %}
+                    <tr>
+                      {% if can_edit %}
+                        <td><input type="checkbox" name="pick[]" formmethod="post" form="mm-unlearn-form" value="{{ r.id }}"></td>
+                      {% endif %}
+                      <td>{{ r.name }}</td>
+                      <td class="text-end">{{ r.level }}</td>
+                      <td class="text-end">{{ r.points_cost }}</td>
+                      <td class="text-end">{{ r.actions_required }}</td>
+<td>{{ r.restrictions }}</td>
+<td class="text-end">
+  <button type="button" class="btn btn-sm btn-outline-primary"
+          onclick="openDetails('{{ r.label|escapejs }}', `
+            <dl class='row'>
+              {% for k,v in r.details %}
+                <dt class='col-sm-3'>{{ k }}</dt>
+                <dd class='col-sm-9'>{{ v|linebreaksbr }}</dd>
+              {% endfor %}
+            </dl>
+          `)">
+    Details
+  </button>
+</td>
+
+                    </tr>
+
+                  {% empty %}
+                    <tr><td colspan="7" class="text-center text-muted py-3">No martial masteries known yet.</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- hidden form target for unlearn -->
         {% if can_edit %}
-        <form method="post" class="d-flex align-items-center gap-2 mb-0" action="{% url 'characters:character_detail' character.pk %}">
-          {% csrf_token %}
-          <input type="hidden" name="mm_op" value="set_caps">
-          <label class="mb-0">Points</label>
-          <input type="number" name="mm_points" value="{{ martial_mastery_ctx.total_points }}" class="form-control form-control-sm" style="width:110px;">
-          <label class="mb-0 ms-2">Known Cap</label>
-          <input type="number" name="mm_known_cap" value="{{ martial_mastery_ctx.total_known_cap }}" class="form-control form-control-sm" style="width:110px;">
-          <button class="btn btn-sm btn-primary ms-2">Save</button>
-        </form>
+          <form id="mm-unlearn-form" method="post" class="d-none">
+            {% csrf_token %}
+            <input type="hidden" name="martial_op" value="unlearn">
+          </form>
         {% endif %}
       </div>
-      <div class="card-body">
-        <div class="row g-3">
-          <div class="col-md-6">
-            <h6 class="mb-2">Known Masteries ({{ martial_mastery_ctx.known_count }})</h6>
-            <form method="post" action="{% url 'characters:character_detail' character.pk %}">
-              {% csrf_token %}
-              <input type="hidden" name="mm_op" value="unlearn">
-              <table class="table table-sm table-striped align-middle">
-              <thead>
-  <tr>
-    <th style="width:34px;"></th>
-    <th>Name</th>
-    <th>Tags</th>
-    <th>Prerequisites</th>
-    <th style="width:80px;"></th>
-  </tr>
-</thead>
-<tbody>
-  {% for r in martial_mastery_known %}
-    <tr>
-      <td><input type="checkbox" name="pick[]" value="{{ r.id }}"></td>
-      <td class="fw-semibold">{{ r.name }}</td>
-      <td>{{ r.tags|default:"—" }}</td>
-      <td>{{ r.prereq|default:"—" }}</td>
-      <td class="text-end">
-        <button class="btn btn-sm btn-link p-0 toggle-desc" type="button">Details</button>
-      </td>
-    </tr>
-    <tr class="d-none desc-body">
-      <td colspan="5">
-        <div class="table-responsive">
-          <table class="table table-sm table-bordered mb-0">
-            <tbody>
-              {% for k,v in r.details %}
-                <tr>
-                  <th class="text-nowrap" style="width:180px;">{{ k }}</th>
-                  <td>{% if k == "Description" %}{{ v|safe }}{% else %}{{ v|default:"—" }}{% endif %}</td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </td>
-    </tr>
-  {% empty %}
-    <tr><td colspan="5" class="text-muted">None learned yet.</td></tr>
-  {% endfor %}
-</tbody>
-              </table>
-              {% if can_edit %}
-                <button class="btn btn-sm btn-outline-danger">Unlearn selected</button>
-              {% endif %}
-            </form>
-          </div>
-          <div class="col-md-6">
-            <h6 class="mb-2">
-              Available Masteries
-              {% if martial_mastery_ctx.total_known_cap and not martial_mastery_ctx.can_learn_more %}
-                <span class="badge bg-secondary">Cap reached</span>
-              {% endif %}
-            </h6>
-            <form method="post" action="{% url 'characters:character_detail' character.pk %}">
-              {% csrf_token %}
-              <input type="hidden" name="mm_op" value="learn">
-              <table class="table table-sm table-hover align-middle">
-            
-            
-            <thead>
-  <tr>
-    <th style="width:34px;"></th>
-    <th>Name</th>
-    <th>Tags</th>
-    <th style="width:80px;"></th>
-  </tr>
-</thead>
-<tbody>
-  {% for r in martial_mastery_available %}
-    <tr class="{% if not martial_mastery_ctx.can_learn_more %}table-secondary{% endif %}">
-      <td>
-        <input type="checkbox" name="pick[]" value="{{ r.id }}"
-               {% if not martial_mastery_ctx.can_learn_more %}disabled{% endif %}>
-      </td>
-      <td class="fw-semibold">{{ r.name }}</td>
-      <td>{{ r.tags|default:"—" }}</td>
-      <td class="text-end">
-        <button class="btn btn-sm btn-link p-0 toggle-desc" type="button">Details</button>
-      </td>
-    </tr>
-    <tr class="d-none desc-body">
-      <td colspan="4">
-        <div class="table-responsive">
-          <table class="table table-sm table-bordered mb-0">
-            <tbody>
-              {% for k,v in r.details %}
-                <tr>
-                  <th class="text-nowrap" style="width:180px;">{{ k }}</th>
-                  <td>{% if k == "Description" %}{{ v|safe }}{% else %}{{ v|default:"—" }}{% endif %}</td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </td>
-    </tr>
-  {% empty %}
-    <tr><td colspan="4" class="text-muted">No masteries available.</td></tr>
-  {% endfor %}
-</tbody>
-              </table>
-              {% if can_edit %}
-                <button class="btn btn-sm btn-success"
-                        {% if not martial_mastery_ctx.can_learn_more %}disabled{% endif %}>
-                  Learn selected
+
+      <!-- Available list -->
+      <div class="col-12">
+        <div class="card">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <span>Available (meets level & class)</span>
+            {% if can_edit %}
+              <form method="post" id="mm-learn-form" class="m-0">
+                {% csrf_token %}
+                <input type="hidden" name="martial_op" value="learn">
+                <button class="btn btn-primary btn-sm" type="submit" {% if not martial_mastery_ctx.can_learn_more or martial_mastery_ctx.points_left|default:0 == 0 %}disabled{% endif %}>
+                  Learn Selected
                 </button>
-              {% endif %}
-            </form>
+              </form>
+            {% endif %}
+          </div>
+          <div class="card-body p-0">
+            <div class="table-responsive">
+              <table class="table table-hover align-middle m-0">
+                <thead>
+                  <tr>
+                    {% if can_edit %}<th style="width:36px"></th>{% endif %}
+                    <th>Name</th>
+                    <th class="text-end">Level</th>
+                    <th class="text-end">Points</th>
+                    <th class="text-end">Action</th>
+                    <th>Restrictions</th>
+                    <th style="width:60px"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for r in martial_mastery_available %}
+                    <tr class="{% if not r.can_learn_now %}table-secondary{% endif %}">
+                      {% if can_edit %}
+                        <td>
+                          <input type="checkbox" name="pick[]" form="mm-learn-form" value="{{ r.id }}" {% if not r.can_learn_now %}disabled{% endif %}>
+                        </td>
+                      {% endif %}
+                      <td>{{ r.name }}</td>
+                      <td class="text-end">{{ r.level }}</td>
+                      <td class="text-end">{{ r.points_cost }}</td>
+                      <td class="text-end">{{ r.actions_required }}</td>
+                  <td>{{ r.restrictions }}</td>
+                  <td class="text-end">
+                    <button type="button" class="btn btn-sm btn-outline-primary"
+                            onclick="openDetails('{{ r.label|escapejs }}', `
+                              <dl class='row'>
+                                {% for k,v in r.details %}
+                                  <dt class='col-sm-3'>{{ k }}</dt>
+                                  <dd class='col-sm-9'>{{ v|linebreaksbr }}</dd>
+                                {% endfor %}
+                              </dl>
+                            `)">
+                      Details
+                    </button>
+                  </td>
+
+
+                    </tr>
+
+                  {% empty %}
+                    <tr><td colspan="7" class="text-center text-muted py-3">Nothing available right now.</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
-        {% if martial_mastery_ctx.by_feature %}
-          <hr>
-          <small class="text-muted">
-            Entitlements: 
-            {% for e in martial_mastery_ctx.by_feature %}
-              <span class="me-3">• {{ e.feature_name }}{% if e.class_name %} ({{ e.class_name }}){% endif %}: {{ e.points }} pts / {{ e.known_cap }} known</span>
-            {% endfor %}
-          </small>
-        {% endif %}
       </div>
+
     </div>
   {% else %}
-    <div class="alert alert-secondary my-3">No martial mastery features on this character.</div>
+    <div class="alert alert-secondary my-3">This character has no Martial Mastery entitlements yet.</div>
   {% endif %}
 </div>
 
@@ -1488,6 +1611,30 @@
     </main>
   </div> <!-- /.row -->
 </div> <!-- /.container -->
+
+<div class="modal fade" id="detailsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="detailsModalTitle">Details</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="detailsModalBody">Loading…</div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+  function openDetails(title, html) {
+    document.getElementById('detailsModalTitle').textContent = title || 'Details';
+    document.getElementById('detailsModalBody').innerHTML = html || '';
+    const m = new bootstrap.Modal(document.getElementById('detailsModal'));
+    m.show();
+  }
+</script>
+
 <!-- ===== Shared Override Modal (Formula / Final / Tier) ===== -->
 <div class="modal fade" id="overrideModal" tabindex="-1" aria-labelledby="overrideModalLabel" aria-hidden="true">
 <div class="modal-dialog">
@@ -2372,7 +2519,7 @@ tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
   <script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
 <script>
 document.addEventListener("DOMContentLoaded", function(){
-  ['levelUpModal','editCharacterModal','editNumberModal','overrideModal','detailsEditModal','skillEditModal']
+  ['levelUpModal','editCharacterModal','editNumberModal','overrideModal','detailsEditModal','skillEditModal','mmDetailsModal']
     .forEach(id => {
       const el = document.getElementById(id);
       if (el && el.parentElement !== document.body) document.body.appendChild(el);
@@ -2383,6 +2530,8 @@ document.addEventListener("DOMContentLoaded", function(){
     bootstrap.Modal.getOrCreateInstance(el).show();
   }
 });
+
+
 </script>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
@@ -3166,6 +3315,7 @@ document.addEventListener('DOMContentLoaded', function () {
   updateCap();
 })();
 </script>
+
 
 
 
