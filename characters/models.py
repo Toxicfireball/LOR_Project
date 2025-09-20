@@ -492,7 +492,7 @@ class Character(models.Model):
     charisma           = models.IntegerField(default=8)
     # progression
     level              = models.PositiveIntegerField(default=0)
-    backstory          = models.TextField(blank=True)
+    backstory          = SummernoteTextField(blank=True)
     campaign           = models.ForeignKey(
                             Campaign,
                             on_delete=models.SET_NULL,

@@ -651,6 +651,30 @@ class CharacterDetailsForm(forms.ModelForm):
             "outlook":               "Outlook",
         }
 
+class CharacterEditForm(forms.ModelForm):
+    class Meta:
+        model = Character
+        fields = [
+            "backstory",
+            "worshipped_gods",
+            "believers_and_ideals",
+            "iconic_strengths",
+            "iconic_flaws",
+            "bonds_relationships",
+            "ties_connections",
+            "outlook",
+        ]
+        widgets = {
+            "backstory": forms.Textarea(attrs={"rows": 6}),
+            "worshipped_gods": forms.Textarea(attrs={"rows": 4}),
+            "believers_and_ideals": forms.Textarea(attrs={"rows": 4}),
+            "iconic_strengths": forms.Textarea(attrs={"rows": 4}),
+            "iconic_flaws": forms.Textarea(attrs={"rows": 4}),
+            "bonds_relationships": forms.Textarea(attrs={"rows": 4}),
+            "ties_connections": forms.Textarea(attrs={"rows": 4}),
+            "outlook": forms.Textarea(attrs={"rows": 4}),
+        }
+
 class CharacterClassForm(forms.ModelForm):
     class Meta:
         model  = CharacterClass

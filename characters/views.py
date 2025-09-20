@@ -10,6 +10,8 @@ from django.db.models import Case, When, IntegerField
 # characters/views.py
 from collections import defaultdict
 from collections import Counter
+from .forms import CharacterEditForm
+
 from campaigns.models import CampaignMembership
 from django.db.models import Q, Max
 from django.shortcuts import render, redirect, get_object_or_404
@@ -4331,9 +4333,79 @@ def character_detail(request, pk):
     if not (request.user.id == character.user_id or is_gm_for_campaign):
         return HttpResponseForbidden("You don’t have permission to view this character.")
 
-    can_edit = (request.user.id == character.user_id) or is_gm_for_campaign    
+    can_edit = (request.user.id == character.user_id) or is_gm_for_campaign
+       # ---- normalize POST data + submit flags ----
+    try:
+        from django.http import QueryDict
+    except Exception:
+        QueryDict = None  # safety; shouldn't happen
+
+    if request.method == "POST":
+        data = request.POST.copy()
+    else:
+        data = QueryDict("", mutable=True) if QueryDict else {}
+
+    # which button was pressed (names match your templates)
+    is_details_submit = (request.method == "POST" and "edit_character_submit" in request.POST)
+
     if request.method == "POST" and "level_up_submit" in request.POST:
         return character_level_up(request, pk)
+    # === Unified override save (Formula / Final) — runs before any POST normalization ===
+    if request.method == "POST" and request.POST.get("override_submit") and can_edit:
+        key     = (request.POST.get("override_key") or "").strip()
+        formula = (request.POST.get("override_formula") or "").strip()
+        final_s = (request.POST.get("override_final") or "").strip()
+        reason  = (request.POST.get("override_reason") or "").strip()
+
+        if not key:
+            messages.error(request, "Missing override key.")
+            return redirect("characters:character_detail", pk=pk)
+        if not reason:
+            messages.error(request, "Reason is required.")
+            return redirect("characters:character_detail", pk=pk)
+
+        # --- Save/Clear FORMULA (string) ---
+        if formula == "":
+            CharacterFieldOverride.objects.filter(character=character, key=f"formula:{key}").delete()
+            CharacterFieldNote.objects.filter(character=character, key=f"formula:{key}").delete()
+        else:
+            o, _ = CharacterFieldOverride.objects.get_or_create(
+                character=character, key=f"formula:{key}"
+            )
+            if o.value != formula:
+                o.value = formula
+                o.save(update_fields=["value"])
+            CharacterFieldNote.objects.update_or_create(
+                character=character, key=f"formula:{key}", defaults={"note": reason}
+            )
+
+        # --- Save/Clear FINAL (int) ---
+        final_key = f"final:{key}"
+        if final_s == "":
+            CharacterFieldOverride.objects.filter(character=character, key=final_key).delete()
+            CharacterFieldNote.objects.filter(character=character, key=final_key).delete()
+        else:
+            try:
+                final_i = int(final_s)
+            except ValueError:
+                messages.error(request, "Final value must be a whole number.")
+                return redirect("characters:character_detail", pk=pk)
+            o, _ = CharacterFieldOverride.objects.get_or_create(
+                character=character, key=final_key
+            )
+            if str(o.value) != str(final_i):
+                o.value = str(final_i)
+                o.save(update_fields=["value"])
+            CharacterFieldNote.objects.update_or_create(
+                character=character, key=final_key, defaults={"note": reason}
+            )
+
+        messages.success(request, "Override saved.")
+        return redirect("characters:character_detail", pk=pk)
+ 
+    # 🔹 Details editor (single authoritative handler)
+
+ 
     # LOR skill progression constants
     LOR_TIER_ORDER     = ["Untrained","Trained","Expert","Master","Legendary"]
     LOR_UPGRADE_COST   = {"Untrained":1, "Trained":2, "Expert":3, "Master":5}   # → next tier
@@ -4601,8 +4673,7 @@ def character_detail(request, pk):
     except ClassLevel.DoesNotExist:
         base_feats_preview = []
 
-    # decide which set drives validation (POST: posted class; GET: preview)
-    data = request.POST if request.method == 'POST' else request.GET
+
 
     if request.method == 'POST':
         posted_cls_id = data.get('base_class')
@@ -4666,7 +4737,8 @@ def character_detail(request, pk):
 
 
 
-    if request.method == "POST" and request.POST.get("spells_op") == "reset_caps" and can_edit:
+    if request.method == "POST" and not is_details_submit and request.POST.get("spells_op") == "reset_caps" and can_edit:
+
         fid = int(request.POST.get("feature_id") or 0)
         CharacterFieldOverride.objects.filter(
             character=character,
@@ -4751,84 +4823,26 @@ def character_detail(request, pk):
     # ── 4) BIND & HANDLE LEVEL‐UP ─────────────────────────────────────────
     edit_form = CharacterCreationForm(request.POST or None, instance=character) if can_edit else None
     # views.py inside character_detail(), POST branch handling `edit_character_submit`
-    details_form = (
-        CharacterDetailsForm(request.POST or None, instance=character)
-        if can_edit else CharacterDetailsForm(instance=character)
-    )
-    # === NEW: General character edit (name, backstory, description, etc.) ===
-    if request.method == "POST" and "edit_character_submit" in request.POST and can_edit:
-        edit_form = CharacterCreationForm(request.POST, instance=character)
+
+
+    # === Simple character edit (Details tab: name/backstory/description) ===
+    edit_form = None
+    if can_edit and request.method == "POST" and "edit_character_submit" in request.POST:
+        edit_form = CharacterEditForm(request.POST, instance=character)
         if edit_form.is_valid():
-            changed = edit_form.changed_data
-            missing = [field for field in changed if not (request.POST.get(f"note__{field}") or "").strip()]
-            if missing:
-                for f in missing:
-                    edit_form.add_error(None, f"Please provide a reason for changing “{f}”.")
-            else:
-                character = edit_form.save()
-                # persist/update notes (note__<fieldname>)
-                for key, note in request.POST.items():
-                    if key.startswith("note__"):
-                        k = key[6:]
-                        note = (note or "").strip()
-                        if note:
-                            CharacterFieldNote.objects.update_or_create(
-                                character=character, key=k, defaults={"note": note}
-                            )
-                        else:
-                            CharacterFieldNote.objects.filter(character=character, key=k).delete()
-                return redirect('characters:character_detail', pk=pk)
+            edit_form.save()
+            messages.success(request, "Details updated.")
+            return redirect("characters:character_detail", pk=pk)
+    else:
+        edit_form = CharacterEditForm(instance=character) if can_edit else None
+    details_form = edit_form
 
-    # -- Details editor (requires a reason per changed field) ----------------------
-    if request.method == "POST" and "update_details_submit" in request.POST and can_edit:
-        details_form = CharacterDetailsForm(request.POST, instance=character)
-        if details_form.is_valid():
-            changed = details_form.changed_data
-            missing = []
-            for f in changed:
-                if not (request.POST.get(f"note__{f}") or "").strip():
-                    missing.append(f)
-
-            if missing:
-                for f in missing:
-                    details_form.add_error(None, f'Please provide a reason for changing “{f}”.')
-            else:
-                details_form.save()
-                for f in changed:
-                    CharacterFieldNote.objects.update_or_create(
-                        character=character,
-                        key=f,
-                        defaults={"note": (request.POST.get(f"note__{f}") or "").strip()}
-                    )
-                return redirect('characters:character_detail', pk=pk)
-        # fall through to render with errors
+    # keep template compatibility: details_form mirrors edit_form
+    details_form = edit_form
 
 
-        edit_form = CharacterCreationForm(request.POST, instance=character)
-        if edit_form.is_valid():
-            changed = edit_form.changed_data  # fields whose values actually changed
-            missing = []
-            for field in changed:
-                if not (request.POST.get(f"note__{field}") or "").strip():
-                    missing.append(field)
 
-            if missing:
-                for f in missing:
-                    edit_form.add_error(None, f"Please provide a reason for changing “{f}”.")
-            else:
-                character = edit_form.save()
-                # persist/update notes
-                for key, note in request.POST.items():
-                    if key.startswith("note__"):
-                        k = key[6:]
-                        note = note.strip()
-                        if note:
-                            CharacterFieldNote.objects.update_or_create(
-                                character=character, key=k, defaults={"note": note}
-                            )
-                        else:
-                            CharacterFieldNote.objects.filter(character=character, key=k).delete()
-                return redirect('characters:character_detail', pk=pk)
+
     # --- CORE STATS (HP / Temp HP / Max HP) quick edit ---
     if request.method == "POST" and "save_core_stats_submit" in request.POST and can_edit:
         def _save_num(key):
@@ -4858,52 +4872,6 @@ def character_detail(request, pk):
 
 
 
-    # --- GENERIC OVERRIDE SAVE (Formula / Final) from the ✎ modal ---------------
-    if request.method == "POST" and request.POST.get("override_submit") == "1" and can_edit:
-        # Expected fields from your ✎ modal form
-        key     = (request.POST.get("override_key") or "").strip()            # e.g. "skill:sk_12:1"
-        formula = (request.POST.get("override_formula") or "").strip()        # free-text
-        final_s = (request.POST.get("override_final") or "").strip()          # number or ""
-        reason  = (request.POST.get("override_reason") or "").strip()
-
-        if not key:
-            messages.error(request, "Missing override key.")
-            return redirect('characters:character_detail', pk=pk)
-        if not reason:
-            messages.error(request, "Reason is required.")
-            return redirect('characters:character_detail', pk=pk)
-
-        # Save/Clear FORMULA override (string)
-        if formula == "":
-            CharacterFieldOverride.objects.filter(character=character, key=f"formula:{key}").delete()
-            CharacterFieldNote.objects.filter(character=character, key=f"formula:{key}").delete()
-        else:
-            CharacterFieldOverride.objects.update_or_create(
-                character=character, key=f"formula:{key}", defaults={"value": formula}
-            )
-            CharacterFieldNote.objects.update_or_create(
-                character=character, key=f"formula:{key}", defaults={"note": reason}
-            )
-
-        # Save/Clear FINAL override (int)
-        if final_s == "":
-            CharacterFieldOverride.objects.filter(character=character, key=f"final:{key}").delete()
-            CharacterFieldNote.objects.filter(character=character, key=f"final:{key}").delete()
-        else:
-            try:
-                final_i = int(final_s)
-            except ValueError:
-                messages.error(request, "Final value must be a number.")
-                return redirect('characters:character_detail', pk=pk)
-            CharacterFieldOverride.objects.update_or_create(
-                character=character, key=f"final:{key}", defaults={"value": str(final_i)}
-            )
-            CharacterFieldNote.objects.update_or_create(
-                character=character, key=f"final:{key}", defaults={"note": reason}
-            )
-
-        messages.success(request, "Override saved.")
-        return redirect('characters:character_detail', pk=pk)
     # --- SKILLS: additive adjustments with reasons (multi-entry) -------------------
     if request.method == "POST" and can_edit and request.POST.get("skills_op"):
         op = (request.POST.get("skills_op") or "").strip()
@@ -5149,36 +5117,8 @@ def character_detail(request, pk):
 
             return redirect('characters:character_detail', pk=pk)
         # invalid form -> fall through to render with errors
-    # ── (C.1) Normalize table POST keys -> "skill_feat_pick" ───────────────────
-    skill_grant = (
-        ClassSkillFeatGrant.objects
-        .filter(character_class=posted_cls, at_level=cls_level_for_validate)
-        .first()
-    )
 
-    post = request.POST.copy()
-    if skill_grant:
-        picks = int(skill_grant.num_picks or 0)
 
-        # Accept any of these from the UI
-        picked_vals = (
-            post.getlist("skill_feat_pick") or
-            post.getlist("skill_feat_pick[]") or
-            post.getlist("pick[]")  # e.g. reused from spell tables
-        )
-
-        # If your UI encodes "id|something", keep only the id
-        cleaned = [v.split("|", 1)[0] for v in picked_vals]
-
-        if cleaned:
-            if picks <= 1:
-                post["skill_feat_pick"] = cleaned[0]
-            else:
-                post.setlist("skill_feat_pick", cleaned)
-
-    # Use the normalized payload to bind the form later
-    request.POST = post
-    data = request.POST if request.method == 'POST' else request.GET
 
 
     level_form = LevelUpForm(
@@ -5203,29 +5143,36 @@ def character_detail(request, pk):
     # Determine the target class/level we are validating against
 
     target_cls = posted_cls if request.method == 'POST' else preview_cls
+    # ── (C.1) Normalize table POST keys -> "skill_feat_pick"
     skill_grant = (
         ClassSkillFeatGrant.objects
-        .filter(character_class=target_cls, at_level=cls_level_for_validate)
+        .filter(character_class=posted_cls, at_level=cls_level_for_validate)
         .first()
     )
 
     if skill_grant:
         picks = int(skill_grant.num_picks or 0)
-        base_qs = ClassFeat.objects.all()  # will be filtered to feat_type='Skill' below
 
-        if picks <= 1:
-            level_form.fields["skill_feat_pick"] = forms.ModelChoiceField(
-                queryset=base_qs,
-                required=(picks > 0),
-                label="Skill Feat"
-            )
-        else:
-            level_form.fields["skill_feat_pick"] = forms.ModelMultipleChoiceField(
-                queryset=base_qs,
-                required=(picks > 0),
-                label=f"Pick {picks} Skill Feat(s)",
-                widget=forms.CheckboxSelectMultiple
-            )
+        # Work on a local, mutable copy of `data`
+        norm = (data.copy() if hasattr(data, "copy") else QueryDict("", mutable=True))
+
+        picked_vals = (
+            norm.getlist("skill_feat_pick") or
+            norm.getlist("skill_feat_pick[]") or
+            norm.getlist("pick[]")
+        )
+        cleaned = [v.split("|", 1)[0] for v in picked_vals]
+
+        if cleaned:
+            if picks <= 1:
+                norm["skill_feat_pick"] = cleaned[0]
+            else:
+                norm.setlist("skill_feat_pick", cleaned)
+
+        # Re-bind normalized data to the request/form path
+        request.POST = norm
+        data = norm
+
 
 
     # INIT HERE so we can append immediately below
@@ -7099,36 +7046,7 @@ def character_detail(request, pk):
         return redirect('characters:character_detail', pk=pk)
     # ── Martial Mastery numeric overrides ────────────────────────────────────────
     # ── Martial Mastery numeric overrides (use CharacterFieldOverride/Note) ───────
-    if request.method == "POST" and request.POST.get("override_submit") == "1" and can_edit:
-        key = (request.POST.get("override_key") or "").strip()
-        final_s = (request.POST.get("override_final") or "").strip()
-        note  = (request.POST.get("override_reason") or "").strip()
 
-        # Only intercept the MM keys; all other keys are already handled earlier.
-        if key in ("mm:points_total", "mm:known_cap"):
-            # Store like the rest of your system: "final:<key>" holds the number,
-            # and the note is recorded alongside it.
-            okey = f"final:{key}"
-
-            if final_s == "":
-                CharacterFieldOverride.objects.filter(character=character, key=okey).delete()
-                CharacterFieldNote.objects.filter(character=character, key=okey).delete()
-            else:
-                try:
-                    final_i = int(final_s)
-                except ValueError:
-                    messages.error(request, "Final value must be a whole number.")
-                    return redirect("characters:character_detail", pk=character.pk)
-
-                CharacterFieldOverride.objects.update_or_create(
-                    character=character, key=okey, defaults={"value": str(final_i)}
-                )
-                # Save the reason (note is optional here; keep behavior consistent)
-                CharacterFieldNote.objects.update_or_create(
-                    character=character, key=okey, defaults={"note": note}
-                )
-
-            return redirect("characters:character_detail", pk=character.pk)
 
 
     if request.method == "POST" and request.POST.get("martial_op") == "reset_points_override" and can_edit:
@@ -7234,7 +7152,7 @@ def character_detail(request, pk):
             return redirect('characters:character_detail', pk=pk)
 
     skill_points_balance = CharacterSkillPointTx.balance_for(character)
-    if request.method == "POST":
+    if request.method == "POST" and not is_details_submit:
         # Save currency
         if request.POST.get("inventory_op") == "save_currency":
             if hasattr(character, "gold"):
@@ -7366,8 +7284,7 @@ def character_detail(request, pk):
 "martial_mastery_ctx": mm_ctx["martial_mastery_ctx"],
 "martial_mastery_known": mm_ctx["martial_mastery_known"],
 "martial_mastery_available": mm_ctx["martial_mastery_available"],
-
-
+"edit_form": edit_form,
 
 
     })
@@ -7396,6 +7313,12 @@ def character_level_up(request, pk):
     if not (request.user.id == character.user_id or is_gm_for_campaign):
         return HttpResponseForbidden("You don’t have permission to view this character.")
     can_edit = (request.user.id == character.user_id) or is_gm_for_campaign
+    try:
+        from django.http import QueryDict
+    except Exception:
+        QueryDict = None
+    data = request.POST.copy() if request.method == "POST" else (QueryDict("", mutable=True) if QueryDict else {})
+    is_details_submit = (request.method == "POST" and "edit_character_submit" in request.POST)    
     if not can_edit:
         return HttpResponseForbidden("Not allowed.")
 
@@ -7588,12 +7511,6 @@ def character_level_up(request, pk):
     target_cls = posted_cls
     cls_after  = cls_level_for_validate
     cls_name   = target_cls.name
-    # ── (C.1) Normalize table POST keys -> "skill_feat_pick" ───────────────────
-    skill_grant = (
-        ClassSkillFeatGrant.objects
-        .filter(character_class=posted_cls, at_level=cls_level_for_validate)
-        .first()
-    )
 
     post = request.POST.copy()
     if skill_grant:
@@ -7617,7 +7534,6 @@ def character_level_up(request, pk):
 
     # Use the normalized payload to bind the form later
     request.POST = post
-    data = request.POST if request.method == 'POST' else request.GET
 
     # ── (D) Build LevelUpForm with the exact same options/fields ────────────
     level_form = LevelUpForm(

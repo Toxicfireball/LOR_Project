@@ -46,8 +46,7 @@
   #skills-accordion .collapsing { height:auto !important; overflow:visible !important; transition:none !important; }
 
   /* Details edit: also avoid Bootstrap collapse */
-  #detailsEdit { display:none; }
-  #detailsEdit.is-open { display:block; }
+
 
   /* Skill picker */
   .skill-picker .skill-list{max-height:340px;overflow:auto;padding:.25rem .25rem 0}
@@ -57,7 +56,6 @@
   .skill-picker .skill-label{flex:1}
   .skill-picker .skill-item.disabled{opacity:.55;pointer-events:none}
   .skill-toolbar{border-bottom:1px solid rgba(0,0,0,.06)}
-#detailsEdit.show { display:block !important; }
 
 /* FIX top gap inside tabs */
 .tab-content { padding-top: 0 !important; }
@@ -279,34 +277,13 @@
     class="btn btn-sm btn-outline-secondary"
     type="button"
     data-bs-toggle="modal"
-    data-bs-target="#detailsEditModal"
+    data-bs-target="#editCharacterModal"
   >
     ✎ Edit
   </button>
   {% endif %}
 </div>
 
-{% if can_edit %}
-  {{ details_form.media }}
-  <template id="detailsEditTemplate">
-    <form method="post" novalidate>
-      {% csrf_token %}
-      {{ details_form.non_field_errors }}
-      {% for field in details_form.visible_fields %}
-        <div class="mb-3">
-          <label class="form-label">{{ field.label }}</label>
-          {{ field }}
-          <input class="form-control form-control-sm mt-1"
-                 name="note__{{ field.name }}"
-                 placeholder="Reason (required if changed)">
-        </div>
-      {% endfor %}
-      <button type="submit" name="update_details_submit" class="btn btn-primary">
-        Save Details
-      </button>
-    </form>
-  </template>
-{% endif %}
 
 
 {# Always show the read view below; the edit form above is collapsed #}
@@ -2450,19 +2427,20 @@ tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
         <div class="modal-body">
           {% if edit_form %}
             {{ edit_form.non_field_errors }}
-            <div class="row g-3">
-              {% for field in edit_form.visible_fields %}
-                <div class="col-md-6">
-                  {{ field.label_tag }} {{ field }}
-                  {% if field.errors %}
-                    <div class="text-danger small">{{ field.errors|join:", " }}</div>
-                  {% endif %}
-                  <input class="form-control form-control-sm mt-1"
-                        name="note__{{ field.name }}"
-                        placeholder="Reason (required if changed)">
-                </div>
-              {% endfor %}
-            </div>
+<div class="row g-3">
+  {% for field in edit_form.visible_fields %}
+    <div class="col-12">
+      {{ field.label_tag }} {{ field }}
+      {% if field.errors %}
+        <div class="text-danger small">{{ field.errors|join:", " }}</div>
+      {% endif %}
+      <input class="form-control form-control-sm mt-1"
+             name="note__{{ field.name }}"
+             placeholder="Reason (required if changed)">
+    </div>
+  {% endfor %}
+</div>
+
           {% else %}
             <p class="mb-0 text-muted">You don’t have permission to edit this character.</p>
           {% endif %}
@@ -2506,17 +2484,7 @@ tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
   </div>
 </div>
 
-<div class="modal fade" id="detailsEditModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">Edit Details</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body" id="detailsEditModalBody"></div>
-    </div>
-  </div>
-</div>
+
 
 <div class="modal fade" id="skillEditModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered">
@@ -2529,6 +2497,7 @@ tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
     </div>
   </div>
 </div>
+
 
 
 
@@ -2550,7 +2519,7 @@ tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
   <script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
 <script>
 document.addEventListener("DOMContentLoaded", function(){
-  ['levelUpModal','editCharacterModal','editNumberModal','overrideModal','detailsEditModal','skillEditModal','mmDetailsModal','detailsModal']
+  ['levelUpModal','editCharacterModal','editNumberModal','overrideModal','skillEditModal','mmDetailsModal','detailsModal']
     .forEach(id => {
       const el = document.getElementById(id);
       if (el && el.parentElement !== document.body) document.body.appendChild(el);
@@ -2564,6 +2533,8 @@ document.addEventListener("DOMContentLoaded", function(){
 
 
 </script>
+
+
 <script>
 document.addEventListener('DOMContentLoaded', () => {
   // Event delegation for any "Details" toggle button
@@ -2630,21 +2601,6 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 </script>
 
-<script>
-document.addEventListener('DOMContentLoaded', () => {
-  const detailsModalEl = document.getElementById('detailsEditModal');
-  if (!detailsModalEl) return;
-
-  detailsModalEl.addEventListener('show.bs.modal', () => {
-    const tpl = document.getElementById('detailsEditTemplate');
-    const body = document.getElementById('detailsEditModalBody');
-    if (tpl && body) {
-      body.innerHTML = ''; // clear old
-      body.appendChild(tpl.content.cloneNode(true));
-    }
-  });
-});
-</script>
 
   {{ ability_map|json_script:"abilities-data" }}
 
@@ -3282,6 +3238,39 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 });
 </script>
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  const modalEl = document.getElementById('detailsEditModal');
+  if (!modalEl || !window.bootstrap) return;
+
+  // Inject the template form into the modal body on open
+  modalEl.addEventListener('show.bs.modal', function(){
+    const tpl  = document.getElementById('detailsEditTemplate');
+    const body = modalEl.querySelector('.modal-body');
+    if (!tpl || !body) return;
+
+    const frag = tpl.content.cloneNode(true);
+    const form = frag.querySelector('form');
+
+    // Belt-and-suspenders: ensure the hidden submit marker is present
+    if (form && !form.querySelector('input[name="update_details_submit"]')) {
+      const hid = document.createElement('input');
+      hid.type = 'hidden';
+      hid.name = 'update_details_submit';
+      hid.value = '1';
+      form.prepend(hid);
+    }
+
+    body.innerHTML = '';
+    body.appendChild(frag);
+  });
+
+  // If the server asked to open the modal (e.g., validation errors), do so now
+  {% if open_details_modal %}
+    bootstrap.Modal.getOrCreateInstance(modalEl).show();
+  {% endif %}
+});
+</script>
 
 <script>
 (function () {
@@ -3309,6 +3298,50 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 })();
 </script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const modal = document.getElementById('editCharacterModal');
+  if (!modal || !window.bootstrap) return;
+
+  modal.addEventListener('shown.bs.modal', function () {
+    if (!window.jQuery || !jQuery.fn.summernote) {
+      console.error('Summernote not loaded');
+      return;
+    }
+    const $ = jQuery;
+
+    // INIT ON ALL TEXTAREAS (including Backstory)
+    modal.querySelectorAll('textarea').forEach(ta => {
+      const $ta = $(ta);
+      if (!$ta.data('summernote')) {
+        $ta.summernote({
+          height: 220,
+          placeholder: ta.getAttribute('placeholder') || '',
+          dialogsInBody: true,
+          toolbar: [
+            ['style', ['bold','italic','underline','clear']],
+            ['para',  ['ul','ol','paragraph']],
+            ['insert',['link','picture']],
+            ['view',  ['codeview','help']]
+          ]
+        });
+      }
+    });
+  });
+
+  // Clean up editors when modal closes
+  modal.addEventListener('hidden.bs.modal', function () {
+    if (!window.jQuery || !jQuery.fn.summernote) return;
+    jQuery(modal).find('textarea').each(function () {
+      const $ta = jQuery(this);
+      if ($ta.data('summernote')) $ta.summernote('destroy');
+    });
+  });
+});
+</script>
+
+
+
 <script>
 (function () {
   const list   = document.getElementById('startingSkillList');
