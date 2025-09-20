@@ -3814,22 +3814,60 @@ def _build_martial_mastery_tab(request, character, can_edit):
     points_left = max(0, int(points) - int(points_spent))
     cap_left = (None if int(knowncap) == 0 else max(0, int(knowncap) - known_count))
 
-    # Rows for the template
+def _mm_details(m):
+    """Return a list of (label, value) for non-empty mastery fields."""
+    desc_html = getattr(m, "description", "") or getattr(m, "summary", "") or ""
+    tags      = getattr(m, "tags", "") or ""
+    prereq    = getattr(m, "prereq", "") or getattr(m, "prerequisites", "") or ""
+    lvl_raw   = getattr(m, "level_prerequisite", None)
+    restrict  = getattr(m, "restrictions", "") or getattr(m, "restriction", "") or ""
+
+    # Normalize level text (keep None/"" out of the table)
+    try:
+        lvl_text = str(int(lvl_raw)) if lvl_raw is not None and str(lvl_raw).strip() != "" else ""
+    except Exception:
+        lvl_text = (str(lvl_raw) or "").strip()
+
+    pairs = []
+    if desc_html: pairs.append(("Description", desc_html))
+    if tags:      pairs.append(("Tags", tags))
+    if prereq:    pairs.append(("Prerequisites", prereq))
+    if lvl_text:  pairs.append(("Level prerequisite", lvl_text))
+    if restrict:  pairs.append(("Restrictions", restrict))
+    return pairs
+    
+    def _mm_level_prereq(m):
+        """Integer level prerequisite if present/parsable, else None."""
+        val = getattr(m, "level_prerequisite", None)
+        try:
+            return int(val)
+        except Exception:
+            return None
+    
     mm_known_rows = [{
         "id": m.id,
         "name": getattr(m, "name", str(m)),
-        "desc": (getattr(m, "description", "") or getattr(m, "summary", "") or ""),
         "tags": getattr(m, "tags", "") or "",
+        "prereq": getattr(m, "prereq", "") or getattr(m, "prerequisites", "") or "",
+        "summary": (getattr(m, "summary", "") or getattr(m, "description", "") or ""),
+        "details": _mm_details(m),
     } for m in known_qs]
-
+    
+    # Auto-filter by character level (only show masteries you qualify for).
     avail_qs = Mastery.objects.exclude(pk__in=known_ids).order_by("name")
+    avail_filtered = [
+        m for m in avail_qs
+        if (_mm_level_prereq(m) is None or _mm_level_prereq(m) <= character.level)
+    ]
+    
     mm_avail_rows = [{
         "id": m.id,
         "name": getattr(m, "name", str(m)),
-        "desc": (getattr(m, "description", "") or getattr(m, "summary", "") or ""),
         "tags": getattr(m, "tags", "") or "",
+        "summary": (getattr(m, "summary", "") or getattr(m, "description", "") or ""),
+        "details": _mm_details(m),
         "can_learn_now": (points_left > 0) and (cap_left is None or cap_left > 0),
-    } for m in avail_qs]
+    } for m in avail_filtered]
 
     # Context block used by the header/card in your template
     mm_ctx = {
