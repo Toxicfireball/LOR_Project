@@ -163,20 +163,35 @@
 
         <div id="charGrid" class="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
           {% for ch in attached_characters %}
-          <div class="char rounded-lg border border-gray-200 p-4"
-               data-name="{{ ch.name|lower }}" data-player="{{ ch.user.username|lower }}">
-            <div class="text-xs text-gray-500">{{ ch.user.username }}</div>
-            <div class="font-semibold">{{ ch.name }}</div>
-            <div class="mt-2">
-              {% if is_gm or ch.user_id == request.user.id %}
-              <form method="post" action="{% url 'campaigns:detach_character' campaign.id ch.id %}"
-                    onsubmit="return confirm('Detach {{ ch.name }} from this campaign?');">
-                {% csrf_token %}
-                <button class="px-3 py-1 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 text-sm">Detach</button>
-              </form>
-              {% endif %}
-            </div>
-          </div>
+<!-- inside the loop for `attached_characters` -->
+<div class="char rounded-lg border border-gray-200 p-4"
+     data-name="{{ ch.name|lower }}" data-player="{{ ch.user.username|lower }}">
+  <div class="text-xs text-gray-500">{{ ch.user.username }}</div>
+
+  <div class="font-semibold">
+    <a class="hover:underline" href="{% url 'characters:character_detail' ch.id %}">
+      {{ ch.name }}
+    </a>
+  </div>
+
+  <div class="mt-2 flex items-center gap-2">
+    <a class="px-3 py-1 rounded-md bg-indigo-600 text-white hover:bg-indigo-700 text-sm"
+       href="{% url 'characters:character_detail' ch.id %}">
+      View sheet
+    </a>
+
+    {% if is_gm or ch.user_id == request.user.id %}
+    <form method="post" action="{% url 'campaigns:detach_character' campaign.id ch.id %}"
+          onsubmit="return confirm('Detach {{ ch.name }} from this campaign?');">
+      {% csrf_token %}
+      <button class="px-3 py-1 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 text-sm">
+        Detach
+      </button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
           {% empty %}
           <div class="text-gray-600">No characters attached yet.</div>
           {% endfor %}
@@ -201,8 +216,11 @@
                 <div class="font-medium">Characters</div>
                 <ul class="list-disc pl-4">
                   {% for ch in chars %}
-                  <li>{{ ch.name }}</li>
-                  {% endfor %}
+ <li>
+   <a class="hover:underline" href="{% url 'characters:character_detail' ch.id %}">
+     {{ ch.name }}
+   </a>
+</li>                  {% endfor %}
                 </ul>
               </div>
               {% endif %}

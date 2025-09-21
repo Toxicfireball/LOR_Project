@@ -5,7 +5,7 @@ from django.http import HttpResponseForbidden, Http404
 from django.contrib import messages
 from characters.models import Character, ClassFeat, CharacterFeat
 from django.urls import reverse
-
+from campaigns.models import CampaignMembership
 @login_required
 def send_campaign_message(request, campaign_id):
     if request.method != "POST":
