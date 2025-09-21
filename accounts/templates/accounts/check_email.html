@@ -7,11 +7,7 @@
     <div class="card-body p-4">
       <h1 class="h5 mb-3">Verify your email</h1>
       <p>We’ve sent a verification link to <strong>{{ email }}</strong>. Click the link in that email to continue.</p>
-      {% if verify_url %}
-        <div class="alert alert-secondary">
-          (Dev hint: console backend) Link: <code>{{ verify_url }}</code>
-        </div>
-      {% endif %}
+
       <a href="{% url 'accounts:login' %}" class="btn btn-outline-secondary mt-3">Back to login</a>
     </div>
   </div>
