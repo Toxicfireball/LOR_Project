@@ -11,7 +11,7 @@ from django.db.models import Case, When, IntegerField
 from collections import defaultdict
 from collections import Counter
 from .forms import CharacterEditForm
-
+from django.http import QueryDict
 from campaigns.models import CampaignMembership
 from django.db.models import Q, Max
 from django.shortcuts import render, redirect, get_object_or_404
@@ -4325,16 +4325,9 @@ def character_detail(request, pk):
         return HttpResponseForbidden("You don’t have permission to view this character.")
 
     can_edit = (request.user.id == character.user_id) or is_gm_for_campaign
-       # ---- normalize POST data + submit flags ----
-    try:
-        from django.http import QueryDict
-    except Exception:
-        QueryDict = None  # safety; shouldn't happen
+    # ---- level-up uses POST when submitting, GET when previewing ----
+    data = request.POST if request.method == "POST" else request.GET
 
-    if request.method == "POST":
-        data = request.POST.copy()
-    else:
-        data = QueryDict("", mutable=True) if QueryDict else {}
     # --- Martial Mastery: learn / unlearn ---------------------------------------
     if request.method == "POST" and can_edit and request.POST.get("martial_op"):
         op = (request.POST.get("martial_op") or "").strip()
@@ -4738,14 +4731,14 @@ def character_detail(request, pk):
 
 
 
-    if request.method == 'POST':
-        posted_cls_id = data.get('base_class')
+    # Use the *same* data for both branches so choices exist in the form's queryset
+    if request.method == "POST":
+        base_class_raw = data.get("base_class")
         try:
-            posted_cls = CharacterClass.objects.get(pk=int(posted_cls_id))
+            posted_cls = CharacterClass.objects.get(pk=int(base_class_raw))
         except (TypeError, ValueError, CharacterClass.DoesNotExist):
             posted_cls = preview_cls
         cls_level_for_validate = _class_level_after_pick(character, posted_cls)
-
         try:
             cl_validate = (
                 ClassLevel.objects
@@ -4759,13 +4752,26 @@ def character_detail(request, pk):
             base_feats_validate = list(cl_validate.features.all())
         except ClassLevel.DoesNotExist:
             base_feats_validate = []
-
         base_feats = base_feats_validate
     else:
+        # GET/preview
         cls_level_for_validate = _class_level_after_pick(character, preview_cls)
         base_feats = base_feats_preview
 
     # only real ClassFeature instances go here
+    # --- Normalize Skill Feat grant for this class/level (one canonical place) ---
+    # Make sure posted_cls exists even on GET
+    effective_cls = posted_cls if request.method == "POST" else preview_cls
+
+    skill_grant = (
+        ClassSkillFeatGrant.objects
+        .filter(character_class=effective_cls, at_level=cls_level_for_validate)
+        .first()
+    )
+    num_skill_picks = int(getattr(skill_grant, "num_picks", 0) or 0)   # safe int
+    picks_required  = num_skill_picks > 0
+    # (moved the field creation for skill feats to AFTER level_form is instantiated)
+
 
     _grants_class_feat_at = any(
         isinstance(f, ClassFeature) and (
@@ -5192,29 +5198,40 @@ def character_detail(request, pk):
         preview_cls=preview_cls,             # keep for UI preview
         grants_class_feat=_grants_class_feat_at
     )
+    # Add Skill Feat picker field(s) here now that level_form exists
+    if picks_required and "skill_feat_pick" not in level_form.fields:
+        base_qs = ClassFeat.objects.filter(feat_type__iexact="Skill").order_by("name")
+        if num_skill_picks == 1:
+            level_form.fields["skill_feat_pick"] = forms.ModelChoiceField(
+                queryset=base_qs, required=True, label="Skill Feat"
+            )
+        else:
+            level_form.fields["skill_feat_pick"] = forms.ModelMultipleChoiceField(
+                queryset=base_qs, required=True, label=f"Skill Feats (pick {num_skill_picks})",
+                widget=forms.CheckboxSelectMultiple,
+            )
+
+
     level_form.fields.pop('skill_feat', None)
     level_form.fields.pop('skill_feat_pick', None)
-    # Add the field *only* when the validated class/level needs it
+
     if _grants_class_feat_at and "class_feat_pick" not in level_form.fields:
         level_form.fields["class_feat_pick"] = forms.ModelChoiceField(
-            queryset=ClassFeat.objects.all(),  # filled by the filter block below
+            queryset=ClassFeat.objects.filter(feat_type__iexact="Class").order_by("name"),
             required=True,
-            label="Class Feat"
+            label="Class Feat",
         )
+
 
     # ── NEW: Skill Feat picker(s) when the selected class grants them at this level ──
     # Determine the target class/level we are validating against
 
     target_cls = posted_cls if request.method == 'POST' else preview_cls
     # ── (C.1) Normalize table POST keys -> "skill_feat_pick"
-    skill_grant = (
-        ClassSkillFeatGrant.objects
-        .filter(character_class=posted_cls, at_level=cls_level_for_validate)
-        .first()
-    )
 
-    if skill_grant:
-        picks = int(skill_grant.num_picks or 0)
+
+    if picks_required:
+        picks = num_skill_picks
 
         # Work on a local, mutable copy of `data`
         norm = (data.copy() if hasattr(data, "copy") else QueryDict("", mutable=True))
@@ -5232,9 +5249,10 @@ def character_detail(request, pk):
             else:
                 norm.setlist("skill_feat_pick", cleaned)
 
-        # Re-bind normalized data to the request/form path
-        request.POST = norm
+
         data = norm
+        # Do NOT assign back to request.POST
+
 
 
 
@@ -5848,6 +5866,20 @@ def character_detail(request, pk):
                 )
             sc.feats_next = feats
             subclass_feats_at_next[(grp.pk, sc.pk)] = [f.pk for f in feats]  # optional, if you want an index
+    # --- Ensure subclass_choice fields exist on the bound form before rendering/validating ---
+    for f_ in base_feats:
+        if isinstance(f_, ClassFeature) and getattr(f_, "scope", "") == "subclass_choice":
+            fn = f"feat_{f_.pk}_subclass"
+            grp = f_.subclass_group
+            # Add the field only once, with the full queryset of subclasses
+            if fn not in level_form.fields:
+                qs = (grp.subclasses.all().order_by("name") if grp else f_.subclasses.all().order_by("name"))
+                level_form.fields[fn] = forms.ModelChoiceField(
+                    queryset=qs,
+                    required=True,
+                    label="Choose Path",
+                    help_text=(grp.name if grp else "Subclass"),
+                )
 
 
 
@@ -5855,9 +5887,20 @@ def character_detail(request, pk):
     for feat in to_choose:
         if isinstance(feat, ClassFeature) and feat.scope == 'subclass_choice':
             fn = f"feat_{feat.pk}_subclass"
-            # Use the *same* group instance we enriched earlier (so its subclasses have .feats_next)
+
             grp_pk = feat.subclass_group_id
             grp_enriched = next((g for g in subclass_groups if g.pk == grp_pk), feat.subclass_group)
+
+            # 1) ADD the field with a queryset that contains the posted value
+            if fn not in level_form.fields:
+                level_form.fields[fn] = forms.ModelChoiceField(
+                    queryset=grp_enriched.subclasses.all().order_by("name"),
+                    required=True,
+                    label="Choose Path",
+                    help_text=grp_enriched.name,
+                )
+
+            # 2) Then record it for the template (now it's guaranteed to exist)
             feature_fields.append({
                 "kind":  "subclass_choice",
                 "label": f"Choose {grp_enriched.name}",
@@ -7583,8 +7626,11 @@ def character_level_up(request, pk):
     try:
         posted_cls = CharacterClass.objects.get(pk=int(posted_cls_id))
     except (TypeError, ValueError, CharacterClass.DoesNotExist):
-        # if invalid/missing, keep default_cls
         posted_cls = default_cls
+
+    # defensive alias so any stray preview_cls usage can’t explode
+    preview_cls = posted_cls
+
 
 
     cls_level_for_validate = _class_level_after_pick(character, posted_cls)
@@ -7625,24 +7671,23 @@ def character_level_up(request, pk):
     cls_name   = target_cls.name
 
     post = request.POST.copy()
-    if skill_grant:
-        picks = int(skill_grant.num_picks or 0)
+    # ... inside character_level_up(...)
 
-        # Accept any of these from the UI
-        picked_vals = (
-            post.getlist("skill_feat_pick") or
-            post.getlist("skill_feat_pick[]") or
-            post.getlist("pick[]")  # e.g. reused from spell tables
-        )
+    # 1) Normalize which class/level we are validating for this request
+    # 1) Normalize which class/level we are validating for this request
+    effective_cls = posted_cls  # always POST in this view; avoid NameError
+    cls_level_for_validate = _class_level_after_pick(character, effective_cls)
 
-        # If your UI encodes "id|something", keep only the id
-        cleaned = [v.split("|", 1)[0] for v in picked_vals]
 
-        if cleaned:
-            if picks <= 1:
-                post["skill_feat_pick"] = cleaned[0]
-            else:
-                post.setlist("skill_feat_pick", cleaned)
+    # 2) Initialize the grant ONCE (safe even if None) + derived flags
+    skill_grant = (
+        ClassSkillFeatGrant.objects
+        .filter(character_class=effective_cls, at_level=cls_level_for_validate)
+        .first()
+    )
+    num_skill_picks = int(getattr(skill_grant, "num_picks", 0) or 0)
+    picks_required  = num_skill_picks > 0
+
 
     # Use the normalized payload to bind the form later
     request.POST = post
@@ -8464,12 +8509,7 @@ def character_level_up(request, pk):
                             )
                     except ValueError:
                         pass
-        # --- Apply Skill-Feat grant(s) --------------------------------------------
-        skill_grant = (
-            ClassSkillFeatGrant.objects
-            .filter(character_class=posted_cls, at_level=cls_level_for_validate)
-            .first()
-        )
+
 
         # --- Skill points grant for THIS level-up ---
         pts = int(getattr(picked_cls, "skill_points_per_level", 0) or 0)
