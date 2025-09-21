@@ -53,7 +53,40 @@ def ensure_character_mastery(character, mastery_or_id, level=None):
         defaults={"level_picked": int(level if level is not None else (character.level or 0))},
     )
 
+# Functions callers are allowed to use in formulas
+_ALLOWED_FUNCS = {
+    "floor": math.floor, "ceil": math.ceil, "round": round,
+    "min": min, "max": max, "int": int, "abs": abs,
+    # friendly aliases people type in your data
+    "round_up": math.ceil, "roundup": math.ceil, "ceiling": math.ceil,
+    "round_down": math.floor, "rounddown": math.floor,
+}
 
+def _normalize_formula(expr: str) -> str:
+    """Make stored formulas Pythonic: 'round up(x)' -> 'ceil(x)', '^' -> '**', etc."""
+    if not expr:
+        return ""
+    e = expr.strip()
+
+    # caret to Python power
+    e = e.replace("^", "**")
+
+    # 'round up(' / 'round down(' → ceil/floor
+    # phrase forms -> real functions (handles "round up(x)" and "… round up")
+    e = re.sub(r"\bround\s*up\b",   "ceil",  e, flags=re.IGNORECASE)
+    e = re.sub(r"\bround\s*down\b", "floor", e, flags=re.IGNORECASE)
+
+    e = re.sub(r"\bround\s+up\b", "ceil", e)    # simple alias safety
+    e = re.sub(r"\bround\s+down\b", "floor", e)
+    # Allow postfix '(... ) ceil' / '(... ) floor'
+    e = re.sub(r"\(\s*([^()]+?)\s*\)\s*ceil\b",  r"ceil(\1)",  e, flags=re.I)
+    e = re.sub(r"\(\s*([^()]+?)\s*\)\s*floor\b", r"floor(\1)", e, flags=re.I)
+
+    # Allow 'x / n ceil' → 'ceil(x/n)' (and floor)
+    e = re.sub(r"(.+?)\s*/\s*([0-9]+)\s*ceil\b",  r"ceil((\1)/\2)",  e, flags=re.I)
+    e = re.sub(r"(.+?)\s*/\s*([0-9]+)\s*floor\b", r"floor((\1)/\2)", e, flags=re.I)
+
+    return e
 def _mm_cost(m) -> int:
     """Return the point cost for a mastery (fallback 1)."""
     raw = getattr(m, "points_cost", None)
@@ -250,20 +283,7 @@ def _collect_search_targets(model):
 
     return text_fields, cast_fields, related_lookups
 
-def _normalize_formula(expr: str) -> str:
-    """Make data-entry formulas Python-evaluable."""
-    if not expr:
-        return ""
-    s = str(expr)
 
-    # Fix common English function names/phrases
-    s = re.sub(r'(?i)\bround\s*up\s*\(', 'ceil(', s)      # "round up(" → ceil(
-    s = re.sub(r'(?i)\broundup\s*\(',   'ceil(', s)       # "roundup(" → ceil(
-    s = re.sub(r'(?i)\bceiling\s*\(',   'ceil(', s)       # "ceiling(" → ceil(
-
-    # Be permissive with whitespace and case
-    s = s.strip().lower()
-    return s
 
 def _picks_for_trigger(trigger, base_cls, cls_level):
     """
@@ -1598,7 +1618,7 @@ ORIGINS = ["arcane", "divine", "primal", "occult"]
 RANKS   = list(range(0, 11))  # 0 = cantrips, 1..10 = slots
 
 # ----------------------------- helpers ---------------------------------
-
+from typing import Any, Dict
 def _char_or_403(request, pk: int) -> Character:
     c = get_object_or_404(Character, pk=pk)
     if not request.user.is_superuser and c.user_id != request.user.id:
@@ -1607,46 +1627,43 @@ def _char_or_403(request, pk: int) -> Character:
 import ast, math
 from typing import Any, Dict
 
-# Safe functions you allow inside formulas
-_ALLOWED_FUNCS = {
-    "min": min,
-    "max": max,
-    "floor": math.floor,
-    "ceil": math.ceil,
-    "round": round,
-    "int": int,
-    "abs": abs,
+_ALLOWED_FUNCS: Dict[str, Any] = {
+    "min": min, "max": max, "floor": math.floor, "ceil": math.ceil,
+    "round": round, "int": int, "abs": abs,
+    "round_up": math.ceil, "roundup": math.ceil, "ceiling": math.ceil,
+    "round_down": math.floor, "rounddown": math.floor,
 }
 
 def _safe_eval(expr: str, vars: Dict[str, Any]) -> int:
-    """
-    Evaluates a tiny arithmetic expression against `vars` and _ALLOWED_FUNCS.
-    Supports + - * / // % ** unary +/- and calls to allowed functions.
-    Returns an int (floors floats).
-    """
     if not expr:
         return 0
-    node = ast.parse(expr, mode="eval")
 
+    expr = _normalize_formula(expr)  # ← MUST happen *before* ast.parse
+
+    node = ast.parse(expr, mode="eval")
     allowed = (
-        ast.Expression, ast.BinOp, ast.UnaryOp, ast.Num, ast.Name,
-        ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod,
-        ast.Pow, ast.USub, ast.UAdd, ast.Call, ast.Load, ast.Attribute,
+        ast.Expression, ast.BinOp, ast.UnaryOp, ast.Call, ast.Load,
+        ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod, ast.Pow,
+        ast.UAdd, ast.USub, ast.Name, ast.Num, ast.Constant
     )
 
-    def _walk(n):
+    def _walk(n: ast.AST) -> None:
         if not isinstance(n, allowed):
             raise ValueError("Illegal expression")
         for c in ast.iter_child_nodes(n):
             _walk(c)
-
     _walk(node)
 
     scope = {**vars, **_ALLOWED_FUNCS}
 
-    def _eval(n):
+    def _eval(n: ast.AST):
         if isinstance(n, ast.Expression): return _eval(n.body)
+        if isinstance(n, ast.Constant):   return n.value
         if isinstance(n, ast.Num):        return n.n
+        if isinstance(n, ast.UnaryOp):
+            v = _eval(n.operand)
+            if isinstance(n.op, ast.UAdd): return +v
+            if isinstance(n.op, ast.USub): return -v
         if isinstance(n, ast.BinOp):
             l, r = _eval(n.left), _eval(n.right)
             if isinstance(n.op, ast.Add):      return l + r
@@ -1656,26 +1673,17 @@ def _safe_eval(expr: str, vars: Dict[str, Any]) -> int:
             if isinstance(n.op, ast.FloorDiv): return l // r
             if isinstance(n.op, ast.Mod):      return l % r
             if isinstance(n.op, ast.Pow):      return l ** r
-        if isinstance(n, ast.UnaryOp):
-            v = _eval(n.operand)
-            if isinstance(n.op, ast.UAdd): return +v
-            if isinstance(n.op, ast.USub): return -v
         if isinstance(n, ast.Name):
-            if n.id not in scope: raise ValueError(f"Unknown var {n.id}")
+            if n.id not in scope:
+                raise ValueError(f"Unknown var {n.id}")
             return scope[n.id]
         if isinstance(n, ast.Call):
             fn = _eval(n.func)
             args = [_eval(a) for a in n.args]
             return fn(*args)
-        raise ValueError("Unsupported expression node")
+        raise ValueError("Bad expression")
 
-    out = _eval(node)
-    try:
-        return int(out)
-    except Exception:
-        return int(math.floor(float(out)))
-
-
+    return int(_eval(node))
 
 def _ability_mod(score: int) -> int:
     try:
@@ -1770,18 +1778,18 @@ def _slot_totals_by_origin_and_rank(char):
 
 
 def _formula_totals(char: Character) -> Dict[str, Dict[str, int]]:
-    """
-    Compute per-origin totals from formulas on each applicable spell_table feature:
-      - cantrips_known
-      - spells_known
-      - spells_prepared_cap (if you use it; optional)
-    """
     totals = {o: dict(cantrips_known=0, spells_known=0, spells_prepared_cap=0) for o in ORIGINS}
     base_vars = _base_vars_for_character(char)
 
     for feature, cls, cls_level in _active_spell_tables(char):
         local_vars = dict(base_vars)
         local_vars["class_level"] = cls_level
+        local_vars.setdefault("level", getattr(char, "level", 0))
+
+        # add e.g. 'cleric_level', 'war_priest_level', 'wizard_level'
+        token = re.sub(r'[^a-z0-9_]', '', (cls.name or '').strip().lower().replace(' ', '_'))
+        if token:
+            local_vars[f"{token}_level"] = int(cls_level or 0)
 
         origin = (feature.spell_list or "").lower()
         if origin not in ORIGINS:
@@ -1795,6 +1803,7 @@ def _formula_totals(char: Character) -> Dict[str, Dict[str, int]]:
             totals[origin]["spells_prepared_cap"] += _safe_eval(feature.spells_prepared_formula, local_vars)
 
     return totals
+
 
 def _prepared_counts(char: Character) -> Dict[str, Counter]:
     """
@@ -3985,45 +3994,7 @@ from django.shortcuts import get_object_or_404, redirect
 
 # Safe, tiny expression evaluator for formulas like "floor(class_level/2)+1"
 
-def _safe_eval(expr: str, vars: Dict[str, Any]) -> int:
-    if not expr:
-        return 0
-    node = ast.parse(expr, mode="eval")
-    allowed = (ast.Expression, ast.BinOp, ast.UnaryOp, ast.Num, ast.Name,
-               ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod,
-               ast.Pow, ast.USub, ast.UAdd, ast.Call, ast.Load)
-    def _walk(n):
-        if not isinstance(n, allowed):
-            raise ValueError("Illegal expression")
-        for c in ast.iter_child_nodes(n):
-            _walk(c)
-    _walk(node)
-    def _eval(n):
-        if isinstance(n, ast.Expression): return _eval(n.body)
-        if isinstance(n, ast.Num):        return n.n
-        if isinstance(n, ast.BinOp):
-            l, r = _eval(n.left), _eval(n.right)
-            if isinstance(n.op, ast.Add):      return l + r
-            if isinstance(n.op, ast.Sub):      return l - r
-            if isinstance(n.op, ast.Mult):     return l * r
-            if isinstance(n.op, ast.Div):      return l / r
-            if isinstance(n.op, ast.FloorDiv): return l // r
-            if isinstance(n.op, ast.Mod):      return l % r
-            if isinstance(n.op, ast.Pow):      return l ** r
-        if isinstance(n, ast.UnaryOp):
-            v = _eval(n.operand)
-            if isinstance(n.op, ast.UAdd): return +v
-            if isinstance(n.op, ast.USub): return -v
-        if isinstance(n, ast.Name):
-            if n.id not in vars: raise ValueError(f"Unknown var {n.id}")
-            return vars[n.id]
-        if isinstance(n, ast.Call):
-            fn = _eval(n.func)
-            args = [_eval(a) for a in n.args]
-            return fn(*args)
-        return 0
-    scope = {**vars, **_ALLOWED_FUNCS}
-    return int(_eval(node))
+
 def _coalesce_int(v, d=0):
     try:
         return int(v if v is not None else d)
@@ -4344,9 +4315,81 @@ def character_detail(request, pk):
         data = request.POST.copy()
     else:
         data = QueryDict("", mutable=True) if QueryDict else {}
+    # --- Martial Mastery: learn / unlearn ---------------------------------------
+    if request.method == "POST" and can_edit and request.POST.get("martial_op"):
+        op = (request.POST.get("martial_op") or "").strip()
+        picks = request.POST.getlist("pick[]") or request.POST.getlist("pick")
+        try:
+            pick_ids = [int(x) for x in picks if str(x).isdigit()]
+        except Exception:
+            pick_ids = []
 
-    # which button was pressed (names match your templates)
-    is_details_submit = (request.method == "POST" and "edit_character_submit" in request.POST)
+        from .models import MartialMastery, CharacterMartialMastery  # adjust import if needed
+
+        # Rebuild quick budget from context helper
+        # (we only need points_left, known_count, total_known_cap)
+        _mm = build_martial_mastery_context(character, character.class_progress.select_related('character_class'))
+        points_left    = int(_mm["martial_mastery_ctx"]["points_left"])
+        known_count    = int(_mm["martial_mastery_ctx"]["known_count"])
+        total_known_cap = int(_mm["martial_mastery_ctx"]["total_known_cap"])
+
+        if op == "unlearn":
+            if not pick_ids:
+                messages.error(request, "Select at least one mastery to unlearn.")
+                return redirect("characters:character_detail", pk=pk)
+
+            # remove join rows; Character.martial_masteries is through CharacterMartialMastery
+            deleted, _ = CharacterMartialMastery.objects.filter(
+                character=character, mastery_id__in=pick_ids
+            ).delete()
+            if deleted:
+                messages.success(request, f"Unlearned {deleted} mastery item(s).")
+            else:
+                messages.info(request, "Nothing to unlearn.")
+            return redirect("characters:character_detail", pk=pk)
+
+        if op == "learn":
+            if not pick_ids:
+                messages.error(request, "Pick at least one mastery to learn.")
+                return redirect("characters:character_detail", pk=pk)
+
+            # filter to still-available masters
+            avail = MartialMastery.objects.filter(id__in=pick_ids)
+            # budget checks
+            total_cost = sum(int(getattr(mm, "points_cost", 0) or 0) for mm in avail)
+            if total_cost > points_left:
+                messages.error(request, f"Not enough points. Need {total_cost}, have {points_left}.")
+                return redirect("characters:character_detail", pk=pk)
+
+            new_count = known_count + avail.count()
+            if total_known_cap > 0 and new_count > total_known_cap:
+                messages.error(
+                    request,
+                    f"Known cap exceeded. You can know {total_known_cap}, trying to reach {new_count}."
+                )
+                return redirect("characters:character_detail", pk=pk)
+
+            # write through table
+            created = 0
+            for mm in avail:
+                CharacterMartialMastery.objects.get_or_create(
+                    character=character,
+                    mastery=mm,
+                    defaults={"level_picked": character.level}  # ← add this
+                )
+                created += 1
+            messages.success(request, f"Learned {created} mastery item(s).")
+            return redirect("characters:character_detail", pk=pk)
+
+
+    def _is_details_submit(req):
+        if req.method != "POST":
+            return False
+        # accept old and new button names
+        return any(k in req.POST for k in ("edit_character_submit", "details_submit", "edit_submit"))
+
+    is_details_submit = _is_details_submit(request)
+
 
     if request.method == "POST" and "level_up_submit" in request.POST:
         return character_level_up(request, pk)
@@ -4827,7 +4870,7 @@ def character_detail(request, pk):
 
     # === Simple character edit (Details tab: name/backstory/description) ===
     edit_form = None
-    if can_edit and request.method == "POST" and "edit_character_submit" in request.POST:
+    if can_edit and is_details_submit:
         edit_form = CharacterEditForm(request.POST, instance=character)
         if edit_form.is_valid():
             edit_form.save()

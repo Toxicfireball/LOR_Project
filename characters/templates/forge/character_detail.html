@@ -507,47 +507,6 @@ class="btn btn-sm btn-outline-secondary edit-override"
 </div> <!-- /.col-md-7 -->
 </div> <!-- /.row -->
 
-{% with mm=combat_blocks.martial_mastery %}
-  {% if mm %}
-    <hr class="my-3">
-
-    <h6 class="mb-2">Martial Mastery</h6>
-    <div class="mb-2">
-      <strong>Total Points:</strong> {{ mm.total_points }}
-      &nbsp;•&nbsp;
-      <strong>Known Cap:</strong> {{ mm.total_known_cap }}
-    </div>
-
-    {% if mm.known_names and mm.known_names|length %}
-      <div class="mb-2">
-        <strong>Known:</strong>
-        {% for n in mm.known_names %}
-          <span class="badge text-bg-secondary me-1 mb-1">{{ n }}</span>
-        {% endfor %}
-      </div>
-    {% endif %}
-
-    {% with mme=active_passive_tab.martial_mastery_entitlement %}
-      {% if mme and mme.by_feature and mme.by_feature|length %}
-        <div class="table-responsive">
-          <table class="table table-sm">
-            <thead><tr><th>Feature</th><th>Class</th><th>Points</th><th>Known Cap</th></tr></thead>
-            <tbody>
-              {% for row in mme.by_feature %}
-                <tr>
-                  <td>{{ row.feature_name }}</td>
-                  <td>{{ row.class_name }}</td>
-                  <td>{{ row.points }}</td>
-                  <td>{{ row.known_cap }}</td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      {% endif %}
-    {% endwith %}
-  {% endif %}
-{% endwith %}
 </div>
       
 
@@ -1053,7 +1012,7 @@ class="btn btn-sm btn-outline-secondary edit-override"
     {% endif %}
   </div>
 </div>
-
+<!-- MARTIAL MASTERY TAB -->
 <div class="tab-pane fade" id="martial-mastery" role="tabpanel" aria-labelledby="martial-mastery-tab">
   {% if show_martial_mastery_tab %}
     <div class="row g-3">
@@ -1169,22 +1128,21 @@ class="btn btn-sm btn-outline-secondary edit-override"
       </div>
 
       <!-- Known list -->
-      <div class="col-12">
-        <div class="card">
-          <div class="card-header d-flex justify-content-between align-items-center">
-            <span>Known Martial Mastery</span>
-            {% if can_edit and martial_mastery_known %}
-            <form method="post" class="m-0">
-              {% csrf_token %}
-              <input type="hidden" name="martial_op" value="unlearn">
-              <!-- when you click Unlearn, the checked ids from the table below are posted -->
-              <button class="btn btn-outline-danger btn-sm" type="submit">Unlearn Selected</button>
-            </form>
-            {% endif %}
-          </div>
-          <div class="card-body p-0">
-            <div class="table-responsive">
-              <table class="table table-striped align-middle m-0">
+<div class="col-12">
+  <div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span>Known Martial Mastery</span>
+      {% if can_edit and martial_mastery_known %}
+        <button class="btn btn-outline-danger btn-sm"
+                type="submit"
+                form="mm-unlearn-form">
+          Unlearn Selected
+        </button>
+      {% endif %}
+    </div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-striped align-middle m-0">
                 <thead>
                   <tr>
                     {% if can_edit %}<th style="width:36px"></th>{% endif %}
@@ -1209,7 +1167,7 @@ class="btn btn-sm btn-outline-secondary edit-override"
 <td>{{ r.restrictions }}</td>
 <td class="text-end">
   <button type="button" class="btn btn-sm btn-outline-primary"
-          onclick="openDetails('{{ r.label|escapejs }}', `
+          onclick="openDetails('{{ r.name|escapejs }}', `
             <dl class='row'>
               {% for k,v in r.details %}
                 <dt class='col-sm-3'>{{ k }}</dt>
@@ -1220,6 +1178,7 @@ class="btn btn-sm btn-outline-secondary edit-override"
     Details
   </button>
 </td>
+
 
                     </tr>
 
@@ -1283,19 +1242,19 @@ class="btn btn-sm btn-outline-secondary edit-override"
                       <td class="text-end">{{ r.points_cost }}</td>
                       <td class="text-end">{{ r.actions_required }}</td>
                   <td>{{ r.restrictions }}</td>
-                  <td class="text-end">
-                    <button type="button" class="btn btn-sm btn-outline-primary"
-                            onclick="openDetails('{{ r.label|escapejs }}', `
-                              <dl class='row'>
-                                {% for k,v in r.details %}
-                                  <dt class='col-sm-3'>{{ k }}</dt>
-                                  <dd class='col-sm-9'>{{ v|linebreaksbr }}</dd>
-                                {% endfor %}
-                              </dl>
-                            `)">
-                      Details
-                    </button>
-                  </td>
+<td class="text-end">
+  <button type="button" class="btn btn-sm btn-outline-primary"
+          onclick="openDetails('{{ r.name|escapejs }}', `
+            <dl class='row'>
+              {% for k,v in r.details %}
+                <dt class='col-sm-3'>{{ k }}</dt>
+                <dd class='col-sm-9'>{{ v|linebreaksbr }}</dd>
+              {% endfor %}
+            </dl>
+          `)">
+    Details
+  </button>
+</td>
 
 
                     </tr>
