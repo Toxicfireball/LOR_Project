@@ -8,6 +8,7 @@ from django.db.models.functions import Cast
 from django.db.models import Case, When, IntegerField
 # Create your views here.
 # characters/views.py
+from .forms import CharacterEditForm
 from collections import defaultdict
 from collections import Counter
 from .forms import CharacterEditForm
@@ -4398,10 +4399,43 @@ def character_detail(request, pk):
     def _is_details_submit(req):
         if req.method != "POST":
             return False
-        # accept old and new button names
-        return any(k in req.POST for k in ("edit_character_submit", "details_submit", "edit_submit"))
+        # Fast path: explicit flag
+        if (req.POST.get("form") or "").strip().lower() == "details":
+            return True
+        # Back-compat button names
+        if any(k in req.POST for k in ("edit_character_submit", "details_submit", "edit_submit")):
+            return True
+        # Safety net: if the POST contains any CharacterEditForm field names, treat it as details
+        details_keys = {"name","backstory","worshipped_gods","believers_and_ideals",
+                        "iconic_strengths","iconic_flaws","bonds_relationships",
+                        "ties_connections","outlook"}
+        if details_keys & set(req.POST.keys()):
+            return True
+        return False
 
     is_details_submit = _is_details_submit(request)
+# --- Details modal (Name / story...) -------------------------------------
+# One authoritative handler; do not create/overwrite edit_form elsewhere.
+    if is_details_submit and can_edit:
+        edit_form = CharacterEditForm(request.POST, instance=character)
+        if edit_form.is_valid():
+            changed = list(edit_form.changed_data)
+            missing = [f for f in changed if not (request.POST.get("note__" + f) or "").strip()]
+            if missing:
+                edit_form.add_error(None, "Please provide a reason for changing: " + ", ".join(missing).title())
+            else:
+                edit_form.save()
+                # (Optional audit: persist reasons)
+                # for f in changed:
+                #     CharacterFieldNote.objects.update_or_create(
+                #         character=character,
+                #         key=f"details:{f}",
+                #         defaults={"note": (request.POST.get('note__'+f) or '').strip()},
+                #     )
+                messages.success(request, "Details updated.")
+                return redirect("characters:character_detail", pk=character.pk)
+    else:
+        edit_form = CharacterEditForm(instance=character) if can_edit else None
 
 
     if request.method == "POST" and "level_up_submit" in request.POST:
@@ -4733,6 +4767,8 @@ def character_detail(request, pk):
 
     # Use the *same* data for both branches so choices exist in the form's queryset
     if request.method == "POST":
+
+
         base_class_raw = data.get("base_class")
         try:
             posted_cls = CharacterClass.objects.get(pk=int(base_class_raw))
@@ -4890,21 +4926,11 @@ def character_detail(request, pk):
 
     # ── 4) BIND & HANDLE LEVEL‐UP (POST) ───────────────────────────────────
     # ── 4) BIND & HANDLE LEVEL‐UP ─────────────────────────────────────────
-    edit_form = CharacterCreationForm(request.POST or None, instance=character) if can_edit else None
+    creation_form = CharacterCreationForm(request.POST or None, instance=character) if can_edit else None
     # views.py inside character_detail(), POST branch handling `edit_character_submit`
 
 
-    # === Simple character edit (Details tab: name/backstory/description) ===
-    edit_form = None
-    if can_edit and is_details_submit:
-        edit_form = CharacterEditForm(request.POST, instance=character)
-        if edit_form.is_valid():
-            edit_form.save()
-            messages.success(request, "Details updated.")
-            return redirect("characters:character_detail", pk=pk)
-    else:
-        edit_form = CharacterEditForm(instance=character) if can_edit else None
-    details_form = edit_form
+
 
     # keep template compatibility: details_form mirrors edit_form
     details_form = edit_form

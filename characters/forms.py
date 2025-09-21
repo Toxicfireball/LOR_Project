@@ -630,6 +630,7 @@ class CharacterDetailsForm(forms.ModelForm):
     class Meta:
         model = Character
         fields = [
+           
             "backstory",
             "worshipped_gods",
             "believers_and_ideals",
@@ -655,6 +656,7 @@ class CharacterEditForm(forms.ModelForm):
     class Meta:
         model = Character
         fields = [
+            "name",
             "backstory",
             "worshipped_gods",
             "believers_and_ideals",
@@ -674,7 +676,12 @@ class CharacterEditForm(forms.ModelForm):
             "ties_connections": forms.Textarea(attrs={"rows": 4}),
             "outlook": forms.Textarea(attrs={"rows": 4}),
         }
-
+    def clean_name(self):
+        name = (self.cleaned_data.get("name") or "").strip()
+        if not name:
+            raise ValidationError("Name cannot be empty.")
+        # put any project-specific rules here (length, uniqueness in campaign, etc.)
+        return name
 class CharacterClassForm(forms.ModelForm):
     class Meta:
         model  = CharacterClass
