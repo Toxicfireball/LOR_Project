@@ -18,13 +18,13 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django_select2.views import AutoResponseView
 from .models import Character, Skill  , RaceFeatureOption  
-from campaigns.models import Campaign
+from campaigns.models import Campaign, PartyItem
 from django.db import models
 import math
 from django.shortcuts import render, get_object_or_404, redirect
 from django.db.models import Q
 # ⬇️ add these (module-level!)
-from .models import CharacterMartialMastery, MartialMastery
+from .models import CharacterMartialMastery, MartialMastery, CharacterItem  
 
 from django.views.decorators.http import require_POST
 from django.http import JsonResponse, HttpResponseBadRequest
@@ -3958,21 +3958,22 @@ def _inventory_context(character):
     my_items = []
     inv_qs = getattr(character, "inventory_items", None)
     if hasattr(inv_qs, "all"):
-        my_items = list(inv_qs.all().order_by("name"))
+        my_items = list(_safe_order_by(inv_qs.all()))
 
     # party pool items (unclaimed items at the campaign level)
     party_pool = []
     if getattr(character, "campaign_id", None):
         try:
             CampaignItem = apps.get_model("campaigns", "CampaignItem")
-            party_pool = list(
-            CampaignItem.objects.filter(
-                Q(assigned_to="party") | Q(assigned_to__isnull=True),
-                campaign=character.campaign,
-                claimed_by__isnull=True,
-                is_archived=False,
-            ).order_by("name")
-            )
+            party_pool = list(_safe_order_by(
+                CampaignItem.objects.filter(
+                    Q(assigned_to="party") | Q(assigned_to__isnull=True),
+                    campaign=character.campaign,
+                    claimed_by__isnull=True,
+                    is_archived=False,
+                )
+            ))
+
         except LookupError:
             # If the app/model doesn't exist yet, just show nothing.
             party_pool = []
@@ -4287,6 +4288,25 @@ def build_martial_mastery_context(character, class_progress) -> Dict[str, Any]:
         "martial_mastery_available": available_rows,
     }
     return ctx
+def _safe_order_by(qs):
+    """Order by a reasonable text/date field if 'name' doesn't exist."""
+    try:
+        Model = qs.model
+    except Exception:
+        return qs
+
+    field_names = {f.name for f in Model._meta.get_fields()}
+
+    # Prefer a real 'name' field if present
+    if "name" in field_names:
+        return qs.order_by("name")
+
+    # Fallbacks confirmed by your error message
+    for candidate in ("description", "created_at", "id"):
+        if candidate in field_names:
+            return qs.order_by(candidate)
+
+    return qs  # last resort: leave unordered
 
 
 
@@ -7198,54 +7218,103 @@ def character_detail(request, pk):
     if request.method == "POST" and not is_details_submit:
         # Save currency
         if request.POST.get("inventory_op") == "save_currency":
+            def _num(key):
+                try:
+                    return int(request.POST.get(key, 0) or 0)
+                except (TypeError, ValueError):
+                    return 0
+
+            to_update = []
             if hasattr(character, "gold"):
-                character.gold   = int(request.POST.get("gold", 0) or 0)
+                character.gold = _num("gold");     to_update.append("gold")
             if hasattr(character, "silver"):
-                character.silver = int(request.POST.get("silver", 0) or 0)
+                character.silver = _num("silver"); to_update.append("silver")
             if hasattr(character, "copper"):
-                character.copper = int(request.POST.get("copper", 0) or 0)
-            character.save(update_fields=[f for f in ("gold","silver","copper") if hasattr(character, f)])
-            messages.success(request, "Currency updated.")
-            return redirect("characters:character_detail", character.pk)
+                character.copper = _num("copper"); to_update.append("copper")
+
+            if to_update:
+                character.save(update_fields=to_update)
+                messages.success(request, "Currency updated.")
+            else:
+                messages.info(request, "This character model has no currency fields.")
+            return redirect("characters:character_detail", pk=character.pk)
 
         # Add a free-typed item to the character
         if request.POST.get("inventory_op") == "add_item":
+            # Free-text “ad hoc” item (no linked object)
             name = (request.POST.get("item_name") or "").strip()
-            qty  = int(request.POST.get("item_qty") or 1)
-            if name and hasattr(character, "inventory_items"):
-                InventoryItem = character.inventory_items.model  # expects FK to Character
-                InventoryItem.objects.create(character=character, name=name, quantity=qty)
-                messages.success(request, f"Added item: {name} ×{qty}.")
-            return redirect("characters:character_detail", character.pk)
+            qty_s = (request.POST.get("item_qty") or "").strip()
+            desc  = (request.POST.get("item_desc") or "").strip()
+
+            try:
+                qty = max(1, int(qty_s or 1))
+            except ValueError:
+                qty = 1
+
+            if not name:
+                messages.error(request, "Item name is required.")
+                return redirect("characters:character_detail", pk=character.pk)
 
         # Collect a party item (move from campaign pool to character)
-        if request.POST.get("inventory_op") == "collect_campaign_item":
+        if request.POST.get("inventory_op") == "add_item":
+            name = (request.POST.get("item_name") or "").strip()
+            qty_s = (request.POST.get("item_qty") or "").strip()
+            desc  = (request.POST.get("item_desc") or "").strip()
+
             try:
-                CampaignItem = apps.get_model("campaigns", "CampaignItem")
-                ci = CampaignItem.objects.select_for_update().get(
-                    pk=int(request.POST.get("campaign_item_id")),
-                    campaign=character.campaign,
-                    claimed_by__isnull=True,
-                    is_archived=False,
-                )
-            except Exception:
-                messages.error(request, "That item is no longer available.")
-                return redirect("characters:character_detail", character.pk)
+                qty = max(1, int(qty_s or 1))
+            except ValueError:
+                qty = 1
 
-            # Mark claimed & optionally clone into character inventory
-            ci.claimed_by = character
-            ci.save(update_fields=["claimed_by"])
+            if name and hasattr(character, "inventory_items"):
+                InventoryItem = character.inventory_items.model  # FK to Character expected
+                fields = {f.name for f in InventoryItem._meta.get_fields()}
+                kwargs = {"character": character, "name": name, "quantity": qty}
+                if "description" in fields:
+                    kwargs["description"] = desc
+                InventoryItem.objects.create(**kwargs)
+                messages.success(request, f"Added item: {name} ×{qty}.")
+            else:
+                messages.error(request, "Could not add item.")
+            return redirect("characters:character_detail", pk=character.pk)
+        if request.POST.get("inventory_op") == "claim_party_item":
+            pi_id = request.POST.get("party_item_id")
+            qty_s = request.POST.get("item_qty") or "1"
+            try:
+                qty = max(1, int(qty_s))
+            except ValueError:
+                qty = 1
 
-            if hasattr(character, "inventory_items"):
-                InventoryItem = character.inventory_items.model
-                InventoryItem.objects.create(
+            try:
+                party_item = PartyItem.objects.select_for_update().get(pk=pi_id, campaign=character.campaign)
+            except PartyItem.DoesNotExist:
+                messages.error(request, "Party item not found.")
+                return redirect("characters:character_detail", pk=character.pk)
+
+            with transaction.atomic():
+                if party_item.quantity < qty:
+                    messages.error(request, "Not enough quantity in party stash.")
+                    return redirect("characters:character_detail", pk=character.pk)
+
+                # create character item linked to the same underlying object
+                CharacterItem.objects.create(
                     character=character,
-                    name=getattr(ci, "name", "Item"),
-                    quantity=getattr(ci, "quantity", 1),
-                    from_campaign_item=ci if "from_campaign_item" in [f.name for f in InventoryItem._meta.fields] else None,
+                    item_content_type=party_item.item_content_type,
+                    item_object_id=party_item.item_object_id,
+                    quantity=qty,
+                    description=party_item.note,   # optional default
+                    from_party_item=party_item,
                 )
-            messages.success(request, "Collected party item.")
-            return redirect("characters:character_detail", character.pk)
+
+                # decrement party
+                party_item.quantity -= qty
+                if party_item.quantity == 0:
+                    party_item.delete()
+                else:
+                    party_item.save(update_fields=["quantity"])
+
+            messages.success(request, "Item claimed from party inventory.")
+            return redirect("characters:character_detail", pk=character.pk)
     # ── 6) RENDER character_detail.html ───────────────────────────────────
     return render(request, 'forge/character_detail.html', {
         "spell_table_by_rank": rows_by_rank,

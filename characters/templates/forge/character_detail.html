@@ -260,6 +260,12 @@
       Martial Mastery
     </button>
   </li>
+  <li class="nav-item">
+  <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-inventory" type="button">
+    Inventory
+  </button>
+</li>
+
 
 {% if show_spellcasting_tab %}
   <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-spellcasting" type="button">Spellcasting</button></li>
@@ -765,6 +771,119 @@ class="btn btn-sm btn-outline-secondary edit-override"
 
 </div>
 
+<!-- INVENTORY TAB -->
+<div class="tab-pane fade" id="tab-inventory">
+  <div class="row g-3">
+    <!-- Currency -->
+    <div class="col-12 col-lg-5">
+      <div class="card h-100">
+        <div class="card-header fw-bold">Currency</div>
+        <div class="card-body">
+          <form method="post" class="row g-2">
+            {% csrf_token %}
+            <input type="hidden" name="inventory_op" value="save_currency">
+            <div class="col-4">
+              <label class="form-label form-label-sm">Gold</label>
+              <input name="gold" type="number" class="form-control form-control-sm"
+                     value="{{ inventory_currency.gold|default:0 }}" min="0">
+            </div>
+            <div class="col-4">
+              <label class="form-label form-label-sm">Silver</label>
+              <input name="silver" type="number" class="form-control form-control-sm"
+                     value="{{ inventory_currency.silver|default:0 }}" min="0">
+            </div>
+            <div class="col-4">
+              <label class="form-label form-label-sm">Copper</label>
+              <input name="copper" type="number" class="form-control form-control-sm"
+                     value="{{ inventory_currency.copper|default:0 }}" min="0">
+            </div>
+            <div class="col-12 d-flex justify-content-end">
+              <button class="btn btn-sm btn-primary">Save</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- My Items -->
+<div class="card h-100">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span class="fw-bold">Items</span>
+  </div>
+
+  <div class="card-body">
+    <form method="post" class="d-flex gap-2 align-items-center mb-3">
+      {% csrf_token %}
+      <input type="hidden" name="inventory_op" value="add_item">
+      <input name="item_name" class="form-control form-control-sm" placeholder="Add item…" required>
+      <input name="item_qty" type="number" class="form-control form-control-sm" value="1" min="1" style="width:90px">
+      <input name="item_desc" class="form-control form-control-sm"
+             placeholder="Description (optional)" style="min-width:220px">
+      <button class="btn btn-sm btn-primary">Add</button>
+    </form>
+
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Description</th>
+            <th class="text-end" style="width:120px">Qty</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for it in character.inventory_items.all %}
+            <tr>
+              <td>{{ it.name|default:it.item }}</td>
+              <td class="text-muted">{{ it.description }}</td>
+              <td class="text-end">{{ it.quantity }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="3" class="text-muted">No items yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+    <!-- Party Pool (collect) -->
+    <div class="col-12">
+      <div class="card">
+        <div class="card-header fw-bold">Party Pool (from Campaign)</div>
+        <div class="card-body">
+          {% if party_pool_items %}
+            <div class="table-responsive">
+              <table class="table table-sm align-middle mb-0">
+                <thead>
+                  <tr><th>Name</th><th style="width:120px" class="text-end">Qty</th><th style="width:160px" class="text-end">Action</th></tr>
+                </thead>
+                <tbody>
+                  {% for ci in party_pool_items %}
+                    <tr>
+                      <td>{{ ci.name }}</td>
+                      <td class="text-end">{{ ci.quantity|default:1 }}</td>
+                      <td class="text-end">
+                        <form method="post" class="d-inline">
+                          {% csrf_token %}
+                          <input type="hidden" name="inventory_op" value="collect_campaign_item">
+                          <input type="hidden" name="campaign_item_id" value="{{ ci.id }}">
+                          <button class="btn btn-sm btn-success">Collect</button>
+                        </form>
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <p class="text-muted mb-0">No unclaimed party items in this campaign.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
 
         <!-- FEATS TAB -->

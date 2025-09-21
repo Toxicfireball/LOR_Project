@@ -507,6 +507,10 @@ class Character(models.Model):
     bonds_relationships  = SummernoteTextField(blank=True)
     ties_connections     = SummernoteTextField(blank=True)
     outlook              = SummernoteTextField(blank=True)
+    # characters/models.py (inside Character)
+    gold   = models.IntegerField(default=0)
+    silver = models.IntegerField(default=0)
+    copper = models.IntegerField(default=0)
 
     # characters/models.py  (INSIDE class Character)
     def class_level_for(self, base_class: "CharacterClass") -> int:
@@ -624,6 +628,37 @@ class Character(models.Model):
               .order_by('tier', 'mastery_rank', 'name'))
 
         return allowed_cap, qs
+    
+
+
+# characters/models.py
+from django.contrib.contenttypes.models import ContentType
+from django.contrib.contenttypes.fields import GenericForeignKey
+
+class CharacterItem(models.Model):
+    character = models.ForeignKey('Character', on_delete=models.CASCADE, related_name='inventory_items')
+
+    # what the item actually is (Weapon, Armor, SpecialItem, etc.)
+    item_content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    item_object_id    = models.PositiveIntegerField()
+    item              = GenericForeignKey('item_content_type', 'item_object_id')
+
+    quantity    = models.PositiveIntegerField(default=1)
+    description = models.TextField(blank=True, null=True)  # ← for your “desc” field
+
+    # optional pointer to the campaign PartyItem you took this from
+    from_party_item = models.ForeignKey(
+        'campaigns.PartyItem',
+        on_delete=models.SET_NULL,
+        blank=True, null=True,
+        related_name='claimed_by_characters'
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
 class PendingBackground(models.Model):
     """Player-proposed background awaiting GM approval. Mirrors Background fields 1:1."""
     # link it to a campaign optionally; GM of that campaign can approve
