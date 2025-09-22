@@ -45,7 +45,7 @@ INSTALLED_APPS = [
     # Tailwind + theme
     'tailwind',
     'theme',
-
+    "glossary",
     # Your apps
     'home',
     'campaigns',

@@ -38,12 +38,16 @@
 </style>
 <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
 
-  {% block extra_css %}{% endblock %}
+<link rel="stylesheet" href="{% static 'css/glossary.css' %}">
+
+{% block extra_css %}{% endblock %}
 </head>
+
+</head>
+
 <body class="bg-gray-100 text-gray-900">
 
-<nav class="bg-gray-800 text-white sticky top-0 z-50">
-
+<nav class="bg-gray-800 text-white sticky top-0 z-50" data-glossary-skip>
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="flex items-center justify-between h-16">
 
@@ -378,6 +382,9 @@ document.addEventListener('click', function(e){
   });
 });
 </script>
-  {% block extra_js %}{% endblock %}
+<script defer src="{% static 'js/glossary_tooltips.js' %}"></script>
+
+{% block extra_js %}{% endblock %}
 </body>
 </html>
+

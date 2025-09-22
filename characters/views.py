@@ -1512,7 +1512,7 @@ def _weapon_math_for(weapon: Weapon, str_mod: int, dex_mod: int, prof_weapon: in
 @require_POST
 def set_weapon_choice(request, pk):
     character = get_object_or_404(Character, pk=pk, user=request.user)
-    raw_slot  = (request.POST.get("slot") or "").strip().lower()   # accepts "1/2/3" or "primary/secondary/tertiary"
+    raw_slot  = (request.POST.get("slot") or "").strip().lower()
     weapon_id = (request.POST.get("weapon_id") or "").strip()
 
     slot_map = {"1":1,"2":2,"3":3,"primary":1,"secondary":2,"tertiary":3}
@@ -1520,15 +1520,34 @@ def set_weapon_choice(request, pk):
     if slot_index not in (1,2,3):
         return HttpResponseBadRequest("Invalid slot")
 
+    # Clear equipped weapon in this slot
     if weapon_id == "":
         CharacterWeaponEquip.objects.filter(character=character, slot_index=slot_index).delete()
         return JsonResponse({"ok": True})
 
+    # Resolve weapon
     try:
         weapon = Weapon.objects.get(pk=int(weapon_id))
     except (ValueError, Weapon.DoesNotExist):
         return HttpResponseBadRequest("Invalid weapon_id")
 
+    # Must own this weapon via CharacterItem
+    try:
+        CharacterItem = apps.get_model("characters", "CharacterItem")
+        w_ct = ContentType.objects.get_for_model(Weapon)
+    except Exception:
+        return HttpResponseBadRequest("Inventory not available")
+
+    owns = CharacterItem.objects.filter(
+        character=character,
+        item_content_type=w_ct,
+        item_object_id=weapon.id,
+        quantity__gt=0,
+    ).exists()
+    if not owns:
+        return HttpResponseForbidden("You do not own that weapon.")
+
+    # Save equip
     CharacterWeaponEquip.objects.update_or_create(
         character=character, slot_index=slot_index, defaults={"weapon": weapon}
     )
@@ -2139,6 +2158,11 @@ def pick_martial_mastery(request, pk):
 
 
     return JsonResponse({"ok": True})
+from django.contrib.auth.decorators import login_required
+from django.views.decorators.http import require_POST
+from django.apps import apps
+from django.contrib.contenttypes.models import ContentType
+from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbidden
 
 @login_required
 @require_POST
@@ -2152,21 +2176,40 @@ def set_armor_choice(request, pk):
         CharacterFieldOverride.objects.filter(character=character, key="armor_value").delete()
         return JsonResponse({"ok": True})
 
-    # Set equipped armor by id
+    # Resolve armor
     try:
         armor = Armor.objects.get(pk=int(armor_id))
     except (ValueError, Armor.DoesNotExist):
         return HttpResponseBadRequest("Invalid armor_id")
 
+    # Must own this armor via CharacterItem
+    try:
+        CharacterItem = apps.get_model("characters", "CharacterItem")
+        a_ct = ContentType.objects.get_for_model(Armor)
+    except Exception:
+        return HttpResponseBadRequest("Inventory not available")
+
+    owns = CharacterItem.objects.filter(
+        character=character,
+        item_content_type=a_ct,
+        item_object_id=armor.id,
+        quantity__gt=0,
+    ).exists()
+    if not owns:
+        return HttpResponseForbidden("You do not own that armor.")
+
+    # Persist selection
     CharacterFieldOverride.objects.update_or_create(
         character=character, key="equipped_armor_id", defaults={"value": str(armor.id)}
     )
     CharacterFieldOverride.objects.update_or_create(
         character=character, key="armor_value", defaults={"value": str(armor.armor_value)}
     )
+
     if request.headers.get("x-requested-with") == "XMLHttpRequest":
         return JsonResponse({"ok": True})
     return redirect('characters:character_detail', pk=pk)
+
 def _fmt(n) -> str:
     try:
         return f"{int(n):+d}"
@@ -3961,30 +4004,103 @@ def _inventory_context(character):
     if hasattr(inv_qs, "all"):
         my_items = list(_safe_order_by(inv_qs.all()))
 
+
     # party pool items (unclaimed items at the campaign level)
     party_pool = []
     if getattr(character, "campaign_id", None):
         try:
-            CampaignItem = apps.get_model("campaigns", "CampaignItem")
-            party_pool = list(_safe_order_by(
-                CampaignItem.objects.filter(
-                    Q(assigned_to="party") | Q(assigned_to__isnull=True),
-                    campaign=character.campaign,
-                    claimed_by__isnull=True,
-                    is_archived=False,
-                )
-            ))
+            PartyItem = apps.get_model("campaigns", "PartyItem")
+            ContentType = apps.get_model("contenttypes", "ContentType")
 
-        except LookupError:
-            # If the app/model doesn't exist yet, just show nothing.
+            def _label_for(obj):
+                return (
+                    getattr(obj, "name", None)
+                    or getattr(obj, "label", None)
+                    or getattr(obj, "title", None)
+                    or getattr(obj, "display_name", None)
+                    or str(obj) or "—"
+                )
+
+            qs = (PartyItem.objects
+                .filter(
+                    campaign=character.campaign,
+                    claimed_by_characters__isnull=True,
+                )
+                .distinct()  # M2M joins can duplicate rows
+                .select_related("item_content_type"))
+
             party_pool = []
+            for pi in _safe_order_by(qs):
+                # Resolve the underlying item for the label
+                obj = None
+                ct = getattr(pi, "item_content_type", None)
+                if ct:
+                    try:
+                        obj = ct.get_object_for_this_type(pk=int(pi.item_object_id))
+                    except Exception:
+                        obj = None
+                # Fallback if you already have a GFK property named `item`
+                if obj is None:
+                    obj = getattr(pi, "item", None)
+
+                party_pool.append({
+                    "id":  pi.id,
+                    "qty": int(getattr(pi, "quantity", 1) or 1),
+                    "name": _label_for(obj),
+                })
+        except LookupError:
+            party_pool = []
+
+
+    # Catalogs for pickers
+    # Catalogs for pickers
+    try:
+        Weapon = apps.get_model("characters", "Weapon")
+        Armor  = apps.get_model("characters", "Armor")
+        weapons_all = list(Weapon.objects.order_by("name"))
+        armors_all  = list(Armor.objects.order_by("name"))
+    except LookupError:
+        weapons_all, armors_all = [], []
+
+    # Enrich CharacterItem rows with kind/rarity flags for the table
+    for it in my_items:
+        obj = getattr(it, "item", None)
+        # correct isinstance checks; if the model isn't loaded, leave False
+        it.weapon = bool(obj and 'Weapon' in str(type(obj))) if weapons_all else False
+        it.armor  = bool(obj and 'Armor'  in str(type(obj))) if armors_all  else False
+
+    # ^ the two lines above are just defensive; we’ll overwrite properly below
+    try:
+        from django.contrib.contenttypes.models import ContentType
+        w_ct = ContentType.objects.get_for_model(Weapon) if weapons_all else None
+        a_ct = ContentType.objects.get_for_model(Armor)  if armors_all  else None
+    except Exception:
+        w_ct = a_ct = None
+
+    for it in my_items:
+        obj = getattr(it, "item", None)
+        it.kind   = None
+        it.rarity = None
+        it.weapon = False
+        it.armor  = False
+        if w_ct and it.item_content_type_id == w_ct.id:
+            it.kind   = "Weapon"
+            it.weapon = True
+            it.rarity = getattr(obj, "rarity", None)
+        elif a_ct and it.item_content_type_id == a_ct.id:
+            it.kind   = "Armor"
+            it.armor  = True
+            it.rarity = getattr(obj, "rarity", None)
 
     return {
         "show_inventory_tab": True,
         "inventory_currency": {"gold": gold, "silver": silver, "copper": copper},
-        "inventory_items": my_items,
+        "inventory_items": my_items,         # list of CharacterItem (GFK -> item)
         "party_pool_items": party_pool,
+        "weapons_all": weapons_all,          # for “Get Weapon”
+        "armors_all": armors_all,            # for “Get Armor”
     }
+
 
 
 import ast
@@ -5158,6 +5274,134 @@ def character_detail(request, pk):
             messages.success(request, f"Retrained {target} to {prev_name} (+{refund} SP).")
             return redirect('characters:character_detail', pk=pk)
 
+    # --- INVENTORY ops (Get Weapon/Armor, Add, Collect from Party, Remove) -------
+    if request.method == "POST" and can_edit and request.POST.get("inventory_op"):
+        op = (request.POST.get("inventory_op") or "").strip()
+
+        try:
+            CharacterItem = apps.get_model("characters", "CharacterItem")
+        except LookupError:
+            messages.error(request, "CharacterItem model not found.")
+            return redirect('characters:character_detail', pk=pk)
+
+        qty = max(1, int((request.POST.get("item_qty") or "1") or 1))
+
+        def _upsert_ct_obj(ct_model_label, obj_id, add_qty=1, description="", from_party_item=None):
+            app_label, model_name = ct_model_label
+            ContentType = apps.get_model("contenttypes", "ContentType")
+            ct = ContentType.objects.get(app_label=app_label, model=model_name.lower())
+            row, created = CharacterItem.objects.get_or_create(
+                character=character,
+                item_content_type=ct,
+                item_object_id=int(obj_id),
+                defaults={"quantity": add_qty, "description": description, "from_party_item": from_party_item},
+            )
+            if not created and add_qty:
+                row.quantity = max(0, int(row.quantity or 0) + int(add_qty))
+                if description and not row.description:
+                    row.description = description
+                if from_party_item and not row.from_party_item_id:
+                    row.from_party_item = from_party_item
+                row.save(update_fields=["quantity", "description", "from_party_item"])
+            return row  # ← return the CharacterItem instance
+        # Get Weapon from catalog
+        if op == "get_weapon":
+            wid = (request.POST.get("weapon_id") or "").strip()
+            try:
+                Weapon = apps.get_model("characters", "Weapon")
+                w = Weapon.objects.get(pk=int(wid))
+            except Exception:
+                messages.error(request, "Invalid weapon.")
+                return redirect('characters:character_detail', pk=pk)
+            _upsert_ct_obj(("characters", "Weapon"), w.id, add_qty=qty)
+            messages.success(request, f"Added {qty} × {w.name} to inventory.")
+            return redirect('characters:character_detail', pk=pk)
+
+        # Get Armor from catalog
+        if op == "get_armor":
+            aid = (request.POST.get("armor_id") or "").strip()
+            try:
+                Armor = apps.get_model("characters", "Armor")
+                a = Armor.objects.get(pk=int(aid))
+            except Exception:
+                messages.error(request, "Invalid armor.")
+                return redirect('characters:character_detail', pk=pk)
+            _upsert_ct_obj(("characters", "Armor"), a.id, add_qty=qty)
+            messages.success(request, f"Added {qty} × {a.name} to inventory.")
+            return redirect('characters:character_detail', pk=pk)
+
+        # Manual free-text add (no catalog type)
+        if op == "add_item":
+            nm = (request.POST.get("item_name") or "").strip()
+            desc = (request.POST.get("item_desc") or "").strip()
+            if not nm:
+                messages.error(request, "Item name required.")
+                return redirect('characters:character_detail', pk=pk)
+            # For free-text, store as SpecialItem if you have one; otherwise, store as unknown text.
+            # Since you haven't provided SpecialItem here, we cannot persist a typed link — skip creation.
+            messages.error(request, "Free-text add requires a typed item model (e.g., SpecialItem). Please share that model.")
+            return redirect('characters:character_detail', pk=pk)
+
+        # Collect from Party Pool
+        if op == "collect_campaign_item":
+            pi_id = (request.POST.get("campaign_item_id") or "").strip()
+            if not pi_id.isdigit():
+                messages.error(request, "Invalid party item.")
+                return redirect('characters:character_detail', pk=pk)
+
+            PartyItem = apps.get_model("campaigns", "PartyItem")
+            try:
+                pi = PartyItem.objects.select_related("item_content_type").get(
+                    pk=int(pi_id),
+                    campaign=character.campaign,
+                    claimed_by_characters__isnull=True,  # still in pool
+                )
+            except PartyItem.DoesNotExist:
+                messages.error(request, "Party item not available.")
+                return redirect('characters:character_detail', pk=pk)
+
+            from django.db import transaction
+            try:
+                with transaction.atomic():
+                    # 1) add to character inventory and keep the CharacterItem row
+                    ci_row = _upsert_ct_obj(
+                        (pi.item_content_type.app_label, pi.item_content_type.model),
+                        int(pi.item_object_id),
+                        add_qty=(pi.quantity or 1),
+                        description=(pi.note or ""),
+                        from_party_item=pi,
+                    )
+
+                    # 2) mark as claimed with the correct target type (your M2M points to CharacterItem)
+                    m2m_field = pi._meta.get_field("claimed_by_characters")
+                    target_model = m2m_field.remote_field.model
+                    if isinstance(ci_row, target_model):
+                        pi.claimed_by_characters.add(ci_row)
+                    elif isinstance(character, target_model):
+                        pi.claimed_by_characters.add(character)
+                    else:
+                        # last-resort by pk
+                        pi.claimed_by_characters.add(ci_row.pk if target_model.__name__ == "CharacterItem" else character.pk)
+
+                    # 3) remove the PartyItem from the pool (delete the row)
+                    pi.delete()
+
+            except Exception:
+                messages.error(request, "Could not collect the party item.")
+                return redirect('characters:character_detail', pk=pk)
+
+            messages.success(request, "Collected item from party pool.")
+            return redirect('characters:character_detail', pk=pk)
+
+        # Remove a CharacterItem row (full remove; not decrement)
+        if op == "remove_item":
+            rid = (request.POST.get("inventory_item_id") or "").strip()
+            if rid.isdigit():
+                CharacterItem.objects.filter(pk=int(rid), character=character).delete()
+                messages.success(request, "Item removed.")
+            else:
+                messages.error(request, "Invalid item id.")
+            return redirect('characters:character_detail', pk=pk)
 
     manual_form = ManualGrantForm(request.POST or None) if can_edit else None
     # NEW: independent handler for “Manually Add Item”
@@ -5994,17 +6238,20 @@ def character_detail(request, pk):
         return half_lvl if not _is_untrained_name(r.get("tier_name")) else 0
     # Pull armor choices from the Armor model
     # ---- Effective proficiency for the EQUIPPED ARMOR (per-item/per-group) ----
+# ---- Effective proficiency for the EQUIPPED ARMOR (per-item/per-group) ----
+    Armor = apps.get_model("characters", "Armor")               # ← ensure model exists in this scope
+
     selected_armor = None
     try:
         equipped_id = overrides.get("equipped_armor_id")
-        # default to override value if set; fall back to 0
         armor_value = int(overrides.get("armor_value") or 0)
         if equipped_id:
             selected_armor = Armor.objects.get(pk=int(equipped_id))
-            armor_value = selected_armor.armor_value  # authoritative if an armor is selected
-    except (ValueError, Armor.DoesNotExist):
+            armor_value = selected_armor.armor_value
+    except Exception:
         armor_value = 0
         selected_armor = None
+
 
     armor_prof = {"bonus": 0, "is_proficient": False, "name": "Untrained"}
     if selected_armor:
@@ -6017,9 +6264,22 @@ def character_detail(request, pk):
     half_armor = half_lvl if armor_prof["is_proficient"] else 0
 
 
-    # Armor picker: list + currently selected (by override)
-    armor_list = list(Armor.objects.all().order_by('type','name').values('id','name','armor_value'))
-    # Use overrides to determine equipped armor/value BEFORE computing derived stats
+    CharacterItem = apps.get_model("characters", "CharacterItem")
+    Armor = apps.get_model("characters", "Armor")  # ← ensure defined here
+
+    try:
+        a_ct = ContentType.objects.get_for_model(Armor)
+        arm_ids = (CharacterItem.objects
+            .filter(character=character, item_content_type=a_ct, quantity__gt=0)
+            .values_list("item_object_id", flat=True))
+
+        armor_list = list(
+            Armor.objects.filter(id__in=arm_ids)
+            .order_by('type','name')
+            .values('id','name','armor_value')
+        )
+    except Exception:
+        armor_list = []
 
     str_mod = abil_mod("strength")
     dex_mod = abil_mod("dexterity")
@@ -6740,10 +7000,24 @@ def character_detail(request, pk):
     }]
 
 
-    # --- Equip pickers (Combat tab) ---
-    weapons_list = list(
-        Weapon.objects.all().order_by("name").values("id","name","damage","range_type")
-    )
+    CharacterItem = apps.get_model("characters", "CharacterItem")
+    Weapon = apps.get_model("characters", "Weapon")  # ← ensure defined here
+
+    try:
+        w_ct = ContentType.objects.get_for_model(Weapon)
+        wep_ids = (CharacterItem.objects
+            .filter(character=character, item_content_type=w_ct, quantity__gt=0)
+            .values_list("item_object_id", flat=True))
+
+        weapons_list = list(
+            Weapon.objects.filter(id__in=wep_ids)
+            .order_by("name")
+            .values("id","name","damage","range_type")
+        )
+    except Exception:
+        weapons_list = []
+
+
     # currently equipped (new 3-slot system)
 
 
@@ -6851,7 +7125,21 @@ def character_detail(request, pk):
             "spell_dc": (derived["spell_dcs"][0]["value"] if derived.get("spell_dcs") else None),
             "weapons": attacks_detailed,
         },
+        # 🔻 NEW: data the Combat tab’s pickers need
+        "pickers": {
+            "weapons": weapons_list,                   # [{id,name,damage,range_type}, ...] that this character OWNS
+            "armor":   armor_list,                     # [{id,name,armor_value}, ...] that this character OWNS
+            "equipped": {
+                "armor_id": (selected_armor.id if selected_armor else None),
+                "weapon_slots": {
+                    1: (by_slot.get(1).weapon.id if by_slot.get(1) else None),
+                    2: (by_slot.get(2).weapon.id if by_slot.get(2) else None),
+                    3: (by_slot.get(3).weapon.id if by_slot.get(3) else None),
+                },
+            },
+        },
     }
+
 
 
 
@@ -7417,7 +7705,23 @@ def character_detail(request, pk):
     'feature_fields':         feature_fields,
     'spellcasting_blocks': spellcasting_blocks,
     "skill_points_balance": skill_points_balance,
+    "combat_blocks": combat_blocks,
 
+    # 🔻 NEW: flat aliases for legacy JS/templates
+    "weapons_list": weapons_list,  # [{id,name,damage,range_type}, ...]
+    "armor_list":   armor_list,    # [{id,name,armor_value}, ...]
+
+    # currently equipped (for default selection in the UI)
+    "equipped_weapons": {
+        1: (equipped_main.weapon.id if equipped_main else None),
+        2: (equipped_alt.weapon.id  if equipped_alt  else None),
+        3: (by_slot.get(3).weapon.id if by_slot.get(3) else None),
+    },
+    "equipped_armor_id": (selected_armor.id if selected_armor else None),
+
+    # detailed lines you already build (Primary/Secondary/Tertiary)
+    "attacks_detailed": attacks_detailed,
+    "equipped_armor_id": (selected_armor.id if selected_armor else None),
     'subclass_feats_at_next': subclass_feats_at_next,
             'proficiency_rows':   proficiency_rows,   # (preview table you already had)
         'proficiency_summary': proficiency_summary,

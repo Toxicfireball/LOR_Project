@@ -31,6 +31,7 @@ urlpatterns = [
     path('characters/', include('characters.urls')),
     path("__reload__/", include("django_browser_reload.urls")),
     path('summernote/', include('django_summernote.urls')),
+        path("", include("glossary.urls")),
 ]
 
 

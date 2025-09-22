@@ -1,30 +1,12 @@
 // static/characters/js/formula_builder.js
 (function(){
-  // we’ll keep a simple token‐sanity regex, but the real check is a try/catch eval
-  const SANITY_RE = /^(\s*(?:[A-Za-z_]\w*|\d+d(?:4|6|8|10|12|20)|\d+|\+|\-|\*|\/|\(|\)|round\s+(?:up|down))\s*)+$/;
+  // allow optional digits before dN (so `d6` or `2d6`),
+  // and still allow variables, numbers, parens, operators, round up/down
+  const SANITY_RE = /^(\s*(?:[A-Za-z_]\w*|\d*d(?:4|6|8|10|12|20)|\d+|\+|\-|\*|\/|\(|\)|round\s+(?:up|down))\s*)+$/;
 
   document.addEventListener("DOMContentLoaded", () => {
     document.querySelectorAll(".formula-builder").forEach(initBuilder);
   });
-
-  // classfeature_admin.js
-document.addEventListener('DOMContentLoaded', function(){
-  const clsSelect = document.getElementById('id_character_class'),
-        codeInput = document.getElementById('id_code');
-  if (!clsSelect || !codeInput) return;
-
-  function updateCode(){
-    const sel = clsSelect.selectedOptions[0];
-    if (sel && sel.dataset.classId) {
-      codeInput.value = sel.dataset.classId;
-    }
-  }
-
-  clsSelect.addEventListener('change', updateCode);
-  // initialize on page‐load
-  updateCode();
-});
-
 
   function initBuilder(fb) {
     const pillBox = fb.querySelector(".fb-pills"),
@@ -34,11 +16,23 @@ document.addEventListener('DOMContentLoaded', function(){
           dice    = JSON.parse( ta.getAttribute("data-dice") );
 
     // build pill buttons…
-    pillBox.innerHTML = "";
-    vars.forEach(v => makePill("fb-var", v, v));
-    dice.forEach(d => makePill("fb-dice", d, "1"+d));
 
-    pillBox.addEventListener("click", pillClick);
+
+    // **NEW: wire up the variable dropdown if you rendered it in your widget**
+    const varDropdown = fb.querySelector(".fb-var-dropdown");
+    if (varDropdown) {
+      varDropdown.addEventListener("change", e => {
+        const tok = e.target.value;
+        if (vars.includes(tok)) {
+          const s  = ta.selectionStart,
+                e2 = ta.selectionEnd;
+          ta.value = ta.value.slice(0,s) + tok + ta.value.slice(e2);
+          ta.focus();
+          validate();
+        }
+        e.target.value = "";
+      });
+    }
     ta.addEventListener("input", validate);
     validate();  // initial
 
@@ -63,32 +57,20 @@ document.addEventListener('DOMContentLoaded', function(){
 
     function validate(){
       const raw = ta.value.trim();
-      if (!raw) {
-        hideError(); return;
-      }
-      // quick sanity check
-      if (!SANITY_RE.test(raw)) {
-        showError();
-        return;
-      }
-      // build a JS‐safe test expression:
+      if (!raw) { hideError(); return; }
+      if (!SANITY_RE.test(raw)) { showError(); return; }
+
       let expr = raw
-        // replace dice Ndx with a dummy constant `1`
-        .replace(/(\d+)d(4|6|8|10|12|20)/g, "1")
-        // swap round up/down → Math.ceil()/Math.floor()
+        // catch `(foo-3)d6`, `d6`, or `2d6`
+        .replace(/(?:\b\d+|\b[A-Za-z_]\w*|\([^)]*\))d(4|6|8|10|12|20)/g, "1")
         .replace(/\bround up\b/gi, "Math.ceil")
         .replace(/\bround down\b/gi, "Math.floor");
 
-      // replace every variable name with `1`
       vars.forEach(v => {
-        const re = new RegExp("\\b"+v+"\\b","g");
-        expr = expr.replace(re, "1");
+        expr = expr.replace(new RegExp("\\b"+v+"\\b","g"), "1");
       });
 
-      // now try to compile+run it
       try {
-        // Use the Function constructor instead of eval:
-        // wrap in parentheses so things like `(1+1)` parse
         Function(`"use strict"; return (${expr});`)();
         hideError();
       } catch(_) {

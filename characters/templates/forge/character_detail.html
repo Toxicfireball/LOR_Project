@@ -812,6 +812,36 @@ class="btn btn-sm btn-outline-secondary edit-override"
   </div>
 
   <div class="card-body">
+
+    <!-- Get Weapon -->
+    <form method="post" class="d-flex gap-2 align-items-center mb-2">
+      {% csrf_token %}
+      <input type="hidden" name="inventory_op" value="get_weapon">
+      <select name="weapon_id" class="form-select form-select-sm" required style="max-width:420px">
+        <option value="">— Select a weapon —</option>
+        {% for w in weapons_all %}
+          <option value="{{ w.id }}">{{ w.name }} ({{ w.damage }})</option>
+        {% endfor %}
+      </select>
+      <input name="item_qty" type="number" class="form-control form-control-sm" value="1" min="1" style="width:90px">
+      <button class="btn btn-sm btn-outline-primary">Get Weapon</button>
+    </form>
+
+    <!-- Get Armor -->
+    <form method="post" class="d-flex gap-2 align-items-center mb-3">
+      {% csrf_token %}
+      <input type="hidden" name="inventory_op" value="get_armor">
+      <select name="armor_id" class="form-select form-select-sm" required style="max-width:420px">
+        <option value="">— Select an armor —</option>
+        {% for a in armors_all %}
+          <option value="{{ a.id }}">{{ a.name }} (+{{ a.armor_value }})</option>
+        {% endfor %}
+      </select>
+      <input name="item_qty" type="number" class="form-control form-control-sm" value="1" min="1" style="width:90px">
+      <button class="btn btn-sm btn-outline-primary">Get Armor</button>
+    </form>
+
+    <!-- Manual free-text add (unchanged) -->
     <form method="post" class="d-flex gap-2 align-items-center mb-3">
       {% csrf_token %}
       <input type="hidden" name="inventory_op" value="add_item">
@@ -822,23 +852,42 @@ class="btn btn-sm btn-outline-secondary edit-override"
       <button class="btn btn-sm btn-primary">Add</button>
     </form>
 
+
     <div class="table-responsive">
-      <table class="table table-sm">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Description</th>
-            <th class="text-end" style="width:120px">Qty</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for it in character.inventory_items.all %}
-            <tr>
-              <td>{{ it.name|default:it.item }}</td>
-              <td class="text-muted">{{ it.description }}</td>
-              <td class="text-end">{{ it.quantity }}</td>
-            </tr>
-          {% empty %}
+<table class="table table-sm">
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Type</th>
+      <th>Rarity</th>
+      <th>Description</th>
+      <th class="text-end" style="width:120px">Qty</th>
+      <th class="text-end" style="width:100px">Action</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for it in inventory_items %}
+      <tr>
+        <td>
+          {{ it.name|default:it.item }}
+          {% if it.weapon %}<span class="badge text-bg-secondary ms-1">Weapon</span>{% endif %}
+          {% if it.armor %}<span class="badge text-bg-secondary ms-1">Armor</span>{% endif %}
+        </td>
+        <td class="text-muted">{{ it.kind|default:"—" }}</td>
+        <td class="text-muted">{{ it.rarity|default:"—" }}</td>
+        <td class="text-muted">{{ it.description }}</td>
+        <td class="text-end">{{ it.quantity }}</td>
+        <td class="text-end">
+          <form method="post" class="d-inline">
+            {% csrf_token %}
+            <input type="hidden" name="inventory_op" value="remove_item">
+            <input type="hidden" name="inventory_item_id" value="{{ it.id }}">
+            <button class="btn btn-sm btn-outline-danger">Remove</button>
+          </form>
+        </td>
+      </tr>
+    {% empty %}
+
             <tr><td colspan="3" class="text-muted">No items yet.</td></tr>
           {% endfor %}
         </tbody>

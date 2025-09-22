@@ -1,0 +1,3 @@
+/* characters/css/admin_extras.css */
+.field-modify_proficiency_target .selector { width: 720px; max-width: 100%; }
+.field-modify_proficiency_target .selector select { width: 320px; height: 280px; }
