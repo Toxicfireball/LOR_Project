@@ -887,94 +887,149 @@ class="btn btn-sm btn-outline-secondary edit-override"
 
 
         <!-- FEATS TAB -->
-        <div class="tab-pane fade" id="tab-feats">
-          <div class="row g-3">
-            <div class="col-md-6">
-              <div class="card h-100">
-                <div class="card-header fw-bold">General Feats</div>
-                <table class="table table-sm mb-0">
-                  <thead><tr><th style="width:70px">Level</th><th>Name</th></tr></thead>
-                  <tbody>
-                    {% for cf in general_feats %}
+<!-- FEATS TAB -->
+<div class="tab-pane fade" id="tab-feats">
+  <div class="row g-3">
+    <!-- General -->
+    <div class="col-md-4">
+      <div class="card h-100">
+        <div class="card-header fw-bold">General Feats</div>
+        <table class="table table-sm mb-0">
+          <thead><tr><th style="width:70px">Level</th><th>Name</th></tr></thead>
+          <tbody>
+            {% for cf in general_feats %}
             <tr>
               <td>Lv {{ cf.level }}</td>
               <td>
                 <div class="d-flex justify-content-between align-items-center">
                   <span>{{ cf.feat.name }} {% note_icon "cfeat:"|add:cf.id %}</span>
-                      <button class="btn btn-sm btn-link p-0 toggle-desc" type="button">Details</button>
-                      <div class="d-none desc-body mt-2">
-                        {% if cf.feat.description %}
-                          <div class="summernote-content mb-2">{{ cf.feat.description|safe }}</div>
-                        {% endif %}
-                        {% with row=cf %}
-                        <div class="table-responsive">
-                          <table class="table table-sm table-bordered mb-0">
-                            <tbody>
-                              {% for k,v in row.details %}
-                                <tr>
-                                  <th class="text-nowrap" style="width: 180px;">{{ k }}</th>
-                                  <td>{% if k == "Description" %}{{ v|safe }}{% else %}{{ v }}{% endif %}</td>
-                                </tr>
-                              {% endfor %}
-                            </tbody>
-                          </table>
-                        </div>
-                        {% endwith %}
-                      </div>
-
+                  <button class="btn btn-sm btn-link p-0 toggle-desc" type="button">Details</button>
+                </div>
+                <div class="d-none desc-body mt-2">
+                  {% if cf.feat.description %}
+                    <div class="summernote-content mb-2">{{ cf.feat.description|safe }}</div>
+                  {% endif %}
+                  {% with row=cf %}
+                  <div class="table-responsive">
+                    <table class="table table-sm table-bordered mb-0">
+                      <tbody>
+                        {% for k,v in row.details %}
+                          <tr>
+                            <th class="text-nowrap" style="width: 180px;">{{ k }}</th>
+                            <td>{% if k == "Description" %}{{ v|safe }}{% else %}{{ v }}{% endif %}</td>
+                          </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                  {% endwith %}
+                </div>
               </td>
             </tr>
-                    {% empty %}<tr><td colspan="2" class="text-muted">— None —</td></tr>{% endfor %}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-
-
-            <div class="col-md-6">
-              <div class="card h-100">
-                <div class="card-header fw-bold">Class Feats</div>
-                <table class="table table-sm mb-0">
-                  <thead><tr><th style="width:70px">Level</th><th>Name</th></tr></thead>
-                  <tbody>
-                    {% for cf in class_feats %}
-<tr>
-  <td>Lv {{ cf.level }}</td>
-  <td>
-    <div class="d-flex justify-content-between align-items-center">
-      <span>{{ cf.feat.name }} {% note_icon "cfeat:"|add:cf.id %}</span>
-      <button class="btn btn-sm btn-link p-0 toggle-desc" type="button">Details</button>
-    </div>
-    <div class="d-none desc-body mt-2">
-      {% if cf.feat.description %}
-        <div class="summernote-content mb-2">{{ cf.feat.description|safe }}</div>
-      {% endif %}
-      {% with row=cf %}
-      <div class="table-responsive">
-        <table class="table table-sm table-bordered mb-0">
-          <tbody>
-            {% for k,v in row.details %}
-              <tr>
-                <th class="text-nowrap" style="width: 180px;">{{ k }}</th>
-                <td>{% if k == "Description" %}{{ v|safe }}{% else %}{{ v }}{% endif %}</td>
-              </tr>
-            {% endfor %}
+            {% empty %}<tr><td colspan="2" class="text-muted">— None —</td></tr>{% endfor %}
           </tbody>
         </table>
       </div>
-      {% endwith %}
     </div>
-  </td>
-</tr>
 
-                    {% empty %}<tr><td colspan="2" class="text-muted">— None —</td></tr>{% endfor %}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
+    <!-- Class -->
+    <div class="col-md-4">
+      <div class="card h-100">
+        <div class="card-header fw-bold">Class Feats</div>
+        <table class="table table-sm mb-0">
+          <thead><tr><th style="width:70px">Level</th><th>Name</th></tr></thead>
+          <tbody>
+            {% for cf in class_feats %}
+            <tr>
+              <td>Lv {{ cf.level }}</td>
+              <td>
+                <div class="d-flex justify-content-between align-items-center">
+                  <span>{{ cf.feat.name }} {% note_icon "cfeat:"|add:cf.id %}</span>
+                  <button class="btn btn-sm btn-link p-0 toggle-desc" type="button">Details</button>
+                </div>
+                <div class="d-none desc-body mt-2">
+                  {% if cf.feat.description %}
+                    <div class="summernote-content mb-2">{{ cf.feat.description|safe }}</div>
+                  {% endif %}
+                  {% with row=cf %}
+                  <div class="table-responsive">
+                    <table class="table table-sm table-bordered mb-0">
+                      <tbody>
+                        {% for k,v in row.details %}
+                          <tr>
+                            <th class="text-nowrap" style="width: 180px;">{{ k }}</th>
+                            <td>{% if k == "Description" %}{{ v|safe }}{% else %}{{ v }}{% endif %}</td>
+                          </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                  {% endwith %}
+                </div>
+              </td>
+            </tr>
+            {% empty %}<tr><td colspan="2" class="text-muted">— None —</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Skill (NEW) -->
+    <div class="col-md-4">
+      <div class="card h-100">
+        <div class="card-header fw-bold">Skill Feats</div>
+        <table class="table table-sm mb-0">
+          <thead><tr><th style="width:70px">Level</th><th>Name</th></tr></thead>
+          <tbody>
+            {% for cf in skill_feats %}
+            <tr>
+              <td>Lv {{ cf.level }}</td>
+              <td>
+                <div class="d-flex justify-content-between align-items-center">
+                  <span>{{ cf.feat.name }} {% note_icon "cfeat:"|add:cf.id %}</span>
+                  <button class="btn btn-sm btn-link p-0 toggle-desc" type="button">Details</button>
+                </div>
+                <div class="d-none desc-body mt-2">
+                  {% if cf.feat.description %}
+                    <div class="summernote-content mb-2">{{ cf.feat.description|safe }}</div>
+                  {% endif %}
+{% with row=cf %}
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered mb-0">
+      <tbody>
+        {# If details is a dict, use .items; otherwise, assume list of (k, v) #}
+        {% if row.details.items %}
+          {% for k, v in row.details.items %}
+            <tr>
+              <th class="text-nowrap" style="width: 180px;">{{ k }}</th>
+              <td>{% if k == "Description" %}{{ v|safe }}{% else %}{{ v }}{% endif %}</td>
+            </tr>
+          {% endfor %}
+        {% else %}
+          {% for k, v in row.details %}
+            <tr>
+              <th class="text-nowrap" style="width: 180px;">{{ k }}</th>
+              <td>{% if k == "Description" %}{{ v|safe }}{% else %}{{ v }}{% endif %}</td>
+            </tr>
+          {% endfor %}
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+{% endwith %}
+
+
+                </div>
+              </td>
+            </tr>
+            {% empty %}<tr><td colspan="2" class="text-muted">— None —</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
 
 
 <script>

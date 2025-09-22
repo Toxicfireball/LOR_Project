@@ -5238,8 +5238,7 @@ def character_detail(request, pk):
             )
 
 
-    level_form.fields.pop('skill_feat', None)
-    level_form.fields.pop('skill_feat_pick', None)
+
 
     if _grants_class_feat_at and "class_feat_pick" not in level_form.fields:
         level_form.fields["class_feat_pick"] = forms.ModelChoiceField(
@@ -6615,9 +6614,14 @@ def character_detail(request, pk):
     )
     owned_feats = list(owned_feats_qs)
 
-    general_feats = [cf for cf in owned_feats if (cf.feat.feat_type or "").strip().lower() == "general"]
-    class_feats   = [cf for cf in owned_feats if (cf.feat.feat_type or "").strip().lower() == "class"]
-    other_feats   = [cf for cf in owned_feats if (cf.feat.feat_type or "").strip().lower() not in ("general","class")]
+    # Normalize feat_type safely
+    def _ft(cf):
+        return (getattr(cf.feat, "feat_type", "") or "").strip().lower()
+
+    general_feats = [cf for cf in owned_feats if _ft(cf) == "general"]
+    class_feats   = [cf for cf in owned_feats if _ft(cf) == "class"]
+    skill_feats   = [cf for cf in owned_feats if _ft(cf) == "skill"]            # ← NEW
+    other_feats   = [cf for cf in owned_feats if _ft(cf) not in ("general","class","skill")]  # ← updated
 
     feat_rows = [{
         "ctype":   ct_classfeat.id,
@@ -6857,6 +6861,7 @@ def character_detail(request, pk):
         "general": general_feats,
         "class":   class_feats,
         "other":   other_feats,
+            "skill":   skill_feats,   # ← add this
     }
 
     active_candidates  = list(
@@ -7430,6 +7435,7 @@ def character_detail(request, pk):
         'skill_prof_errors':  skill_prof_errors,
         'general_feats': general_feats,
 'class_feats':   class_feats,
+'skill_feats':   skill_feats,
 'other_feats':   other_feats,
 'owned_features': owned_features,
 'armor_list': armor_list,
@@ -7727,6 +7733,10 @@ def character_level_up(request, pk):
         preview_cls=posted_cls,              # ok to pass posted class here
         grants_class_feat=_grants_class_feat_at
     )
+    # Handle Level-Up submit (save picks)
+
+
+    # invalid form -> fall through so template can show errors
 
     # Conditional dynamic fields — COPY EXACTLY your logic:
     #   - add "class_feat_pick" when needed
@@ -8218,6 +8228,27 @@ def character_level_up(request, pk):
 
         except ClassLevel.DoesNotExist:
             auto_feats_post = []
+        picks = level_form.cleaned_data.get("skill_feat_pick")
+        chosen = []
+        if picks is None:
+            chosen = []
+        elif hasattr(picks, "all"):            # multiple
+            chosen = list(picks.all())
+        else:                                   # single
+            chosen = [picks]
+
+        # write CharacterFeat rows at the NEW level you’re granting
+        new_level = character.level + 1  # adjust if you bump level earlier/later in this function
+
+        for feat in chosen:
+            # guard: only Skill feats
+            if ((feat.feat_type or "").strip().lower() != "skill"):
+                continue
+            CharacterFeat.objects.get_or_create(
+                character=character,
+                feat=feat,
+                defaults={"level": new_level}
+            )
 
         for feat in auto_feats_post:
             CharacterFeature.objects.create(
@@ -8449,36 +8480,38 @@ def character_level_up(request, pk):
             .first()
         )
 
-        if skill_grant_post and "skill_feat_pick" in level_form.cleaned_data:
-            chosen = level_form.cleaned_data["skill_feat_pick"]
+        # 2) Skill Feat(s) – honor ClassSkillFeatGrant at this new class level
+        skill_grant_post = (
+            ClassSkillFeatGrant.objects
+            .filter(character_class=picked_cls, at_level=cls_level_after_post)
+            .first()
+        )
 
-            # Normalize to a list
-            if chosen is None:
-                chosen_list = []
-            elif hasattr(chosen, "__iter__") and not isinstance(chosen, (str, bytes)):
-                chosen_list = list(chosen)
-            else:
-                chosen_list = [chosen]
+        # Collect from cleaned_data OR raw POST (so we never miss the picks)
+        chosen = level_form.cleaned_data.get("skill_feat_pick")
+        if chosen is None:
+            raw_ids = (request.POST.getlist("skill_feat_pick")
+                    or request.POST.getlist("skill_feat_pick[]")
+                    or request.POST.getlist("pick[]"))
+            raw_ids = [x.split("|", 1)[0] for x in raw_ids if x]
+            chosen_list = list(ClassFeat.objects.filter(pk__in=raw_ids, feat_type__iexact="Skill"))
+        else:
+            chosen_list = list(chosen) if hasattr(chosen, "__iter__") and not isinstance(chosen, (str, bytes)) else [chosen]
 
-            # Enforce exact count if num_picks > 0
-            need = int(skill_grant_post.num_picks or 0)
-            if need > 0 and len(chosen_list) != need:
-                messages.error(
-                    request,
-                    f"You must pick exactly {need} Skill Feat{'s' if need != 1 else ''}."
-                )
-                return redirect('characters:character_detail', pk=pk)
+        need = int(getattr(skill_grant_post, "num_picks", 0) or 0)
+        if need > 0 and len(chosen_list) != need:
+            messages.error(request, f"You must pick exactly {need} Skill Feat{'s' if need != 1 else ''}.")
+            return redirect('characters:character_detail', pk=pk)
 
-            # Persist the selected skill feats
-            for sf in chosen_list:
-                # Safety: only allow feats typed "Skill" (should already be enforced by queryset)
-                if (sf.feat_type or "").strip().lower() != "skill":
-                    continue
-                CharacterFeat.objects.create(
-                    character=character,
-                    feat=sf,
-                    level=next_level
-                )
+        for sf in chosen_list:
+            if (getattr(sf, "feat_type", "") or "").strip().lower() != "skill":
+                continue
+            CharacterFeat.objects.get_or_create(
+                character=character,
+                feat=sf,
+                defaults={"level": next_level}   # ✅ correct level
+            )
+
 
 
         # G) martial_mastery
