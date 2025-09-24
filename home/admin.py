@@ -1742,7 +1742,7 @@ class ClassFeatureAdmin(admin.ModelAdmin):
                 "armor_item_choice",  "weapon_item_choice",
                 "prof_change_mode",                 # (progress | set)
                 "gain_proficiency_amount",          # used when progress
-                "modify_proficiency_amount",        # ← NEW: used when set/override
+             
             ]}),
 
 
