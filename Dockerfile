@@ -21,7 +21,7 @@ RUN npx tailwindcss \
       --minify
 
 # ── Stage 2: Build Django app ───────────────────────────────────────────────
-FROM python:3.12-alpine3.20
+FROM python:3.12.7-alpine3.20
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
