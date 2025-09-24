@@ -1,5 +1,5 @@
 # ── Stage 1: Build Tailwind CSS ─────────────────────────────────────────────
-FROM node:20-alpine AS tailwind-builder
+FROM public.ecr.aws/docker/library/node:20-alpine AS tailwind-builder
 
 WORKDIR /app/theme/static_src
 
@@ -21,7 +21,9 @@ RUN npx tailwindcss \
       --minify
 
 # ── Stage 2: Build Django app ───────────────────────────────────────────────
-FROM python:3.12.7-alpine3.20
+
+FROM public.ecr.aws/docker/library/python:3.12.7-alpine3.20
+
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
