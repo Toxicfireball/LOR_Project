@@ -6346,6 +6346,12 @@ def character_detail(request, pk):
     if selected_armor and selected_armor.dex_cap is not None:
         dex_for_dodge = min(dex_mod, int(selected_armor.dex_cap))
 
+    # NEW: label to reflect cap in the Defense table row
+    dex_label = "Dexterity"
+    if selected_armor and selected_armor.dex_cap is not None and dex_mod > int(selected_armor.dex_cap):
+        dex_label = "Dexterity (capped)"
+
+
     derived = {
         "half_level":      half_lvl,
         "armor_total":     int(overrides.get("armor_value") or 0) + armor_prof["bonus"] + half_armor,        
@@ -6447,7 +6453,8 @@ def character_detail(request, pk):
         })
 
 
-    add_row("dodge",  "Dexterity", dex_mod, label="Dodge", base_const=10)   # ← 10 + DEX + prof + ½ level
+    add_row("dodge", dex_label, dex_for_dodge, label="Dodge", base_const=10)
+  # ← 10 + DEX + prof + ½ level
     add_row("reflex", "Dexterity", dex_mod, label="Reflex")
     add_row("fortitude","Constitution", con_mod, label="Fortitude")
     add_row("will",   "Wisdom",   wis_mod, label="Will")

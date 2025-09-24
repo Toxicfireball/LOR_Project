@@ -621,6 +621,7 @@ function resetBackgroundUI() {
 
   // also reset any boosts (keeps “Add in Order” contract intact)
   window.resetBoosts();
+syncBgOptions();
 
   // re-render counters/table
   updateDisplay();
@@ -1004,46 +1005,140 @@ function bindRaceOptionControls(container) {
     });
   });
 }
+function updateBackgroundSkillProficienciesFromChoices(){
+  bgSkillProficiencies = {}; // reset
 
-    function updateBackgroundModifiers(){
-      resetBGState();
-const main = backgroundsData.find(b=>b.code===mainBgSelect.value);      const combo = document.querySelector('input[name="bg_combo"]:checked').value;
-      if(main){
-        // always primary
-        addAbilityBonus(main.primary.ability,main.primary.bonus);
-        addSkill(main.primary.skill);
-        if(combo==="0"){
-          // main-only gets secondary too
-          addAbilityBonus(main.secondary.ability,main.secondary.bonus);
-          addSkill(main.secondary.skill);
-        } else if(combo==="1" && side1Select.value){
-const side = backgroundsData.find(b=>b.code===side1Select.value);          addAbilityBonus(side[side1AbilitySelect.value].ability,1);
-          addSkill(side[side1SkillSelect.value].skill);
-        } else if(combo==="2"){
-          const which = Array.from(whichSideRadios).find(r=>r.checked).value;
-          // which=1: side1 ability, side2 skill; which=2: side2 ability, side1 skill
-          const abilEl = which==="1" ? side1Select : side2Select;
-          const abilChoice = (abilEl===side1Select?side1AbilitySelect:side2AbilitySelect).value;
-          if(abilEl.value){
-const s = backgroundsData.find(b=>b.code===abilEl.value);            addAbilityBonus(s[abilChoice].ability,1);
-          }
-          const skillEl = which==="1"? side2Select : side1Select;
-          const skillChoice = (skillEl===side1Select?side1SkillSelect:side2SkillSelect).value;
-          if(skillEl.value){
-const s = backgroundsData.find(b=>b.code===skillEl.value);            addSkill(s[skillChoice].skill);
-          }
-        }
+  const combo = document.querySelector('input[name="bg_combo"]:checked').value;
+  const main  = backgroundsData.find(b => b.code === mainBgSelect.value) || null;
+  const s1    = backgroundsData.find(b => b.code === side1Select.value) || null;
+  const s2    = backgroundsData.find(b => b.code === side2Select.value) || null;
+
+  function addSkillSafe(sk){
+    if (!sk) return;
+    if (Object.keys(bgSkillProficiencies).length >= 2) return;
+    addSkill(sk);
+  }
+
+  if (main) {
+    addSkillSafe(main.primary?.skill);
+    if (combo === "0") {
+      addSkillSafe(main.secondary?.skill);
+    } else if (combo === "1" && s1) {
+      const chosen = (side1SkillSelect.value === "secondary" ? s1.secondary?.skill : s1.primary?.skill);
+      addSkillSafe(chosen);
+    } else if (combo === "2" && (s1 || s2)) {
+      const which = Array.from(whichSideRadios).find(r => r.checked)?.value || "1";
+      if (which === "1" && s2) {
+        const chosen = (side2SkillSelect.value === "secondary" ? s2.secondary?.skill : s2.primary?.skill);
+        addSkillSafe(chosen);
+      } else if (which === "2" && s1) {
+        const chosen = (side1SkillSelect.value === "secondary" ? s1.secondary?.skill : s1.primary?.skill);
+        addSkillSafe(chosen);
       }
-      Object.assign(backgroundModifiers,bgAbilityBonuses);
-      updateBackgroundSummary();
     }
+  }
+}
 
-    function updateBackgroundSummary(){
-      let sum=0;
-      stats.forEach(s=>sum+=backgroundModifiers[s]);
-      bgTotalEl.textContent = sum;
-      updateBackgroundSkillProficiencies();
+function updateBackgroundModifiers(){
+  resetBGState();
+
+  const combo = document.querySelector('input[name="bg_combo"]:checked').value;
+  const main  = backgroundsData.find(b => b.code === mainBgSelect.value) || null;
+  const s1    = backgroundsData.find(b => b.code === side1Select.value) || null;
+  const s2    = backgroundsData.find(b => b.code === side2Select.value) || null;
+
+  // try to add +1 to ability (cap +2 per ability); fallback to main secondary if blocked
+  function tryAddTick(ability){
+    if (!ability) return false;
+    if ((bgAbilityBonuses[ability] || 0) >= 2) {
+      const fallback = main?.secondary?.ability;
+      if (fallback && fallback !== ability && (bgAbilityBonuses[fallback] || 0) < 2) {
+        addAbilityBonus(fallback, 1);
+        return true;
+      }
+      return false;
     }
+    addAbilityBonus(ability, 1);
+    return true;
+  }
+
+  // Build intent list (order = priority). We will stop at +3 total.
+  const intents = [];
+  if (main) {
+    const mpN = Math.max(0, Number(main.primary?.bonus || 0));
+    const mpA = main.primary?.ability || null;
+    for (let i = 0; i < mpN; i++) intents.push({ ability: mpA });
+
+    if (combo === "0") {
+      const msN = Math.max(0, Number(main.secondary?.bonus || 0));
+      const msA = main.secondary?.ability || null;
+      for (let i = 0; i < msN; i++) intents.push({ ability: msA });
+    } else if (combo === "1" && s1) {
+      const a = (side1AbilitySelect.value === "secondary" ? s1.secondary?.ability : s1.primary?.ability) || null;
+      intents.push({ ability: a });
+    } else if (combo === "2") {
+      const which = Array.from(whichSideRadios).find(r => r.checked)?.value || "1";
+      if (which === "1" && s1) {
+        const a = (side1AbilitySelect.value === "secondary" ? s1.secondary?.ability : s1.primary?.ability) || null;
+        intents.push({ ability: a });
+      } else if (which === "2" && s2) {
+        const a = (side2AbilitySelect.value === "secondary" ? s2.secondary?.ability : s2.primary?.ability) || null;
+        intents.push({ ability: a });
+      }
+    }
+  }
+
+  // Consume intents with caps: total +3; per ability +2
+  let total = 0;
+  for (const intent of intents) {
+    if (total >= 3) break;
+    if (intent.ability && tryAddTick(intent.ability)) {
+      total += 1;
+    }
+  }
+
+  // Write into official modifiers
+  Object.assign(backgroundModifiers, bgAbilityBonuses);
+
+  updateBackgroundSkillProficienciesFromChoices();
+  updateBackgroundSummary();
+}
+function syncBgOptions(){
+  const chosen = new Set([mainBgSelect.value, side1Select.value, side2Select.value].filter(Boolean));
+
+  [mainBgSelect, side1Select, side2Select].forEach(sel => {
+    Array.from(sel.options).forEach(opt => {
+      if (!opt.value) { opt.disabled = false; return; }
+      const pickedElsewhere = chosen.has(opt.value) && sel.value !== opt.value;
+      opt.disabled = pickedElsewhere;
+    });
+    if (sel.value && sel.selectedOptions[0]?.disabled) {
+      sel.value = "";
+    }
+  });
+}
+
+function wireBgUniquenessGuards(){
+  [mainBgSelect, side1Select, side2Select].forEach(sel=>{
+    if (sel && sel.addEventListener){
+      sel.addEventListener('change', () => {
+        syncBgOptions();
+        window.resetBoosts();    // keep your flow consistent
+        updateDisplay();         // recalc with caps
+      });
+    }
+  });
+}
+
+
+function updateBackgroundSummary(){
+  let sum = 0;
+  stats.forEach(s => sum += (backgroundModifiers[s] || 0));
+  if (sum > 3) sum = 3; // visual guard
+  bgTotalEl.textContent = sum;
+  updateBackgroundSkillProficiencies();
+}
+
 
     function updateBackgroundSkillProficiencies(){
       let html="";
@@ -1229,13 +1324,16 @@ const s = backgroundsData.find(b=>b.code===skillEl.value);            addSkill(s
     window.adjustStat    = adjustStat;
     window.applyBoost    = applyBoost;
     window.resetBoosts   = () => { stats.forEach(s=>{boostModifiers[s]=0;boostedStats[s]=false;}); boostsRemaining=5; highBoostUsed=false; updateDisplay(); };
-    window.resetCharacter= initializeCharacter;
+  
 
     //
     // Wire up events
     //
     populateRaceDropdown();
     populateBackgroundDropdowns();
+    syncBgOptions();
+wireBgUniquenessGuards();
+
     initializeCharacter();
 
     // race → subrace + ASI slots + half-elf

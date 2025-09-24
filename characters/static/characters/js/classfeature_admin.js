@@ -63,6 +63,7 @@
       gainResMode:    row("gain_resistance_mode"),
       gainResTypes:   row("gain_resistance_types"),
       gainResAmt:     row("gain_resistance_amount"),
+      gainProfAmt:    row("gain_proficiency_amount"),
     };
 
     function toggleAll() {
@@ -172,25 +173,60 @@ if (["subclass_feat", "subclass_choice", "gain_subclass_feat"].indexOf(scopeNorm
       }
 
       // Generic Gain/Modify Proficiency
-      if (kindVal === "modify_proficiency") {
-        show(rows.gmpMode,    true);
-        show(rows.profTarget, true);
-        const gm = currentGmpMode();
-        show(rows.profAmount, gm === "set");
-      }
+// Generic Gain/Modify Proficiency
+if (kindVal === "modify_proficiency") {
+  show(rows.gmpMode,    true);
+  show(rows.profTarget, true);
+  const gm = currentGmpMode();
+  // Generic uses the shared override select
+  show(rows.profAmount, gm === "set");           // Trained/Expert/Master/Legendary
+}
+
+// Core Proficiency section (only when kind is core_proficiency)
+if (kindVal === "core_proficiency") {
+  var coreMode = (function () {
+    var r = document.querySelector('input[name="prof_change_mode"]:checked');
+    return r ? r.value : "";
+  })();
+  // progress → show the *core* grant amount row, hide the shared override
+  show(rows.gainProfAmt, coreMode === "progress");
+  // set/override → use the shared override row, hide the core grant amount
+  show(rows.profAmount,  coreMode === "set");
+} else {
+  // When not in core mode, never let the core grant amount hang around
+  show(rows.gainProfAmt, false);
+}
+
 
       // Core Proficiency section (only when kind is core_proficiency)
-      const coreIds = [
-        "id_prof_target_kind",
-        "id_armor_group_choice","id_weapon_group_choice",
-        "id_armor_item_choice","id_weapon_item_choice",
-        "id_gain_proficiency_amount","id_modify_proficiency_amount",
-      ];
-      coreIds.forEach(id => {
-        const el = document.getElementById(id);
-        const r  = el && (el.closest(".form-row") || el.closest("div.fieldBox"));
-        if (r) r.style.display = (kindVal === "core_proficiency" ? "" : "none");
-      });
+// Core Proficiency section (only when kind is core_proficiency)
+// Core Proficiency section (only when kind is core_proficiency)
+// (Do NOT include 'id_modify_proficiency_amount' here — it is shared with the generic section)
+const coreIds = [
+  "id_prof_target_kind",
+  "id_armor_group_choice","id_weapon_group_choice",
+  "id_armor_item_choice","id_weapon_item_choice",
+  "id_gain_proficiency_amount",
+];
+coreIds.forEach(id => {
+  const el = document.getElementById(id);
+  const r  = el && (el.closest(".form-row") || el.closest("div.fieldBox"));
+  if (r) r.style.display = (kindVal === "core_proficiency" ? "" : "none");
+});
+
+
+// ← NEW: pick which amount row shows based on core mode
+if (kindVal === "core_proficiency") {
+  var coreMode = (function () {
+    var r = document.querySelector('input[name="prof_change_mode"]:checked');
+    return r ? r.value : "";
+  })();
+  // progress → show gain amount, hide override amount
+  show(rows.gainProfAmt, coreMode === "progress");
+  // set/override → show override amount, hide gain amount
+  show(rows.profAmount,  coreMode === "set");
+}
+
 
       // Spell systems
       if (kindVal === "inherent_spell" && inherentInline) {
@@ -215,13 +251,19 @@ if (["subclass_feat", "subclass_choice", "gain_subclass_feat"].indexOf(scopeNorm
     }
 
     // Listeners
-    [scopeEl, kindEl, activityEl, optsEl].forEach(el => el && el.addEventListener("change", toggleAll));
-    const saveReqEl  = document.getElementById("id_saving_throw_required");
-    const saveGranEl = document.getElementById("id_saving_throw_granularity");
-    if (saveReqEl)  saveReqEl.addEventListener("change", toggleAll);
-    if (saveGranEl) saveGranEl.addEventListener("change", toggleAll);
-    const resModeEl = document.getElementById("id_gain_resistance_mode");
-    if (resModeEl) resModeEl.addEventListener("change", toggleAll);
+[scopeEl, kindEl, activityEl, optsEl].forEach(el => el && el.addEventListener("change", toggleAll));
+const saveReqEl  = document.getElementById("id_saving_throw_required");
+const saveGranEl = document.getElementById("id_saving_throw_granularity");
+if (saveReqEl)  saveReqEl.addEventListener("change", toggleAll);
+if (saveGranEl) saveGranEl.addEventListener("change", toggleAll);
+const resModeEl = document.getElementById("id_gain_resistance_mode");
+if (resModeEl) resModeEl.addEventListener("change", toggleAll);
+document.querySelectorAll('input[name="gmp_mode"]').forEach(function (el) {
+  el.addEventListener('change', toggleAll);
+});
+document.querySelectorAll('input[name="prof_change_mode"]').forEach(function (el) {
+  el.addEventListener('change', toggleAll);
+});
 
 // Attach listeners
 if (grpSelect) {
