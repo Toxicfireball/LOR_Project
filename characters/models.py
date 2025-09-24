@@ -1865,6 +1865,16 @@ class MartialMastery(models.Model):
         blank=True,
         help_text="List of allowed damage types. Uses Weapon.DAMAGE_CHOICES values (e.g. 'bludgeoning')."
     )
+    # Restrict by weapon groups (values from WEAPON_GROUPS: 'unarmed','simple','martial','special','black_powder')
+    restrict_to_weapon_groups = models.BooleanField(
+        default=False,
+        help_text="If checked, this mastery only applies to selected weapon groups."
+    )
+    allowed_weapon_groups = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of allowed weapon groups (e.g. ['simple','martial']). Uses WEAPON_GROUPS values."
+    )
 
     # NEW: picklists (only used when the toggles above are true)
     allowed_weapons = models.ManyToManyField(
@@ -1887,19 +1897,40 @@ class MartialMastery(models.Model):
     def applies_to_weapon(self, weapon) -> bool:
         """
         Returns True if this mastery can be used with the given Weapon.
+        Enforces all enabled restriction toggles consistently.
         """
+        # Specific weapons
         if self.restrict_to_weapons and not self.allowed_weapons.filter(pk=weapon.pk).exists():
             return False
 
+        # Weapon traits (ANY/ALL support optional; current behavior = ANY)
         if self.restrict_to_traits:
-            wanted = self.allowed_traits.values_list('pk', flat=True)
-            if not WeaponTraitValue.objects.filter(weapon=weapon, trait_id__in=wanted).exists():
+            wanted = list(self.allowed_traits.values_list('pk', flat=True))
+            if not wanted:
+                return False
+            # If you later want to honor self.trait_match_mode == 'all', add an ALL check here.
+            has_any = WeaponTraitValue.objects.filter(weapon=weapon, trait_id__in=wanted).exists()
+            if not has_any:
                 return False
 
-        if getattr(self, "restrict_to_damage", False):
+        # Damage types (ANY overlap)
+        if self.restrict_to_damage:
             allowed = set(self.allowed_damage_types or [])
             weap_types = set(weapon.damage_types or [])
             if not (allowed and weap_types and (allowed & weap_types)):
+                return False
+
+        # Weapon group restriction
+        if self.restrict_to_weapon_groups:
+            groups = set(self.allowed_weapon_groups or [])
+            # assumes Weapon.category stores values like 'simple','martial','special','black_powder','unarmed'
+            if not groups or weapon.category not in groups:
+                return False
+
+        # Range restriction (since the model has these fields)
+        if self.restrict_to_range:
+            ranges = set(self.allowed_range_types or [])
+            if not ranges or weapon.range_type not in ranges:
                 return False
 
         return True

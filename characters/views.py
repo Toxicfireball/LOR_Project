@@ -4425,7 +4425,30 @@ def _safe_order_by(qs):
 
     return qs  # last resort: leave unordered
 
+def _resolve_background(label_or_code: str | None) -> str:
+    """
+    Accepts what's stored on Character.main_background / side_background_*.
+    Tries to resolve to a Background by code first, then by name.
+    Falls back to the raw value or '—'.
+    """
+    if not label_or_code:
+        return "—"
+    s = str(label_or_code).strip()
+    if not s:
+        return "—"
 
+    # try code (slug-ish)
+    bg = Background.objects.filter(code__iexact=s).first()
+    if bg:
+        return bg.name
+
+    # try name
+    bg = Background.objects.filter(name__iexact=s).first()
+    if bg:
+        return bg.name
+
+    # show as-is (you store free text)
+    return s
 
 @login_required
 def character_detail(request, pk):
@@ -7678,6 +7701,12 @@ def character_detail(request, pk):
             messages.success(request, "Item claimed from party inventory.")
             return redirect("characters:character_detail", pk=character.pk)
     # ── 6) RENDER character_detail.html ───────────────────────────────────
+
+    backgrounds = {
+        "main":  _resolve_background(character.main_background),
+        "side1": _resolve_background(character.side_background_1),
+        "side2": _resolve_background(character.side_background_2),
+    }
     return render(request, 'forge/character_detail.html', {
         "spell_table_by_rank": rows_by_rank,
         "show_starting_skill_picker": show_starting_skill_picker,
@@ -7729,7 +7758,6 @@ def character_detail(request, pk):
         'manual_form': manual_form,
         "starting_skill_flat": starting_skill_flat,
          **_inventory_context(character),
-
         'manual_grants': character.manual_grants.select_related('content_type').all(),
             'field_overrides': field_overrides,
             'field_notes': field_notes,
@@ -7770,7 +7798,7 @@ def character_detail(request, pk):
     "armor_list": armor_list,
     "selected_armor": selected_armor,
     "spell_rank_blocks": spell_rank_blocks,
-
+ "backgrounds": backgrounds,
 "show_martial_mastery_tab": mm_ctx["show_martial_mastery_tab"],
 "martial_mastery_ctx": mm_ctx["martial_mastery_ctx"],
 "martial_mastery_known": mm_ctx["martial_mastery_known"],

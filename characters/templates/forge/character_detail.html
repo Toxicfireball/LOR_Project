@@ -101,7 +101,16 @@
           <div><strong>Race:</strong> {{ character.race|default:"—" }}</div>
           <div><strong>Subrace:</strong> {{ subrace_name|default:"—" }}</div>
           <div><strong>Level:</strong> {{ total_level }}</div>
-          <div><strong>Campaign:</strong> {{ character.campaign|default:"—" }}</div>
+  <div class="mt-1">
+    <strong>Background:</strong>
+    {% if backgrounds.main and backgrounds.main != "—" %}
+      {{ backgrounds.main }}
+      {% if backgrounds.side1 and backgrounds.side1 != "—" %} · {{ backgrounds.side1 }}{% endif %}
+      {% if backgrounds.side2 and backgrounds.side2 != "—" %} · {{ backgrounds.side2 }}{% endif %}
+    {% else %}
+      —
+    {% endif %}
+  </div>          <div><strong>Campaign:</strong> {{ character.campaign|default:"—" }}</div>
           <div class="mt-2"><strong>Classes:</strong>
             <ul class="mb-0">
               {% for cp in class_progress %}

@@ -727,7 +727,22 @@ class MartialMasteryForm(forms.ModelForm):
         required=False,
         widget=forms.CheckboxSelectMultiple,
         help_text="Shown only if ‘Range restriction’ is enabled."
-    )    
+    )   
+
+    # ---- NEW: Weapon group restriction (simple / martial / special / black powder)
+    restrict_to_weapon_groups = forms.BooleanField(
+        required=False,
+        label="Weapon group restriction",
+        help_text="When checked, limit to selected weapon groups below."
+    )
+    allowed_weapon_groups = forms.MultipleChoiceField(
+        label="Allowed weapon groups",
+        choices=WEAPON_GROUPS,
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        help_text="Shown only if ‘Weapon group restriction’ is enabled."
+    )
+
     trait_match_mode = forms.ChoiceField(
         choices=[("any", "ANY of the selected traits (OR)"),
                  ("all", "ALL selected traits (AND)")],
@@ -779,6 +794,9 @@ class MartialMasteryForm(forms.ModelForm):
             self.add_error("classes", "Select at least one class or uncheck ‘Class restriction’.")
         if cleaned.get("restrict_to_range") and not cleaned.get("allowed_range_types"):
             self.add_error("allowed_range_types", "Select at least one range type or uncheck ‘Range restriction’.")
+        if cleaned.get("restrict_to_weapon_groups") and not cleaned.get("allowed_weapon_groups"):
+            self.add_error("allowed_weapon_groups",
+                           "Select at least one weapon group or uncheck ‘Weapon group restriction’.")
 
         if cleaned.get("restrict_by_ability"):
             if not cleaned.get("required_ability"):
@@ -844,13 +862,17 @@ class MartialMasteryAdmin(SummernoteModelAdmin):
             "fields": (
                 "restrict_to_weapons", "allowed_weapons",
                 "restrict_to_damage",  "allowed_damage_types",
-                # NEW — range restriction
+
+                # NEW — weapon group restriction
+                "restrict_to_weapon_groups", "allowed_weapon_groups",
+
                 "restrict_to_range",   "allowed_range_types",
                 "restrict_to_traits",  "allowed_traits", "trait_match_mode",
                 "restrict_by_ability", "required_ability", "required_ability_score",
-                "all_classes",  # hidden by form; kept here so admin saves it
+                "all_classes",
             ),
         }),
+
 
     ]
 
@@ -861,6 +883,12 @@ class MartialMasteryAdmin(SummernoteModelAdmin):
         if getattr(obj, "restrict_to_damage", False):
             parts.append(f"Damage({len(obj.allowed_damage_types or [])})")
         # NEW — range summary
+
+
+        if getattr(obj, "restrict_to_weapon_groups", False):
+            chosen = ", ".join(dict(WEAPON_GROUPS).get(v, v) for v in (obj.allowed_weapon_groups or [])) or "—"
+            parts.append(f"Groups({chosen})")
+  
         if getattr(obj, "restrict_to_range", False):
             labels = dict(getattr(Weapon, "RANGE_CHOICES", []) or Weapon._meta.get_field("range_type").choices)
             chosen = ", ".join(labels.get(v, v) for v in (obj.allowed_range_types or [])) or "—"
@@ -1331,9 +1359,8 @@ class ClassFeatureForm( ProficiencyTargetUIMixin,forms.ModelForm):
             elif mode_core == "set":
                 if target_tokens:
                     self.cleaned_data["modify_proficiency_target"] = ",".join(target_tokens)
-                    # remove the requirement for a tier:
-                    # if not self.cleaned_data.get("modify_proficiency_amount"):
-                    #     self.add_error("modify_proficiency_amount", "Pick a proficiency tier to set/override.")
+                    if not self.cleaned_data.get("modify_proficiency_amount"):
+                        self.add_error("modify_proficiency_amount", "Pick the proficiency tier to override to.")
                 else:
                     self.cleaned_data["modify_proficiency_target"] = ""
 
@@ -1713,9 +1740,11 @@ class ClassFeatureAdmin(admin.ModelAdmin):
                 "prof_target_kind",
                 "armor_group_choice", "weapon_group_choice",
                 "armor_item_choice",  "weapon_item_choice",
-                "prof_change_mode",              # (progress | set)
-                "gain_proficiency_amount",       # visible when progress
+                "prof_change_mode",                 # (progress | set)
+                "gain_proficiency_amount",          # used when progress
+                "modify_proficiency_amount",        # ← NEW: used when set/override
             ]}),
+
 
             ("Martial Mastery (optional)", {
                 "fields": ["martial_points_formula","available_masteries_formula"]
