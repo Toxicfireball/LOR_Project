@@ -261,7 +261,7 @@ if (resModeEl) resModeEl.addEventListener("change", toggleAll);
 document.querySelectorAll('input[name="gmp_mode"]').forEach(function (el) {
   el.addEventListener('change', toggleAll);
 });
-paint
+
 (function fixInitialGMPRadio() {
   const checked = document.querySelector('input[name="gmp_mode"]:checked');
   if (!checked) {
