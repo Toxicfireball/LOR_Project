@@ -261,6 +261,17 @@ if (resModeEl) resModeEl.addEventListener("change", toggleAll);
 document.querySelectorAll('input[name="gmp_mode"]').forEach(function (el) {
   el.addEventListener('change', toggleAll);
 });
+paint
+(function fixInitialGMPRadio() {
+  const checked = document.querySelector('input[name="gmp_mode"]:checked');
+  if (!checked) {
+    // default to "set" so authors can see the tier picker immediately
+    const setter = document.querySelector('input[name="gmp_mode"][value="set"]');
+    if (setter) setter.checked = true;
+  }
+})();
+
+
 document.querySelectorAll('input[name="prof_change_mode"]').forEach(function (el) {
   el.addEventListener('change', toggleAll);
 });
