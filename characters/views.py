@@ -4657,24 +4657,23 @@ def character_detail(request, pk):
         except ValueError:
             return None
 
-    def _log_skill_point_tx(character, delta_int: int, note: str):
-        """
-        Robustly create a CharacterSkillPointTx row even if the model uses
-        different field names (amount/delta/points, reason/note).
-        """
-        tx = CharacterSkillPointTx(character=character)
-        # amount field variants
-        if hasattr(tx, "amount"):
-            tx.amount = int(delta_int)
-        elif hasattr(tx, "delta"):
-            tx.delta = int(delta_int)
-        elif hasattr(tx, "points"):
-            tx.points = int(delta_int)
-        # note field variants
-        if hasattr(tx, "reason"):
-            tx.reason = note
-        elif hasattr(tx, "note"):
-            tx.note = note
+    def _log_skill_point_tx(
+        character,
+        delta_int: int,
+        note: str,
+        *,
+        source: str,                # "refund" | "spend" | "level_award" | "admin"
+        at_level: int = None,
+        awarded_class=None,
+    ):
+        tx = CharacterSkillPointTx(
+            character=character,
+            amount=int(delta_int),
+            source=source,                          # ← REQUIRED by your model
+            reason=note or "",
+            at_level=(character.level if at_level is None else int(at_level)),
+            awarded_class=awarded_class,            # optional
+        )
         tx.save()
 
     def _formula_override(key: str):
@@ -5217,7 +5216,12 @@ def character_detail(request, pk):
                 rec.save()
 
             # Spend points (negative delta)
-            _log_skill_point_tx(character, -cost, f"Upgrade {id_key}: {current_name} → {next_name} (cost {cost})")
+              _log_skill_point_tx(
+                character, -cost,
+                f"Upgrade {id_key}: {current_name} → {next_name} (cost {cost})",
+                source="spend",
+            )
+
 
             # History note (audit)
             CharacterFieldNote.objects.update_or_create(
@@ -5286,8 +5290,12 @@ def character_detail(request, pk):
                 rec.save()
 
             # Refund points (positive delta)
-            _log_skill_point_tx(character, refund, f"Retrain {id_key}: {current_name} → {prev_name} (refund {refund})")
-
+            _log_skill_point_tx(
+            character, refund,
+            f"Retrain {id_key}: {current_name} → {prev_name} (refund {refund})",
+            source="refund",
+        )
+        
             CharacterFieldNote.objects.update_or_create(
                 character=character,
                 key=f"skill_prof_hist:{id_key}:{uuid.uuid4().hex[:8]}",
