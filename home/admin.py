@@ -1777,17 +1777,23 @@ class ClassFeatureAdmin(admin.ModelAdmin):
 
 
     def formfield_for_dbfield(self, db_field, request, **kwargs):
-        # Force a <select> for modify_proficiency_target even though the model is CharField
         if db_field.name == "modify_proficiency_target":
-            field = CSVMultipleChoiceField(
-                choices=[("", "---------")] + build_proficiency_target_choices_flat(),
+            # Build choices LATE (on form init), so the left list never comes up empty.
+            class _LateCSVField(CSVMultipleChoiceField):
+                def __init__(self, *a, **k):
+                    super().__init__(*a, **k)
+                    # start empty; we’ll fill them in __init__ of the bound form
+                    self._late_fill = True
+    
+            fld = _LateCSVField(
+                choices=[],                               # filled later
                 required=False,
                 widget=FilteredSelectMultiple("proficiency targets", is_stacked=False),
                 label=db_field.verbose_name,
                 help_text="Select one or more (core proficiencies, skills, sub-skills).",
             )
-            return field
-
+            return fld
+    
         if db_field.name == "gain_proficiency_target":
             # keep your existing single-select (hidden by the form)
             return forms.ChoiceField(
