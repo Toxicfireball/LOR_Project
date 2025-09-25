@@ -54,7 +54,13 @@
       mmAvailable:    row("available_masteries_formula"),
       gmpMode:        row("gmp_mode"),
       profTarget:     row("modify_proficiency_target"),
-      profAmount:     row("modify_proficiency_amount"),
+      profAmount:
+  row("modify_proficiency_amount") ||
+  (function () {
+    var i = document.getElementById("id_modify_proficiency_amount");
+    return i && (i.closest(".form-row") || i.closest("div.fieldBox"));
+  })(),
+      
       spellList:      row("spell_list"),
       cantrips:       row("cantrips_formula"),
       known:          row("spells_known_formula"),
@@ -247,7 +253,15 @@ if (kindVal === "core_proficiency") {
     }
   })();
       // Options inline
-
+// FINAL: always unhide the tier selector row (Proficiency Tier)
+(function ensureTierVisible() {
+  var el = rows.profAmount ||
+           (function () {
+             var i = document.getElementById("id_modify_proficiency_amount");
+             return i && (i.closest(".form-row") || i.closest("div.fieldBox"));
+           })();
+  if (el) el.style.display = "";   // force visible
+})();
     }
 
     // Listeners
