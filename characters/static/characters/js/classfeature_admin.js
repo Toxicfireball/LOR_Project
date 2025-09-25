@@ -180,12 +180,14 @@ if (["subclass_feat", "subclass_choice", "gain_subclass_feat"].indexOf(scopeNorm
 
       // Generic Gain/Modify Proficiency
 // Generic Gain/Modify Proficiency
+// Generic Gain/Modify Proficiency — mirror target logic
 if (kindVal === "modify_proficiency") {
-  show(rows.gmpMode,    true);
-  show(rows.profTarget, true);
-  const gm = currentGmpMode();
-  // Generic uses the shared override select
-  show(rows.profAmount, true);                   // ← always show the tier selector
+  show(rows.gmpMode,    true);   // radio: uptier | set
+  show(rows.profTarget, true);   // multi-select of targets
+
+  const gm = currentGmpMode();   // 'uptier' or 'set'
+  // Show the tier selector ONLY when gm == 'set' (same rule you use elsewhere)
+  show(rows.profAmount, gm === "set");
 }
 
 // Core Proficiency section (only when kind is core_proficiency)
