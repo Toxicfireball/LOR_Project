@@ -179,7 +179,7 @@ if (kindVal === "modify_proficiency") {
   show(rows.profTarget, true);
   const gm = currentGmpMode();
   // Generic uses the shared override select
-  show(rows.profAmount, gm === "set");           // Trained/Expert/Master/Legendary
+  show(rows.profAmount, true);                   // ← always show the tier selector
 }
 
 // Core Proficiency section (only when kind is core_proficiency)
