@@ -1438,12 +1438,12 @@ def _wtraits_lower(weapon: Weapon) -> set[str]:
 
 def _weapon_math(weapon: Weapon, str_mod: int, dex_mod: int, prof_weapon: int, half_lvl_if_trained: int):
     """
-    Ranged → DEX to-hit (no hit choice), damage shown for both
+    Ranged → DEX to-hit (no hit choice), damage shows both
     Finesse → show STR and DEX for hit AND damage
     Balanced → show STR and DEX for hit, STR only for damage
     Default  → STR only for both
     """
-    traits       = _wtraits_lower(weapon)  # keep if you still use finesse/balanced for melee
+    traits       = _wtraits_lower(weapon)
     is_ranged    = ((weapon.range_type or Weapon.MELEE) == Weapon.RANGED)
     has_finesse  = "finesse" in traits
     has_balanced = "balanced" in traits
@@ -1454,13 +1454,13 @@ def _weapon_math(weapon: Weapon, str_mod: int, dex_mod: int, prof_weapon: int, h
     dmg_S = str_mod
     dmg_D = dex_mod
 
-    # ✅ Only rule we enforce: all ranged use DEX to-hit
+    # ✅ enforce DEX to-hit for any ranged weapon
     if is_ranged:
         return dict(
             rule="ranged_dex",
             show_choice_hit=False, show_choice_dmg=True,
             base=base,
-            hit_str=base + dex_mod,  # mirror DEX so UI shows the same number
+            hit_str=base + dex_mod,  # mirror DEX so UI shows one value
             hit_dex=base + dex_mod,
             dmg_str=dmg_S, dmg_dex=dmg_D,
             traits=sorted(traits),
@@ -1475,7 +1475,7 @@ def _weapon_math(weapon: Weapon, str_mod: int, dex_mod: int, prof_weapon: int, h
     return dict(rule="default", show_choice_hit=False, show_choice_dmg=False,
                 base=base, hit_str=hit_S, hit_dex=hit_D, dmg_str=dmg_S, dmg_dex=dmg_D, traits=sorted(traits))
                 
-                
+            
 def _weapon_math_for(weapon: Weapon, str_mod: int, dex_mod: int, prof_weapon: int, half_lvl_if_trained: int):
     """
     Returns totals for STR/DEX and which are applicable.
@@ -1502,7 +1502,7 @@ def _weapon_math_for(weapon: Weapon, str_mod: int, dex_mod: int, prof_weapon: in
             "rule": "ranged_dex",
             "show_choice_hit": False,
             "show_choice_dmg": True,
-            "hit_str": base + dex_mod,  # force DEX to-hit
+            "hit_str": base + dex_mod,   # force DEX to-hit
             "hit_dex": base + dex_mod,
             "dmg_str": dmg_str,
             "dmg_dex": dmg_dex,
@@ -1529,7 +1529,43 @@ def _weapon_math_for(weapon: Weapon, str_mod: int, dex_mod: int, prof_weapon: in
         "base": base,
         "traits": sorted(list(traits)),
     }
+    
+    
+def _weapon_prof_group(weapon) -> str:
+    """
+    Return normalized proficiency group for the weapon:
+    'simple', 'martial', or 'exotic' (adjust names if your data uses different labels).
+    Tries common field names.
+    """
+    raw = (
+        getattr(weapon, "proficiency", None)
+        or getattr(weapon, "category", None)
+        or getattr(weapon, "prof_group", None)
+        or getattr(weapon, "group", None)
+        or ""
+    )
+    s = str(raw).strip().lower().replace(" ", "_")
+    if s in {"simp", "simple_weapons"}:  s = "simple"
+    if s in {"mart", "martial_weapons"}: s = "martial"
+    if s in {"adv", "advanced", "exotic_weapons", "advanced_weapons"}: s = "exotic"
+    return s or "simple"
 
+def _prof_from_group(prof_by_code: dict, group: str) -> dict:
+    """
+    Pull a proficiency row for the specific weapon group (weapon_simple/martial/exotic),
+    falling back to generic 'weapon'.
+    Returns {'bonus': int, 'name': str, 'is_proficient': bool}
+    """
+    row = (prof_by_code.get(f"weapon_{group}") or
+           prof_by_code.get("weapon") or
+           {"modifier": 0, "tier_name": "Untrained"})
+    bonus = int(row.get("modifier", 0))
+    name  = (row.get("tier_name") or "").title()
+    is_prof = (name.lower() != "untrained")
+    return {"bonus": bonus, "name": name, "is_proficient": is_prof}
+                
+                
+                
 
 @login_required
 @require_POST
@@ -6502,24 +6538,23 @@ def character_detail(request, pk):
         e.slot_index: e
         for e in character.equipped_weapons.select_related("weapon").all()
     }
-
-
     if by_slot.get(1):
         main_w = by_slot[1].weapon
-        main_prof = _effective_class_prof_for_item(
-            character, "weapon",
-            weapon_group=_weapon_group_for(main_w),
-            weapon_item_id=main_w.id
-        )
+    
+        # ✅ Use Simple/Martial/Exotic group to pick proficiency tier
+        group = _weapon_prof_group(main_w)
+        main_prof = _prof_from_group(prof_by_code, group)
+    
         half_main = half_lvl if main_prof["is_proficient"] else 0
-        prof_weapon = main_prof["bonus"]      # override generic
-        def _half_weapon(): return half_main  # tiny shim
-
+        prof_weapon = main_prof["bonus"]
+    
+        def _half_weapon(): return half_main  # tiny shim for table math
     else:
-        # keep existing generic behavior
+        # fallback to generic weapon proficiency when nothing is equipped
         def _half_weapon(): return hl_if_trained("weapon")
         prof_weapon = prof_by_code.get("weapon", {"modifier": 0})["modifier"]
-
+    
+    
     attack_rows = [
         {
             "label": "Weapon (base)",
