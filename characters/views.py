@@ -5216,7 +5216,7 @@ def character_detail(request, pk):
                 rec.save()
 
             # Spend points (negative delta)
-              _log_skill_point_tx(
+            _log_skill_point_tx(
                 character, -cost,
                 f"Upgrade {id_key}: {current_name} → {next_name} (cost {cost})",
                 source="spend",
