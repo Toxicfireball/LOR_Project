@@ -1326,8 +1326,20 @@ class ClassFeatureForm( ProficiencyTargetUIMixin,forms.ModelForm):
             self.add_error(None, "Choose either ‘Gain/Modify (generic)’ OR ‘Add Core Proficiency’, not both.")
 
         kind = cleaned.get("kind")
-
-        # ── A) Gain/Modify (generic) ────────────────────────────────────
+        # ── guardrails so stray radios don't trip validation or clobber data ──
+        if kind != "modify_proficiency":
+            cleaned["gmp_mode"] = ""                 # ignore generic section entirely
+            cleaned["target_grant_mode"] = ""
+            cleaned["target_choice_count"] = None
+        
+        if kind != "core_proficiency":
+            cleaned["prof_change_mode"] = ""         # ignore core section entirely
+            # also ignore the core pickers
+            for fld in ("prof_target_kind","armor_group_choice","weapon_group_choice",
+                        "armor_item_choice","weapon_item_choice"):
+                if fld in self.cleaned_data:
+                    self.cleaned_data[fld] = None
+                # ── A) Gain/Modify (generic) ────────────────────────────────────
         if used_generic:
             if kind != "modify_proficiency":
                 self.add_error("kind", "Use ‘Gain/Modify Proficiency’ when using the generic section.")
@@ -1370,7 +1382,15 @@ class ClassFeatureForm( ProficiencyTargetUIMixin,forms.ModelForm):
         target_tokens = self._normalize_prof_targets()
         mode_core     = (self.cleaned_data.get("prof_change_mode") or "").strip()
         gmp_mode      = (self.cleaned_data.get("gmp_mode") or "").strip()
-
+        # If author used the armor/weapon pickers while in the generic section, merge them
+        if used_generic and target_tokens:
+            existing = self.cleaned_data.get("modify_proficiency_target") or ""
+            if isinstance(existing, str):
+                existing_list = [t for t in existing.split(",") if t]
+            else:
+                existing_list = list(existing or [])
+            merged = ",".join(sorted(set(existing_list + target_tokens)))
+            self.cleaned_data["modify_proficiency_target"] = merged
         # important: we only meddle with the *generic* Gain/Modify section
         used_generic = bool(gmp_mode)          # your existing flag
         # used_core    = bool(mode_core)       # as you already compute
@@ -2399,7 +2419,8 @@ class RaceFeatureForm(ClassFeatureForm):
             if gmp_mode == "uptier":
                 self.cleaned_data["modify_proficiency_amount"] = None
             # if "set", keep whatever amount the author selected
-
+            if gmp_mode == "set" and not self.cleaned_data.get("modify_proficiency_amount"):
+                self.add_error("modify_proficiency_amount", "Pick the proficiency tier to set.")
         # ── Core Skill helper (same two choices), maps into modify_* as well ──
         core_mode = (self.cleaned_data.get("core_skill_change_mode") or "").strip()
         core_skill = self.cleaned_data.get("core_skill_choice")
