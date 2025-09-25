@@ -9,9 +9,27 @@
 
     // ── Helpers ────────────────────────────────────────────────────────────────────
  function row(name) {
-   return document.querySelector(".form-row.field-" + name)
-       || document.querySelector("div.fieldBox.field-" + name);
- }    function show(el, on) { if (el) el.style.display = on ? "" : "none"; }
+  // 1) canonical wrappers used by Django admin UIs
+  let el = document.querySelector(".form-row.field-" + name)
+        || document.querySelector("div.fieldBox.field-" + name);
+  if (el) return el;
+
+  // 2) climb from the input itself (robust across wrappers)
+  const inp = document.getElementById("id_" + name);
+  if (inp) {
+    el = inp.closest(".form-row, .fieldBox, fieldset.module, .inline-group, .aligned")
+      || inp.parentElement;
+    if (el) return el;
+  }
+
+  // 3) last resort: find its <label for="id_name"> and climb from there
+  const lbl = document.querySelector('label[for="id_' + name + '"]');
+  if (lbl) return lbl.closest(".form-row, .fieldBox, fieldset.module, .aligned") || lbl.parentElement;
+
+  return null;
+}
+
+ function show(el, on) { if (el) el.style.display = on ? "" : "none"; }
     function currentGmpMode() {
       const r = document.querySelector('input[name="gmp_mode"]:checked');
       return r ? r.value : "";
@@ -182,12 +200,10 @@ if (["subclass_feat", "subclass_choice", "gain_subclass_feat"].indexOf(scopeNorm
 // Generic Gain/Modify Proficiency
 // Generic Gain/Modify Proficiency — mirror target logic
 if (kindVal === "modify_proficiency") {
-  show(rows.gmpMode,    true);   // radio: uptier | set
-  show(rows.profTarget, true);   // multi-select of targets
-
-  const gm = currentGmpMode();   // 'uptier' or 'set'
-  // Show the tier selector ONLY when gm == 'set' (same rule you use elsewhere)
-  show(rows.profAmount, gm === "set");
+  show(rows.gmpMode,    true);
+  show(rows.profTarget, true);
+  const gm = currentGmpMode();          // 'uptier' | 'set'
+  show(rows.profAmount, gm === "set");  // ← only when “Gain amount to override”
 }
 
 // Core Proficiency section (only when kind is core_proficiency)
@@ -256,14 +272,7 @@ if (kindVal === "core_proficiency") {
   })();
       // Options inline
 // FINAL: always unhide the tier selector row (Proficiency Tier)
-(function ensureTierVisible() {
-  var el = rows.profAmount ||
-           (function () {
-             var i = document.getElementById("id_modify_proficiency_amount");
-             return i && (i.closest(".form-row") || i.closest("div.fieldBox"));
-           })();
-  if (el) el.style.display = "";   // force visible
-})();
+
     }
 
     // Listeners
