@@ -101,7 +101,23 @@ def get_other_vars():
 # home/admin.py (near other small helpers)
 ABILITY_MOD_VARS = [f"{name}_mod" for name in ABILITY_NAMES]
 VARS = ABILITY_FIELDS + get_other_vars() + ALL_INT_FIELDS
-
+# home/admin.py  (new helper, keep your existing ones)
+def build_proficiency_target_choices_flat():
+    """
+    Flat (value, label) tuples for FilteredSelectMultiple:
+    includes core profs, skills, sub-skills.
+    """
+    from characters.models import Skill, SubSkill, PROFICIENCY_TYPES
+    core = list(PROFICIENCY_TYPES)
+    try:
+        skills    = [(f"skill_{s.pk}", s.name) for s in Skill.objects.all()]
+        subskills = [(f"subskill_{ss.pk}", f"{ss.skill.name} – {ss.name}")
+                     for ss in SubSkill.objects.select_related("skill")]
+    except Exception:
+        skills, subskills = [], []
+    return core + skills + subskills
+    
+    
 class CSVMultipleChoiceField(forms.MultipleChoiceField):
     """
     Treat a stored comma-separated string as a list for initial/redisplay.
@@ -1763,11 +1779,8 @@ class ClassFeatureAdmin(admin.ModelAdmin):
     def formfield_for_dbfield(self, db_field, request, **kwargs):
         # Force a <select> for modify_proficiency_target even though the model is CharField
         if db_field.name == "modify_proficiency_target":
-            # nice, opt-grouped choices (Core / Skills / Sub-skills)
-            choices = build_proficiency_target_choices()
-
             field = CSVMultipleChoiceField(
-                choices=choices,
+                choices=[("", "---------")] + build_proficiency_target_choices_flat(),
                 required=False,
                 widget=FilteredSelectMultiple("proficiency targets", is_stacked=False),
                 label=db_field.verbose_name,
@@ -1884,13 +1897,7 @@ class ClassFeatureAdmin(admin.ModelAdmin):
     
 
     def formfield_for_choice_field(self, db_field, request, **kwargs):
-        if db_field.name == "modify_proficiency_target":
-            # 1) grab your old armor/dodge/etc list
-            base_choices = list(db_field.choices)
-            # 2) append one tuple per Skill
-            skill_choices = [(f"skill_{s.pk}", s.name) for s in Skill.objects.all()]
-            kwargs["choices"] = base_choices + skill_choices
-        return super().formfield_for_choice_field(db_field, request, **kwargs)  
+        return super().formfield_for_choice_field(db_field, request, **kwargs)
     # in ClassFeatureAdmin
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         field = super().formfield_for_foreignkey(db_field, request, **kwargs)
