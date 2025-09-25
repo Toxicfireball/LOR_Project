@@ -263,9 +263,13 @@ document.querySelectorAll('input[name="gmp_mode"]').forEach(function (el) {
 });
 
 (function fixInitialGMPRadio() {
+  const kindEl = document.getElementById("id_kind");
+  const kindVal = kindEl ? kindEl.value : "";
+
+  if (kindVal !== "modify_proficiency") return;  // ← do nothing unless editing Modify Proficiency
+
   const checked = document.querySelector('input[name="gmp_mode"]:checked');
   if (!checked) {
-    // default to "set" so authors can see the tier picker immediately
     const setter = document.querySelector('input[name="gmp_mode"][value="set"]');
     if (setter) setter.checked = true;
   }
