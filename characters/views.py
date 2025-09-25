@@ -1438,63 +1438,85 @@ def _wtraits_lower(weapon: Weapon) -> set[str]:
 
 def _weapon_math(weapon: Weapon, str_mod: int, dex_mod: int, prof_weapon: int, half_lvl_if_trained: int):
     """
-    Finesse or ranged → show STR and DEX for hit AND damage
-    Balanced        → show STR and DEX for hit, STR only for damage
-    Default         → STR only for both
+    Ranged → DEX to-hit (no hit choice), damage shown for both
+    Finesse → show STR and DEX for hit AND damage
+    Balanced → show STR and DEX for hit, STR only for damage
+    Default  → STR only for both
     """
-    traits      = _wtraits_lower(weapon)
-    is_ranged   = (weapon.range_type or Weapon.MELEE) == Weapon.RANGED
-    has_finesse = "finesse" in traits
-    has_balanced= "balanced" in traits
+    traits       = _wtraits_lower(weapon)  # keep if you still use finesse/balanced for melee
+    is_ranged    = ((weapon.range_type or Weapon.MELEE) == Weapon.RANGED)
+    has_finesse  = "finesse" in traits
+    has_balanced = "balanced" in traits
 
-    base   = prof_weapon + half_lvl_if_trained
-    hit_S  = base + str_mod
-    hit_D  = base + dex_mod
-    dmg_S  = str_mod
-    dmg_D  = dex_mod
+    base  = prof_weapon + half_lvl_if_trained
+    hit_S = base + str_mod
+    hit_D = base + dex_mod
+    dmg_S = str_mod
+    dmg_D = dex_mod
 
-    if is_ranged or has_finesse:
-        return dict(rule="finesse_or_ranged", show_choice_hit=True,  show_choice_dmg=True,
+    # ✅ Only rule we enforce: all ranged use DEX to-hit
+    if is_ranged:
+        return dict(
+            rule="ranged_dex",
+            show_choice_hit=False, show_choice_dmg=True,
+            base=base,
+            hit_str=base + dex_mod,  # mirror DEX so UI shows the same number
+            hit_dex=base + dex_mod,
+            dmg_str=dmg_S, dmg_dex=dmg_D,
+            traits=sorted(traits),
+        )
+
+    if has_finesse:
+        return dict(rule="finesse", show_choice_hit=True,  show_choice_dmg=True,
                     base=base, hit_str=hit_S, hit_dex=hit_D, dmg_str=dmg_S, dmg_dex=dmg_D, traits=sorted(traits))
     if has_balanced:
-        return dict(rule="balanced",       show_choice_hit=True,  show_choice_dmg=False,
+        return dict(rule="balanced", show_choice_hit=True,  show_choice_dmg=False,
                     base=base, hit_str=hit_S, hit_dex=hit_D, dmg_str=dmg_S, dmg_dex=dmg_D, traits=sorted(traits))
-    return dict(rule="default",            show_choice_hit=False, show_choice_dmg=False,
+    return dict(rule="default", show_choice_hit=False, show_choice_dmg=False,
                 base=base, hit_str=hit_S, hit_dex=hit_D, dmg_str=dmg_S, dmg_dex=dmg_D, traits=sorted(traits))
-
-
+                
+                
 def _weapon_math_for(weapon: Weapon, str_mod: int, dex_mod: int, prof_weapon: int, half_lvl_if_trained: int):
     """
-    Returns a dict with hit/damage totals for STR and DEX, plus which are applicable by rules.
-    Rules:
-      - ranged OR has 'finesse' => use better(STR, DEX) for hit and damage (show both).
-      - has 'balanced'          => hit uses better(STR,DEX), damage uses STR (show both for hit only).
-      - else                    => STR for both (no choice).
-    """
-    traits = _weapon_trait_names_lower(weapon)
-    is_ranged   = (weapon.range_type or Weapon.MELEE) == Weapon.RANGED
-    has_finesse = "finesse" in traits
-    has_balanced= "balanced" in traits
+    Returns totals for STR/DEX and which are applicable.
 
-    base = prof_weapon + half_lvl_if_trained
+    Rules:
+      - Ranged → DEX for attack roll (no hit choice). Damage still displayed for both.
+      - Finesse → hit & dmg may use STR or DEX (show both).
+      - Balanced → hit may use STR or DEX (show both), dmg uses STR.
+      - Default → STR for both.
+    """
+    traits       = _weapon_trait_names_lower(weapon)
+    is_ranged    = ((weapon.range_type or Weapon.MELEE) == Weapon.RANGED)
+    has_finesse  = "finesse" in traits
+    has_balanced = "balanced" in traits
+
+    base    = prof_weapon + half_lvl_if_trained
     hit_str = base + str_mod
     hit_dex = base + dex_mod
     dmg_str = str_mod
-    dmg_dex = dex_mod  # only “applicable” when finesse/ranged allows it
+    dmg_dex = dex_mod  # only “applicable” when rules allow
+
+    if is_ranged:
+        return {
+            "rule": "ranged_dex",
+            "show_choice_hit": False,
+            "show_choice_dmg": True,
+            "hit_str": base + dex_mod,  # force DEX to-hit
+            "hit_dex": base + dex_mod,
+            "dmg_str": dmg_str,
+            "dmg_dex": dmg_dex,
+            "base": base,
+            "traits": sorted(list(traits)),
+        }
 
     rule = "default"
     show_choice_hit = False
     show_choice_dmg = False
-
-    if is_ranged or has_finesse:
-        rule = "finesse_or_ranged"
-        show_choice_hit = True
-        show_choice_dmg = True
+    if has_finesse:
+        rule = "finesse"; show_choice_hit = True;  show_choice_dmg = True
     elif has_balanced:
-        rule = "balanced"
-        show_choice_hit = True
-        show_choice_dmg = False
-    # else: default STR only
+        rule = "balanced"; show_choice_hit = True; show_choice_dmg = False
 
     return {
         "rule": rule,
@@ -1507,6 +1529,7 @@ def _weapon_math_for(weapon: Weapon, str_mod: int, dex_mod: int, prof_weapon: in
         "base": base,
         "traits": sorted(list(traits)),
     }
+
 
 @login_required
 @require_POST
