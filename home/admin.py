@@ -2,10 +2,6 @@
 
 
 
-its still broken, i cant select modify proficiency target, be specific what to change
-
-
-
 from django.contrib import admin
 from django import forms
 
