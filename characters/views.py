@@ -5406,26 +5406,6 @@ def character_detail(request, pk):
             return redirect('characters:character_detail', pk=pk)
         return redirect('characters:character_detail', pk=pk)
 
-    if request.method == "POST" and request.POST.get("save_skill_profs_submit"):
-        # Accept any number of rows: look for sp_<id_key> and optional sp_note_<id_key>
-        changes = []
-        for k, v in request.POST.items():
-            if not k.startswith("sp_") or k.startswith("sp_note_"):
-                continue
-            id_key = k[3:]  # strip "sp_"
-            tier_pk = (v or "").strip()
-            note = request.POST.get(f"sp_note_{id_key}", "").strip()
-            if not tier_pk:
-                continue  # skip empty selects
-            # TODO: validate note requirement if you want it mandatory
-            changes.append((id_key, tier_pk, note))
-
-        # apply each change (pseudo-code: adapt to your models)
-        for id_key, tier_pk, note in changes:
-            # your helper should set the new tier and store the reason
-            set_skill_prof_tier(character, id_key=id_key, tier_pk=tier_pk, reason=note, user=request.user)
-
-        return redirect(request.path)
 
     # --- SKILLS: additive adjustments with reasons (multi-entry) -------------------
     if request.method == "POST" and can_edit and request.POST.get("skills_op"):
