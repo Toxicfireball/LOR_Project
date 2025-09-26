@@ -4,7 +4,7 @@
   {% csrf_token %}
   <input type="hidden" name="spells_op" value="{{ action }}">
   <input type="hidden" name="feature_id" value="{{ feature_id }}">
-  {% if rank %}<input type="hidden" name="rank" value="{{ rank }}">{% endif %}
+  {% if rank %}<input type="hidden" name="rank" value="{{ rank|default:0 }}">{% endif %}
 
 <div class="d-flex align-items-center justify-content-between mb-2">
   <div class="small text-muted">
@@ -112,7 +112,7 @@
   <input class="form-check-input pick-prepare"
          type="checkbox"
          name="pick[]"
-         value="{{ r.id }}|{{ r.rank }}"
+         value="{{ r.id }}"
          data-action="prepare"
          data-fid="{{ feature_id }}"
          data-rank="{{ rank|default:r.rank }}"
@@ -130,7 +130,7 @@
   <input class="form-check-input pick-known"
          type="checkbox"
          name="pick[]"
-         value="{{ r.id }}|{{ r.rank }}"
+         value="{{ r.id }}"
          data-action="learn_known"
          data-fid="{{ feature_id }}"
          data-rank="{{ rank|default:r.rank }}"
@@ -139,7 +139,7 @@
   <input class="form-check-input pick-cantrip"
          type="checkbox"
          name="pick[]"
-         value="{{ r.id }}|0"
+         value="{{ r.id }}"
          data-action="learn_cantrip"
          data-fid="{{ feature_id }}"
          aria-label="Learn cantrip">

@@ -322,10 +322,12 @@
                 <div class="card-header fw-bold">Defense</div>
                 <ul class="list-group list-group-flush">
 <li class="list-group-item d-flex justify-content-between"><span>Armor</span><span class="fw-bold">{{ derived.armor_total }}</span></li>
-                  <li class="list-group-item d-flex justify-content-between"><span>Dodge</span><span class="fw-bold">{% for r in proficiency_detailed %}{% if r.type == "Dodge" %}{{ r.total_s }}{% endif %}{% endfor %}</span></li>
-                  <li class="list-group-item d-flex justify-content-between"><span>Reflex</span><span class="fw-bold">{% for r in proficiency_detailed %}{% if r.type == "Reflex" %}{{ r.total_s }}{% endif %}{% endfor %}</span></li>
-                  <li class="list-group-item d-flex justify-content-between"><span>Fortitude</span><span class="fw-bold">{% for r in proficiency_detailed %}{% if r.type == "Fortitude" %}{{ r.total_s }}{% endif %}{% endfor %}</span></li>
-                  <li class="list-group-item d-flex justify-content-between"><span>Will</span><span class="fw-bold">{% for r in proficiency_detailed %}{% if r.type == "Will" %}{{ r.total_s }}{% endif %}{% endfor %}</span></li>
+<li class="list-group-item d-flex justify-content-between"><span>Dodge</span><span class="fw-bold">{{ defense_totals.Dodge|default:"—" }}</span></li>
+<li class="list-group-item d-flex justify-content-between"><span>Reflex</span><span class="fw-bold">{{ defense_totals.Reflex|default:"—" }}</span></li>
+<li class="list-group-item d-flex justify-content-between"><span>Fortitude</span><span class="fw-bold">{{ defense_totals.Fortitude|default:"—" }}</span></li>
+<li class="list-group-item d-flex justify-content-between"><span>Will</span><span class="fw-bold">{{ defense_totals.Will|default:"—" }}</span></li>
+
+
                 </ul>
                 <div class="card-body">
                   <form class="d-flex flex-wrap gap-2 align-items-center"
@@ -374,14 +376,17 @@
   {% note_icon "defense:"|add:r.type %}
 
 
+<!-- If you later expose group: data-key="prof:weapon:{{ a.group }}" -->
 <button
-class="btn btn-sm btn-outline-secondary edit-override"
+  class="btn btn-sm btn-outline-secondary edit-override"
   type="button"
   data-key="prof:{{ r.code }}"
-  data-calc="{{ r.total_s }}"
-  data-formula="{{ r.formula|escape }}"
-  data-debug='{{ r.debug_json|escapejs }}'
+  data-calc="{{ r.calc.total }}"
+  data-formula="{{ r.calc.formula }}"
+  data-debug='{{ r.debug_json|safe }}'
 >✎</button>
+
+
 
 </td>
 
@@ -404,6 +409,74 @@ class="btn btn-sm btn-outline-secondary edit-override"
   <div class="card h-100">
     <div class="card-header fw-bold">Offense</div>
     <div class="card-body">
+      <div class="card-body">
+
+  <!-- Weapon Group Proficiency (edit UX like Skills) -->
+<h6 class="mb-2">Weapon Group Proficiencies</h6>
+<div class="table-responsive mb-3">
+  <table class="table table-sm align-middle w-auto">
+    <thead>
+      <tr>
+        <th>Group</th>
+        <th>Tier</th>
+        <th>Total (prof)</th>
+        <th class="text-end" style="width:120px;">Edit</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for g in weapon_group_display %}
+        <tr>
+          <td>{{ g.label }}</td>
+          <td>{{ g.tier_name|default:"Untrained" }}</td>
+          <td>{{ g.modifier|default:0 }}</td>
+          <td class="text-end">
+<button class="btn btn-sm btn-outline-secondary open-weapon-prof-edit"
+        type="button"
+        data-wcode="{{ g.code }}"
+        data-tpl-id="wpedit-{{ g.code|slugify }}-tpl">Edit</button>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Hidden templates (one per group) -->
+<div class="d-none" id="weapon-prof-edit-templates">
+  {% for g in weapon_group_display %}
+    <template id="wpedit-{{ g.code|slugify }}-tpl">
+      <div class="p-1">
+        <div class="p-3 border rounded bg-light">
+          <div class="fw-bold mb-2">Proficiency tier — {{ g.label }}</div>
+          <form method="post" action="{% url 'characters:character_detail' character.pk %}" class="row g-2 align-items-end">
+            {% csrf_token %}
+            <input type="hidden" name="save_prof_tier_override" value="1">
+            <input type="hidden" name="prof_code" value="{{ g.code }}">
+            <div class="col-sm-5">
+              <label class="form-label small">Tier</label>
+              <select class="form-select form-select-sm" name="prof_tier_pk">
+                <option value="">— keep current —</option>
+                {% for pl in proficiency_tiers %}
+                  <option value="{{ pl.id }}">{{ pl.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-sm-5">
+              <label class="form-label small">Reason</label>
+              <input type="text" class="form-control form-control-sm" name="prof_tier_reason"
+                     placeholder="Why are you changing this?">
+            </div>
+            <div class="col-sm-2 text-end">
+              <button class="btn btn-sm btn-success">Save</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </template>
+  {% endfor %}
+</div>
+
+
         {% if spell_dc_rows and spell_dc_rows.0 %}
           <div class="mb-3">
             <div>
@@ -486,22 +559,53 @@ class="btn btn-sm btn-outline-secondary edit-override"
       {% if attacks_detailed %}
         <div class="table-responsive">
           <table class="table table-sm align-middle">
-            <thead><tr><th>Slot</th><th>Weapon</th><th>Traits</th><th>Hit</th><th>Damage</th></tr></thead>
+<thead><tr><th>Slot</th><th>Weapon</th><th>Traits</th><th>Hit</th><th>Damage</th><th>Note</th></tr></thead>
             <tbody>
               {% for a in attacks_detailed %}
                 <tr>
                   <td>{{ a.slot }}</td>
                   <td>{{ a.name }} <small class="text-muted">{{ a.damage_die }}</small></td>
                   <td><small>{{ a.traits|join:", " }}</small></td>
-                  <td>
-                    +{{ a.hit_str }}
-                    {% if a.show_choice_hit %}<small class="text-muted"> (DEX +{{ a.hit_dex }})</small>{% endif %}
-                  </td>
-                  <td>
-                    {{ a.damage_die }}{% if a.dmg_str >= 0 %}+{% endif %}{{ a.dmg_str }}
-                    {% if a.show_choice_dmg %}<small class="text-muted"> (DEX {% if a.dmg_dex >= 0 %}+{% endif %}{{ a.dmg_dex }})</small>{% endif %}
-                  </td>
-                </tr>
+<td>
+  {% if a.show_choice_hit %}
+    {% if a.hit_dex > a.hit_str %}
+      +{{ a.hit_dex }} <small class="text-muted">(STR +{{ a.hit_str }})</small>
+    {% else %}
+      +{{ a.hit_str }} <small class="text-muted">(DEX +{{ a.hit_dex }})</small>
+    {% endif %}
+  {% else %}
+    +{{ a.hit_best|default:a.hit_str }}
+  {% endif %}
+</td>
+<td>
+  {% with best=a.dmg_best|default:a.dmg_str %}
+    {{ a.damage_die }}{% if best >= 0 %}+{% endif %}{{ best }}
+  {% endwith %}
+  {% if a.show_choice_dmg %}
+    <small class="text-muted">
+      {% if a.dmg_dex > a.dmg_str %}
+        (STR {% if a.dmg_str >= 0 %}+{% endif %}{{ a.dmg_str }})
+      {% else %}
+        (DEX {% if a.dmg_dex >= 0 %}+{% endif %}{{ a.dmg_dex }})
+      {% endif %}
+    </small>
+  {% endif %}
+</td>
+<td>
+  {% note_icon "weapon_slot:"|add:a.slot %}
+<!-- If you later expose group: data-key="prof:weapon:{{ a.group }}" -->
+<button
+  class="btn btn-sm btn-outline-secondary edit-override"
+  type="button"
+  data-key="prof:weapon"
+  data-calc="{{ a.hit_best|default:a.hit_str }}"
+  data-formula="prof + ½ level + ability"
+  data-debug='{"slot":"{{ a.slot }}","weapon":"{{ a.name|escapejs }}"}'
+>✎</button>
+
+</td>
+</tr>
+
               {% endfor %}
             </tbody>
           </table>
@@ -521,6 +625,7 @@ class="btn btn-sm btn-outline-secondary edit-override"
   </div> <!-- /.card -->
 </div> <!-- /.col-md-7 -->
 </div> <!-- /.row -->
+</div>
 
 </div>
       
@@ -1607,6 +1712,53 @@ class="btn btn-sm btn-outline-secondary edit-override"
 <!-- SPELLCASTING TAB (single, consolidated) -->
 {% if show_spellcasting_tab %}
 <div class="tab-pane fade" id="tab-spellcasting">
+
+  <!-- NEW: Raw slot tables from real Class Features -->
+  <div class="card mb-4">
+    <div class="card-header">
+      <strong>Spell Slot Tables</strong>
+      <span class="text-muted ms-2">from class features</span>
+    </div>
+    <div class="card-body">
+      {% if spellcasting_blocks %}
+        {% for t in spellcasting_blocks %}
+          <div class="mb-3">
+            <div class="d-flex justify-content-between small mb-1">
+              <span>
+                <strong>{{ t.class_name }}</strong>
+                • {{ t.feature_name }}
+                {% if t.origin_label %} — <span class="text-muted">{{ t.origin_label }}</span>{% endif %}
+              </span>
+            </div>
+            <div class="table-responsive">
+              <table class="table table-sm table-bordered align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th style="width: 90px">Level</th>
+                    <th style="width: 90px" class="text-end">Slots</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for r, slots in t.slots_by_rank.items %}
+                    <tr>
+                      <td>Level {{ r }}</td>
+                      <td class="text-end">{{ slots }}</td>
+                    </tr>
+                  {% empty %}
+                    <tr><td colspan="2" class="text-muted">No slots.</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        {% endfor %}
+      {% else %}
+        <div class="text-muted">No spell slot tables from class features.</div>
+      {% endif %}
+    </div>
+  </div>
+
+
   {% for b in spell_selection_blocks %}
     <div class="card mb-4">
 <div class="card-header d-flex justify-content-between align-items-center">
@@ -1632,6 +1784,14 @@ class="btn btn-sm btn-outline-secondary edit-override"
       Prepared: {{ b.prepared_current }}{% if b.prepared_max is not None %}/{{ b.prepared_max }}{% endif %}
     </span>
 
+    <!-- NEW: totals across all spell slot tables (if provided by the view) -->
+{% if b.grand_caps %}
+  <span class="ms-3 text-muted">
+    Totals — C: {{ b.grand_caps.cantrips }}, K: {{ b.grand_caps.known }}, P: {{ b.grand_caps.prepared }}
+  </span>
+{% endif %}
+
+
     {% if b.prepared_remaining_by_rank %}
       <span class="ms-2 text-muted">
         {% for r,v in b.prepared_remaining_by_rank.items %}
@@ -1655,22 +1815,60 @@ class="btn btn-sm btn-outline-secondary edit-override"
 
       <div class="card-body">
 
+      <div class="card-body">
+
+        {# ⬅ Slots summary (one per origin block) #}
+        <div class="table-responsive mb-3">
+          <table class="table table-sm table-bordered align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th style="width: 90px">Level</th>
+                <th style="width: 90px" class="text-end">Slots</th>
+                <th style="width: 110px" class="text-end">Prepared</th>
+                <th style="width: 110px" class="text-end">Remaining</th>
+              </tr>
+            </thead>
+            <tbody>
+              {# slots_by_rank was built in order 1..max_rank; iteration preserves that order #}
+
+
+              {% for pair in b.slots_by_rank.items %}
+  {% with r=pair.0 slots=pair.1 %}
+    {% with left=b.prepared_remaining_by_rank|get_item:r|default:0 %}
+      {% widthratio left 1 -1 as neg_left %}
+      {% with prepared=slots|add:neg_left %}
+        <tr>
+          <td>Level {{ r }}</td>
+          <td class="text-end">{{ slots }}</td>
+          <td class="text-end">{{ prepared }}</td>
+          <td class="text-end">
+            <span class="badge {% if left == 0 %}text-bg-warning{% else %}text-bg-success{% endif %}">{{ left }}</span>
+          </td>
+        </tr>
+      {% endwith %}
+    {% endwith %}
+  {% endwith %}
+{% empty %}
+  <tr><td colspan="4" class="text-muted">No slots for this list.</td></tr>
+{% endfor %}
+
+            </tbody>
+          </table>
+        </div>
+
         {# 1) SHOW PREPARED SPELLS (by rank) #}
         <h6 class="mb-2">Prepared Spells</h6>
-      {% for r, rows in b.prepared_rows_by_rank.items %}
-        <div class="mb-3">
-          <div class="d-flex justify-content-between align-items-center mb-1">
-            <div class="fw-semibold">Level {{ r }}</div>
-            <div class="small text-muted">
-              Slots {{ b.slots_by_rank|get_item:r|default:0 }}
-              • Remaining {{ b.prepared_remaining_by_rank|get_item:r|default:0 }}
-            </div>
-          </div>
-{% with prep_id="prep-table-"|add:b.feature_id|stringformat:"s"|add:"-r"|add:r|stringformat:"s" %}
-  {% include "characters/_spell_table.html" with table_id=prep_id rows=rows feature_id=b.feature_id action="unprepare" rank=r  %}
-{% endwith %}
-        </div>
-      {% endfor %}
+
+{% for pair in b.prepared_rows_by_rank.items %}
+  {% with r=pair.0 rows=pair.1 %}
+    <div class="mb-3">
+      {% with prep_id="prep-table-"|add:b.feature_id|stringformat:"s"|add:"-r"|add:r|stringformat:"s" %}
+        {% include "characters/_spell_table.html" with table_id=prep_id rows=rows feature_id=b.feature_id action="unprepare" rank=r %}
+      {% endwith %}
+    </div>
+  {% endwith %}
+{% endfor %}
+
 
 
         {# 2) SELECT PREPARED SPELLS FROM KNOWN (by rank) #}
@@ -1690,12 +1888,12 @@ class="btn btn-sm btn-outline-secondary edit-override"
         {% endfor %}
 
         {# 3) SPELL TABLE TO SELECT KNOWN SPELL (by rank > 0) #}
-        <h6 class="mt-4 mb-2">Learn New Spells (Leveled)</h6>
-        {% for pair in b.learn_spells_by_rank.items %}
+<h6 class="mt-4 mb-2">Learn New Spells (Leveled)</h6>
+{% for pair in b.learn_spells_by_rank.items %}
+  {% with r=pair.0 rows=pair.1 %}
+    <div class="mb-3">
+      <div class="fw-semibold mb-1">Level {{ r }}</div>
 
-          {% with r=pair.0 rows=pair.1 %}
-            <div class="mb-3">
-              <div class="fw-semibold mb-1">Rank {{ r }}</div>
 {% with learn_id="learn-table-"|add:b.feature_id|stringformat:"s"|add:"-r"|add:r|stringformat:"s" %}
   {% include "characters/_spell_table.html" with table_id=learn_id rows=rows feature_id=b.feature_id action="learn_known" rank=r limit_known=b.needs_known %}
 {% endwith %}
@@ -3587,8 +3785,58 @@ document.addEventListener('DOMContentLoaded', function () {
 })();
 </script>
 
+<script>
+(function(){
+  function getCookie(name){
+    const m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+    return m ? m.pop() : '';
+  }
+  const csrftoken = getCookie('csrftoken');
 
+  document.querySelectorAll('.wep-select').forEach(sel => {
+    sel.addEventListener('change', async (e) => {
+      const slot = sel.dataset.slot;
+      const weapon_id = sel.value; // "" clears
+      const form = new FormData();
+      form.append('equip_weapon_slot', '1');
+      form.append('weapon_id', weapon_id);
+      form.append('slot', slot); // not used, but kept for logs
 
+      // We post to this same URL
+      const resp = await fetch(window.location.href, {
+        method: 'POST',
+        headers: {'X-CSRFToken': csrftoken},
+        body: form
+      });
+      // optional: toast or badge
+    });
+  });
+})();
+</script>
+
+<!-- AFTER: add this block -->
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const modalEl = document.getElementById('skillEditModal');
+  const bodyEl  = document.getElementById('skillEditModalBody');
+  if (!modalEl || !bodyEl || !window.bootstrap) return;
+  const bs = bootstrap.Modal.getOrCreateInstance(modalEl);
+
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.open-weapon-prof-edit');
+    if (!btn) return;
+
+    // Use the exact template id we stamped on the button, no guessing
+    const tplId = btn.getAttribute('data-tpl-id');
+    const tpl   = tplId ? document.getElementById(tplId) : null;
+    if (!tpl) return; // nothing to show
+
+    bodyEl.innerHTML = '';
+    bodyEl.appendChild(tpl.content.cloneNode(true));
+    bs.show();
+  });
+});
+</script>
 
 
 

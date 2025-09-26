@@ -1476,14 +1476,19 @@ def _weapon_math(weapon: Weapon, str_mod: int, dex_mod: int, prof_weapon: int, h
                 base=base, hit_str=hit_S, hit_dex=hit_D, dmg_str=dmg_S, dmg_dex=dmg_D, traits=sorted(traits))
                 
             
-def _weapon_math_for(weapon: Weapon, str_mod: int, dex_mod: int, prof_weapon: int, half_lvl_if_trained: int):
+def _weapon_math_for(
+    weapon: Weapon,
+    str_mod: int,
+    dex_mod: int,
+    prof_weapon: int,
+    half_lvl_if_trained: int
+):
     """
-    Returns totals for STR/DEX and which are applicable.
-
-    Rules:
-      - Ranged → DEX for attack roll (no hit choice). Damage still displayed for both.
-      - Finesse → hit & dmg may use STR or DEX (show both).
-      - Balanced → hit may use STR or DEX (show both), dmg uses STR.
+    Adds proficiency tier + ½ level to both attack AND damage when proficient.
+    Ability choice per rules:
+      - Ranged → DEX to hit, damage shows (and chooses) DEX (since STR doesn’t apply to bows here).
+      - Finesse → higher of STR/DEX to hit AND higher of STR/DEX to damage.
+      - Balanced → higher of STR/DEX to hit; damage uses STR.
       - Default → STR for both.
     """
     traits       = _weapon_trait_names_lower(weapon)
@@ -1491,52 +1496,81 @@ def _weapon_math_for(weapon: Weapon, str_mod: int, dex_mod: int, prof_weapon: in
     has_finesse  = "finesse" in traits
     has_balanced = "balanced" in traits
 
-    base    = prof_weapon + half_lvl_if_trained
+    base = int(prof_weapon) + int(half_lvl_if_trained)  # goes to hit AND damage if proficient
+
+    # raw ability contributions
     hit_str = base + str_mod
     hit_dex = base + dex_mod
-    dmg_str = str_mod
-    dmg_dex = dex_mod  # only “applicable” when rules allow
+    dmg_str = base + str_mod   # ← add base to damage when proficient
+    dmg_dex = base + dex_mod   # ← add base to damage when proficient
 
     if is_ranged:
+        # hit: DEX only; damage: DEX (show DEX as chosen/best; keep both fields for UI)
         return {
             "rule": "ranged_dex",
             "show_choice_hit": False,
-            "show_choice_dmg": True,
-            "hit_str": base + dex_mod,   # force DEX to-hit
-            "hit_dex": base + dex_mod,
-            "dmg_str": dmg_str,
+            "show_choice_dmg": False,
+            "hit_str": hit_dex,    # keep fields but normalize so 'best' is trivial
+            "hit_dex": hit_dex,
+            "dmg_str": dmg_dex,
             "dmg_dex": dmg_dex,
+            "hit_best": hit_dex,
+            "dmg_best": dmg_dex,
             "base": base,
             "traits": sorted(list(traits)),
         }
 
-    rule = "default"
-    show_choice_hit = False
-    show_choice_dmg = False
     if has_finesse:
-        rule = "finesse"; show_choice_hit = True;  show_choice_dmg = True
-    elif has_balanced:
-        rule = "balanced"; show_choice_hit = True; show_choice_dmg = False
+        hit_best = max(hit_str, hit_dex)
+        dmg_best = max(dmg_str, dmg_dex)  # both take higher
+        return {
+            "rule": "finesse",
+            "show_choice_hit": True,
+            "show_choice_dmg": True,
+            "hit_str": hit_str,
+            "hit_dex": hit_dex,
+            "dmg_str": dmg_str,
+            "dmg_dex": dmg_dex,
+            "hit_best": hit_best,
+            "dmg_best": dmg_best,
+            "base": base,
+            "traits": sorted(list(traits)),
+        }
 
+    if has_balanced:
+        hit_best = max(hit_str, hit_dex)
+        dmg_best = dmg_str  # damage is STR only
+        return {
+            "rule": "balanced",
+            "show_choice_hit": True,
+            "show_choice_dmg": False,
+            "hit_str": hit_str,
+            "hit_dex": hit_dex,
+            "dmg_str": dmg_str,
+            "dmg_dex": dmg_dex,  # shown for transparency but not chosen
+            "hit_best": hit_best,
+            "dmg_best": dmg_best,
+            "base": base,
+            "traits": sorted(list(traits)),
+        }
+
+    # default: STR to hit and damage
     return {
-        "rule": rule,
-        "show_choice_hit": show_choice_hit,
-        "show_choice_dmg": show_choice_dmg,
+        "rule": "default",
+        "show_choice_hit": False,
+        "show_choice_dmg": False,
         "hit_str": hit_str,
         "hit_dex": hit_dex,
         "dmg_str": dmg_str,
         "dmg_dex": dmg_dex,
+        "hit_best": hit_str,
+        "dmg_best": dmg_str,
         "base": base,
         "traits": sorted(list(traits)),
     }
-    
+
     
 def _weapon_prof_group(weapon) -> str:
-    """
-    Return normalized proficiency group for the weapon:
-    'simple', 'martial', or 'exotic' (adjust names if your data uses different labels).
-    Tries common field names.
-    """
     raw = (
         getattr(weapon, "proficiency", None)
         or getattr(weapon, "category", None)
@@ -1545,9 +1579,12 @@ def _weapon_prof_group(weapon) -> str:
         or ""
     )
     s = str(raw).strip().lower().replace(" ", "_")
-    if s in {"simp", "simple_weapons"}:  s = "simple"
-    if s in {"mart", "martial_weapons"}: s = "martial"
-    if s in {"adv", "advanced", "exotic_weapons", "advanced_weapons"}: s = "exotic"
+    # normalize to the 4 groups you actually use
+    if s in {"simp", "simple_weapons"}:                      s = "simple"
+    elif s in {"mart", "martial_weapons"}:                   s = "martial"
+    elif s in {"special_weapons", "exotic", "advanced"}:     s = "special"
+    elif s in {"black_powder", "black__powder", "blackpowder","black-powder"}:
+        s = "black_powder"
     return s or "simple"
 
 def _prof_from_group(prof_by_code: dict, group: str) -> dict:
@@ -3548,7 +3585,12 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
     # placeholders; will be filled by pasted block
     spellcasting_blocks = []
     spell_selection_blocks = []
+    slot_table_blocks = []
 
+    # Resolve related models once for both GET and POST
+    Known = character.known_spells.model          # CharacterKnownSpell
+    Prep  = character.prepared_spells.model       # CharacterPreparedSpell
+    SpellModel = Known._meta.get_field("spell").remote_field.model  # Spell
 
 
     for cp in class_progress:
@@ -3557,365 +3599,418 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
             .filter(kind="spell_table", character_class=cp.character_class)
             .distinct()
         )
+
+        # ← NEW: accumulator to merge multiple spell tables per origin
+        # === GLOBAL accumulators across ALL classes / ALL spell-table features ===
+        sum_slots_by_rank   = {}           # {rank: total slots across all features}
+        total_cantrips_max  = 0            # SUM of per-feature cantrip caps
+        total_known_max     = 0            # SUM of per-feature known caps (when present)
+        total_prepared_max  = 0            # SUM of per-feature prepared caps (when present)
+        origin_tokens       = set()        # union of origin/sub_origin tokens the character can access
+
+
         # Build a dict like {"cleric_level": 5, "wizard_level": 2, ...}
         all_class_levels_ctx = {}
+
         for prog in class_progress:
             # tokenize class name → "cleric", "war_priest", "wizard", etc.
             token = re.sub(r'[^a-z0-9_]', '', (prog.character_class.name or '').strip().lower().replace(' ', '_'))
             if token:
                 all_class_levels_ctx[f"{token}_level"] = prog.levels
 
+
+        # --- COLLECT per-feature pieces into by_origin ---
         for ft in owned_tables:
             row = ft.spell_slot_rows.filter(level=cp.levels).first()
 
-            # safe eval context for formulas stored on ClassFeature
-            # --- safe eval helpers / context for spell table formulas ---
+            # safe eval helpers / context (unchanged)
             def _abil(score: int) -> int: return (score - 10) // 2
-
-            ctx = {
-                # level-in-class variables (cleric_level, wizard_level, etc.)
-                # e.g. {'cleric_level': 1, 'war_priest_level': 0, ...}
-            }
+            ctx = {}
             for prog in class_progress:
                 token = re.sub(r'[^a-z0-9_]', '', (prog.character_class.name or '')
                             .strip().lower().replace(' ', '_'))
                 if token:
                     ctx[f"{token}_level"] = int(prog.levels or 0)
-
-            # ability: expose both score and modifier under common aliases
             ctx.update({
-                # scores
-                    "ceil": math.ceil,
-    "round_up": math.ceil,
-    "roundup": math.ceil,     # NEW alias
-    "ceiling": math.ceil, 
+                "ceil": math.ceil, "round_up": math.ceil, "roundup": math.ceil, "ceiling": math.ceil,
                 "strength_score": character.strength, "dexterity_score": character.dexterity,
                 "constitution_score": character.constitution, "intelligence_score": character.intelligence,
                 "wisdom_score": character.wisdom, "charisma_score": character.charisma,
-                # primary short names as **modifiers**
                 "strength": _abil(character.strength), "dexterity": _abil(character.dexterity),
                 "constitution": _abil(character.constitution), "intelligence": _abil(character.intelligence),
                 "wisdom": _abil(character.wisdom), "charisma": _abil(character.charisma),
-                # explicit *_mod aliases
                 "str_mod": _abil(character.strength), "dex_mod": _abil(character.dexterity),
                 "con_mod": _abil(character.constitution), "int_mod": _abil(character.intelligence),
                 "wis_mod": _abil(character.wisdom), "cha_mod": _abil(character.charisma),
-                # math helpers
-                "floor": math.floor, "ceil": math.ceil, "min": min, "max": max,
-                "int": int, "round": round, "round_up": math.ceil,
+                "floor": math.floor, "min": min, "max": max, "int": int, "round": round,
             })
-
             def _eval(expr: str):
                 if not expr:
                     return None
                 try:
-                    expr = _normalize_formula(expr)       # <<< ADD THIS LINE
-                    val = eval(expr, {"__builtins__": {}}, ctx)
-                    return int(val)
+                    expr = _normalize_formula(expr)
+                    return int(eval(expr, {"__builtins__": {}}, ctx))
                 except Exception:
                     return None
 
-            # slots by rank (R1..R10)
-            slots = []
+            # per-feature slots vector + max rank
+            # per-feature slots vector + max rank
+            slots_vec = []
             if row:
-                slots = [row.slot1,row.slot2,row.slot3,row.slot4,row.slot5,
-                         row.slot6,row.slot7,row.slot8,row.slot9,row.slot10]
-            max_rank = max((i+1 for i, s in enumerate(slots) if (s or 0) > 0), default=0)
+                slots_vec = [row.slot1,row.slot2,row.slot3,row.slot4,row.slot5,
+                             row.slot6,row.slot7,row.slot8,row.slot9,row.slot10]
+            max_rank_from_slots = max((i+1 for i, s in enumerate(slots_vec) if (s or 0) > 0), default=0)
 
+            # 🔹 NEW: push a DISPLAY block for THIS feature's slot table
             origin_label = (getattr(ft, "get_spell_list_display", lambda: None)() or ft.spell_list or "").strip()
-            origin_key   = (ft.spell_list or origin_label or "—").strip().lower()  # normalized key
-            origin       = origin_label  # pretty label for UI
-       
+
+            origin_key   = (ft.spell_list or origin_label or "—").strip().lower()
+
+            # --- keep per-feature slot table for the editor UI ---
+            slot_table_blocks.append({
+                "feature_id": int(ft.id),
+                "feature_name": getattr(ft, "name", "") or "Spellcasting",
+                "class_name": cp.character_class.name,
+                "max_rank": max_rank_from_slots,
+                "slots": [int(slots_vec[i] or 0) for i in range(max_rank_from_slots)],
+                "slots_by_rank": {r: int(slots_vec[r-1] or 0) for r in range(1, max_rank_from_slots + 1)},
+            })
+
+            # --- evaluate caps for THIS feature (formulas → formula overrides → numeric overrides) ---
             cantrips_max  = _eval(getattr(ft, "cantrips_formula", None)) or 0
-            known_max     = _eval(getattr(ft, "spells_known_formula", None))  # may be None for prepared casters
-            prepared_max  = _eval(getattr(ft, "spells_prepared_formula", None))  # may be None for spontaneous casters
+            known_max     = _eval(getattr(ft, "spells_known_formula", None))
+            prepared_max  = _eval(getattr(ft, "spells_prepared_formula", None))
+
             def _ov_expr(key):
-                row = CharacterFieldOverride.objects.filter(character=character, key=key).first()
-                return (row.value or "").strip() if row and row.value is not None else None
+                rowx = CharacterFieldOverride.objects.filter(character=character, key=key).first()
+                return (rowx.value or "").strip() if rowx and rowx.value is not None else None
+
             expr_can = _ov_expr(f"spellcap_formula:{ft.id}:cantrips")
             expr_kn  = _ov_expr(f"spellcap_formula:{ft.id}:known")
             expr_pr  = _ov_expr(f"spellcap_formula:{ft.id}:prepared")
-            # Enforce minimums
-            if known_max is not None:
-                known_max = max(1, int(known_max))
-            if prepared_max is not None:
-                prepared_max = max(1, int(prepared_max))
-
             if expr_can: cantrips_max = _eval(expr_can) or 0
             if expr_kn  is not None: known_max    = _eval(expr_kn)
             if expr_pr  is not None: prepared_max = _eval(expr_pr)
-            
-            # RE-APPLY minimums after overrides
-            if cantrips_max is not None:
-                cantrips_max = max(1, int(cantrips_max or 0))
-            if known_max is not None:
-                known_max = max(1, int(known_max or 0))
-            if prepared_max is not None:
-                prepared_max = max(1, int(prepared_max or 0))
-            def _ov(key):
-                row = CharacterFieldOverride.objects.filter(character=character, key=key).first()
+
+            if known_max    is not None: known_max    = max(1, int(known_max))
+            if prepared_max is not None: prepared_max = max(1, int(prepared_max))
+            cantrips_max = max(1, int(cantrips_max or 0))
+
+            def _ov_num(key):
+                rowx = CharacterFieldOverride.objects.filter(character=character, key=key).first()
                 try:
-                    return int(row.value) if row and str(row.value).strip() != "" else None
+                    return int(rowx.value) if rowx and str(rowx.value).strip() != "" else None
                 except Exception:
                     return None
 
-            ov_can = _ov(f"spellcap:{ft.id}:cantrips")
-            ov_kn  = _ov(f"spellcap:{ft.id}:known")
-            ov_pr  = _ov(f"spellcap:{ft.id}:prepared")
-
+            ov_can = _ov_num(f"spellcap:{ft.id}:cantrips")
+            ov_kn  = _ov_num(f"spellcap:{ft.id}:known")
+            ov_pr  = _ov_num(f"spellcap:{ft.id}:prepared")
             if ov_can is not None: cantrips_max = ov_can
             if known_max is not None and ov_kn is not None: known_max = ov_kn
             if prepared_max is not None and ov_pr is not None: prepared_max = ov_pr
 
-            # Current counts scoped to this origin/list
-            # Current counts scoped to this origin/list
-            known_qs_base = character.known_spells.select_related("spell")
-            prep_qs_base  = character.prepared_spells.select_related("spell")
-            # Spells known by this character regardless of list (avoid dup-learn)
-            known_ids_all = set(character.known_spells.values_list("spell_id", flat=True))
+            # --- accumulate CAPS by SUM across all features (requirement #3) ---
+            total_cantrips_max += int(cantrips_max or 0)
+            if known_max    is not None: total_known_max    += int(known_max)
+            if prepared_max is not None: total_prepared_max += int(prepared_max)
 
-            if origin:
-                token_re = rf'(^|[,;/\s\(\)]+){re.escape(origin)}([,;/\s\(\)]+|$)'
-                known_qs_base = known_qs_base.filter(
-                    Q(spell__origin__icontains=origin) |
-                    Q(spell__sub_origin__icontains=origin) |
-                    Q(spell__origin__iregex=token_re) |
-                    Q(spell__sub_origin__iregex=token_re) |
-                    Q(origin__icontains=origin) |                     # NEW
-                    Q(origin__iregex=token_re)                        # NEW
-                )
+            # --- accumulate SLOTS by SUM across all features (not max) ---
+            for r, s in enumerate(slots_vec, start=1):
+                if not s: continue
+                sum_slots_by_rank[r] = int(sum_slots_by_rank.get(r, 0)) + int(s or 0)
 
-                # Prepared spells row stores only origin; use contains + token regex
-                prep_qs_base  = prep_qs_base.filter(
-                    Q(origin__icontains=origin) |
-                    Q(origin__iregex=token_re)
-                )
+            # --- collect accessible origin tokens (used to filter learn list UNION) ---
+            o_label = (getattr(ft, "get_spell_list_display", lambda: None)() or ft.spell_list or "").strip()
+            if o_label: origin_tokens.add(o_label)
+
+        # --- EMIT one block per ORIGIN (combined) ---
+        # ===== ONE consolidated selection block (requirements #1 and #2) =====
+        # Current known/prepared (global)
+        known_cantrips_qs = character.known_spells.select_related("spell").filter(spell__level=0)
+        known_leveled_qs  = character.known_spells.select_related("spell").filter(spell__level__gt=0)
+        prepared_qs       = character.prepared_spells.select_related("spell")
+
+        known_cantrips_current = known_cantrips_qs.count()
+        known_leveled_current  = known_leveled_qs.count()
+        prepared_per_rank      = Counter(prepared_qs.values_list("rank", flat=True))
+        prepared_current       = sum(v for r, v in prepared_per_rank.items() if r and r > 0)
+
+        # remaining per rank = SUM(slots) − prepared(r)
+        max_rank_all = (max(sum_slots_by_rank.keys()) if sum_slots_by_rank else 0)
+        remaining_by_rank = {
+            r: max(0, int(sum_slots_by_rank.get(r, 0)) - int(prepared_per_rank.get(r, 0)))
+            for r in range(1, max_rank_all + 1)
+        }
+
+        # Learn choices = UNION of all accessible origins; if none collected, show all
+        avail_base = SpellModel.objects.all()
+        if origin_tokens:
+            q = Q()
+            for tok in {t.strip() for t in origin_tokens if t}:
+                token_re = rf'(^|[,;/\s\(\)]+){re.escape(tok)}([,;/\s\(\)]+|$)'
+                q |= (Q(origin__icontains=tok) | Q(sub_origin__icontains=tok) |
+                    Q(origin__iregex=token_re) | Q(sub_origin__iregex=token_re))
+            filtered = avail_base.filter(q)
+            avail_base = filtered if filtered.exists() else avail_base
+
+        cols = ["id","name","level","classification","effect","upcast_effect","saving_throw",
+                "casting_time","duration","components","range","target","origin","sub_origin","tags","last_synced"]
+        known_ids_all = set(character.known_spells.values_list("spell_id", flat=True))
+        cantrip_choices = list(avail_base.filter(level=0).exclude(pk__in=known_ids_all).order_by("name").values(*cols))
+        spell_choices_by_rank = {
+            r: list(avail_base.filter(level=r).exclude(pk__in=known_ids_all).order_by("name").values(*cols))
+            for r in range(1, max_rank_all + 1)
+        }
+
+        def _rows_from_qs(qs):
+            out=[]
+            for s in qs.order_by("spell__level","spell__name"):
+                sp=s.spell
+                out.append({
+                    "id": sp.id, "known_id": getattr(s,"id",None), "prepared_id": getattr(s,"id",None),
+                    "name": sp.name, "origin": sp.origin or "", "sub_origin": sp.sub_origin or "",
+                    "level": sp.level, "rank": getattr(s,"rank", sp.level),
+                    "classification": sp.classification or "", "saving_throw": sp.saving_throw or "",
+                    "casting_time": sp.casting_time or "", "duration": sp.duration or "",
+                    "components": sp.components or "", "range": sp.range or "", "target": sp.target or "",
+                    "tags": sp.tags or "", "last_synced": sp.last_synced,
+                    "effect": sp.effect or "", "upcast_effect": sp.upcast_effect or "",
+                })
+            return out
+
+        def _rows_from_values(values_list):
+            out=[]
+            for v in values_list:
+                out.append({
+                    "id": v["id"], "name": v["name"], "origin": v.get("origin") or "",
+                    "sub_origin": v.get("sub_origin") or "", "level": v["level"], "rank": v["level"],
+                    "classification": v.get("classification") or "", "saving_throw": v.get("saving_throw") or "",
+                    "casting_time": v.get("casting_time") or "", "duration": v.get("duration") or "",
+                    "components": v.get("components") or "", "range": v.get("range") or "", "target": v.get("target") or "",
+                    "tags": v.get("tags") or "", "last_synced": v.get("last_synced"),
+                    "effect": v.get("effect") or "", "upcast_effect": v.get("upcast_effect") or "",
+                })
+            return out
+
+        prepared_rows_by_rank = {r: [] for r in range(1, max_rank_all + 1)}
+        if max_rank_all > 0:
+            prep_full = prepared_qs.order_by("rank","spell__name")
+            for r in range(1, max_rank_all + 1):
+                prepared_rows_by_rank[r] = _rows_from_qs(prep_full.filter(rank=r))
+
+        learned_cantrips_rows       = _rows_from_qs(known_cantrips_qs)
+        prepared_ids                = set(prepared_qs.values_list("spell_id", flat=True))
+        known_for_prepare_by_rank   = {r: [] for r in range(1, max_rank_all + 1)}
+        if max_rank_all > 0:
+            known_full = known_leveled_qs.order_by("spell__level","spell__name")
+            for r in range(1, max_rank_all + 1):
+                subset = known_full.filter(spell__level=r).exclude(spell_id__in=prepared_ids)
+                known_for_prepare_by_rank[r] = _rows_from_qs(subset)
+
+        learn_spells_by_rank = {r: _rows_from_values(spell_choices_by_rank.get(r, [])) for r in range(1, max_rank_all + 1)}
+        learn_cantrip_rows   = _rows_from_values(cantrip_choices)
+
+        has_any_override = CharacterFieldOverride.objects.filter(
+            character=character, key__regex=r'^spellcap(_formula)?:\d+:(cantrips|known|prepared)$'
+        ).exists()
+
+        # ONE consolidated selection block
+        spell_selection_blocks.append({
+            "feature_id": 0,  # not tied to a single feature
+            "has_any_override": has_any_override,
+            "class_name": "Spellcasting",
+            "max_rank": max_rank_all,
+            "cantrips_max": int(total_cantrips_max or 0),
+            "known_max": (int(total_known_max) if total_known_max else None),
+            "prepared_max": (int(total_prepared_max) if total_prepared_max else None),
+
+            "known_cantrips_current": known_cantrips_current,
+            "known_leveled_current":  known_leveled_current,
+            "prepared_current":       prepared_current,
+
+            "needs_cantrips": max(0, int(total_cantrips_max or 0) - known_cantrips_current),
+            "needs_known":    (max(0, int(total_known_max or 0) - known_leveled_current) if total_known_max else None),
+            "needs_prepared": (max(0, int(total_prepared_max or 0) - prepared_current) if total_prepared_max else None),
+
+            "prepared_remaining_by_rank": remaining_by_rank,
+            "slots_by_rank": {r: int(sum_slots_by_rank.get(r,0) or 0) for r in range(1, max_rank_all+1)},
+
+            "prepared_rows_by_rank": prepared_rows_by_rank,
+            "learned_cantrips_rows": learned_cantrips_rows,
+            "known_for_prepare_by_rank": known_for_prepare_by_rank,
+            "learn_spells_by_rank": learn_spells_by_rank,
+            "learn_cantrip_rows": learn_cantrip_rows,
+        })
+
+        # 🔹 Handle spell table actions (prepare / unprepare / learn / unlearn)
+    if request.method == "POST" and can_edit:
+        op = (request.POST.get("spells_op") or "").strip()
+
+        if op in {"prepare", "unprepare", "learn_known", "learn_cantrip", "unlearn_cantrip"}:
+            # collect picks (IDs); both "pick" and "pick[]" are supported
+            picks_raw = (
+                request.POST.getlist("pick[]")
+                or request.POST.getlist("pick")
+                or request.POST.getlist("picks[]")
+                or request.POST.getlist("picks")
+            ) or request.POST.getlist("pick")
+
+            pick_ids = []
+            for x in picks_raw:
+                s = str(x)
+                if "|" in s:
+                    s = s.split("|", 1)[0]  # drop any rank suffix if it slipped through
+                if s.isdigit():
+                    pick_ids.append(int(s))
 
 
-            # ----- CLEAR BUCKETS -----
-            # Known (aka learned) — split cantrips vs leveled
-            known_cantrips_qs = known_qs_base.filter(spell__level=0)
-            known_leveled_qs  = known_qs_base.filter(spell__level__gt=0)
+            # common fields from the form
+            fid  = int(request.POST.get("feature_id") or 0)
+            rank = int((request.POST.get("rank") or 0) or 0)  # may be 0 for cantrips
+            origin = (request.POST.get("origin") or "").strip()
 
-            known_cantrips_current = known_cantrips_qs.count()
-            known_leveled_current  = known_leveled_qs.count()
+            # Models via relations already used elsewhere in this function
+            Known = character.known_spells.model          # CharacterKnownSpell
+            Prep  = character.prepared_spells.model       # CharacterPreparedSpell
+            Spell = character.known_spells.model._meta.get_field("spell").remote_field.model
 
-            # Prepared – per-rank counts (rank>0 only)
-            prepared_per_rank = Counter(prep_qs_base.values_list("rank", flat=True))
-            prepared_current  = sum(v for r, v in prepared_per_rank.items() if r and r > 0)
+            if op == "prepare":
+                if not pick_ids:
+                    messages.error(request, "Pick at least one known spell to prepare.")
+                    return (spellcasting_blocks, spell_selection_blocks, redirect('characters:character_detail', pk=pk))
 
-            # Slots remaining per rank (1..max_rank) from this feature’s row
-            # NOTE: slots[] is already computed above; slots[i] is for rank i+1
-            remaining_by_rank = {
-                r: max(0, (slots[r-1] or 0) - int(prepared_per_rank.get(r, 0)))
-                for r in range(1, max_rank + 1)
-            }
-            slots_by_rank = {r: int(slots[r-1] or 0) for r in range(1, max_rank + 1)}
-
-            # ----- AVAILABLE CHOICES -----
-            # 0) Base queryset for this origin (define first!)
-
-            origin_code  = origin_key
-            # compute slots[] and max_rank as you already do
-            max_rank_from_slots = max((i+1 for i, s in enumerate(slots) if (s or 0) > 0), default=0)
-
-            # ensure at least rank 1 is considered if there's a known/prepared entitlement
-            has_known_ent = (_eval(getattr(ft, "spells_known_formula", None)) or 0) > 0
-            has_prep_ent  = (_eval(getattr(ft, "spells_prepared_formula", None)) or 0) > 0
-            max_rank = max(1 if (has_known_ent or has_prep_ent) else 0, max_rank_from_slots)
-
-            # origin filter — only apply if it actually matches anything; else, fall back
-            avail_base = Spell.objects.all()
-            if origin_label or origin_code:
-                token = (origin_label or origin_code).strip()
-                token_re = rf'(^|[,;/\s\(\)]+){re.escape(token)}([,;/\s\(\)]+|$)'
-                filtered = avail_base.filter(
-                    Q(origin__icontains=token) | Q(sub_origin__icontains=token) |
-                    Q(origin__iregex=token_re) | Q(sub_origin__iregex=token_re)
-                )
-                avail_base = filtered if filtered.exists() else avail_base  # <- don’t erase list if dirty data
-
-
-            # 1) Columns to return to the UI  (include id; fix the 'range','target' comma)
-            cols = [
-                "id", "name", "level", "classification", "effect", "upcast_effect",
-                "saving_throw", "casting_time", "duration", "components",
-                "range", "target", "origin", "sub_origin", "tags", "last_synced",
-            ]
-
-            # 2) Cantrips to learn (not yet known)
-            cantrip_choices = list(
-                avail_base.filter(level=0)
-                        .exclude(pk__in=known_ids_all)
-                        .order_by("name")
-                        .values(*cols)
-            )
-
-            # 3) Leveled spells to learn, grouped by rank
-            spell_choices_by_rank = {}
-            for r in range(1, max_rank + 1):
-                spell_choices_by_rank[r] = list(
-                    avail_base.filter(level=r)
-                            .exclude(pk__in=known_ids_all)
-                            .order_by("name")
-                            .values(*cols)
-                )
-
-
-
-            known_leveled_rows = list(
-                known_leveled_qs.order_by("spell__level", "spell__name")
-                                .values("spell_id", "spell__name", "spell__level")
-            )
-            prepare_choices_by_rank = {r: [] for r in range(1, max_rank + 1)}
-            for rec in known_leveled_rows:
-                r = int(rec["spell__level"])
-                if 1 <= r <= max_rank:
-                    prepare_choices_by_rank[r].append(
-                        {"id": rec["spell_id"], "name": rec["spell__name"], "rank": r}
+                # Normalize: accept either Spell IDs (ideal) or CharacterKnownSpell IDs (fallback)
+                spell_ids = set(SpellModel.objects.filter(pk__in=pick_ids).values_list("id", flat=True))
+                if not spell_ids:
+                    # Maybe the template sent Known IDs; map them
+                    known_spell_ids = set(
+                        Known.objects.filter(character=character, id__in=pick_ids)
+                                    .values_list("spell_id", flat=True)
                     )
-            spellcasting_blocks.append({
-                "klass": cp.character_class,
-                "list": (origin_label or origin or "").strip(),
-                "slots": [int(slots[i] or 0) for i in range(max_rank)],
-                "cantrips": int(cantrips_max or 0),
-                "known": (int(known_max) if known_max is not None else None),
-                "prepared": (int(prepared_max) if prepared_max is not None else None),
-            })
-            # block used by current Spellcasting tab (kept)
-            def _spell_rows_from_qs(qs, add_origin=None):
-                rows = []
-                for s in qs.select_related("spell").order_by("spell__level", "spell__name"):
-                    sp = s.spell
-                    rows.append({
-                        "id": sp.id,
-                        "known_id": getattr(s, "id", None),
-                        "prepared_id": getattr(s, "id", None),
-                        "name": sp.name,
-                        "origin": add_origin if add_origin is not None else (sp.origin or ""),
-                        "sub_origin": sp.sub_origin or "",
-                        "level": sp.level,                             # ← NEW
-                        "rank": getattr(s, "rank", sp.level),          # keep for prepare tables
-                        "classification": sp.classification or "",
-                        "saving_throw": sp.saving_throw or "",
-                        "casting_time": sp.casting_time or "",
-                        "duration": sp.duration or "",
-                        "components": sp.components or "",
-                        "range": sp.range or "",
-                        "target": sp.target or "",
-                        "tags": sp.tags or "",
-                        "last_synced": sp.last_synced,
-                        "effect": sp.effect or "",
-                        "upcast_effect": sp.upcast_effect or "",
-                    })
-                return rows
+                    spell_ids = known_spell_ids
 
+                if not spell_ids:
+                    messages.error(request, "Pick at least one known spell to prepare.")
+                    return (spellcasting_blocks, spell_selection_blocks, redirect('characters:character_detail', pk=pk))
 
+                # respect per-rank remaining cap
+                left = 0
+                try:
+                    left = int(request.POST.get("limit_prepare") or 0)
+                except Exception:
+                    pass
+                if left and len(spell_ids) > left:
+                    messages.error(request, f"You can prepare {left} more at this rank.")
+                    return (spellcasting_blocks, spell_selection_blocks, redirect('characters:character_detail', pk=pk))
 
+                # add prepared rows for the selected spells (avoid duplicates)
+                already_ids = set(character.prepared_spells.values_list("spell_id", flat=True))
+                to_add = [sid for sid in spell_ids if sid not in already_ids]
 
-            def _spell_rows_from_values(values_list, add_origin=None):
-                # values_list is what you already have in cantrip_choices / spell_choices_by_rank
-                out = []
-                for v in values_list:
-                    out.append({
-                        "id": v["id"],
-                        "name": v["name"],
-                        "origin": add_origin if add_origin is not None else (v.get("origin") or ""),
-                        "sub_origin": v.get("sub_origin") or "",
-                        "level": v["level"],   
-                        "rank": v["level"],
-                        "classification": v.get("classification") or "",
-                        "saving_throw": v.get("saving_throw") or "",
-                        "casting_time": v.get("casting_time") or "",
-                        "duration": v.get("duration") or "",
-                        "components": v.get("components") or "",
-                        "range": v.get("range") or "",
-                        "target": v.get("target") or "",
-                        "tags": v.get("tags") or "",
-                        "last_synced": v.get("last_synced"),
-                        # details-only
-                        "effect": v.get("effect") or "",
-                        "upcast_effect": v.get("upcast_effect") or "",
-                    })
-                return out
+                if to_add:
+                    for sid in to_add:
+                        sp = SpellModel.objects.filter(pk=sid).first()
+                        if not sp:
+                            continue
+                        Prep.objects.get_or_create(
+                            character=character,
+                            spell_id=sp.id,
+                            defaults={"rank": (rank or sp.level or 0), "origin": origin or ""},
+                        )
+                    messages.success(request, f"Prepared {len(to_add)} spell(s).")
+                else:
+                    messages.info(request, "Nothing to prepare.")
+                return (spellcasting_blocks, spell_selection_blocks, redirect('characters:character_detail', pk=pk))
 
-            # 1) Prepared spells (by rank)
-            prepared_rows_by_rank = {r: [] for r in range(1, max_rank + 1)}
-            if max_rank > 0:
-                prep_full = prep_qs_base.select_related("spell").order_by("rank", "spell__name")
-                for r in range(1, max_rank + 1):
-                    prepared_rows_by_rank[r] = _spell_rows_from_qs(
-                        prep_full.filter(rank=r), add_origin=origin_key
+            if op == "unprepare":
+                if not pick_ids:
+                    messages.error(request, "Select at least one prepared spell to remove.")
+                    return (spellcasting_blocks, spell_selection_blocks, redirect('characters:character_detail', pk=pk))
+                deleted, _ = Prep.objects.filter(character=character, id__in=pick_ids).delete()
+                if deleted:
+                    messages.success(request, f"Unprepared {deleted} spell(s).")
+                else:
+                    messages.info(request, "Nothing to unprepare.")
+                return (spellcasting_blocks, spell_selection_blocks, redirect('characters:character_detail', pk=pk))
+
+            if op == "learn_known":
+                if not pick_ids:
+                    messages.error(request, "Pick at least one spell to learn.")
+                    return (spellcasting_blocks, spell_selection_blocks, redirect('characters:character_detail', pk=pk))
+
+                # honor Known-cap if provided
+                needs_known = request.POST.get("limit_known")
+                try:
+                    limit = int(needs_known) if (needs_known not in (None, "", "None")) else None
+                except Exception:
+                    limit = None
+                if limit is not None and len(pick_ids) > limit:
+                    messages.error(request, f"You can learn {limit} more spell(s) right now.")
+                    return (spellcasting_blocks, spell_selection_blocks, redirect('characters:character_detail', pk=pk))
+
+                owned = set(character.known_spells.values_list("spell_id", flat=True))
+                created = 0
+                for sid in pick_ids:
+                    if sid in owned:
+                        continue
+                    Known.objects.get_or_create(
+                        character=character, spell_id=sid,
+                        defaults={"origin": origin or ""}
                     )
+                    created += 1
+                if created:
+                    messages.success(request, f"Learned {created} spell(s).")
+                else:
+                    messages.info(request, "Nothing to learn.")
+                return (spellcasting_blocks, spell_selection_blocks, redirect('characters:character_detail', pk=pk))
 
-            # 2) Learned cantrips (rank 0, from known)
-            learned_cantrips_rows = _spell_rows_from_qs(known_cantrips_qs, add_origin=origin_key)
+            if op == "learn_cantrip":
+                if not pick_ids:
+                    messages.error(request, "Pick at least one cantrip to learn.")
+                    return (spellcasting_blocks, spell_selection_blocks, redirect('characters:character_detail', pk=pk))
 
-            # 3) From KNOWN (rank > 0) → available to PREPARE (exclude ones already prepared)
-            prepared_ids = set(prep_qs_base.values_list("spell_id", flat=True))
-            known_for_prepare_by_rank = {r: [] for r in range(1, max_rank + 1)}
-            if max_rank > 0:
-                known_full = known_leveled_qs.select_related("spell").order_by("spell__level", "spell__name")
-                for r in range(1, max_rank + 1):
-                    subset = known_full.filter(spell__level=r).exclude(spell_id__in=prepared_ids)
-                    known_for_prepare_by_rank[r] = _spell_rows_from_qs(subset, add_origin=origin_key)
+                # honor Cantrip-cap if provided
+                needs_can = request.POST.get("limit_cantrips")
+                try:
+                    limit = int(needs_can) if (needs_can not in (None, "", "None")) else None
+                except Exception:
+                    limit = None
+                if limit is not None and len(pick_ids) > limit:
+                    messages.error(request, f"You can learn {limit} more cantrip(s) right now.")
+                    return (spellcasting_blocks, spell_selection_blocks, redirect('characters:character_detail', pk=pk))
 
+                owned = set(character.known_spells.values_list("spell_id", flat=True))
+                created = 0
+                for sid in pick_ids:
+                    if sid in owned:
+                        continue
+                    sp = SpellModel.objects.filter(pk=sid, level=0).first()
+                    if not sp:
+                        continue
+                    Known.objects.get_or_create(
+                        character=character, spell_id=sp.id,
+                        defaults={"origin": origin or ""}
+                    )
+                    created += 1
+                if created:
+                    messages.success(request, f"Learned {created} cantrip(s).")
+                else:
+                    messages.info(request, "Nothing to learn.")
+                return (spellcasting_blocks, spell_selection_blocks, redirect('characters:character_detail', pk=pk))
 
-            # 4) From full LIST → available to KNOW (rank > 0)  (already computed in spell_choices_by_rank)
-            learn_spells_by_rank = {
-                r: _spell_rows_from_values(spell_choices_by_rank.get(r, []), add_origin=(origin or ""))
-                for r in range(1, max_rank + 1)
-            }
+            if op == "unlearn_cantrip":
+                if not pick_ids:
+                    messages.error(request, "Select at least one cantrip to unlearn.")
+                    return (spellcasting_blocks, spell_selection_blocks, redirect('characters:character_detail', pk=pk))
 
-            # 5) From full LIST → available to LEARN (cantrips)
-            learn_cantrip_rows = _spell_rows_from_values(cantrip_choices, add_origin=origin_key)
-            has_any_override = CharacterFieldOverride.objects.filter(
-                character=character,
-                key__in=[
-                    f"spellcap_formula:{ft.id}:cantrips",
-                    f"spellcap_formula:{ft.id}:known",
-                    f"spellcap_formula:{ft.id}:prepared",
-                    f"spellcap:{ft.id}:cantrips",
-                    f"spellcap:{ft.id}:known",
-                    f"spellcap:{ft.id}:prepared",
-                ]
-            ).exists()
-            spell_selection_blocks.append({
-            "cantrips_formula": getattr(ft, "cantrips_formula", "") or "",
-              "spells_known_formula": getattr(ft, "spells_known_formula", "") or "",
-               "spells_prepared_formula": getattr(ft, "spells_prepared_formula", "") or "",
-                # ── unchanged context you already had ───────────────────────────────────
-                "feature_id": ft.id,
-                "has_any_override": has_any_override,
-                "class_name": cp.character_class.name,
-                "origin": origin_key,
-                "origin_code": (ft.spell_list or "").lower(),
-                "max_rank": max_rank,
-                "cantrips_max": int(cantrips_max or 0),
-                "known_max": (int(known_max) if known_max is not None else None),
-                "prepared_max": (int(prepared_max) if prepared_max is not None else None),
-                "known_cantrips_current": known_cantrips_current,
-                "known_leveled_current":  known_leveled_current,
-                "prepared_current":       prepared_current,
-                "needs_cantrips": max(0, int(cantrips_max) - known_cantrips_current),
-                "needs_known":    (max(0, int(known_max) - known_leveled_current) if known_max is not None else None),
-
-                "needs_prepared": max(0, int(prepared_max or 0) - prepared_current) if prepared_max is not None else None,
-                "prepared_remaining_by_rank": remaining_by_rank,
-                "slots_by_rank": slots_by_rank,
-
-                # ── NEW: 5 sections for the Spellcasting tab ───────────────────────────
-                # 1
-                "prepared_rows_by_rank": prepared_rows_by_rank,
-                # 2
-                "learned_cantrips_rows": learned_cantrips_rows,
-                # 3
-                "known_for_prepare_by_rank": known_for_prepare_by_rank,
-                # 4
-                "learn_spells_by_rank": learn_spells_by_rank,
-                # 5
-                "learn_cantrip_rows": learn_cantrip_rows,
-            })
+                # Pick IDs here are CharacterKnownSpell IDs for cantrips table
+                deleted, _ = Known.objects.filter(character=character, id__in=pick_ids).delete()
+                if deleted:
+                    messages.success(request, f"Unlearned {deleted} cantrip(s).")
+                else:
+                    messages.info(request, "Nothing to unlearn.")
+                return (spellcasting_blocks, spell_selection_blocks, redirect('characters:character_detail', pk=pk))
 
 
     if request.method == "POST" and request.POST.get("spells_op") == "adjust_formulas" and can_edit:
@@ -3961,7 +4056,12 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
 
 
     # If none of the POST branches early-returned, fall through normally:
+    # FINALIZE DISPLAY rows: strictly per-feature tables we collected
+    # Per-feature slot editors stay separate from the consolidated selection table
+    spellcasting_blocks = slot_table_blocks
+    # (no leading-underscore keys)
     return (spellcasting_blocks, spell_selection_blocks, None)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # NEW: Martial Mastery tab builder
@@ -4526,6 +4626,37 @@ def character_detail(request, pk):
     can_edit = (request.user.id == character.user_id) or is_gm_for_campaign
     # ---- level-up uses POST when submitting, GET when previewing ----
     data = request.POST if request.method == "POST" else request.GET
+    # Helper: read/write equipped weapon slot overrides
+    def _get_equipped_weapon(slot: int):
+        ov = CharacterFieldOverride.objects.filter(
+            character=character, key=f"equipped_weapon:{slot}"
+        ).first()
+        if not ov or not str(ov.value).isdigit():
+            return None
+        wid = int(ov.value)
+        try:
+            Weapon = apps.get_model("characters", "Weapon")
+            return Weapon.objects.get(pk=wid)
+        except Exception:
+            return None
+
+    equipped_weapon_1 = _get_equipped_weapon(1)
+    equipped_weapon_2 = _get_equipped_weapon(2)
+    equipped_weapon_3 = _get_equipped_weapon(3)
+
+    # Offer a weapon list (your inventory weapons first; fall back to full catalog)
+    Weapon = apps.get_model("characters", "Weapon")
+    try:
+        CharacterItem = apps.get_model("characters", "CharacterItem")
+        inv_weapon_ids = list(CharacterItem.objects
+            .filter(character=character, item_content_type__model="weapon")
+            .values_list("item_object_id", flat=True))
+        weapons_list = list(Weapon.objects.filter(pk__in=inv_weapon_ids).order_by("name"))
+        # fall back to all if empty
+        if not weapons_list:
+            weapons_list = list(Weapon.objects.all().order_by("name")[:200])
+    except Exception:
+        weapons_list = list(Weapon.objects.all().order_by("name")[:200])
 
     # --- Martial Mastery: learn / unlearn ---------------------------------------
     if request.method == "POST" and can_edit and request.POST.get("martial_op"):
@@ -5030,12 +5161,130 @@ def character_detail(request, pk):
         _spell_redirect
     ) = _build_spell_tab(request, character, class_progress, can_edit, pk=pk)
 
+    # ── Spell slot table display: only those backed by actual Class Features ─────────
+    # Gather the ClassFeature ids the character actually owns that are spell tables
+
+    auto_feats = [
+        f for f in base_feats
+        if isinstance(f, ClassFeature) and (
+            f.scope == 'class_feat' or getattr(f, "kind", "") == "spell_table"
+        )
+    ]
+
+
+    # Use ONLY these for slot-table display. Do NOT condense to a single 'largest' table.
+    # ── Expose all Class Features that are spell slot tables (with descriptions) ─────
+    spell_slot_features = []
+
+    # Owned spell-table features (current character)
+    _owned = (
+        CharacterFeature.objects
+            .filter(character=character, feature__kind="spell_table")
+            .select_related("feature", "feature__character_class", "subclass")
+            .order_by("level", "feature__name")
+    )
+    for cf in _owned:
+        f = cf.feature
+        spell_slot_features.append({
+            "id": f.id,
+            "name": getattr(f, "name", "") or "—",
+            "class": getattr(getattr(f, "character_class", None), "name", "") or "",
+            "level": cf.level,
+            "description": (getattr(f, "description", "") or getattr(f, "summary", "") or ""),
+        })
+
+    # Also include any spell-table features you’re about to gain at this class level (preview)
+    for f in auto_feats:
+        if getattr(f, "kind", "") == "spell_table" and not any(row["id"] == f.id for row in spell_slot_features):
+            spell_slot_features.append({
+                "id": f.id,
+                "name": getattr(f, "name", "") or "—",
+                "class": getattr(getattr(f, "character_class", None), "name", "") or "",
+                "level": cls_level_after,
+                "description": (getattr(f, "description", "") or getattr(f, "summary", "") or ""),
+            })
+
+
     if _spell_redirect:
         return _spell_redirect
 
     # --- NEW: Martial Mastery tab (points + slots + learn/unlearn) -----------
     mm_ctx = build_martial_mastery_context(character, class_progress)
     
+    # --- Spell slots-left editor (separate from prepared/known/learn) --------------
+    if request.method == "POST" and request.POST.get("spells_op") == "save_slots_left" and can_edit:
+        # keys: slots_left_<feature_id>_<rank>
+        updated = 0
+        note = (request.POST.get("note") or "").strip()
+        for k, v in request.POST.items():
+            if not k.startswith("slots_left_"):
+                continue
+            parts = k.split("_")  # ["slots","left","<fid>","<rank>"]
+            if len(parts) != 4:
+                continue
+            try:
+                fid = int(parts[2]); r = int(parts[3])
+            except Exception:
+                continue
+
+            val_s = (v or "").strip()
+            if val_s == "":
+                # clearing -> remove the override for this feature/rank
+                CharacterFieldOverride.objects.filter(
+                    character=character, key=f"spell_slots_left:{fid}:{r}"
+                ).delete()
+                CharacterFieldNote.objects.filter(
+                    character=character, key=f"spell_slots_left:{fid}:{r}"
+                ).delete()
+                updated += 1
+                continue
+
+            try:
+                val_i = int(val_s)
+            except ValueError:
+                messages.error(request, f"Slots-left for feature {fid}, rank {r} must be a whole number.")
+                return redirect('characters:character_detail', pk=pk)
+
+            CharacterFieldOverride.objects.update_or_create(
+                character=character, key=f"spell_slots_left:{fid}:{r}", defaults={"value": str(val_i)}
+            )
+            if note:
+                CharacterFieldNote.objects.update_or_create(
+                    character=character, key=f"spell_slots_left:{fid}:{r}", defaults={"note": note}
+                )
+            updated += 1
+
+        if updated:
+            messages.success(request, "Spell slots remaining saved.")
+        else:
+            messages.info(request, "No changes to spell slots remaining.")
+        return redirect('characters:character_detail', pk=pk)
+    spell_slots_editors = []  
+    for blk in (spellcasting_blocks or []):
+        fid = int(blk.get("feature_id") or 0)
+        if not fid:
+            continue
+        slots_by_rank = blk.get("slots_by_rank") or {}
+        rows = []
+        for r in sorted(int(k) for k in slots_by_rank.keys()):
+            total = int(slots_by_rank.get(r, 0) or 0)
+            # Persisted override is namespaced by feature id + rank
+            ov = CharacterFieldOverride.objects.filter(
+                character=character, key=f"spell_slots_left:{fid}:{r}"
+            ).first()
+            left = int((ov.value if ov and str(ov.value).strip() != "" else total))
+            rows.append({
+                "rank": r,
+                "total": total,
+                "left": left,
+                # input name carries feature id and rank (e.g., slots_left_123_3)
+                "key": f"slots_left_{fid}_{r}",
+            })
+        spell_slots_editors.append({
+            "feature_id": fid,
+            "feature_name": blk.get("name") or blk.get("label") or "Spell Slots",
+            "rows": rows,
+        })
 
 
 
@@ -5085,12 +5334,7 @@ def character_detail(request, pk):
                 cfeat.delete()
 
             return redirect('characters:character_detail', pk=pk)    
-    auto_feats = [
-        f for f in base_feats
-        if isinstance(f, ClassFeature) and (
-            f.scope == 'class_feat' or getattr(f, "kind", "") == "spell_table"
-        )
-    ]
+
 
     for f in auto_feats:
         if getattr(f, "kind", "") == "spell_table":
@@ -5162,7 +5406,26 @@ def character_detail(request, pk):
             return redirect('characters:character_detail', pk=pk)
         return redirect('characters:character_detail', pk=pk)
 
+    if request.method == "POST" and request.POST.get("save_skill_profs_submit"):
+        # Accept any number of rows: look for sp_<id_key> and optional sp_note_<id_key>
+        changes = []
+        for k, v in request.POST.items():
+            if not k.startswith("sp_") or k.startswith("sp_note_"):
+                continue
+            id_key = k[3:]  # strip "sp_"
+            tier_pk = (v or "").strip()
+            note = request.POST.get(f"sp_note_{id_key}", "").strip()
+            if not tier_pk:
+                continue  # skip empty selects
+            # TODO: validate note requirement if you want it mandatory
+            changes.append((id_key, tier_pk, note))
 
+        # apply each change (pseudo-code: adapt to your models)
+        for id_key, tier_pk, note in changes:
+            # your helper should set the new tier and store the reason
+            set_skill_prof_tier(character, id_key=id_key, tier_pk=tier_pk, reason=note, user=request.user)
+
+        return redirect(request.path)
 
     # --- SKILLS: additive adjustments with reasons (multi-entry) -------------------
     if request.method == "POST" and can_edit and request.POST.get("skills_op"):
@@ -6285,17 +6548,108 @@ def character_detail(request, pk):
     # Base profs from your resolver
     prof_by_code = {r["type_code"]: r for r in _current_proficiencies_for_character(character)}
 
+    # --- FIX: derive weapon group tiers from the class(es) the character actually has ---
+    def _norm_g(code: str) -> str:
+        c = (code or "").strip().lower().replace(" ", "_").replace("-", "_")
+        c = c.replace("weapon_", "weapon:")  # accept "weapon_simple" too
+        return c if c.startswith("weapon:") else ("weapon:" + c if c in {"simple","martial","special","black_powder"} else c)
+
+    group_best = {}  # "weapon:simple" -> ProficiencyLevel
+    for cp in class_progress:  # character.class_progress already loaded
+        cls = cp.character_class
+        lvl = int(cp.levels or 0)
+        for p in cls.prof_progress.select_related("tier"):
+            if int(getattr(p, "at_level", 0)) > lvl:
+                continue
+            # Handle either a 'type_code' field or a choices field named 'proficiency_type'
+            raw = getattr(p, "type_code", None) or getattr(p, "proficiency_type", None) or ""
+            disp = ""
+            try:
+                disp = p.get_proficiency_type_display()
+            except Exception:
+                pass
+            # normalize to "weapon:<group>"
+            key = _norm_g(str(raw)) or _norm_g(str(disp).lower())
+            if not key.startswith("weapon:"):
+                continue
+            # keep highest tier by bonus
+            cur = group_best.get(key)
+            if cur is None or int(p.tier.bonus or 0) > int(getattr(cur, "bonus", 0) or 0):
+                group_best[key] = p.tier
+
+    # write/inject group rows into prof_by_code (so later code sees them)
+    for gkey, tier in group_best.items():
+        prof_by_code[gkey] = {
+            "type_code": gkey,
+            "tier_name": (tier.name or "Untrained").title(),
+            "modifier":  int(tier.bonus or 0),
+            "bonus":     int(tier.bonus or 0),
+            "is_proficient": (str(tier.name).strip().lower() != "untrained"),
+            "source": "Class",
+        }
+
+    # Ensure all 4 groups exist (default to Untrained if class gives none)
+    for g in ("weapon:simple","weapon:martial","weapon:special","weapon:black_powder"):
+        if g not in prof_by_code:
+            prof_by_code[g] = {
+                "type_code": g,
+                "tier_name": "Untrained",
+                "modifier": 0,
+                "bonus": 0,
+                "is_proficient": False,
+                "source": "Default",
+            }
+
     # 1) NEW: apply TIER override first (changes tier_name + modifier)
     #    Key format: "prof_tier:{code}" -> value is ProficiencyLevel.pk
     tier_rows = ProficiencyLevel.objects.in_bulk()  # {pk: ProficiencyLevel}
-    for code, row in prof_by_code.items():
-        tier_pk = overrides.get(f"prof_tier:{code}")
+    # ALSO honor per-weapon-group tier overrides: weapon:simple|martial|special|black_powder
+    for gcode in ("weapon:simple","weapon:martial","weapon:special","weapon:black_powder"):
+        tier_pk = overrides.get(f"prof_tier:{gcode}")
         if tier_pk and str(tier_pk).isdigit():
             pl = tier_rows.get(int(tier_pk))
             if pl:
-                row["modifier"]  = int(pl.bonus or 0)
-                row["tier_name"] = (pl.name or "").title()
-                row["source"]    = "Tier override"
+                # Ensure a row exists in prof_by_code for this group; if your
+                # _current_proficiencies_for_character doesn’t produce these rows,
+                # add them there with type_code=gcode. (Minimal change: add four entries.)
+                if gcode not in prof_by_code:
+                    prof_by_code[gcode] = {
+                        "type_code": gcode,
+                        "tier_name": pl.name.title(),
+                        "modifier": int(pl.bonus or 0),
+                        "bonus": int(pl.bonus or 0),
+                        "is_proficient": (not _is_untrained_name(pl.name)),
+                        "source": "Tier override",
+                    }
+                else:
+                    r = prof_by_code[gcode]
+                    r["modifier"]  = int(pl.bonus or 0)
+                    r["tier_name"] = pl.name.title()
+                    r["source"]    = "Tier override"
+
+    # NEW: if no override, backfill weapon group profs from class rules
+    # so display shows Simple/Martial/Special/Black Powder correctly.
+    for gcode, gname in (
+        ("weapon:simple", "simple"),
+        ("weapon:martial", "martial"),
+        ("weapon:special", "special"),
+        ("weapon:black_powder", "black_powder"),
+    ):
+        pr = _effective_class_prof_for_item(
+            character, "weapon",
+            weapon_group=gname,     # <- group only, no specific item
+            weapon_item_id=None
+        )
+        # If row missing OR still Untrained, use class-derived values
+        if (gcode not in prof_by_code) or _is_untrained_name(prof_by_code[gcode].get("tier_name","Untrained")):
+            prof_by_code[gcode] = {
+                "type_code": gcode,
+                "tier_name": pr.get("name", "Untrained"),
+                "modifier": int(pr.get("bonus", 0)),
+                "bonus": int(pr.get("bonus", 0)),
+                "is_proficient": bool(pr.get("is_proficient", False)),
+                "source": "Class rules",
+            }
 
     # 2) (Existing) numeric modifier override still supported and wins last
     for code, row in prof_by_code.items():
@@ -6434,8 +6788,8 @@ def character_detail(request, pk):
     }
 
     LABELS = dict(PROFICIENCY_TYPES)
-    def _hl(code): return hl_if_trained(code)
     defense_rows = []
+    def _hl(code): return hl_if_trained(code)
 
     def add_row(code, abil_name=None, abil_mod_val=0, label=None, base_const=0,
                 prof_override=None, half_override=None):
@@ -6496,6 +6850,7 @@ def character_detail(request, pk):
                 *([{"name": f"{(abil_name or '')[:3]} mod", "value": abil_mod_val, "note": abil_name}] if abil_name else []),
             ],
         }
+        
 
         defense_rows.append({
             "code":   code,
@@ -6519,8 +6874,23 @@ def character_detail(request, pk):
             "debug_json": json.dumps(debug),
         })
 
+    defense_totals = {r["type"]: r["total_s"] for r in (defense_rows or [])}
+
+    # Ensure all core prof codes exist so Defense never collapses
+    for _code in ("armor","dodge","reflex","fortitude","will","perception","initiative","weapon","dc"):
+        if _code not in prof_by_code:
+            prof_by_code[_code] = {
+                "type_code": _code,
+                "tier_name": "Untrained",
+                "modifier": 0,
+                "is_proficient": False,
+                "source": "Default",
+            }
+
+    
 
     add_row("dodge", dex_label, dex_for_dodge, label="Dodge", base_const=10)
+
   # ← 10 + DEX + prof + ½ level
     add_row("reflex", "Dexterity", dex_mod, label="Reflex")
     add_row("fortitude","Constitution", con_mod, label="Fortitude")
@@ -6650,6 +7020,23 @@ def character_detail(request, pk):
             .filter(name__in=FIVE_TIERS)
             .order_by(order, "bonus")
     )
+    # --- Replace your current weapon_group_display build with this:
+    _weapon_labels = {
+        "weapon:simple": "Simple",
+        "weapon:martial": "Martial",
+        "weapon:special": "Special",
+        "weapon:black_powder": "Black Powder",
+    }
+    weapon_group_display = []
+    for gkey in ("weapon:simple","weapon:martial","weapon:special","weapon:black_powder"):
+        r = prof_by_code.get(gkey, {"tier_name":"Untrained","modifier":0})
+        weapon_group_display.append({
+            "code": gkey,
+            "label": _weapon_labels[gkey],
+            "tier_name": r.get("tier_name") or "Untrained",
+            "modifier": int(r.get("modifier") or 0),
+        })
+
 
     untrained_level = next((pl for pl in prof_levels if _is_untrained_name(pl.name)), None)
     ct_skill    = ContentType.objects.get_for_model(Skill)
@@ -7451,7 +7838,13 @@ def character_detail(request, pk):
 
         op   = request.POST.get("spells_op")
         fid  = int(request.POST.get("feature_id") or 0)
-        picks = request.POST.getlist("pick[]")  # values from the table
+        picks = (
+            request.POST.getlist("pick[]")
+            or request.POST.getlist("pick")
+            or request.POST.getlist("picks[]")
+            or request.POST.getlist("picks")
+        )
+
         blk = next((b for b in spell_selection_blocks if int(b["feature_id"]) == fid), None)
         if not blk:
             messages.error(request, "Invalid spell table selection.")
@@ -7671,6 +8064,107 @@ def character_detail(request, pk):
                 ).delete()
             messages.success(request, f"Unlearned {len(ids)} martial mastery trait(s).")
             return redirect('characters:character_detail', pk=pk)
+    # ── Weapon group proficiencies (Simple/Martial/Special/Black Powder) ─────────
+    # 0) normalizer
+    def _label_from_code(c):
+        return {
+            "simple": "Simple",
+            "martial": "Martial",
+            "special": "Special",
+            "black_powder": "Black Powder",
+            "black-powder": "Black Powder",
+        }.get((c or "").replace(" ", "_").lower(), (c or "").replace("_", " ").title())
+
+    # 1) Find the best tier from class progression at the character’s current class level
+    group_base_tier = { "simple": None, "martial": None, "special": None, "black_powder": None }
+
+    # Your model shows something like Class.prof_progress with fields:
+    #   proficiency_type, tier, at_level
+    # We assume weapon groups are encoded as type_code like "weapon:simple" etc.
+    for p in preview_cls.prof_progress.select_related("tier"):
+        tcode = (getattr(p, "proficiency_type", "") or getattr(p, "type_code", "") or "").lower()
+        if not tcode.startswith("weapon:"):
+            continue
+        grp = tcode.split(":", 1)[1]  # "simple" / "martial" / ...
+        # if this progression has kicked in by the class-level-after-pick, keep the highest tier bonus
+        if getattr(p, "at_level", 0) <= cls_level_after:
+            cur = group_base_tier.get(grp)
+            if cur is None or p.tier.bonus > cur.bonus:
+                group_base_tier[grp] = p.tier
+
+    # 2) Per-group override handler (this is the “Save” from your mini modal)
+    if request.method == "POST" and can_edit and request.POST.get("save_prof_tier_override") == "1":
+        code = (request.POST.get("prof_code") or "").strip()  # e.g., "weapon:simple"
+        tier_pk = (request.POST.get("prof_tier_pk") or "").strip()
+        reason  = (request.POST.get("prof_tier_reason") or "").strip()
+        if code.startswith("weapon:"):
+            key = f"prof_tier:{code}"   # e.g., "prof_tier:weapon:simple"
+            if tier_pk:
+                CharacterFieldOverride.objects.update_or_create(
+                    character=character, key=key, defaults={"value": tier_pk}
+                )
+                CharacterFieldNote.objects.update_or_create(
+                    character=character, key=key, defaults={"note": reason or "Changed via UI"}
+                )
+            else:
+                CharacterFieldOverride.objects.filter(character=character, key=key).delete()
+                CharacterFieldNote.objects.filter(character=character, key=key).delete()
+            return redirect("characters:character_detail", pk=pk)
+
+    # Explicit weapon group display pulled from `prof_by_code`
+    _weapon_labels = {
+        "weapon:simple": "Simple",
+        "weapon:martial": "Martial",
+        "weapon:special": "Special",
+        "weapon:black_powder": "Black Powder",
+    }
+    weapon_group_display = []
+    for gkey in ("weapon:simple","weapon:martial","weapon:special","weapon:black_powder"):
+        r = prof_by_code.get(gkey, {"tier_name":"Untrained","modifier":0})
+        weapon_group_display.append({
+            "code": gkey,
+            "label": _weapon_labels[gkey],
+            "tier_name": r.get("tier_name") or "Untrained",
+            "modifier": int(r.get("modifier") or 0),
+        })
+
+    # --- Combat Edit (equipment) with reason (mirrors your other edit pattern) ---
+    if request.method == "POST" and "combat_edit_submit" in request.POST and can_edit:
+        note = (request.POST.get("combat_note") or "").strip()
+        if not note:
+            messages.error(request, "Reason is required.")
+            return redirect('characters:character_detail', pk=pk)
+
+        # Armor
+        armor_id = (request.POST.get("equipped_armor_id") or "").strip()
+        if armor_id == "":
+            CharacterFieldOverride.objects.filter(character=character, key="equipped_armor_id").delete()
+            CharacterFieldNote.objects.filter(character=character, key="equipped_armor_id").delete()
+        elif armor_id.isdigit():
+            CharacterFieldOverride.objects.update_or_create(
+                character=character, key="equipped_armor_id", defaults={"value": str(int(armor_id))}
+            )
+            CharacterFieldNote.objects.update_or_create(
+                character=character, key="equipped_armor_id", defaults={"note": note}
+            )
+
+        # Weapons (slots 1..3)
+        for slot in (1, 2, 3):
+            wid = (request.POST.get(f"equipped_weapon_{slot}") or "").strip()
+            key = f"equipped_weapon:{slot}"
+            if wid == "":
+                CharacterFieldOverride.objects.filter(character=character, key=key).delete()
+                CharacterFieldNote.objects.filter(character=character, key=key).delete()
+            elif wid.isdigit():
+                CharacterFieldOverride.objects.update_or_create(
+                    character=character, key=key, defaults={"value": str(int(wid))}
+                )
+                CharacterFieldNote.objects.update_or_create(
+                    character=character, key=key, defaults={"note": note}
+                )
+
+        messages.success(request, "Combat equipment updated.")
+        return redirect("characters:character_detail", pk=pk)
 
     skill_points_balance = CharacterSkillPointTx.balance_for(character)
     if request.method == "POST" and not is_details_submit:
@@ -7774,12 +8268,35 @@ def character_detail(request, pk):
             messages.success(request, "Item claimed from party inventory.")
             return redirect("characters:character_detail", pk=character.pk)
     # ── 6) RENDER character_detail.html ───────────────────────────────────
+    # Equip handler
+    if request.method == "POST" and can_edit and request.POST.get("equip_weapon_slot"):
+        slot = int(request.POST.get("equip_weapon_slot") or 0)
+        wid  = (request.POST.get("weapon_id") or "").strip()
+        if slot not in (1,2,3):
+            return JsonResponse({"ok": False, "error": "bad slot"}, status=400)
+        if wid == "":
+            # clear
+            CharacterFieldOverride.objects.filter(
+                character=character, key=f"equipped_weapon:{slot}"
+            ).delete()
+            return JsonResponse({"ok": True})
+        if not wid.isdigit():
+            return JsonResponse({"ok": False, "error": "bad id"}, status=400)
+        CharacterFieldOverride.objects.update_or_create(
+            character=character, key=f"equipped_weapon:{slot}", defaults={"value": wid}
+        )
+        return JsonResponse({"ok": True})
 
     backgrounds = {
         "main":  _resolve_background(character.main_background),
         "side1": _resolve_background(character.side_background_1),
         "side2": _resolve_background(character.side_background_2),
     }
+    defense_totals = {}
+    for r in defense_rows:
+        # r["type"] should be one of: Dodge, Reflex, Fortitude, Will
+        # prefer the preformatted string total if present; fall back to numeric
+        defense_totals[r["type"]] = r.get("total_s") or r.get("total") or 0
     return render(request, 'forge/character_detail.html', {
         "spell_table_by_rank": rows_by_rank,
         "show_starting_skill_picker": show_starting_skill_picker,
@@ -7808,7 +8325,7 @@ def character_detail(request, pk):
     'spellcasting_blocks': spellcasting_blocks,
     "skill_points_balance": skill_points_balance,
     "combat_blocks": combat_blocks,
-
+"weapon_group_display": weapon_group_display,
     # 🔻 NEW: flat aliases for legacy JS/templates
     "weapons_list": weapons_list,  # [{id,name,damage,range_type}, ...]
     "armor_list":   armor_list,    # [{id,name,armor_value}, ...]
@@ -7861,6 +8378,7 @@ def character_detail(request, pk):
     "spell_dc_rows": spell_dc_rows,
     "spell_dc_main": spell_dc_main,
     "defense_rows": defense_rows,
+    "defense_totals": defense_totals,
     "hp_current": hp_current,
     "hp_max": hp_max,
     "temp_hp": temp_hp,
@@ -7877,8 +8395,14 @@ def character_detail(request, pk):
 "martial_mastery_known": mm_ctx["martial_mastery_known"],
 "martial_mastery_available": mm_ctx["martial_mastery_available"],
 "edit_form": edit_form,
+    "weapon_group_display": weapon_group_display,
+    "proficiency_tiers":    prof_levels,   # you already computed this as prof_levels
+    "proficiency_detailed": by_code,       # optional, but already useful elsewhere
 
+    "spell_slots_editors": spell_slots_editors,
 
+    # list of spell slot table features with full descriptions
+    "spell_slot_features": spell_slot_features,
     })
 
 
