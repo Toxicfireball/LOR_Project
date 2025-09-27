@@ -9,6 +9,7 @@ from django.forms import modelform_factory
 from .forms import RegistrationForm
 from .models import EmailVerification, UserEmail
 from .utils import send_verification_email
+from .utils import send_verification_email, EmailSendError
 
 def register(request):
     """
@@ -33,13 +34,16 @@ def register(request):
             verify_url = request.build_absolute_uri(
                 reverse('accounts:verify_email', args=[str(ev.token)])
             )
-            send_verification_email(user, user.email, verify_url=verify_url)
+            try:
+                send_verification_email(user, user.email, verify_url=verify_url)
+                return render(request, 'accounts/check_email.html', {
+                    'email': user.email, 'verify_url': verify_url,
+                })
+            except EmailSendError as e:
+                return render(request, 'accounts/check_email.html', {
+                    'email': user.email, 'verify_url': verify_url, 'error': str(e),
+                })
 
-
-            return render(request, 'accounts/check_email.html', {
-                'email': user.email,
-                'verify_url': verify_url,
-            })
     else:
         form = RegistrationForm()
     return render(request, 'accounts/register.html', {'form': form})
@@ -60,11 +64,16 @@ def request_verification(request):
         verify_url = request.build_absolute_uri(
             reverse('accounts:verify_email', args=[str(ev.token)])
         )
-        send_verification_email(request.user, request.user.email, verify_url=verify_url)
-        return render(request, 'accounts/check_email.html', {
-            'email': request.user.email,
-            'verify_url': verify_url,
-        })
+        try:
+            send_verification_email(request.user, request.user.email, verify_url=verify_url)
+            return render(request, 'accounts/check_email.html', {
+                'email': request.user.email, 'verify_url': verify_url,
+            })
+        except EmailSendError as e:
+            return render(request, 'accounts/check_email.html', {
+                'email': request.user.email, 'verify_url': verify_url, 'error': str(e),
+            })
+
 
     return render(request, 'accounts/request_verification.html', {})
 
@@ -84,12 +93,15 @@ def change_email(request):
         verify_url = request.build_absolute_uri(
             reverse('accounts:verify_email', args=[str(ev.token)])
         )
-        send_verification_email(request.user, new_email, verify_url=verify_url)
-
-        return render(request, 'accounts/check_email.html', {
-            'email': new_email,
-            'verify_url': verify_url,
-        })
+        try:
+            send_verification_email(request.user, new_email, verify_url=verify_url)
+            return render(request, 'accounts/check_email.html', {
+                'email': new_email, 'verify_url': verify_url,
+            })
+        except EmailSendError as e:
+            return render(request, 'accounts/check_email.html', {
+                'email': new_email, 'verify_url': verify_url, 'error': str(e),
+            })
 
     return render(request, 'accounts/change_email.html', {})
 

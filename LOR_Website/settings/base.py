@@ -167,6 +167,10 @@ for origin in _env_csrf + _required_csrf:
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "LoR Builder <no-reply@lorbuilder.com>")
 SITE_DOMAIN = os.getenv("SITE_DOMAIN", "www.lorbuilder.com")
 SITE_SCHEME = os.getenv("SITE_SCHEME", "https")
+# settings.py
+EMAIL_BACKEND = "accounts.email_backends.ResendEmailBackend"  # use Resend for Django mail
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "LoR Builder <no-reply@lorbuilder.com>")
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
 
 # Resend API key from env (unchanged style)
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
