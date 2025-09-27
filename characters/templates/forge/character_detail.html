@@ -3838,6 +3838,36 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 </script>
 
+<script>
+(function () {
+  // avoid rebinding if the partial is included multiple times
+  if (window.__spellTableDetailsBound) return;
+  window.__spellTableDetailsBound = true;
+
+  document.addEventListener('click', function (e) {
+    const btn = e.target.closest('.toggle-desc');
+    if (!btn) return;
+
+    // don't let any parent click handlers eat this
+    e.preventDefault();
+    e.stopPropagation();
+
+    const tr = btn.closest('tr');
+    if (!tr) return;
+
+    // the details row is rendered immediately after the data row
+    const details = tr.nextElementSibling;
+    if (!details || !details.classList.contains('desc-body')) return;
+
+    // toggle visibility
+    const hidden = details.classList.toggle('d-none');
+
+    // optional affordance
+    btn.textContent = hidden ? 'Details' : 'Hide';
+    btn.setAttribute('aria-expanded', String(!hidden));
+  }, false);
+})();
+</script>
 
 
 
