@@ -1820,89 +1820,93 @@
         {# ⬅ Slots summary (one per origin block) #}
         <div class="table-responsive mb-3">
           <table class="table table-sm table-bordered align-middle mb-0">
-            <thead class="table-light">
-              <tr>
-                <th style="width: 90px">Level</th>
-                <th style="width: 90px" class="text-end">Slots</th>
-                <th style="width: 110px" class="text-end">Prepared</th>
-                <th style="width: 110px" class="text-end">Remaining</th>
-              </tr>
-            </thead>
-            <tbody>
-              {# slots_by_rank was built in order 1..max_rank; iteration preserves that order #}
+<thead class="table-light">
+  <tr>
+    <th style="width: 90px">Level</th>
+    <th style="width: 90px" class="text-end">Slots</th>
+    <th style="width: 110px" class="text-end">Left</th>
+  </tr>
+</thead>
 
 
-              {% for pair in b.slots_by_rank.items %}
-  {% with r=pair.0 slots=pair.1 %}
-    {% with left=b.prepared_remaining_by_rank|get_item:r|default:0 %}
-      {% widthratio left 1 -1 as neg_left %}
-      {% with prepared=slots|add:neg_left %}
+<tbody>
+  {% for pair in b.slots_by_rank.items %}
+    {% with r=pair.0 slots=pair.1 %}
+      {% with left=b.slots_left_by_rank|get_item:r|default:slots %}
         <tr>
           <td>Level {{ r }}</td>
           <td class="text-end">{{ slots }}</td>
-          <td class="text-end">{{ prepared }}</td>
           <td class="text-end">
-            <span class="badge {% if left == 0 %}text-bg-warning{% else %}text-bg-success{% endif %}">{{ left }}</span>
+            <span class="badge {% if left == 0 %}text-bg-warning{% else %}text-bg-success{% endif %}">
+              {{ left }}
+            </span>
           </td>
         </tr>
       {% endwith %}
     {% endwith %}
-  {% endwith %}
-{% empty %}
-  <tr><td colspan="4" class="text-muted">No slots for this list.</td></tr>
-{% endfor %}
+  {% empty %}
+    <tr><td colspan="3" class="text-muted">No slots for this list.</td></tr>
+  {% endfor %}
+</tbody>
+</table>  {# ← close the table BEFORE the form #}
 
-            </tbody>
+{# Editable “slots left” form (moved OUTSIDE the table) #}
+{% if can_edit and b.max_rank %}
+  <form method="post" action="{% url 'characters:character_detail' character.pk %}" class="row g-2 mt-2">
+    {% csrf_token %}
+    <input type="hidden" name="spells_op" value="set_slots_left">
+    {% for pair in b.slots_by_rank.items %}
+      {% with r=pair.0 slots=pair.1 %}
+        {% with left=b.slots_left_by_rank|get_item:r|default:slots %}
+          <div class="col-md-2">
+            <label class="form-label form-label-sm mb-1">Lvl {{ r }} left</label>
+            <input type="number"
+                   class="form-control form-control-sm"
+                   name="slots_left[{{ r }}]"
+                   value="{{ left }}"
+                   min="0"
+                   max="{{ slots }}">
+            <div class="form-text">of {{ slots }}</div>
+          </div>
+        {% endwith %}
+      {% endwith %}
+    {% endfor %}
+    <div class="col-12 mt-1">
+      <button class="btn btn-sm btn-outline-primary">Save slots</button>
+
+    </div>
+  </form>
+{% endif %}
+
+
+
           </table>
         </div>
 
-        {# 1) SHOW PREPARED SPELLS (by rank) #}
-        <h6 class="mb-2">Prepared Spells</h6>
-
-{% for pair in b.prepared_rows_by_rank.items %}
-  {% with r=pair.0 rows=pair.1 %}
-    <div class="mb-3">
-      {% with prep_id="prep-table-"|add:b.feature_id|stringformat:"s"|add:"-r"|add:r|stringformat:"s" %}
-        {% include "characters/_spell_table.html" with table_id=prep_id rows=rows feature_id=b.feature_id action="unprepare" rank=r %}
-      {% endwith %}
-    </div>
-  {% endwith %}
-{% endfor %}
-
-
-
-        {# 2) SELECT PREPARED SPELLS FROM KNOWN (by rank) #}
-        <h6 class="mt-4 mb-2">Prepare from Known</h6>
-        {% for pair in b.known_for_prepare_by_rank.items %}
-
-          {% with r=pair.0 rows=pair.1 %}
-            <div class="mb-3">
-              <div class="fw-semibold mb-1">Level {{ r }}</div>
-{% with kp_id="knownprep-table-"|add:b.feature_id|stringformat:"s"|add:"-r"|add:r|stringformat:"s" %}
-  {% include "characters/_spell_table.html" with table_id=kp_id rows=rows feature_id=b.feature_id action="prepare" rank=r limit_prepare=b.prepared_remaining_by_rank|get_item:r %}
+<h6 class="mb-2">Prepared Spells</h6>
+{% with prep_id="prep-all-"|add:b.feature_id|stringformat:"s" %}
+  {# unified, no per-rank cap; unprepare doesn’t need rank #}
+  {% include "characters/_spell_table.html" with table_id=prep_id rows=b.prepared_rows_all feature_id=b.feature_id action="unprepare" rank=0 %}
 {% endwith %}
 
 
-            </div>
-          {% endwith %}
-        {% endfor %}
 
-        {# 3) SPELL TABLE TO SELECT KNOWN SPELL (by rank > 0) #}
+
+<h6 class="mt-4 mb-2">Prepare from Known</h6>
+{% with kp_id="knownprep-all-"|add:b.feature_id|stringformat:"s" %}
+  {# pass rank=0 so the backend uses each spell’s own level; limit uses global remaining #}
+  {% include "characters/_spell_table.html" with table_id=kp_id rows=b.known_for_prepare_all feature_id=b.feature_id action="prepare" rank=0 limit_prepare=b.prepared_remaining_total %}
+{% endwith %}
+
+
 <h6 class="mt-4 mb-2">Learn New Spells (Leveled)</h6>
-{% for pair in b.learn_spells_by_rank.items %}
-  {% with r=pair.0 rows=pair.1 %}
-    <div class="mb-3">
-      <div class="fw-semibold mb-1">Level {{ r }}</div>
-
-{% with learn_id="learn-table-"|add:b.feature_id|stringformat:"s"|add:"-r"|add:r|stringformat:"s" %}
-  {% include "characters/_spell_table.html" with table_id=learn_id rows=rows feature_id=b.feature_id action="learn_known" rank=r limit_known=b.needs_known %}
+{% with learn_id="learn-all-"|add:b.feature_id|stringformat:"s" %}
+  {# pass rank=0 so each pick uses its own spell level; cap uses global needs_known #}
+  {% include "characters/_spell_table.html" with table_id=learn_id rows=b.learn_spells_all feature_id=b.feature_id action="learn_known" rank=0 limit_known=b.needs_known %}
 {% endwith %}
 
 
 
-            </div>
-          {% endwith %}
-        {% endfor %}
 
         {# 4) SHOW KNOWN CANTRIPS #}
         <h6 class="mt-4 mb-2">Known Cantrips</h6>

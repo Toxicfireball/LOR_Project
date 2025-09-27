@@ -3592,6 +3592,96 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
     Prep  = character.prepared_spells.model       # CharacterPreparedSpell
     SpellModel = Known._meta.get_field("spell").remote_field.model  # Spell
 
+    # --- helper: sum global caps across all owned spell tables (evaluates overrides) ---
+    def _sum_caps():
+        """
+        Returns dict with totals across all classes/tables:
+        {
+          "cantrips": int,
+          "known": int or None,
+          "prepared": int or None
+        }
+        """
+        totals = {"cantrips": 0, "known": 0, "prepared": 0}
+        for cp_ in class_progress:
+            tables_ = (
+                ClassFeature.objects
+                .filter(kind="spell_table", character_class=cp_.character_class)
+                .distinct()
+            )
+            for ft_ in tables_:
+                row_ = ft_.spell_slot_rows.filter(level=cp_.levels).first()
+
+                # context for formula eval (mirrors code below)
+                def _abil(v): return (v - 10) // 2
+                ctx_ = {}
+                for prog_ in class_progress:
+                    tok = re.sub(r'[^a-z0-9_]', '', (prog_.character_class.name or '').strip().lower().replace(' ', '_'))
+                    if tok:
+                        ctx_[f"{tok}_level"] = int(prog_.levels or 0)
+                ctx_.update({
+                    "ceil": math.ceil, "round_up": math.ceil, "roundup": math.ceil, "ceiling": math.ceil,
+                    "strength_score": character.strength, "dexterity_score": character.dexterity,
+                    "constitution_score": character.constitution, "intelligence_score": character.intelligence,
+                    "wisdom_score": character.wisdom, "charisma_score": character.charisma,
+                    "strength": _abil(character.strength), "dexterity": _abil(character.dexterity),
+                    "constitution": _abil(character.constitution), "intelligence": _abil(character.intelligence),
+                    "wisdom": _abil(character.wisdom), "charisma": _abil(character.charisma),
+                    "str_mod": _abil(character.strength), "dex_mod": _abil(character.dexterity),
+                    "con_mod": _abil(character.constitution), "int_mod": _abil(character.intelligence),
+                    "wis_mod": _abil(character.wisdom), "cha_mod": _abil(character.charisma),
+                    "floor": math.floor, "min": min, "max": max, "int": int, "round": round,
+                })
+                def _eval_(expr: str):
+                    if not expr:
+                        return None
+                    try:
+                        return int(eval(_normalize_formula(expr), {"__builtins__": {}}, ctx_))
+                    except Exception:
+                        return None
+
+                can_max = _eval_(getattr(ft_, "cantrips_formula", None)) or 0
+                kn_max  = _eval_(getattr(ft_, "spells_known_formula", None))
+                pr_max  = _eval_(getattr(ft_, "spells_prepared_formula", None))
+
+                # formula overrides
+                def _ov_expr_(key):
+                    rowx = CharacterFieldOverride.objects.filter(character=character, key=key).first()
+                    return (rowx.value or "").strip() if rowx and rowx.value is not None else None
+                ex_can = _ov_expr_(f"spellcap_formula:{ft_.id}:cantrips")
+                ex_kn  = _ov_expr_(f"spellcap_formula:{ft_.id}:known")
+                ex_pr  = _ov_expr_(f"spellcap_formula:{ft_.id}:prepared")
+                if ex_can: can_max = _eval_(ex_can) or 0
+                if ex_kn  is not None: kn_max = _eval_(ex_kn)
+                if ex_pr  is not None: pr_max = _eval_(ex_pr)
+
+                # numeric overrides
+                def _ov_num_(key):
+                    rowx = CharacterFieldOverride.objects.filter(character=character, key=key).first()
+                    try:
+                        return int(rowx.value) if rowx and str(rowx.value).strip() != "" else None
+                    except Exception:
+                        return None
+                ov_can = _ov_num_(f"spellcap:{ft_.id}:cantrips")
+                ov_kn  = _ov_num_(f"spellcap:{ft_.id}:known")
+                ov_pr  = _ov_num_(f"spellcap:{ft_.id}:prepared")
+                if ov_can is not None: can_max = ov_can
+                if kn_max   is not None and ov_kn is not None: kn_max = ov_kn
+                if pr_max   is not None and ov_pr is not None: pr_max = ov_pr
+
+                totals["cantrips"] += int(max(0, can_max or 0))
+                if kn_max is not None:
+                    totals["known"] += int(max(0, kn_max))
+                else:
+                    totals["known"] = None
+                if pr_max is not None:
+                    totals["prepared"] += int(max(0, pr_max))
+                else:
+                    totals["prepared"] = None
+
+        return totals
+
+
 
     for cp in class_progress:
         owned_tables = (
@@ -3736,12 +3826,29 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
         prepared_per_rank      = Counter(prepared_qs.values_list("rank", flat=True))
         prepared_current       = sum(v for r, v in prepared_per_rank.items() if r and r > 0)
 
-        # remaining per rank = SUM(slots) − prepared(r)
+        # 5E: slots are separate from prepared. Expose editable "slots left" per rank.
         max_rank_all = (max(sum_slots_by_rank.keys()) if sum_slots_by_rank else 0)
-        remaining_by_rank = {
-            r: max(0, int(sum_slots_by_rank.get(r, 0)) - int(prepared_per_rank.get(r, 0)))
-            for r in range(1, max_rank_all + 1)
-        }
+
+        def _get_override(key: str):
+            rowx = CharacterFieldOverride.objects.filter(character=character, key=key).first()
+            return (rowx.value if rowx and str(rowx.value).strip() != "" else None)
+
+        slots_left_by_rank = {}
+        for r in range(1, max_rank_all + 1):
+            # Global (per-character) override key — simple and consolidated
+            k = f"spellslots_left:{r}"
+            ov = _get_override(k)
+            if ov is not None:
+                try:
+                    v = max(0, int(ov))
+                except Exception:
+                    v = None
+            else:
+                v = None
+            total_slots = int(sum_slots_by_rank.get(r, 0) or 0)
+            # Default to total slots when no override; clamp to total
+            slots_left_by_rank[r] = min(total_slots, (v if v is not None else total_slots))
+
 
         # Learn choices = UNION of all accessible origins; if none collected, show all
         avail_base = SpellModel.objects.all()
@@ -3793,23 +3900,38 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
                 })
             return out
 
+        # --- PREPARED: per-rank (kept for compatibility) + unified all-levels list (5E) ---
         prepared_rows_by_rank = {r: [] for r in range(1, max_rank_all + 1)}
+        prepared_rows_all     = _rows_from_qs(prepared_qs.exclude(rank=0).order_by("spell__name"))
         if max_rank_all > 0:
             prep_full = prepared_qs.order_by("rank","spell__name")
             for r in range(1, max_rank_all + 1):
                 prepared_rows_by_rank[r] = _rows_from_qs(prep_full.filter(rank=r))
 
-        learned_cantrips_rows       = _rows_from_qs(known_cantrips_qs)
-        prepared_ids                = set(prepared_qs.values_list("spell_id", flat=True))
-        known_for_prepare_by_rank   = {r: [] for r in range(1, max_rank_all + 1)}
+        # --- KNOWN (leveled): per-rank (kept) + unified all-levels list (5E) ---
+        learned_cantrips_rows = _rows_from_qs(known_cantrips_qs)
+        prepared_ids          = set(prepared_qs.values_list("spell_id", flat=True))
+
+        known_for_prepare_by_rank = {r: [] for r in range(1, max_rank_all + 1)}
+        known_for_prepare_all     = _rows_from_qs(
+            known_leveled_qs.exclude(spell_id__in=prepared_ids).order_by("spell__name")
+        )
         if max_rank_all > 0:
             known_full = known_leveled_qs.order_by("spell__level","spell__name")
             for r in range(1, max_rank_all + 1):
                 subset = known_full.filter(spell__level=r).exclude(spell_id__in=prepared_ids)
                 known_for_prepare_by_rank[r] = _rows_from_qs(subset)
 
-        learn_spells_by_rank = {r: _rows_from_values(spell_choices_by_rank.get(r, [])) for r in range(1, max_rank_all + 1)}
-        learn_cantrip_rows   = _rows_from_values(cantrip_choices)
+        # --- LEARN choices: per-rank (kept) + unified all-levels list (5E) ---
+        learn_spells_by_rank = {
+            r: _rows_from_values(spell_choices_by_rank.get(r, []))
+            for r in range(1, max_rank_all + 1)
+        }
+        learn_spells_all   = _rows_from_values(
+            [v for r in range(1, max_rank_all + 1) for v in spell_choices_by_rank.get(r, [])]
+        )
+        learn_cantrip_rows = _rows_from_values(cantrip_choices)
+
 
         has_any_override = CharacterFieldOverride.objects.filter(
             character=character, key__regex=r'^spellcap(_formula)?:\d+:(cantrips|known|prepared)$'
@@ -3832,15 +3954,22 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
             "needs_cantrips": max(0, int(total_cantrips_max or 0) - known_cantrips_current),
             "needs_known":    (max(0, int(total_known_max or 0) - known_leveled_current) if total_known_max else None),
             "needs_prepared": (max(0, int(total_prepared_max or 0) - prepared_current) if total_prepared_max else None),
+            "prepared_remaining_total": (max(0, int(total_prepared_max or 0) - prepared_current) if total_prepared_max else None),
 
-            "prepared_remaining_by_rank": remaining_by_rank,
-            "slots_by_rank": {r: int(sum_slots_by_rank.get(r,0) or 0) for r in range(1, max_rank_all+1)},
+"prepared_remaining_by_rank": {r: int(slots_left_by_rank.get(r, 0)) for r in range(1, max_rank_all + 1)},            "slots_by_rank": {r: int(sum_slots_by_rank.get(r,0) or 0) for r in range(1, max_rank_all+1)},
+"slots_left_by_rank": {r: int(slots_left_by_rank.get(r, 0)) for r in range(1, max_rank_all + 1)},
 
-            "prepared_rows_by_rank": prepared_rows_by_rank,
-            "learned_cantrips_rows": learned_cantrips_rows,
-            "known_for_prepare_by_rank": known_for_prepare_by_rank,
-            "learn_spells_by_rank": learn_spells_by_rank,
-            "learn_cantrip_rows": learn_cantrip_rows,
+"prepared_rows_by_rank": prepared_rows_by_rank,
+"prepared_rows_all": prepared_rows_all,                    # ← NEW (5E UI)
+"learned_cantrips_rows": learned_cantrips_rows,
+
+"known_for_prepare_by_rank": known_for_prepare_by_rank,
+"known_for_prepare_all": known_for_prepare_all,            # ← NEW (5E UI)
+
+"learn_spells_by_rank": learn_spells_by_rank,
+"learn_spells_all": learn_spells_all,                      # ← NEW (5E UI)
+"learn_cantrip_rows": learn_cantrip_rows,
+
         })
 
         # 🔹 Handle spell table actions (prepare / unprepare / learn / unlearn)
@@ -3895,14 +4024,15 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
                     return (spellcasting_blocks, spell_selection_blocks, redirect('characters:character_detail', pk=pk))
 
                 # respect per-rank remaining cap
-                left = 0
-                try:
-                    left = int(request.POST.get("limit_prepare") or 0)
-                except Exception:
-                    pass
-                if left and len(spell_ids) > left:
-                    messages.error(request, f"You can prepare {left} more at this rank.")
-                    return (spellcasting_blocks, spell_selection_blocks, redirect('characters:character_detail', pk=pk))
+                # 5E: enforce global Prepared cap (all levels combined), not per-rank
+                caps = _sum_caps()
+                prepared_cap = caps.get("prepared")
+                prepared_now = character.prepared_spells.exclude(rank=0).count()  # cantrips typically not "prepared"
+                if prepared_cap:
+                    remaining_total = max(0, int(prepared_cap) - int(prepared_now))
+                    if len(spell_ids) > remaining_total:
+                        messages.error(request, f"You can prepare {remaining_total} more spell(s) in total.")
+                        return (spellcasting_blocks, spell_selection_blocks, redirect('characters:character_detail', pk=pk))
 
                 # add prepared rows for the selected spells (avoid duplicates)
                 already_ids = set(character.prepared_spells.values_list("spell_id", flat=True))
@@ -5347,6 +5477,54 @@ def character_detail(request, pk):
     # only real ClassFeature instances go here
     to_choose = base_feats.copy()
 
+    # Edit slots-left per rank (global, 5E casting tracker)
+    if request.method == "POST" and request.POST.get("spells_op") == "set_slots_left" and can_edit:
+        # Expect inputs like: slots_left[1], slots_left[2], ...
+        updates = {}
+        for k, v in request.POST.items():
+            # names like "slots_left[3]"
+            m = re.match(r'^slots_left\[(\d+)\]$', k)
+            if not m:
+                continue
+            r = int(m.group(1))
+            try:
+                n = int(v)
+            except Exception:
+                n = None
+            updates[r] = n
+
+        # Compute today’s total slots to clamp saved values
+        # (reuse the same calculation as above)
+        sum_slots_by_rank_current = {}
+        for cp_ in class_progress:
+            tables_ = (ClassFeature.objects
+                    .filter(kind="spell_table", character_class=cp_.character_class)
+                    .distinct())
+            for ft_ in tables_:
+                row_ = ft_.spell_slot_rows.filter(level=cp_.levels).first()
+                if not row_:
+                    continue
+                vec_ = [row_.slot1,row_.slot2,row_.slot3,row_.slot4,row_.slot5,
+                        row_.slot6,row_.slot7,row_.slot8,row_.slot9,row_.slot10]
+                for rr, ss in enumerate(vec_, start=1):
+                    if not ss: 
+                        continue
+                    sum_slots_by_rank_current[rr] = int(sum_slots_by_rank_current.get(rr, 0)) + int(ss or 0)
+
+        for r, n in updates.items():
+            total_slots = int(sum_slots_by_rank_current.get(r, 0) or 0)
+            key = f"spellslots_left:{r}"
+            if n is None:
+                # Clear override → falls back to total_slots
+                CharacterFieldOverride.objects.filter(character=character, key=key).delete()
+            else:
+                clamped = max(0, min(total_slots, int(n)))
+                CharacterFieldOverride.objects.update_or_create(
+                    character=character, key=key, defaults={"value": str(clamped)}
+                )
+
+        messages.success(request, "Updated spell slots left.")
+        return (spellcasting_blocks, spell_selection_blocks, redirect('characters:character_detail', pk=pk))
 
 
     # ── 3) PROFICIENCY TABLE FOR preview_cls ────────────────────────────────
