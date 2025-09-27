@@ -2,48 +2,7 @@
 {% block title %}Login{% endblock %}
 
 {% block content %}
-<div class="container" style="max-width: 420px;">
-  <div class="card shadow-sm mt-5">
-    <div class="card-body p-4">
-      <h1 class="h4 mb-3 text-center">Welcome back</h1>
 
-      <form method="post" novalidate>
-        {% csrf_token %}
-        {% if form.non_field_errors %}
-          <div class="alert alert-danger">{{ form.non_field_errors }}</div>
-        {% endif %}
-
-        <div class="mb-3">
-          <label class="form-label">Username</label>
-          {{ form.username }}
-          {{ form.username.errors }}
-        </div>
-
-        <div class="mb-3">
-          <label class="form-label">Password</label>
-          {{ form.password }}
-          {{ form.password.errors }}
-        </div>
-
-        <button type="submit" class="btn btn-primary w-100">Log In</button>
-      </form>
-
-      <div class="text-center mt-3">
-        <a href="{% url 'accounts:register' %}">Create an account</a>
-      </div>
-
-      <hr class="my-3">
-
-      <div class="text-center">
-        <a href="{% url 'accounts:request_verification' %}">Resend verification email</a> ·
-        <a href="{% url 'accounts:change_email' %}">Change email</a>
-      </div>
-    </div>
-  </div>
-</div>
-{% extends "base.html" %}
-{% block title %}Sign in{% endblock %}
-{% block content %}
 <div class="max-w-md mx-auto bg-white shadow p-6 rounded">
   <h1 class="text-xl font-semibold mb-4">Sign in</h1>
   <form method="post" action="">
@@ -67,4 +26,4 @@
 </div>
 {% endblock %}
 
-{% endblock %}
+
