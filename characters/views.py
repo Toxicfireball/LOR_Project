@@ -1475,7 +1475,6 @@ def _weapon_math(weapon: Weapon, str_mod: int, dex_mod: int, prof_weapon: int, h
     return dict(rule="default", show_choice_hit=False, show_choice_dmg=False,
                 base=base, hit_str=hit_S, hit_dex=hit_D, dmg_str=dmg_S, dmg_dex=dmg_D, traits=sorted(traits))
                 
-            
 def _weapon_math_for(
     weapon: Weapon,
     str_mod: int,
@@ -1483,34 +1482,24 @@ def _weapon_math_for(
     prof_weapon: int,
     half_lvl_if_trained: int
 ):
-    """
-    Adds proficiency tier + ½ level to both attack AND damage when proficient.
-    Ability choice per rules:
-      - Ranged → DEX to hit, damage shows (and chooses) DEX (since STR doesn’t apply to bows here).
-      - Finesse → higher of STR/DEX to hit AND higher of STR/DEX to damage.
-      - Balanced → higher of STR/DEX to hit; damage uses STR.
-      - Default → STR for both.
-    """
     traits       = _weapon_trait_names_lower(weapon)
     is_ranged    = ((weapon.range_type or Weapon.MELEE) == Weapon.RANGED)
     has_finesse  = "finesse" in traits
     has_balanced = "balanced" in traits
 
-    base = int(prof_weapon) + int(half_lvl_if_trained)  # goes to hit AND damage if proficient
+    base = int(prof_weapon) + int(half_lvl_if_trained)
 
-    # raw ability contributions
     hit_str = base + str_mod
     hit_dex = base + dex_mod
-    dmg_str = base + str_mod   # ← add base to damage when proficient
-    dmg_dex = base + dex_mod   # ← add base to damage when proficient
+    dmg_str = base + str_mod
+    dmg_dex = base + dex_mod
 
     if is_ranged:
-        # hit: DEX only; damage: DEX (show DEX as chosen/best; keep both fields for UI)
-        return {
+        res = {
             "rule": "ranged_dex",
             "show_choice_hit": False,
             "show_choice_dmg": False,
-            "hit_str": hit_dex,    # keep fields but normalize so 'best' is trivial
+            "hit_str": hit_dex,
             "hit_dex": hit_dex,
             "dmg_str": dmg_dex,
             "dmg_dex": dmg_dex,
@@ -1519,11 +1508,8 @@ def _weapon_math_for(
             "base": base,
             "traits": sorted(list(traits)),
         }
-
-    if has_finesse:
-        hit_best = max(hit_str, hit_dex)
-        dmg_best = max(dmg_str, dmg_dex)  # both take higher
-        return {
+    elif has_finesse:
+        res = {
             "rule": "finesse",
             "show_choice_hit": True,
             "show_choice_dmg": True,
@@ -1531,43 +1517,48 @@ def _weapon_math_for(
             "hit_dex": hit_dex,
             "dmg_str": dmg_str,
             "dmg_dex": dmg_dex,
-            "hit_best": hit_best,
-            "dmg_best": dmg_best,
+            "hit_best": max(hit_str, hit_dex),
+            "dmg_best": max(dmg_str, dmg_dex),
             "base": base,
             "traits": sorted(list(traits)),
         }
-
-    if has_balanced:
-        hit_best = max(hit_str, hit_dex)
-        dmg_best = dmg_str  # damage is STR only
-        return {
+    elif has_balanced:
+        res = {
             "rule": "balanced",
             "show_choice_hit": True,
             "show_choice_dmg": False,
             "hit_str": hit_str,
             "hit_dex": hit_dex,
             "dmg_str": dmg_str,
-            "dmg_dex": dmg_dex,  # shown for transparency but not chosen
-            "hit_best": hit_best,
-            "dmg_best": dmg_best,
+            "dmg_dex": dmg_dex,
+            "hit_best": max(hit_str, hit_dex),
+            "dmg_best": dmg_str,
+            "base": base,
+            "traits": sorted(list(traits)),
+        }
+    else:
+        res = {
+            "rule": "default",
+            "show_choice_hit": False,
+            "show_choice_dmg": False,
+            "hit_str": hit_str,
+            "hit_dex": hit_dex,
+            "dmg_str": dmg_str,
+            "dmg_dex": dmg_dex,
+            "hit_best": hit_str,
+            "dmg_best": dmg_str,
             "base": base,
             "traits": sorted(list(traits)),
         }
 
-    # default: STR to hit and damage
-    return {
-        "rule": "default",
-        "show_choice_hit": False,
-        "show_choice_dmg": False,
-        "hit_str": hit_str,
-        "hit_dex": hit_dex,
-        "dmg_str": dmg_str,
-        "dmg_dex": dmg_dex,
-        "hit_best": hit_str,
-        "dmg_best": dmg_str,
-        "base": base,
-        "traits": sorted(list(traits)),
-    }
+    print(
+        f"[DBG] _weapon_math_for: name={getattr(weapon,'name','?')} "
+        f"prof={prof_weapon} half={half_lvl_if_trained} str_mod={str_mod} dex_mod={dex_mod} "
+        f"rule={res['rule']} → hit_str={res['hit_str']} hit_dex={res['hit_dex']} "
+        f"dmg_str={res['dmg_str']} dmg_dex={res['dmg_dex']}"
+    )
+    return res
+
 
     
 def _weapon_prof_group(weapon) -> str:
@@ -1579,28 +1570,47 @@ def _weapon_prof_group(weapon) -> str:
         or ""
     )
     s = str(raw).strip().lower().replace(" ", "_")
-    # normalize to the 4 groups you actually use
     if s in {"simp", "simple_weapons"}:                      s = "simple"
     elif s in {"mart", "martial_weapons"}:                   s = "martial"
     elif s in {"special_weapons", "exotic", "advanced"}:     s = "special"
     elif s in {"black_powder", "black__powder", "blackpowder","black-powder"}:
         s = "black_powder"
-    return s or "simple"
 
-def _prof_from_group(prof_by_code: dict, group: str) -> dict:
-    """
-    Pull a proficiency row for the specific weapon group (weapon_simple/martial/exotic),
-    falling back to generic 'weapon'.
-    Returns {'bonus': int, 'name': str, 'is_proficient': bool}
-    """
-    row = (prof_by_code.get(f"weapon_{group}") or
-           prof_by_code.get("weapon") or
-           {"modifier": 0, "tier_name": "Untrained"})
-    bonus = int(row.get("modifier", 0))
-    name  = (row.get("tier_name") or "").title()
-    is_prof = (name.lower() != "untrained")
-    return {"bonus": bonus, "name": name, "is_proficient": is_prof}
-                
+    print(f"[DBG] _weapon_prof_group: id={getattr(weapon,'id',None)} name={getattr(weapon,'name','?')} raw='{raw}' → '{s or 'simple'}'")
+    return s or "simple"
+def _prof_from_group(prof_by_code, group):
+    g = (group or "").strip().lower().replace(" ", "_").replace("-", "_")
+    key = g if g.startswith("weapon:") else f"weapon:{g}"
+    r = prof_by_code.get(key)
+    if not r:
+        print(f"[DBG] _prof_from_group: MISSING key='{key}' → Untrained")
+        return {"name": "Untrained", "bonus": 0, "is_proficient": False}
+
+    name = (r.get("tier_name") or r.get("name") or "Untrained")
+
+    def _to_int(v):
+        try:
+            return int(v)
+        except Exception:
+            return 0
+
+    raw_bonus     = r.get("bonus")
+    raw_modifier  = r.get("modifier")
+
+    # 👇 take the numeric maximum; fixes cases where 'bonus' is 0 but 'modifier' has the real value
+    bonus = max(_to_int(raw_bonus), _to_int(raw_modifier))
+
+    print(
+        f"[DBG] _prof_from_group: key='{key}' "
+        f"tier='{name}' raw_bonus={raw_bonus!r} raw_modifier={raw_modifier!r} → use bonus={bonus} src={r.get('source')}"
+    )
+
+    return {
+        "name": name,
+        "bonus": bonus,
+        "is_proficient": (name.strip().lower() != "untrained") or (bonus > 0),
+    }
+
                 
                 
 
@@ -3507,56 +3517,71 @@ def propose_background_inline(request):
     pb = form.save(requested_by=request.user)
     messages.success(request, f"Background '{pb.name}' submitted to {pb.campaign.name} for GM approval.")
     return redirect("characters:create_character")
-
-
 def _best_tier_obj(tiers):
-    """Return the tier with the highest bonus; tiers can be None."""
-    tiers = [t for t in tiers if t is not None]
-    if not tiers: 
-        return None
-    return max(tiers, key=lambda t: int(getattr(t, "bonus", 0) or 0))
+    tiers = [t for t in tiers if t]
+    return max(tiers, key=lambda t: int(getattr(t, "bonus", 0) or 0), default=None)
 
 def _effective_class_prof_for_item(character, prof_type, *, armor_group=None, armor_item_id=None,
                                    weapon_group=None, weapon_item_id=None):
     """
-    Look at all of the character's classes and their levels, and return the
-    best tier (by .bonus) that applies to this specific item or group.
-    Priority: specific item > matching group. If nothing found → Untrained.
-    Returns dict: {"tier": <tier or None>, "bonus": int, "name": str, "is_proficient": bool}
+    Accepts both styles:
+      A) proficiency_type="weapon" + weapon_group="martial"
+      B) proficiency_type="weapon:martial"
+    Always returns a dict (never None).
     """
-    # Collect all rows unlocked by each of your class levels
+    def _norm(s):
+        return (str(s or "").strip().lower()
+                .replace(" ", "_").replace("-", "_"))
+
     rows = []
     for cp in character.class_progress.select_related("character_class").all():
-        rows.extend(
-            ClassProficiencyProgress.objects.filter(
-                character_class=cp.character_class,
-                proficiency_type=prof_type,
-                at_level__lte=int(cp.levels or 0),
-            )
-        )
+        base_q = ClassProficiencyProgress.objects.filter(
+            character_class=cp.character_class,
+            at_level__lte=int(cp.levels or 0),
+        ).select_related("tier")
 
-    # Filter for this concrete item (strongest match)
+        if prof_type == "weapon":
+            # include both base “weapon” and namespaced “weapon:<group>”
+            namespaced = f"weapon:{_norm(weapon_group)}" if weapon_group else None
+            if namespaced:
+                base_q = base_q.filter(proficiency_type__in=["weapon", namespaced])
+            else:
+                base_q = base_q.filter(proficiency_type__startswith="weapon")
+        else:
+            base_q = base_q.filter(proficiency_type=prof_type)
+
+        rows.extend(base_q)
+
+    # strongest: specific item
     item_rows = []
     if prof_type == "armor" and armor_item_id:
         item_rows = [r for r in rows if getattr(r, "armor_item_id", None) == armor_item_id]
-    if prof_type == "weapon" and weapon_item_id:
+    elif prof_type == "weapon" and weapon_item_id:
         item_rows = [r for r in rows if getattr(r, "weapon_item_id", None) == weapon_item_id]
 
+    best = None
     if item_rows:
         best = _best_tier_obj([r.tier for r in item_rows])
     else:
-        # Fall back to group match
         grp_rows = []
         if prof_type == "armor" and armor_group:
-            grp_rows = [r for r in rows if (r.armor_group or "").lower() == str(armor_group).lower()]
+            g = _norm(armor_group)
+            grp_rows = [r for r in rows if _norm(getattr(r, "armor_group", None)) == g]
         if prof_type == "weapon" and weapon_group:
-            grp_rows = [r for r in rows if (r.weapon_group or "").lower() == str(weapon_group).lower()]
+            g = _norm(weapon_group)
+            def _matches(r):
+                # namespaced type e.g. "weapon:martial"
+                t = _norm(getattr(r, "proficiency_type", ""))
+                if t.startswith("weapon:"):
+                    return t.split(":", 1)[1] == g
+                # legacy: "weapon" + separate group column
+                return t == "weapon" and _norm(getattr(r, "weapon_group", None)) == g
+            grp_rows = [r for r in rows if _matches(r)]
         best = _best_tier_obj([r.tier for r in grp_rows])
 
-    # If nothing grants proficiency, treat as Untrained
-    name = (best.name if best and getattr(best, "name", None) else "Untrained")
-    bonus = int(getattr(best, "bonus", 0) or 0)
-    is_prof = (name.strip().lower() != "untrained") and (bonus != 0)
+    name     = (best.name if best and getattr(best, "name", None) else "Untrained")
+    bonus    = int(getattr(best, "bonus", 0) or 0)
+    is_prof  = (name.strip().lower() != "untrained") and (bonus != 0)
 
     return {"tier": best, "bonus": bonus, "name": name, "is_proficient": is_prof}
 
@@ -6801,6 +6826,9 @@ def character_detail(request, pk):
             weapon_group=gname,     # <- group only, no specific item
             weapon_item_id=None
         )
+        print("[DBG] prof_by_code weapon groups →",
+      {k: {"tier": v.get("tier_name"), "mod": v.get("modifier"), "src": v.get("source")}
+       for k, v in prof_by_code.items() if k.startswith("weapon:")})
         # If row missing OR still Untrained, use class-derived values
         if (gcode not in prof_by_code) or _is_untrained_name(prof_by_code[gcode].get("tier_name","Untrained")):
             prof_by_code[gcode] = {
@@ -7077,42 +7105,29 @@ def character_detail(request, pk):
         return hl_if_trained("weapon")
 
     # If a primary weapon is equipped, override using its WEAPON GROUP proficiency
+    # If a primary weapon is equipped, use its GROUP proficiency for left-card math ONLY.
+    # Do NOT mutate the generic "weapon" row in prof_by_code.
     if by_slot.get(1):
         main_w = by_slot[1].weapon
+        group = _weapon_prof_group(main_w)
+        main_prof = _prof_from_group(prof_by_code, group)
 
-        group = _weapon_prof_group(main_w)             # e.g., "simple", "martial", "special", "black_powder"
-        main_prof = _prof_from_group(prof_by_code, group)  # {"name": "...", "bonus": int, "is_proficient": bool}
-
-        # Optional: your compact debug print, keep or remove
-        # print("[DBG] equipped →",
-        #       {"id": getattr(main_w, "id", None),
-        #        "name": getattr(main_w, "name", None),
-        #        "group": group,
-        #        "resolved_main_prof": main_prof,
-        #        "half_lvl": half_lvl})
-
-        half_main   = half_lvl if bool(main_prof.get("is_proficient")) else 0
-        prof_weapon = int(main_prof.get("bonus", main_prof.get("modifier", 0)))
-        group_note  = str(main_prof.get("name", ""))  # show the actual group tier, not the generic one
-
-        # 🔧 Mirror the resolved GROUP proficiency into the generic "weapon" row.
-        # Many calculations (incl. attacks_detailed builders) read 'weapon', not 'weapon:<group>'.
-        resolved_bonus = int(main_prof.get("bonus", main_prof.get("modifier", 0)))
-        resolved_name  = str(main_prof.get("name", "Untrained"))
-        resolved_prof_row = {
-            "type_code":     "weapon",
-            "tier_name":     resolved_name,
-            "modifier":      resolved_bonus,   # keep both keys to satisfy any code path
-            "bonus":         resolved_bonus,
-            "is_proficient": bool(main_prof.get("is_proficient")),
-            "source":        f"Group({group})",
-        }
-        prof_by_code["weapon"] = resolved_prof_row
-        # Keep by_code in sync so hl_if_trained('weapon') reflects the group tier.
-        by_code["weapon"] = resolved_prof_row
+        half_main = half_lvl if bool(main_prof.get("is_proficient")) else 0
+        prof_weapon_for_left = int(main_prof.get("bonus", main_prof.get("modifier", 0)))
+        group_note = str(main_prof.get("name", ""))  # note for UI if you show it
+        print(f"[DBG] left-card main weapon: id={getattr(main_w,'id',None)} name={getattr(main_w,'name','?')} "
+            f"group='{group}' → prof_bonus={int(main_prof.get('bonus',0))} "
+            f"half={half_main} is_prof={main_prof.get('is_proficient')}")
 
         def _half_weapon():
+            print(f"[DBG] left-card no primary: using generic 'weapon' prof={prof_weapon_for_left} half={hl_if_trained('weapon')}")
             return half_main
+    else:
+        # No primary weapon; fall back to the generic "weapon" code (unchanged)
+        prof_weapon_for_left = int(prof_by_code.get("weapon", {}).get("modifier", 0))
+        def _half_weapon():
+            return hl_if_trained("weapon")
+
     add_row(
         "weapon",
         label="Weapon (base)",
@@ -7120,6 +7135,7 @@ def character_detail(request, pk):
         half_override=_half_weapon()
     )
     # Keep derived weapon numbers in sync with the resolved group proficiency
+    prof_weapon = prof_weapon_for_left
     derived["weapon_base"]     = prof_weapon + _half_weapon()
     derived["weapon_with_str"] = prof_weapon + _half_weapon() + str_mod
     derived["weapon_with_dex"] = prof_weapon + _half_weapon() + dex_mod
@@ -7717,6 +7733,7 @@ def character_detail(request, pk):
     str_mod = abil_mod("strength")
     dex_mod = abil_mod("dexterity")
 
+    print("weapon:martial →", prof_by_code.get("weapon:martial"))
 
     # --- Build attack lines per equipped weapon (show both choices when allowed) ---
     attacks_detailed = []
@@ -7725,26 +7742,11 @@ def character_detail(request, pk):
         if not rec:
             continue
         w = rec.weapon
-        group_code = _weapon_group_for(w)  # "simple" | "martial" | "special" | "black_powder"
-
-        # 1) Prefer the (possibly overridden) group row already in prof_by_code
-        grp_row = _prof_from_group(prof_by_code, group_code)
-        if grp_row and ("bonus" in grp_row or "modifier" in grp_row):
-            w_prof = {
-                "name":          grp_row.get("name") or grp_row.get("tier_name") or "Untrained",
-                "bonus":         int(grp_row.get("bonus", grp_row.get("modifier", 0))),
-                "is_proficient": bool(grp_row.get("is_proficient", not _is_untrained_name(grp_row.get("tier_name","Untrained")))),
-            }
-        else:
-            # 2) Fallback to legacy resolver if the row is missing
-            w_prof = _effective_class_prof_for_item(
-                character, "weapon",
-                weapon_group=group_code,
-                weapon_item_id=w.id
-            )
+        group_code = _weapon_prof_group(w)                  # normalized: simple/martial/special/black_powder
+        w_prof     = _prof_from_group(prof_by_code, group_code)
 
         half_w = half_lvl if w_prof["is_proficient"] else 0
-        math_ = _weapon_math_for(w, str_mod, dex_mod, int(w_prof["bonus"]), half_w)
+        math_  = _weapon_math_for(w, str_mod, dex_mod, int(w_prof["bonus"]), half_w)
 
         attacks_detailed.append({
             "slot": label,
@@ -7753,7 +7755,7 @@ def character_detail(request, pk):
             "damage_die": w.damage,
             "range_type": w.range_type,
             "traits": math_["traits"],
-            "base": math_["base"],          # uses correct prof + ½ level if proficient
+            "base": math_["base"],
             "hit_str": math_["hit_str"],
             "hit_dex": math_["hit_dex"],
             "dmg_str": math_["dmg_str"],
@@ -7761,10 +7763,18 @@ def character_detail(request, pk):
             "show_choice_hit": math_["show_choice_hit"],
             "show_choice_dmg": math_["show_choice_dmg"],
             "rule": math_["rule"],
-            # optional UI hints:
-            "proficiency_tier": w_prof["name"],
+            "proficiency_tier": w_prof["name"],        # will show Expert if class/override says so
             "is_proficient": w_prof["is_proficient"],
+            "group": group_code,
         })
+
+
+
+        half_w = half_lvl if w_prof["is_proficient"] else 0
+        math_ = _weapon_math_for(w, str_mod, dex_mod, int(w_prof["bonus"]), half_w)
+        print(f"[DBG] attacks_detailed slot={label} name={w.name} group={group_code} "
+        f"tier={w_prof['name']} bonus={int(w_prof['bonus'])} half={half_w} "
+        f"→ hit_best={math_['hit_best']} dmg_best={math_['dmg_best']} rule={math_['rule']}")
 
 
     # ----- LEFT CARD: finals only -----
