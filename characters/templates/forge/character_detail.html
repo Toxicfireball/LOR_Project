@@ -597,11 +597,12 @@
 <button
   class="btn btn-sm btn-outline-secondary edit-override"
   type="button"
-  data-key="prof:weapon"
+  data-key="prof:weapon:{{ a.group }}"   
   data-calc="{{ a.hit_best|default:a.hit_str }}"
   data-formula="prof + ½ level + ability"
-  data-debug='{"slot":"{{ a.slot }}","weapon":"{{ a.name|escapejs }}"}'
+  data-debug='{"slot":"{{ a.slot }}","weapon":"{{ a.name|escapejs }}","group":"{{ a.group }}"}'
 >✎</button>
+
 
 </td>
 </tr>

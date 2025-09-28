@@ -4873,28 +4873,26 @@ def character_detail(request, pk):
         return False
 
     is_details_submit = _is_details_submit(request)
-# --- Details modal (Name / story...) -------------------------------------
-# One authoritative handler; do not create/overwrite edit_form elsewhere.
     if is_details_submit and can_edit:
         edit_form = CharacterEditForm(request.POST, instance=character)
         if edit_form.is_valid():
-            changed = list(edit_form.changed_data)
-            missing = [f for f in changed if not (request.POST.get("note__" + f) or "").strip()]
-            if missing:
-                edit_form.add_error(None, "Please provide a reason for changing: " + ", ".join(missing).title())
-            else:
-                edit_form.save()
-                # (Optional audit: persist reasons)
-                # for f in changed:
-                #     CharacterFieldNote.objects.update_or_create(
-                #         character=character,
-                #         key=f"details:{f}",
-                #         defaults={"note": (request.POST.get('note__'+f) or '').strip()},
-                #     )
-                messages.success(request, "Details updated.")
-                return redirect("characters:character_detail", pk=character.pk)
+            # ✅ No reason required: just save the changes.
+            edit_form.save()
+
+            # (Optional audit: keep this commented-out block if you ever want
+            # to record free-text notes, but it is no longer required.)
+            # for f in edit_form.changed_data:
+            #     CharacterFieldNote.objects.update_or_create(
+            #         character=character,
+            #         key=f"details:{f}",
+            #         defaults={"note": (request.POST.get('note__'+f) or '').strip()},
+            #     )
+
+            messages.success(request, "Details updated.")
+            return redirect("characters:character_detail", pk=character.pk)
     else:
         edit_form = CharacterEditForm(instance=character) if can_edit else None
+
 
 
     if request.method == "POST" and "level_up_submit" in request.POST:
@@ -6736,6 +6734,10 @@ def character_detail(request, pk):
                 group_best[key] = p.tier
 
     # write/inject group rows into prof_by_code (so later code sees them)
+    # DEBUG: what tiers did we derive from classes?
+    print("[DBG] group_best →", {k: (getattr(v, "name", None), getattr(v, "bonus", None)) for k, v in group_best.items()})
+
+    # write/inject group rows into prof_by_code (so later code sees them)
     for gkey, tier in group_best.items():
         prof_by_code[gkey] = {
             "type_code": gkey,
@@ -6745,6 +6747,7 @@ def character_detail(request, pk):
             "is_proficient": (str(tier.name).strip().lower() != "untrained"),
             "source": "Class",
         }
+
 
     # Ensure all 4 groups exist (default to Untrained if class gives none)
     for g in ("weapon:simple","weapon:martial","weapon:special","weapon:black_powder"):
@@ -6818,7 +6821,9 @@ def character_detail(request, pk):
                 row["source"]   = "Override"
             except ValueError:
                 pass
-
+    # DEBUG: what does the table say for each weapon group right now?
+    print("[DBG] prof_by_code weapon groups →",
+          {k: (r.get("tier_name"), r.get("modifier")) for k, r in prof_by_code.items() if k.startswith("weapon:")})
     # Keep list form for template, and a **fresh** by_code after tier overrides
     proficiency_summary = list(prof_by_code.values())
     by_code = {r["type_code"]: r for r in proficiency_summary}
@@ -6939,9 +6944,9 @@ def character_detail(request, pk):
         "fortitude_total": con_mod + prof_fort   + hl_if_trained("fortitude"),
         "will_total":      wis_mod + prof_will   + hl_if_trained("will"),
         "perception_total": prof_perception + hl_if_trained("perception"),  # (no ability in your model)
-        "weapon_base":     prof_weapon + hl_if_trained("weapon"),
-        "weapon_with_str": prof_weapon + hl_if_trained("weapon") + str_mod,
-        "weapon_with_dex": prof_weapon + hl_if_trained("weapon") + dex_mod,
+        "weapon_base":     0,
+        "weapon_with_str": 0,
+        "weapon_with_dex": 0,
         "spell_dcs":       [],
     }
 
@@ -7048,40 +7053,78 @@ def character_detail(request, pk):
     
 
     add_row("dodge", dex_label, dex_for_dodge, label="Dodge", base_const=10)
-
-  # ← 10 + DEX + prof + ½ level
     add_row("reflex", "Dexterity", dex_mod, label="Reflex")
     add_row("fortitude","Constitution", con_mod, label="Fortitude")
     add_row("will",   "Wisdom",   wis_mod, label="Will")
-    add_row("perception",               label="Perception")  # (no ability in your model)
-    add_row("initiative",               label="Initiative")  # (no ability in your model)
-    add_row("weapon",                   label="Weapon (base)")
-
-    # earlier you computed armor_value already
+    add_row("perception",               label="Perception")
+    add_row("initiative",               label="Initiative")
+    # defer weapon row until after equipped-weapon/group resolution
     add_row(
         "armor", label="Armor", base_const=armor_value,
         prof_override=armor_prof["bonus"], half_override=half_armor
     )
+
     by_slot = {
         e.slot_index: e
         for e in character.equipped_weapons.select_related("weapon").all()
     }
+    # --- SAFE DEFAULTS so _half_weapon ALWAYS EXISTS (even with no weapon equipped) ---
+    prof_weapon = int(prof_by_code.get("weapon", {"modifier": 0}).get("modifier", 0))
+    group_note  = str(prof_by_code.get("weapon", {}).get("tier_name", ""))  # shown in calc note
+
+    def _half_weapon():
+        # generic ½ level if trained in the generic "weapon" prof
+        return hl_if_trained("weapon")
+
+    # If a primary weapon is equipped, override using its WEAPON GROUP proficiency
     if by_slot.get(1):
         main_w = by_slot[1].weapon
-    
-        # ✅ Use Simple/Martial/Exotic group to pick proficiency tier
-        group = _weapon_prof_group(main_w)
-        main_prof = _prof_from_group(prof_by_code, group)
-    
-        half_main = half_lvl if main_prof["is_proficient"] else 0
-        prof_weapon = main_prof["bonus"]
-    
-        def _half_weapon(): return half_main  # tiny shim for table math
-    else:
-        # fallback to generic weapon proficiency when nothing is equipped
-        def _half_weapon(): return hl_if_trained("weapon")
-        prof_weapon = prof_by_code.get("weapon", {"modifier": 0})["modifier"]
-    
+
+        group = _weapon_prof_group(main_w)             # e.g., "simple", "martial", "special", "black_powder"
+        main_prof = _prof_from_group(prof_by_code, group)  # {"name": "...", "bonus": int, "is_proficient": bool}
+
+        # Optional: your compact debug print, keep or remove
+        # print("[DBG] equipped →",
+        #       {"id": getattr(main_w, "id", None),
+        #        "name": getattr(main_w, "name", None),
+        #        "group": group,
+        #        "resolved_main_prof": main_prof,
+        #        "half_lvl": half_lvl})
+
+        half_main   = half_lvl if bool(main_prof.get("is_proficient")) else 0
+        prof_weapon = int(main_prof.get("bonus", main_prof.get("modifier", 0)))
+        group_note  = str(main_prof.get("name", ""))  # show the actual group tier, not the generic one
+
+        # 🔧 Mirror the resolved GROUP proficiency into the generic "weapon" row.
+        # Many calculations (incl. attacks_detailed builders) read 'weapon', not 'weapon:<group>'.
+        resolved_bonus = int(main_prof.get("bonus", main_prof.get("modifier", 0)))
+        resolved_name  = str(main_prof.get("name", "Untrained"))
+        resolved_prof_row = {
+            "type_code":     "weapon",
+            "tier_name":     resolved_name,
+            "modifier":      resolved_bonus,   # keep both keys to satisfy any code path
+            "bonus":         resolved_bonus,
+            "is_proficient": bool(main_prof.get("is_proficient")),
+            "source":        f"Group({group})",
+        }
+        prof_by_code["weapon"] = resolved_prof_row
+        # Keep by_code in sync so hl_if_trained('weapon') reflects the group tier.
+        by_code["weapon"] = resolved_prof_row
+
+        def _half_weapon():
+            return half_main
+    add_row(
+        "weapon",
+        label="Weapon (base)",
+        prof_override=prof_weapon,
+        half_override=_half_weapon()
+    )
+    # Keep derived weapon numbers in sync with the resolved group proficiency
+    derived["weapon_base"]     = prof_weapon + _half_weapon()
+    derived["weapon_with_str"] = prof_weapon + _half_weapon() + str_mod
+    derived["weapon_with_dex"] = prof_weapon + _half_weapon() + dex_mod
+
+            
     
     attack_rows = [
         {
@@ -7178,6 +7221,10 @@ def character_detail(request, pk):
             .filter(name__in=FIVE_TIERS)
             .order_by(order, "bonus")
     )
+
+    # ← NEW: expose tiers for the Weapon Group editor templates
+    proficiency_tiers = prof_levels
+
     # --- Replace your current weapon_group_display build with this:
     _weapon_labels = {
         "weapon:simple": "Simple",
@@ -7678,17 +7725,26 @@ def character_detail(request, pk):
         if not rec:
             continue
         w = rec.weapon
+        group_code = _weapon_group_for(w)  # "simple" | "martial" | "special" | "black_powder"
 
-        # Resolve proficiency that applies to THIS weapon (item > group)
-        w_prof = _effective_class_prof_for_item(
-            character, "weapon",
-            weapon_group=_weapon_group_for(w),
-            weapon_item_id=w.id
-        )
+        # 1) Prefer the (possibly overridden) group row already in prof_by_code
+        grp_row = _prof_from_group(prof_by_code, group_code)
+        if grp_row and ("bonus" in grp_row or "modifier" in grp_row):
+            w_prof = {
+                "name":          grp_row.get("name") or grp_row.get("tier_name") or "Untrained",
+                "bonus":         int(grp_row.get("bonus", grp_row.get("modifier", 0))),
+                "is_proficient": bool(grp_row.get("is_proficient", not _is_untrained_name(grp_row.get("tier_name","Untrained")))),
+            }
+        else:
+            # 2) Fallback to legacy resolver if the row is missing
+            w_prof = _effective_class_prof_for_item(
+                character, "weapon",
+                weapon_group=group_code,
+                weapon_item_id=w.id
+            )
+
         half_w = half_lvl if w_prof["is_proficient"] else 0
-
-        # Your helper already takes (prof, half) separately — pass the *effective* ones
-        math_ = _weapon_math_for(w, str_mod, dex_mod, w_prof["bonus"], half_w)
+        math_ = _weapon_math_for(w, str_mod, dex_mod, int(w_prof["bonus"]), half_w)
 
         attacks_detailed.append({
             "slot": label,
@@ -8554,7 +8610,7 @@ def character_detail(request, pk):
 "martial_mastery_available": mm_ctx["martial_mastery_available"],
 "edit_form": edit_form,
     "weapon_group_display": weapon_group_display,
-    "proficiency_tiers":    prof_levels,   # you already computed this as prof_levels
+    "proficiency_tiers":    proficiency_tiers,   # you already computed this as prof_levels
     "proficiency_detailed": by_code,       # optional, but already useful elsewhere
 
     "spell_slots_editors": spell_slots_editors,
@@ -9867,4 +9923,3 @@ def approve_pending_background(request, pb_id):
     if getattr(pb, "campaign_id", None):
         return redirect("campaigns:campaign_detail", campaign_id=pb.campaign_id)
     return redirect("characters:create_character")
-

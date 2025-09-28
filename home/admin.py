@@ -626,7 +626,7 @@ class CharacterClassBaseProfForm(CharacterClassForm):
                 .filter(character_class=cls, proficiency_type="weapon", at_level=1, weapon_item__isnull=False)
                 .values_list("weapon_item", flat=True)
             )
-    def sync_baseline_prof_progress(self, inst):
+    def sync_baseline_prof_progress(self, inst, skip_tokens=frozenset()):
         # ⬇️ this is the exact body you currently have in save() that
         #     deletes/creates CPP rows. Move it here unchanged.
         armor_sel   = set(self.cleaned_data.get("armor_proficiencies") or [])
@@ -644,11 +644,14 @@ class CharacterClassBaseProfForm(CharacterClassForm):
         with transaction.atomic():
             # ---- keep your exact delete/get_or_create code here ----
             # Armor groups @ L1
+            # Armor groups @ L1
             ClassProficiencyProgress.objects.filter(
                 character_class=inst, proficiency_type="armor", at_level=1
             ).exclude(armor_group__in=armor_sel).delete()
 
             for grp in armor_sel:
+                if ("armor_group", grp) in skip_tokens:   # ⬅️ NEW
+                    continue
                 ClassProficiencyProgress.objects.get_or_create(
                     character_class=inst, proficiency_type="armor", at_level=1,
                     armor_group=grp, weapon_group=None,
@@ -661,32 +664,44 @@ class CharacterClassBaseProfForm(CharacterClassForm):
             ).exclude(weapon_group__in=weapon_sel).delete()
 
             for grp in weapon_sel:
+                if ("weapon_group", grp) in skip_tokens:
+                    continue
                 ClassProficiencyProgress.objects.get_or_create(
                     character_class=inst, proficiency_type="weapon", at_level=1,
                     armor_group=None, weapon_group=grp,
                     defaults={"tier": default_tier},
                 )
 
+
+            # Specific items @ L1
             # Specific items @ L1
             ClassProficiencyProgress.objects.filter(
                 character_class=inst, proficiency_type="armor", at_level=1, armor_item__isnull=False
             ).exclude(armor_item__in=armor_items).delete()
             for a in armor_items:
+                tok = ("armor_item", a.pk if hasattr(a, "pk") else a)   # ⬅️ NEW
+                if tok in skip_tokens:                                  # ⬅️ NEW
+                    continue
                 ClassProficiencyProgress.objects.get_or_create(
                     character_class=inst, proficiency_type="armor", at_level=1,
                     armor_group=None, weapon_group=None, armor_item=a, weapon_item=None,
                     defaults={"tier": default_tier},
                 )
 
+
             ClassProficiencyProgress.objects.filter(
                 character_class=inst, proficiency_type="weapon", at_level=1, weapon_item__isnull=False
             ).exclude(weapon_item__in=weapon_items).delete()
             for w in weapon_items:
+                tok = ("weapon_item", w.pk if hasattr(w, "pk") else w)  # ⬅️ NEW
+                if tok in skip_tokens:                                  # ⬅️ NEW
+                    continue
                 ClassProficiencyProgress.objects.get_or_create(
                     character_class=inst, proficiency_type="weapon", at_level=1,
                     armor_group=None, weapon_group=None, armor_item=None, weapon_item=w,
                     defaults={"tier": default_tier},
                 )
+
         return inst
 
     def save(self, commit=True):
@@ -2173,11 +2188,43 @@ class CharacterClassAdmin(admin.ModelAdmin):
 
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
-        # perform the baseline sync (armor/weapon @ L1) using your existing helper
+
+        skip = set()
+        for fs in formsets:
+            if getattr(fs, "model", None) is ClassProficiencyProgress:
+                for f in fs.forms:
+                    cd = getattr(f, "cleaned_data", None) or {}
+                    if not cd.get("DELETE"):
+                        continue
+
+                    # Only baseline rows can be resurrected by the sync
+                    lvl = cd.get("at_level", getattr(f.instance, "at_level", None))
+                    if lvl != 1:
+                        continue
+
+                    pt = cd.get("proficiency_type", getattr(f.instance, "proficiency_type", None))
+
+                    if pt == "armor":
+                        grp = cd.get("armor_group", getattr(f.instance, "armor_group", None))
+                        itm = cd.get("armor_item",  getattr(f.instance, "armor_item",  None))
+                        if grp:
+                            skip.add(("armor_group", grp))
+                        if itm:
+                            skip.add(("armor_item", itm.pk if hasattr(itm, "pk") else itm))
+
+                    elif pt == "weapon":
+                        grp = cd.get("weapon_group", getattr(f.instance, "weapon_group", None))
+                        itm = cd.get("weapon_item",  getattr(f.instance, "weapon_item",  None))
+                        if grp:
+                            skip.add(("weapon_group", grp))
+                        if itm:
+                            skip.add(("weapon_item", itm.pk if hasattr(itm, "pk") else itm))
+
         inst = form.instance
         if getattr(inst, "_needs_baseline_sync", False):
-            form.sync_baseline_prof_progress(inst)
+            form.sync_baseline_prof_progress(inst, skip_tokens=frozenset(skip))
             delattr(inst, "_needs_baseline_sync")
+
 # characters/admin.py
 
 from django.contrib import admin
