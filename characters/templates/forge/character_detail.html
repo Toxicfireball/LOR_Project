@@ -730,8 +730,7 @@
   {% endif %}
 </td>
 
-{% with sid='skill-'|add:row.id_key|slugify|add:'-'|add:forloop.counter|stringformat:"s" %}
-
+{% with sid=row.id_key|slugify %}
 <td class="text-end">
   <button
     class="btn btn-sm btn-outline-secondary open-skill-edit"
@@ -741,11 +740,10 @@
     Edit
   </button>
 </td>
-
-
 {% endwith %}
 
               </tr>
+
 
 
 
@@ -758,7 +756,7 @@
 <!-- Skill edit templates (one per row), kept outside the table -->
 <div class="d-none" id="skill-edit-templates">
   {% for row in skills_rows %}
-    {% with sid='skill-'|add:row.id_key|slugify|add:'-'|add:forloop.counter|stringformat:"s" %}
+{% with sid=row.id_key|slugify %}
       <template id="skedit-{{ sid }}-tpl">
         <div class="p-1">
           <div class="p-3 border rounded bg-light">
@@ -2974,23 +2972,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-  const skillModalEl = document.getElementById('skillEditModal');
-  const skillBody = document.getElementById('skillEditModalBody');
-  if (!skillModalEl || !skillBody || !window.bootstrap) return;
-
-  const bsSkillModal = bootstrap.Modal.getOrCreateInstance(skillModalEl);
-
-  // Delegate clicks from any "Edit" button in the Skills table
   document.addEventListener('click', (e) => {
     const btn = e.target.closest('.open-skill-edit');
     if (!btn) return;
+
     const sid = btn.getAttribute('data-sid');
     const tpl = document.getElementById(`skedit-${sid}-tpl`);
     if (!tpl) return;
 
-    skillBody.innerHTML = '';
-    skillBody.appendChild(tpl.content.cloneNode(true));
-    bsSkillModal.show();
+    // inject the template into the modal body and show it
+    const body = document.getElementById('skillEditModalBody');
+    body.innerHTML = '';
+    body.appendChild(tpl.content.cloneNode(true));
+
+    bootstrap.Modal.getOrCreateInstance(
+      document.getElementById('skillEditModal')
+    ).show();
   });
 });
 </script>
