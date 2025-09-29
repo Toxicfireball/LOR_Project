@@ -7008,15 +7008,36 @@ def character_detail(request, pk):
     # HP per spec: race_hp + (class hit die + CON mod) * level
     # primary_cp already computed earlier as the class with the most levels
     race_hp = int(getattr(character, "race_hp", 0) or 0)  # uses Character.race_hp if present
-    hit_die = int(getattr(primary_cp.character_class, "hit_die", 0)) if primary_cp else 0
-    hp_max_base = race_hp + (hit_die + con_mod) * character.level
+    # === HP calculation (spec): race starting HP + ((CON mod + class hit die) × level) ===
+    # Try a few common places race "starting HP" might live.
+    race_starting_hp = (
+        # Prefer Character.race.starting_hp if your Race model has it
+        int(getattr(getattr(character, "race", None), "starting_hp", 0) or 0)
+        # Or Character.race_hp if you store it denormalized on the character
+        or int(getattr(character, "race_hp", 0) or 0)
+    )
 
-    # allow an override to force hp_max if the user sets one
-    hp_max = int(overrides.get("hp_max", hp_max_base))
+    # Choose the class whose hit die should be used (you already computed primary_cp)
+    class_hit_die = int(getattr(getattr(primary_cp, "character_class", None), "hit_die", 0) or 0)
 
-    # current and temp can be overridden or fall back to model fields
-    hp_current = int((overrides.get("HP")      or getattr(character, "HP", 0)) or 0)
-    temp_hp    = int((overrides.get("temp_HP") or getattr(character, "temp_HP", 0)) or 0)
+    # Constitution modifier already computed above as con_mod (using override-aware abil_mod)
+    hp_max_base = race_starting_hp + (class_hit_die + con_mod) * int(character.level or 0)
+    print(race_starting_hp)
+    # Allow a user override for hp_max, but default to the computed value
+    try:
+        hp_max = int(overrides.get("hp_max", hp_max_base))
+    except (TypeError, ValueError):
+        hp_max = hp_max_base
+
+    # Current HP / Temp HP respect manual overrides, else fall back to model fields
+    def _int_or_zero(v):
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return 0
+
+    hp_current = _int_or_zero(overrides.get("HP")      or getattr(character, "HP", 0))
+    temp_hp    = _int_or_zero(overrides.get("temp_HP") or getattr(character, "temp_HP", 0))
 
     dex_for_dodge = dex_mod
     if selected_armor and selected_armor.dex_cap is not None:
