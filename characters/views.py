@@ -5865,15 +5865,79 @@ def character_detail(request, pk):
             return redirect('characters:character_detail', pk=pk)
 
         # Manual free-text add (no catalog type)
+        # ✅ Free-text add (no catalog type required)
         if op == "add_item":
-            nm = (request.POST.get("item_name") or "").strip()
+            nm   = (request.POST.get("item_name") or "").strip()
             desc = (request.POST.get("item_desc") or "").strip()
+            try:
+                qty = max(1, int((request.POST.get("item_qty") or "1")))
+            except ValueError:
+                qty = 1
+
             if not nm:
                 messages.error(request, "Item name required.")
                 return redirect('characters:character_detail', pk=pk)
-            # For free-text, store as SpecialItem if you have one; otherwise, store as unknown text.
-            # Since you haven't provided SpecialItem here, we cannot persist a typed link — skip creation.
-            messages.error(request, "Free-text add requires a typed item model (e.g., SpecialItem). Please share that model.")
+
+            CharacterItem = apps.get_model("characters", "CharacterItem")
+            CharacterItem.objects.create(
+                character=character,
+                is_custom=True,          # <-- key flag
+                name=nm,                 # <-- stored on the row
+                description=desc,
+                quantity=qty,
+                # item_content_type=None, item_object_id=None  # left empty on purpose
+            )
+            messages.success(request, f"Added {qty} × {nm} to inventory.")
+            return redirect('characters:character_detail', pk=pk)
+        # ✅ Edit a free-text item's name/description
+        if op == "update_item_text":
+            ci_id    = (request.POST.get("inventory_item_id") or "").strip()
+            new_name = (request.POST.get("item_name") or "").strip()
+            new_desc = (request.POST.get("item_desc") or "").strip()
+
+            if not ci_id.isdigit():
+                messages.error(request, "Invalid inventory item.")
+                return redirect('characters:character_detail', pk=pk)
+
+            CharacterItem = apps.get_model("characters", "CharacterItem")
+            ci = CharacterItem.objects.filter(pk=int(ci_id), character=character).first()
+            if not ci:
+                messages.error(request, "Item not found.")
+                return redirect('characters:character_detail', pk=pk)
+
+            if not ci.is_custom:
+                messages.error(request, "This row is linked to a catalog item; only custom items can edit name.")
+                return redirect('characters:character_detail', pk=pk)
+
+            if new_name:
+                ci.name = new_name
+            ci.description = new_desc
+            ci.save(update_fields=["name", "description"])
+            messages.success(request, "Item updated.")
+            return redirect('characters:character_detail', pk=pk)
+
+        # ✅ Set quantity
+        if op == "set_item_qty":
+            ci_id = (request.POST.get("inventory_item_id") or "").strip()
+            qty_s = (request.POST.get("item_qty") or "").strip()
+            if not ci_id.isdigit():
+                messages.error(request, "Invalid inventory item.")
+                return redirect('characters:character_detail', pk=pk)
+            try:
+                new_q = max(0, int(qty_s))
+            except ValueError:
+                messages.error(request, "Quantity must be a number.")
+                return redirect('characters:character_detail', pk=pk)
+
+            CharacterItem = apps.get_model("characters", "CharacterItem")
+            ci = CharacterItem.objects.filter(pk=int(ci_id), character=character).first()
+            if not ci:
+                messages.error(request, "Item not found.")
+                return redirect('characters:character_detail', pk=pk)
+
+            ci.quantity = new_q
+            ci.save(update_fields=["quantity"])
+            messages.success(request, "Quantity updated.")
             return redirect('characters:character_detail', pk=pk)
 
         # Collect from Party Pool
@@ -7196,16 +7260,38 @@ def character_detail(request, pk):
 
     # Spell/DC rows (one per key ability)
     # Build Spell/DC values from key abilities, then produce rows for the template
-    derived["spell_dcs"] = []
+    # --- Class DC (best of multiple key abilities) ---
+    # 1) compute candidate DCs (keep all for transparency)
+    dc_candidates = []
     for abil in key_abil_names:
-        mod = abil_mod(abil)
-        derived["spell_dcs"].append({
-            "ability": abil,
-            "value": 10 + mod + prof_dc + hl_if_trained("dc"),
-        })
+        mod = abil_mod(abil)  # ability modifier for that key ability
+        val = 10 + mod + prof_dc + hl_if_trained("dc")
+        dc_candidates.append((abil, val))
 
-    # Build DC rows from the actual spellcasting features we just computed
+    # Preserve the full list for UI/debug (unchanged external shape)
+    derived["spell_dcs"] = [{"ability": a, "value": v} for (a, v) in dc_candidates]
+
+    # 2) pick the highest DC (tie-breaker = first in key_abil_names)
+    if dc_candidates:
+        # max by value; Python's max is stable so ties keep the earliest
+        best_abil, best_val = max(dc_candidates, key=lambda x: x[1])
+
+        # Surface a single "Class DC" row in Defense using your add_row machinery.
+        # This honors:
+        # - prof_tier:dc (tier override)
+        # - prof:dc      (numeric override)
+        # - formula/final overrides via add_row("dc", ...)
+        add_row(
+            "dc",
+            abil_name=best_abil,
+            abil_mod_val=abil_mod(best_abil),
+            label="Class DC",
+            base_const=10
+        )
+
+    # (keep spell_dc_rows = [] if you need it later)
     spell_dc_rows = []
+
 
     totals = _formula_totals(character)
     for b in spellcasting_blocks:

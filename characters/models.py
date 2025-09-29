@@ -638,15 +638,18 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 class CharacterItem(models.Model):
     character = models.ForeignKey('Character', on_delete=models.CASCADE, related_name='inventory_items')
 
-    # what the item actually is (Weapon, Armor, SpecialItem, etc.)
-    item_content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
-    item_object_id    = models.PositiveIntegerField()
+    # what the item actually is (Weapon, Armor, etc.) — ✅ make optional
+    item_content_type = models.ForeignKey(ContentType, on_delete=models.SET_NULL, blank=True, null=True)  # was on_delete=CASCADE, required
+    item_object_id    = models.PositiveIntegerField(blank=True, null=True)  # was required
     item              = GenericForeignKey('item_content_type', 'item_object_id')
 
-    quantity    = models.PositiveIntegerField(default=1)
-    description = models.TextField(blank=True, null=True)  # ← for your “desc” field
+    # ✅ new: native free-text support (no catalog object)
+    is_custom   = models.BooleanField(default=False)
+    name        = models.CharField(max_length=120, blank=True, default="")
 
-    # optional pointer to the campaign PartyItem you took this from
+    quantity    = models.PositiveIntegerField(default=1)
+    description = models.TextField(blank=True, null=True)
+
     from_party_item = models.ForeignKey(
         'campaigns.PartyItem',
         on_delete=models.SET_NULL,
