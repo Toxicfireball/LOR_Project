@@ -69,6 +69,8 @@ path("codex/armor/",   views.armor_list,  name="codex_armor"),
         views.RulebookPageDetailView.as_view(),
         name="rulebook_page_detail_by_pk",
     ),
+# characters/urls.py
+path("<int:pk>/set-shield/", views.set_shield_choice, name="set_shield_choice"),
 path("search/", views.global_search, name="global_search"),
     # Select2 autocomplete
         path("propose-background/", views.propose_background_inline, name="propose_background_inline"),

@@ -4763,6 +4763,84 @@ def _resolve_background(label_or_code: str | None) -> str:
 
     # show as-is (you store free text)
     return s
+# characters/views.py
+from django.contrib.auth.decorators import login_required
+from django.http import HttpResponseBadRequest, HttpResponseForbidden
+from django.contrib.contenttypes.models import ContentType
+from django.shortcuts import get_object_or_404, redirect
+from django.contrib import messages
+from django.apps import apps
+
+@login_required
+def set_shield_choice(request, pk):
+    character = get_object_or_404(Character, pk=pk)
+
+    is_gm_for_campaign = False
+    if character.campaign_id:
+        is_gm_for_campaign = CampaignMembership.objects.filter(
+            campaign=character.campaign, user=request.user, role="gm"
+        ).exists()
+    if not (request.user.id == character.user_id or is_gm_for_campaign):
+        return HttpResponseForbidden("No permission.")
+
+    if request.method != "POST":
+        return redirect("characters:character_detail", pk=pk)
+
+    raw = (request.POST.get("shield_id") or "").strip()
+    note = (request.POST.get("note") or "").strip()
+
+    # unequip
+    if raw == "":
+        CharacterFieldOverride.objects.filter(character=character, key="equipped_shield_id").delete()
+        CharacterFieldOverride.objects.filter(character=character, key="shield_value").delete()
+        CharacterFieldNote.objects.filter(character=character, key="equipped_shield_id").delete()
+        messages.success(request, "Shield unequipped.")
+        return redirect("characters:character_detail", pk=pk)
+
+    Armor = apps.get_model("characters", "Armor")
+    CharacterItem = apps.get_model("characters", "CharacterItem")
+    from django.contrib.contenttypes.models import ContentType
+
+    try:
+        shield = Armor.objects.get(pk=int(raw))
+    except (ValueError, Armor.DoesNotExist):
+        messages.error(request, "Shield not found.")
+        return redirect("characters:character_detail", pk=pk)
+
+    # is it truly a shield?
+    if not _looks_like_shield(shield):
+        messages.error(request, "That item isn’t a shield.")
+        return redirect("characters:character_detail", pk=pk)
+
+    # does the character own it?
+    a_ct = ContentType.objects.get_for_model(Armor)
+    owns = CharacterItem.objects.filter(
+        character=character, item_content_type=a_ct, item_object_id=shield.id, quantity__gt=0
+    ).exists()
+    if not owns:
+        messages.error(request, "You don’t have that shield in your inventory.")
+        return redirect("characters:character_detail", pk=pk)
+
+    # save overrides
+    CharacterFieldOverride.objects.update_or_create(
+        character=character, key="equipped_shield_id", defaults={"value": str(shield.id)}
+    )
+    CharacterFieldOverride.objects.update_or_create(
+        character=character, key="shield_value", defaults={"value": str(shield.armor_value or 0)}
+    )
+    if note:
+        CharacterFieldNote.objects.update_or_create(
+            character=character, key="equipped_shield_id", defaults={"note": note}
+        )
+
+    messages.success(request, f"Equipped shield: {shield.name}.")
+    return redirect("characters:character_detail", pk=pk)
+
+def _looks_like_shield(armor_obj):
+    # Works with your model (type choices) and future variants
+    t = ((getattr(armor_obj, "type", "") or "").strip().lower())
+    n = ((getattr(armor_obj, "name", "") or "").strip().lower())
+    return (t == "shield") or ("shield" in n)
 
 @login_required
 def character_detail(request, pk):
@@ -6937,19 +7015,41 @@ def character_detail(request, pk):
         return half_lvl if not _is_untrained_name(r.get("tier_name")) else 0
     # Pull armor choices from the Armor model
     # ---- Effective proficiency for the EQUIPPED ARMOR (per-item/per-group) ----
-# ---- Effective proficiency for the EQUIPPED ARMOR (per-item/per-group) ----
+    # ---- Effective proficiency for the EQUIPPED ARMOR (per-item/per-group) ----
     Armor = apps.get_model("characters", "Armor")               # ← ensure model exists in this scope
 
+    # ---- Equipped ARMOR (unchanged behavior) ----
     selected_armor = None
     try:
         equipped_id = overrides.get("equipped_armor_id")
         armor_value = int(overrides.get("armor_value") or 0)
         if equipped_id:
             selected_armor = Armor.objects.get(pk=int(equipped_id))
-            armor_value = selected_armor.armor_value
+            armor_value = int(getattr(selected_armor, "armor_value", 0) or 0)
     except Exception:
         armor_value = 0
         selected_armor = None
+
+    # ---- NEW: Equipped SHIELD (must be Armor.type == "shield") ----
+    # --- Equipped SHIELD (saved by the generic override handler) ---
+    selected_shield = None
+    shield_value = 0
+    try:
+        # the override handler saves to "final:<key>"
+        equipped_sid = (
+            overrides.get("final:equipped_shield_id")  # ✅ primary
+            or overrides.get("equipped_shield_id")     # ← legacy fallback
+        )
+        if equipped_sid:
+            cand = Armor.objects.get(pk=int(equipped_sid))
+            if str(getattr(cand, "type", "")).strip().lower() == "shield":
+                selected_shield = cand
+                shield_value = int(getattr(cand, "armor_value", 0) or 0)
+    except Exception:
+        selected_shield = None
+        shield_value = 0
+
+
 
 
     armor_prof = {"bonus": 0, "is_proficient": False, "name": "Untrained"}
@@ -6963,22 +7063,26 @@ def character_detail(request, pk):
     half_armor = half_lvl if armor_prof["is_proficient"] else 0
 
 
-    CharacterItem = apps.get_model("characters", "CharacterItem")
-    Armor = apps.get_model("characters", "Armor")  # ← ensure defined here
+    Armor = apps.get_model("characters", "Armor")
 
     try:
         a_ct = ContentType.objects.get_for_model(Armor)
         arm_ids = (CharacterItem.objects
-            .filter(character=character, item_content_type=a_ct, quantity__gt=0)
-            .values_list("item_object_id", flat=True))
+                .filter(character=character, item_content_type=a_ct, quantity__gt=0)
+                .values_list("item_object_id", flat=True))
 
-        armor_list = list(
-            Armor.objects.filter(id__in=arm_ids)
-            .order_by('type','name')
-            .values('id','name','armor_value')
-        )
+        owned_armor = list(Armor.objects.filter(id__in=arm_ids).order_by("name"))
+
+        shield_objs = [a for a in owned_armor if _looks_like_shield(a)]
+        armor_objs  = [a for a in owned_armor if not _looks_like_shield(a)]
+
+        armor_list  = [{"id": a.id, "name": a.name, "armor_value": a.armor_value or 0} for a in armor_objs]
+        shield_list = [{"id": s.id, "name": s.name, "armor_value": s.armor_value or 0} for s in shield_objs]
     except Exception:
         armor_list = []
+        shield_list = []
+
+
 
     str_mod = abil_mod("strength")
     dex_mod = abil_mod("dexterity")
@@ -7039,20 +7143,29 @@ def character_detail(request, pk):
     hp_current = _int_or_zero(overrides.get("HP")      or getattr(character, "HP", 0))
     temp_hp    = _int_or_zero(overrides.get("temp_HP") or getattr(character, "temp_HP", 0))
 
-    dex_for_dodge = dex_mod
-    if selected_armor and selected_armor.dex_cap is not None:
-        dex_for_dodge = min(dex_mod, int(selected_armor.dex_cap))
+    def _combine_dex_cap(*caps):
+        caps = [c for c in caps if c is not None]
+        return (min(int(c) for c in caps) if caps else None)
 
-    # NEW: label to reflect cap in the Defense table row
+    combined_cap = _combine_dex_cap(
+        getattr(selected_armor, "dex_cap", None) if selected_armor else None,
+        getattr(selected_shield, "dex_cap", None) if selected_shield else None,
+    )
+
+    dex_for_dodge = dex_mod
+    if combined_cap is not None:
+        dex_for_dodge = min(dex_mod, int(combined_cap))
+
     dex_label = "Dexterity"
-    if selected_armor and selected_armor.dex_cap is not None and dex_mod > int(selected_armor.dex_cap):
+    if combined_cap is not None and dex_mod > int(combined_cap):
         dex_label = "Dexterity (capped)"
+
 
 
     derived = {
         "half_level":      half_lvl,
-        "armor_total":     int(overrides.get("armor_value") or 0) + armor_prof["bonus"] + half_armor,        
-        "dodge_total":     10 + dex_for_dodge + prof_dodge + hl_if_trained("dodge"),
+    "armor_total":     (armor_value + 2*shield_value) + armor_prof["bonus"] + half_armor,
+       "dodge_total":     (10 + shield_value) + dex_for_dodge + prof_dodge + hl_if_trained("dodge"),
         "reflex_total":    dex_mod + prof_reflex + hl_if_trained("reflex"),
         "fortitude_total": con_mod + prof_fort   + hl_if_trained("fortitude"),
         "will_total":      wis_mod + prof_will   + hl_if_trained("will"),
@@ -7165,15 +7278,17 @@ def character_detail(request, pk):
 
     
 
-    add_row("dodge", dex_label, dex_for_dodge, label="Dodge", base_const=10)
+    # base 10 + shield bonus
+    add_row("dodge", dex_label, dex_for_dodge, label="Dodge", base_const=(10 + shield_value))
+
     add_row("reflex", "Dexterity", dex_mod, label="Reflex")
     add_row("fortitude","Constitution", con_mod, label="Fortitude")
     add_row("will",   "Wisdom",   wis_mod, label="Will")
     add_row("perception",               label="Perception")
     add_row("initiative",               label="Initiative")
-    # defer weapon row until after equipped-weapon/group resolution
+    # armor_value + 2×shield_value
     add_row(
-        "armor", label="Armor", base_const=armor_value,
+        "armor", label="Armor", base_const=(armor_value + 3*shield_value),
         prof_override=armor_prof["bonus"], half_override=half_armor
     )
 
@@ -8729,7 +8844,8 @@ def character_detail(request, pk):
     "weapon_group_display": weapon_group_display,
     "proficiency_tiers":    proficiency_tiers,   # you already computed this as prof_levels
     "proficiency_detailed": by_code,       # optional, but already useful elsewhere
-
+    "shield_list": shield_list,
+    "selected_shield": selected_shield,
     "spell_slots_editors": spell_slots_editors,
 
     # list of spell slot table features with full descriptions

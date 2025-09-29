@@ -347,6 +347,28 @@
                       <span class="text-muted ms-2">Equipped: {{ selected_armor.name }}</span>
                     {% endif %}
                   </form>
+                    <form method="post" action="{% url 'characters:character_detail' character.pk %}"
+        class="d-flex flex-wrap gap-2 align-items-center mt-2">
+    {% csrf_token %}
+    <input type="hidden" name="override_submit" value="1">
+    <input type="hidden" name="override_key" value="equipped_shield_id">
+    <input type="hidden" name="override_formula" value="">
+    <input type="hidden" name="override_reason" value="Equip shield">
+
+    <label class="me-2 fw-semibold">Shield:</label>
+    <select name="override_final" class="form-select form-select-sm" style="max-width: 320px">
+      <option value="">— No shield —</option>
+      {% for s in shield_list %}
+        <option value="{{ s.id }}" {% if selected_shield and selected_shield.id == s.id %}selected{% endif %}>
+          {{ s.name }} (+{{ s.armor_value }})
+        </option>
+      {% endfor %}
+    </select>
+    <button class="btn btn-sm btn-outline-primary">Save</button>
+    {% if selected_shield %}
+      <span class="text-muted ms-2">Equipped: {{ selected_shield.name }}</span>
+    {% endif %}
+  </form>
                 </div>
                               <div class="card-body pt-0">
                           
