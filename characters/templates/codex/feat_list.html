@@ -62,10 +62,12 @@ th[data-col="level"] .menu { left:auto; right:8px; }
     .pill { font-size:12px; background:#eef2ff; border:1px solid #c7d2fe; padding:2px 8px; border-radius:999px; }
 
     /* Drawer */
-.backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 940; display:none; }    
-.drawer { position: fixed; top: 0; right: 0; height: 100%; width: min(560px, 92vw); background: #fff;
-          box-shadow: -12px 0 30px rgba(0,0,0,.15); padding: 20px 20px 40px; overflow: auto; z-index: 950;
-          border-left: 1px solid var(--b); transform: translateX(100%); transition: transform .22s ease; }
+/* Lift drawer/backdrop above Bootstrap dropdowns (which are z-index: 1000) */
+.backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 1990; display:none; }    
+.drawer   { position: fixed; top: 0; right: 0; height: 100%; width: min(560px, 92vw); background: #fff;
+            box-shadow: -12px 0 30px rgba(0,0,0,.15); padding: 20px 20px 40px; overflow: auto; z-index: 2000;
+            border-left: 1px solid var(--b); transform: translateX(100%); transition: transform .22s ease; }
+
     .drawer.open { transform: translateX(0%); }
     .drawer-close { position: sticky; top: 0; float: right; border: 1px solid var(--b); background: #f3f4f6; border-radius: 8px; padding: 4px 8px; cursor: pointer; }
     .d-name { margin: 6px 0 4px; }
@@ -192,6 +194,26 @@ th[data-col="level"] .menu { left:auto; right:8px; }
   <hr class="d-sep">
   <article id="d_desc" class="d-desc"><em>No description provided.</em></article>
 </aside>
+<style>
+  /* Hard override: sit above any site header/dropdowns/offcanvas */
+  #backdrop { 
+    position: fixed !important; 
+    inset: 0 !important; 
+    background: rgba(0,0,0,.35); 
+    z-index: 2147483630 !important; /* near max, above anything */
+    display: none;
+  }
+  #drawer {
+    position: fixed !important; 
+    top: 0; right: 0; height: 100%; width: min(560px, 92vw);
+    background: #fff; border-left: 1px solid var(--b, #e5e7eb);
+    box-shadow: -12px 0 30px rgba(0,0,0,.15);
+    padding: 20px 20px 40px; overflow: auto;
+    transform: translateX(100%); transition: transform .22s ease;
+    z-index: 2147483647 !important; /* top of the world */
+  }
+  #drawer.open { transform: translateX(0%); }
+</style>
 
 <!-- Server can optionally set the data URL here; fallback will be computed -->
 <span id="feat-data-url" class="sr-only" data-url="{{ data_url|default:'' }}"></span>
@@ -554,6 +576,15 @@ async function boot(){
 }
 
 boot();
+</script>
+<script>
+  // Move overlay nodes to <body> so they aren't trapped in a lower z-index/transform context
+  (function () {
+    const b = document.getElementById('backdrop');
+    const d = document.getElementById('drawer');
+    if (b && b.parentNode !== document.body) document.body.appendChild(b);
+    if (d && d.parentNode !== document.body) document.body.appendChild(d);
+  }());
 </script>
 
 {% endblock %}
