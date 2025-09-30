@@ -9,9 +9,27 @@
 
     // ── Helpers ────────────────────────────────────────────────────────────────────
  function row(name) {
-   return document.querySelector(".form-row.field-" + name)
-       || document.querySelector("div.fieldBox.field-" + name);
- }    function show(el, on) { if (el) el.style.display = on ? "" : "none"; }
+  // 1) canonical wrappers used by Django admin UIs
+  let el = document.querySelector(".form-row.field-" + name)
+        || document.querySelector("div.fieldBox.field-" + name);
+  if (el) return el;
+
+  // 2) climb from the input itself (robust across wrappers)
+  const inp = document.getElementById("id_" + name);
+  if (inp) {
+    el = inp.closest(".form-row, .fieldBox, fieldset.module, .inline-group, .aligned")
+      || inp.parentElement;
+    if (el) return el;
+  }
+
+  // 3) last resort: find its <label for="id_name"> and climb from there
+  const lbl = document.querySelector('label[for="id_' + name + '"]');
+  if (lbl) return lbl.closest(".form-row, .fieldBox, fieldset.module, .aligned") || lbl.parentElement;
+
+  return null;
+}
+
+ function show(el, on) { if (el) el.style.display = on ? "" : "none"; }
     function currentGmpMode() {
       const r = document.querySelector('input[name="gmp_mode"]:checked');
       return r ? r.value : "";
@@ -54,7 +72,13 @@
       mmAvailable:    row("available_masteries_formula"),
       gmpMode:        row("gmp_mode"),
       profTarget:     row("modify_proficiency_target"),
-      profAmount:     row("modify_proficiency_amount"),
+      profAmount:
+  row("modify_proficiency_amount") ||
+  (function () {
+    var i = document.getElementById("id_modify_proficiency_amount");
+    return i && (i.closest(".form-row") || i.closest("div.fieldBox"));
+  })(),
+      
       spellList:      row("spell_list"),
       cantrips:       row("cantrips_formula"),
       known:          row("spells_known_formula"),
@@ -173,26 +197,47 @@ if (["subclass_feat", "subclass_choice", "gain_subclass_feat"].indexOf(scopeNorm
       }
 
       // Generic Gain/Modify Proficiency
-      if (kindVal === "modify_proficiency") {
-        show(rows.gmpMode,    true);
-        show(rows.profTarget, true);
-        const gm = currentGmpMode();
-        show(rows.profAmount, gm === "set");
-      }
+// Generic Gain/Modify Proficiency
+// Generic Gain/Modify Proficiency — mirror target logic
+if (kindVal === "modify_proficiency") {
+  show(rows.gmpMode,    true);
+  show(rows.profTarget, true);
+  const gm = currentGmpMode();          // 'uptier' | 'set'
+  show(rows.profAmount, gm === "set");  // ← only when “Gain amount to override”
+}
+
+// Core Proficiency section (only when kind is core_proficiency)
+if (kindVal === "core_proficiency") {
+  var coreMode = (function () {
+    var r = document.querySelector('input[name="prof_change_mode"]:checked');
+    return r ? r.value : "";
+  })();
+  // progress → show the *core* grant amount row, hide the shared override
+  show(rows.gainProfAmt, coreMode === "progress");
+  // set/override → use the shared override row, hide the core grant amount
+  show(rows.profAmount,  coreMode === "set");
+} else {
+  // When not in core mode, never let the core grant amount hang around
+  show(rows.gainProfAmt, false);
+}
+
 
       // Core Proficiency section (only when kind is core_proficiency)
 // Core Proficiency section (only when kind is core_proficiency)
+// Core Proficiency section (only when kind is core_proficiency)
+// (Do NOT include 'id_modify_proficiency_amount' here — it is shared with the generic section)
 const coreIds = [
   "id_prof_target_kind",
   "id_armor_group_choice","id_weapon_group_choice",
   "id_armor_item_choice","id_weapon_item_choice",
-  "id_gain_proficiency_amount","id_modify_proficiency_amount",
+  "id_gain_proficiency_amount",
 ];
 coreIds.forEach(id => {
   const el = document.getElementById(id);
   const r  = el && (el.closest(".form-row") || el.closest("div.fieldBox"));
   if (r) r.style.display = (kindVal === "core_proficiency" ? "" : "none");
 });
+
 
 // ← NEW: pick which amount row shows based on core mode
 if (kindVal === "core_proficiency") {
@@ -226,6 +271,7 @@ if (kindVal === "core_proficiency") {
     }
   })();
       // Options inline
+// FINAL: always unhide the tier selector row (Proficiency Tier)
 
     }
 
@@ -240,6 +286,21 @@ if (resModeEl) resModeEl.addEventListener("change", toggleAll);
 document.querySelectorAll('input[name="gmp_mode"]').forEach(function (el) {
   el.addEventListener('change', toggleAll);
 });
+
+(function fixInitialGMPRadio() {
+  const kindEl = document.getElementById("id_kind");
+  const kindVal = kindEl ? kindEl.value : "";
+
+  if (kindVal !== "modify_proficiency") return;  // ← do nothing unless editing Modify Proficiency
+
+  const checked = document.querySelector('input[name="gmp_mode"]:checked');
+  if (!checked) {
+    const setter = document.querySelector('input[name="gmp_mode"][value="set"]');
+    if (setter) setter.checked = true;
+  }
+})();
+
+
 document.querySelectorAll('input[name="prof_change_mode"]').forEach(function (el) {
   el.addEventListener('change', toggleAll);
 });

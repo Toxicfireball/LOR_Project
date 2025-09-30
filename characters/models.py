@@ -511,7 +511,22 @@ class Character(models.Model):
     gold   = models.IntegerField(default=0)
     silver = models.IntegerField(default=0)
     copper = models.IntegerField(default=0)
+    speed = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text="Leave blank to use your race's default."
+    )
 
+    @property
+    def effective_speed(self) -> int:
+        # prefer explicit character override
+        if self.speed is not None:
+            return int(self.speed)
+        # then subrace (if your Subrace has .speed), else race
+        if self.subrace and hasattr(self.subrace, "speed") and self.subrace.speed:
+            return int(self.subrace.speed)
+        if self.race and hasattr(self.race, "speed") and self.race.speed:
+            return int(self.race.speed)
+        return 30  # final fallback
     # characters/models.py  (INSIDE class Character)
     def class_level_for(self, base_class: "CharacterClass") -> int:
         """

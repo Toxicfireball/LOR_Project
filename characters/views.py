@@ -5677,13 +5677,56 @@ def character_detail(request, pk):
                 CharacterFieldNote.objects.update_or_create(
                     character=character, key=key, defaults={"note": note}
                 )
+
         try:
+            # Keep existing behavior for current HP and Temp HP
             _save_num("HP")
             _save_num("temp_HP")
-            _save_num("hp_max")
+            # --- NEW: Speed (blank = use race default) ---
+            speed_raw = (request.POST.get("speed") or "").strip()
+            if speed_raw == "":
+                # Clear to None so UI falls back to race_speed placeholder
+                if character.speed is not None:
+                    character.speed = None
+                    character.save(update_fields=["speed"])
+            else:
+                try:
+                    speed_val = max(0, int(speed_raw))
+                except ValueError:
+                    messages.error(request, "Speed must be a whole number.")
+                    return redirect('characters:character_detail', pk=pk)
+                if character.speed != speed_val:
+                    character.speed = speed_val
+                    character.save(update_fields=["speed"])
+
+            # --- NEW: hp_max supports "Auto" (no override) ---
+            hp_auto = (request.POST.get("hp_max_auto") == "on")   # checkbox from the form
+            hp_raw  = (request.POST.get("hp_max") or "").strip()
+
+            if hp_auto or hp_raw == "":
+                # Auto mode: remove override so page-load uses the computed hp_max_base
+                CharacterFieldOverride.objects.filter(character=character, key="hp_max").delete()
+                note = (request.POST.get("note__hp_max") or "").strip()
+                if note:
+                    CharacterFieldNote.objects.update_or_create(
+                        character=character, key="hp_max", defaults={"note": note}
+                    )
+            else:
+                try:
+                    hp_val = int(hp_raw)
+                except (TypeError, ValueError):
+                    messages.error(request, "hp_max must be a whole number.")
+                    return redirect('characters:character_detail', pk=pk)
+                CharacterFieldOverride.objects.update_or_create(
+                    character=character, key="hp_max", defaults={"value": str(hp_val)}
+                )
+
         except Exception:
             return redirect('characters:character_detail', pk=pk)
+
         return redirect('characters:character_detail', pk=pk)
+
+
 
 
     # --- SKILLS: additive adjustments with reasons (multi-entry) -------------------
@@ -7051,7 +7094,13 @@ def character_detail(request, pk):
 
 
 
+    race_speed = 30
+    if character.subrace and hasattr(character.subrace, "speed") and character.subrace.speed:
+        race_speed = int(character.subrace.speed or 30)
+    elif character.race and hasattr(character.race, "speed") and character.race.speed:
+        race_speed = int(character.race.speed or 30)
 
+    effective_speed = character.effective_speed 
     armor_prof = {"bonus": 0, "is_proficient": False, "name": "Untrained"}
     if selected_armor:
         armor_prof = _effective_class_prof_for_item(
@@ -7721,6 +7770,9 @@ def character_detail(request, pk):
 
     # ------- Handle "Save Skill Proficiencies" POST with reason required -------
     skill_prof_errors = []
+
+
+
     if request.method == "POST" and "save_skill_profs_submit" in request.POST and can_edit:
         to_apply = []
         for row in all_skill_rows:
@@ -7982,6 +8034,8 @@ def character_detail(request, pk):
             "hit_dex": math_["hit_dex"],
             "dmg_str": math_["dmg_str"],
             "dmg_dex": math_["dmg_dex"],
+            "hit_best": math_["hit_best"],   # ← add this
+            "dmg_best": math_["dmg_best"],   # ← and this
             "show_choice_hit": math_["show_choice_hit"],
             "show_choice_dmg": math_["show_choice_dmg"],
             "rule": math_["rule"],
@@ -8008,6 +8062,10 @@ def character_detail(request, pk):
         {"label": "Will",        "value": derived["will_total"]},
         {"label": "Weapon (base)","value": derived["weapon_base"]},
     ]
+    derived["speed"] = effective_speed
+    finals_left.insert(0, {"label": "Speed", "value": effective_speed})
+
+
     if derived.get("spell_dcs"):
         # keep just the main one (you required one DC per class)
         finals_left.append({"label":"Spell/DC", "value": derived["spell_dcs"][0]["value"]})
@@ -8847,7 +8905,8 @@ def character_detail(request, pk):
     "shield_list": shield_list,
     "selected_shield": selected_shield,
     "spell_slots_editors": spell_slots_editors,
-
+"race_speed": race_speed,
+"effective_speed": effective_speed,
     # list of spell slot table features with full descriptions
     "spell_slot_features": spell_slot_features,
     })
