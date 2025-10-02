@@ -7,7 +7,13 @@ from django.db.models import Q, F
 from django.db.models.functions import Cast
 from django.db.models import Case, When, IntegerField
 # Create your views here.
-# characters/views.py
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth import get_user_model             # NEW
+from django.contrib import messages                     # NEW (if not already present)
+from django.utils import timezone                       # NEW
+from django.urls import reverse                         # NEW
+from django.http import HttpResponseForbidden, Http404  # NEW
+from .models import CharacterViewer, CharacterShareInvite  # NEW
 from .forms import CharacterEditForm
 from collections import defaultdict
 from collections import Counter
@@ -16,7 +22,6 @@ from django.http import QueryDict
 from campaigns.models import CampaignMembership
 from django.db.models import Q, Max
 from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth.decorators import login_required
 from django_select2.views import AutoResponseView
 from .models import Character, Skill  , RaceFeatureOption  
 from campaigns.models import Campaign, PartyItem
@@ -2759,7 +2764,21 @@ def race_detail(request, pk):
         [(v["obj"], v["items"]) for v in subrace_map.values()],
         key=lambda kv: kv[0].name
     )
+    race_starting_hp = (
+        getattr(race, "starting_hp", None)
+        or getattr(race, "race_hp", None)
+    )
 
+    # Collect available speeds without blowing up if the field doesn't exist.
+    # Show only those that are set and > 0 (or truthy if you store them as text).
+    _speed_fields = [
+        ("Speed",        getattr(race, "speed",        None)),
+        ("Climb",        getattr(race, "speed_climb",  None)),
+        ("Swim",         getattr(race, "speed_swim",   None)),
+        ("Fly",          getattr(race, "speed_fly",    None)),
+        ("Burrow",       getattr(race, "speed_burrow", None)),
+    ]
+    race_speeds = [(label, val) for (label, val) in _speed_fields if val]
     context = {
         "race": race,
         "universal_features": universal_features,
@@ -4853,10 +4872,38 @@ def character_detail(request, pk):
             campaign=character.campaign, user=request.user, role="gm"
         ).exists()
 
-    if not (request.user.id == character.user_id or is_gm_for_campaign):
+    # NEW: allow explicitly shared viewers
+    is_shared_viewer = CharacterViewer.objects.filter(character=character, user=request.user).exists()
+
+    if not (request.user.id == character.user_id or is_gm_for_campaign or is_shared_viewer):
         return HttpResponseForbidden("You don’t have permission to view this character.")
 
     can_edit = (request.user.id == character.user_id) or is_gm_for_campaign
+
+    # NEW: users you can add (site-registered)
+    U = get_user_model()
+    existing_ids = set(character.viewers.values_list("user_id", flat=True)) | {character.user_id}
+    available_users = (
+        U.objects.filter(is_active=True)
+        .exclude(id__in=existing_ids)
+        .order_by("username", "email")
+    )
+
+    # Sharing UI data for template
+    active_invites = character.share_invites.filter(
+        revoked_at__isnull=True,
+        accepted_at__isnull=True,
+        expires_at__gt=timezone.now()
+    )
+    shared_viewers = character.viewers.select_related("user").all()
+
+    # bundle so we can merge into your final context
+    share_ctx = {
+        "can_share": can_edit,
+        "share_invites": active_invites,
+        "shared_viewers": shared_viewers,
+    }
+
     # ---- level-up uses POST when submitting, GET when previewing ----
     data = request.POST if request.method == "POST" else request.GET
     # Helper: read/write equipped weapon slot overrides
@@ -8809,8 +8856,14 @@ def character_detail(request, pk):
         "spellcasting_ctx": _spellcasting_context(character),
         'character':          character,
         "show_spellcasting_tab": show_spellcasting_tab,
-        'can_edit':           can_edit,
-        'subrace_name':       subrace_name,
+    'can_edit':           can_edit,
+    # NEW — sharing
+    'available_users':    available_users,
+    'can_share':          can_edit,          # gate the Share button to owner/GM
+    'share_invites':      active_invites,    # pending invites queryset
+    'shared_viewers':     shared_viewers,    # people who currently have view access
+    'subrace_name':       subrace_name,
+
         'subclass_groups': subclass_groups,
         'ability_map':        ability_map,
         'skill_proficiencies':skill_proficiencies,
@@ -10215,3 +10268,169 @@ def approve_pending_background(request, pb_id):
     if getattr(pb, "campaign_id", None):
         return redirect("campaigns:campaign_detail", campaign_id=pb.campaign_id)
     return redirect("characters:create_character")
+
+
+from django.contrib.auth import get_user_model
+import requests
+from django.conf import settings
+
+def _send_share_email(to_email: str, created_by, character, accept_url: str):
+    """Optional email send via Resend; safe to no-op if not configured."""
+    api_key = getattr(settings, "RESEND_API_KEY", "")
+    from_addr = getattr(settings, "DEFAULT_FROM_EMAIL", None)
+    if not api_key or not from_addr:
+        return
+    subject = f"{created_by.get_username()} shared {character.name} with you"
+    text = (
+        f"You've been invited to view {character.name}.\n"
+        f"This invite is tied to {to_email}.\n\n"
+        f"Accept here: {accept_url}\n"
+    )
+    html = f"""
+      <p>You've been invited to view <strong>{character.name}</strong>.</p>
+      <p>This invite is tied to <code>{to_email}</code>.</p>
+      <p><a href="{accept_url}">Accept the invite</a></p>
+    """
+    payload = {"from": from_addr, "to": [to_email], "subject": subject, "text": text, "html": html}
+    try:
+        requests.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json=payload, timeout=30
+        )
+    except requests.RequestException:
+        pass
+
+
+from django.urls import reverse  # ensure imported
+from django.conf import settings
+import requests
+
+def _notify_shared(user, character, url):
+    # Optional email notification; safe no-op if not configured
+    api_key = getattr(settings, "RESEND_API_KEY", "")
+    from_addr = getattr(settings, "DEFAULT_FROM_EMAIL", None)
+    if not api_key or not from_addr:
+        return
+    subject = f"You’ve been granted access to {character.name}"
+    text = f"You can view the character here: {url}\n"
+    html = f'<p>You can view the character here: <a href="{url}">{url}</a></p>'
+    try:
+        requests.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={"from": from_addr, "to": [user.email], "subject": subject, "text": text, "html": html},
+            timeout=30,
+        )
+    except requests.RequestException:
+        pass
+
+@login_required
+def character_share_create(request, pk):
+    character = get_object_or_404(Character, pk=pk)
+
+    is_gm_for_campaign = False
+    if character.campaign_id:
+        is_gm_for_campaign = CampaignMembership.objects.filter(
+            campaign=character.campaign, user=request.user, role="gm"
+        ).exists()
+    if not (request.user.id == character.user_id or is_gm_for_campaign):
+        return HttpResponseForbidden("Not allowed.")
+
+    if request.method != "POST":
+        raise Http404()
+
+    # NEW: accept a user id from the dropdown
+    raw_id = (request.POST.get("user_id") or "").strip()
+    if not raw_id.isdigit():
+        messages.error(request, "Choose a user to share with.")
+        return redirect("characters:character_detail", pk=pk)
+
+    U = get_user_model()
+    target = U.objects.filter(pk=int(raw_id), is_active=True).first()
+    if not target:
+        messages.error(request, "User not found.")
+        return redirect("characters:character_detail", pk=pk)
+
+    if target.id == character.user_id:
+        messages.info(request, "That user already owns this character.")
+        return redirect("characters:character_detail", pk=pk)
+
+    already = CharacterViewer.objects.filter(character=character, user=target).exists()
+    if already:
+        messages.info(request, "That user already has access.")
+        return redirect("characters:character_detail", pk=pk)
+
+    CharacterViewer.objects.create(character=character, user=target, added_by=request.user)
+
+    # optional notify
+    if request.POST.get("send_email") == "on":
+        url = request.build_absolute_uri(reverse("characters:character_detail", args=[pk]))
+        _notify_shared(target, character, url)
+
+    messages.success(request, f"Access granted to {target.get_username()} ({target.email}).")
+    return redirect("characters:character_detail", pk=pk)
+
+def character_share_accept(request, token):
+    inv = get_object_or_404(CharacterShareInvite, token=token)
+    if not inv.is_active:
+        messages.error(request, "This invite is no longer valid.")
+        return redirect("characters:character_detail", pk=inv.character_id)
+
+    if request.user.email.strip().lower() != inv.invited_email.strip().lower():
+        messages.error(request, f"This invite is for {inv.invited_email}. You’re logged in as {request.user.email}.")
+        return redirect("characters:character_detail", pk=inv.character_id)
+
+    # Optional: require verified email if you want to enforce it
+    email_meta = getattr(request.user, "email_meta", None)
+    if email_meta and not email_meta.is_verified:
+        messages.error(request, "Verify your email before accepting this invite.")
+        return redirect("characters:character_detail", pk=inv.character_id)
+
+    CharacterViewer.objects.get_or_create(
+        character=inv.character,
+        user=request.user,
+        defaults={"added_by": inv.created_by},
+    )
+    inv.accepted_at = timezone.now()
+    inv.save(update_fields=["accepted_at"])
+
+    messages.success(request, f"You now have access to {inv.character.name}.")
+    return redirect("characters:character_detail", pk=inv.character_id)
+
+
+@login_required
+def character_share_revoke(request, pk, invite_id):
+    character = get_object_or_404(Character, pk=pk)
+
+    is_gm_for_campaign = False
+    if character.campaign_id:
+        is_gm_for_campaign = CampaignMembership.objects.filter(
+            campaign=character.campaign, user=request.user, role="gm"
+        ).exists()
+    if not (request.user.id == character.user_id or is_gm_for_campaign):
+        return HttpResponseForbidden("Not allowed.")
+
+    inv = get_object_or_404(CharacterShareInvite, pk=invite_id, character=character)
+    inv.revoked_at = timezone.now()
+    inv.save(update_fields=["revoked_at"])
+
+    messages.success(request, f"Invite to {inv.invited_email} revoked.")
+    return redirect("characters:character_detail", pk=pk)
+
+
+@login_required
+def character_share_remove_viewer(request, pk, user_id):
+    character = get_object_or_404(Character, pk=pk)
+
+    is_gm_for_campaign = False
+    if character.campaign_id:
+        is_gm_for_campaign = CampaignMembership.objects.filter(
+            campaign=character.campaign, user=request.user, role="gm"
+        ).exists()
+    if not (request.user.id == character.user_id or is_gm_for_campaign):
+        return HttpResponseForbidden("Not allowed.")
+
+    CharacterViewer.objects.filter(character=character, user_id=user_id).delete()
+    messages.success(request, "Viewer removed.")
+    return redirect("characters:character_detail", pk=pk)

@@ -457,6 +457,50 @@ class Subrace(BaseRace):
     class Meta:
         unique_together = ("race","name")
 
+from django.conf import settings
+from django.db import models
+from django.utils import timezone
+import uuid
+
+class CharacterViewer(models.Model):
+    character  = models.ForeignKey("characters.Character", on_delete=models.CASCADE, related_name="viewers")
+    user       = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="character_views")
+    added_by   = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="granted_character_views")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = (("character", "user"),)
+
+    def __str__(self):
+        return f"{self.user} → {self.character}"
+
+class CharacterShareInvite(models.Model):
+    character     = models.ForeignKey("characters.Character", on_delete=models.CASCADE, related_name="share_invites")
+    invited_email = models.EmailField(db_index=True)
+    invited_user  = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    token         = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    created_by    = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="sent_character_invites")
+    created_at    = models.DateTimeField(auto_now_add=True)
+    expires_at    = models.DateTimeField()
+    accepted_at   = models.DateTimeField(null=True, blank=True)
+    revoked_at    = models.DateTimeField(null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        if not self.expires_at:
+            self.expires_at = timezone.now() + timezone.timedelta(days=7)
+        # best-effort link to an existing account
+        if self.invited_email and not self.invited_user:
+            from django.contrib.auth import get_user_model
+            U = get_user_model()
+            self.invited_user = U.objects.filter(email__iexact=self.invited_email.strip()).first()
+        super().save(*args, **kwargs)
+
+    @property
+    def is_active(self):
+        return self.revoked_at is None and self.accepted_at is None and timezone.now() < self.expires_at
+
+    def __str__(self):
+        return f"{self.invited_email} → {self.character}"
 
 # ------------------------------------------------------------------------------
 # Core Character

@@ -18,7 +18,37 @@
     <div class="space-y-4">
       <header class="space-y-1">
         <div class="text-3xl font-bold tracking-tight">{{ race.name }}</div>
-        <div class="text-sm text-gray-600">{{ race.size|capfirst }} • Speed {{ race.speed }}</div>
+<ul class="flex flex-wrap gap-2 text-sm text-gray-700">
+  <!-- Size -->
+  <li class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 border border-gray-200">
+    <span class="uppercase text-[10px] tracking-wide text-gray-500">Size</span>
+    <span class="font-medium">{{ race.size|capfirst }}</span>
+  </li>
+
+  <!-- Starting HP (only if present) -->
+  {% if race_starting_hp %}
+  <li class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 border border-gray-200">
+    <span class="uppercase text-[10px] tracking-wide text-gray-500">Starting HP</span>
+    <span class="font-medium">{{ race_starting_hp }}</span>
+  </li>
+  {% endif %}
+
+  <!-- Speeds: land/swim/climb/fly/burrow if present -->
+  {% if race_speeds %}
+    {% for label, val in race_speeds %}
+      <li class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 border border-gray-200">
+        <span class="uppercase text-[10px] tracking-wide text-gray-500">{{ label }}</span>
+        <span class="font-medium">{{ val }} ft</span>
+      </li>
+    {% endfor %}
+  {% else %}
+    <!-- Fallback if you only have race.speed -->
+    <li class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 border border-gray-200">
+      <span class="uppercase text-[10px] tracking-wide text-gray-500">Speed</span>
+      <span class="font-medium">{{ race.speed }} ft</span>
+    </li>
+  {% endif %}
+</ul>
       </header>
 
       {% if race.description %}
@@ -143,7 +173,44 @@
               <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div class="rounded-lg bg-white border border-gray-200 p-3">
                   <div class="text-xs uppercase tracking-wide text-gray-500 mb-1">Basics</div>
-                  <div class="text-sm text-gray-800">{{ sr.size|capfirst }} • Speed {{ sr.speed }}</div>
+<ul class="flex flex-wrap gap-2 text-sm text-gray-700">
+  <li class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 border border-gray-200">
+    <span class="uppercase text-[10px] tracking-wide text-gray-500">Size</span>
+    <span class="font-medium">{{ sr.size|capfirst }}</span>
+  </li>
+
+  <!-- Speeds that might exist on the subrace -->
+  {% if sr.speed %}
+  <li class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 border border-gray-200">
+    <span class="uppercase text-[10px] tracking-wide text-gray-500">Speed</span>
+    <span class="font-medium">{{ sr.speed }} ft</span>
+  </li>
+  {% endif %}
+  {% if sr.speed_climb %}
+  <li class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 border border-gray-200">
+    <span class="uppercase text-[10px] tracking-wide text-gray-500">Climb</span>
+    <span class="font-medium">{{ sr.speed_climb }} ft</span>
+  </li>
+  {% endif %}
+  {% if sr.speed_swim %}
+  <li class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 border border-gray-200">
+    <span class="uppercase text-[10px] tracking-wide text-gray-500">Swim</span>
+    <span class="font-medium">{{ sr.speed_swim }} ft</span>
+  </li>
+  {% endif %}
+  {% if sr.speed_fly %}
+  <li class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 border border-gray-200">
+    <span class="uppercase text-[10px] tracking-wide text-gray-500">Fly</span>
+    <span class="font-medium">{{ sr.speed_fly }} ft</span>
+  </li>
+  {% endif %}
+  {% if sr.speed_burrow %}
+  <li class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 border border-gray-200">
+    <span class="uppercase text-[10px] tracking-wide text-gray-500">Burrow</span>
+    <span class="font-medium">{{ sr.speed_burrow }} ft</span>
+  </li>
+  {% endif %}
+</ul>
                 </div>
 
                 {% if sr.strength_bonus or sr.dexterity_bonus or sr.constitution_bonus or sr.intelligence_bonus or sr.wisdom_bonus or sr.charisma_bonus %}

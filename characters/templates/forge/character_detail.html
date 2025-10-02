@@ -87,6 +87,12 @@
         class="btn btn-danger {% if total_level == 0 %}disabled{% endif %}"
 
       >Level Down</a>
+      {% if can_share %}
+  <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#shareModal">
+    Share
+  </button>
+{% endif %}
+
     </div>
   </div>
 
@@ -2889,6 +2895,93 @@ tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
     </div> <!-- /.modal-content -->
   </div> <!-- /.modal-dialog -->
 </div> <!-- /LEVEL UP MODAL -->
+{% if can_share %}
+<!-- SHARE MODAL (styled like the others) -->
+<div class="modal fade" id="shareModal" tabindex="-1" aria-labelledby="shareModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <div class="modal-header">
+        <h5 id="shareModalLabel" class="modal-title">Share Character</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+
+      <form method="post" action="{% url 'characters:character_share_create' character.pk %}">
+        {% csrf_token %}
+        <div class="modal-body">
+
+          <div class="mb-3">
+            <label class="form-label">Select a user</label>
+            <select class="form-select" name="user_id" required>
+              <option value="" selected disabled>— Choose a user —</option>
+              {% for u in available_users %}
+                <option value="{{ u.id }}">
+                  {{ u.get_full_name|default:u.username }} ({{ u.email }})
+                </option>
+              {% endfor %}
+            </select>
+
+            <div class="form-check mt-2">
+              <input class="form-check-input" type="checkbox" name="send_email" id="sendEmail" checked>
+              <label class="form-check-label" for="sendEmail">Email a notification</label>
+            </div>
+          </div>
+
+          {% if share_invites %}
+            <div class="mb-3">
+              <h6 class="mb-2">Pending invites</h6>
+              <ul class="list-group">
+                {% for inv in share_invites %}
+                  <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <span>
+                      <strong>{{ inv.invited_email }}</strong>
+                      <small class="text-muted ms-1">expires {{ inv.expires_at|date:"Y-m-d H:i" }}</small>
+                    </span>
+                    <a class="btn btn-sm btn-outline-danger"
+                       href="{% url 'characters:character_share_revoke' character.pk inv.pk %}">
+                      Revoke
+                    </a>
+                  </li>
+                {% endfor %}
+              </ul>
+            </div>
+          {% endif %}
+
+          <div>
+            <h6 class="mb-2">People with access</h6>
+            {% if shared_viewers %}
+              <ul class="list-group">
+                {% for v in shared_viewers %}
+                  <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <span>
+                      {{ v.user.get_full_name|default:v.user.username }}
+                      <small class="text-muted ms-1">({{ v.user.email }})</small>
+                    </span>
+                    <a class="btn btn-sm btn-outline-danger"
+                       href="{% url 'characters:character_share_remove' character.pk v.user_id %}">
+                      Remove
+                    </a>
+                  </li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              <p class="text-muted mb-0">No additional viewers.</p>
+            {% endif %}
+          </div>
+
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Share</button>
+        </div>
+      </form>
+
+    </div>
+  </div>
+</div>
+{% endif %}
+
 
 <!-- EDIT CHARACTER MODAL (unchanged) -->
 <div class="modal fade" id="editCharacterModal" tabindex="-1" aria-labelledby="editCharacterModalLabel" aria-hidden="true">
@@ -2978,6 +3071,7 @@ tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
 
 
 
+
 {% endblock %}
 
 {# --- DEBUG BANK USED BY THE OVERRIDE MODAL --- #}
@@ -2996,11 +3090,6 @@ tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
   <script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
 <script>
 document.addEventListener("DOMContentLoaded", function(){
-  ['levelUpModal','editCharacterModal','editNumberModal','overrideModal','skillEditModal','mmDetailsModal','detailsModal']
-    .forEach(id => {
-      const el = document.getElementById(id);
-      if (el && el.parentElement !== document.body) document.body.appendChild(el);
-    });
 
   if (window.location.hash === "#levelUpModal") {
     const el = document.getElementById("levelUpModal");
@@ -3994,6 +4083,32 @@ function resetSpeed(btn){
     form.submit();
   }
 }
+</script>
+<script>
+  // Ensure ANY modal (including #shareModal) lives directly under <body> before it opens.
+  document.addEventListener('show.bs.modal', (e) => {
+    const m = e.target;
+    if (m && m.parentElement !== document.body) {
+      document.body.appendChild(m);
+    }
+  });
+
+  // Also fix on DOM ready in case something tried to open earlier or ids changed
+  document.addEventListener('DOMContentLoaded', () => {
+    const ensureInBody = (id) => {
+      const el = document.getElementById(id);
+      if (el && el.parentElement !== document.body) document.body.appendChild(el);
+    };
+    [
+      'shareModal','detailsModal','overrideModal',
+      'levelUpModal','editCharacterModal','editNumberModal','skillEditModal'
+    ].forEach(ensureInBody);
+
+    if (window.location.hash === "#levelUpModal") {
+      const el = document.getElementById("levelUpModal");
+      if (el) bootstrap.Modal.getOrCreateInstance(el).show();
+    }
+  });
 </script>
 
 
