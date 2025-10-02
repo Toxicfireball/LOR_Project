@@ -10301,29 +10301,67 @@ def _send_share_email(to_email: str, created_by, character, accept_url: str):
     except requests.RequestException:
         pass
 
-
+import logging
+logger = logging.getLogger(__name__)
 from django.urls import reverse  # ensure imported
 from django.conf import settings
 import requests
+import logging
+import requests
+from django.conf import settings
 
-def _notify_shared(user, character, url):
-    # Optional email notification; safe no-op if not configured
-    api_key = getattr(settings, "RESEND_API_KEY", "")
+logger = logging.getLogger(__name__)
+
+class EmailSendError(RuntimeError):
+    pass
+
+def _notify_shared(user, character, url) -> str:
+    api_key   = getattr(settings, "RESEND_API_KEY", "")
     from_addr = getattr(settings, "DEFAULT_FROM_EMAIL", None)
-    if not api_key or not from_addr:
-        return
+
+    if not api_key:
+        raise EmailSendError("RESEND_API_KEY not set")
+    if not from_addr:
+        raise EmailSendError("DEFAULT_FROM_EMAIL not configured")
+    if not user.email:
+        raise EmailSendError("Target user has no email")
+
     subject = f"You’ve been granted access to {character.name}"
     text = f"You can view the character here: {url}\n"
     html = f'<p>You can view the character here: <a href="{url}">{url}</a></p>'
+
+    payload = {
+        "from": from_addr,
+        "to": [user.email],
+        "subject": subject,
+        "text": text,
+        "html": html,
+    }
+
     try:
-        requests.post(
+        r = requests.post(
             "https://api.resend.com/emails",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={"from": from_addr, "to": [user.email], "subject": subject, "text": text, "html": html},
+            json=payload,
             timeout=30,
         )
-    except requests.RequestException:
-        pass
+    except requests.RequestException as e:
+        logger.exception("Resend request error")
+        raise EmailSendError(f"Network error sending email: {e!s}")
+
+    if r.status_code // 100 != 2:
+        # bubble up Resend’s error
+        try:
+            data = r.json()
+        except Exception:
+            data = {"error": r.text}
+        msg = data.get("message") or data.get("error") or f"HTTP {r.status_code}"
+        raise EmailSendError(f"Resend API error: {msg}")
+
+    try:
+        return (r.json() or {}).get("id", "")
+    except Exception:
+        return ""
 
 @login_required
 def character_share_create(request, pk):
@@ -10364,9 +10402,18 @@ def character_share_create(request, pk):
     CharacterViewer.objects.create(character=character, user=target, added_by=request.user)
 
     # optional notify
-    if request.POST.get("send_email") == "on":
+# optional notify
+    send_flag = str(request.POST.get("send_email", "")).strip().lower() in {"on", "1", "true", "yes"}
+    if send_flag and target.email:
         url = request.build_absolute_uri(reverse("characters:character_detail", args=[pk]))
-        _notify_shared(target, character, url)
+        try:
+            msg_id = _notify_shared(target, character, url)  # returns id (see next step)
+            messages.success(request, f"Notification email queued{f' (id: {msg_id})' if msg_id else ''}.")
+        except EmailSendError as e:
+            messages.warning(request, f"Couldn’t send notification email: {e}")
+    elif send_flag and not target.email:
+        messages.warning(request, "Couldn’t email: the selected user has no email on file.")
+
 
     messages.success(request, f"Access granted to {target.get_username()} ({target.email}).")
     return redirect("characters:character_detail", pk=pk)
