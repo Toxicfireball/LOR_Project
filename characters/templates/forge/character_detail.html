@@ -12,6 +12,15 @@
 {% block content %}
 <style>
   #martial-mastery .mm-head { min-height: 2rem; }
+  /* Martial Mastery summary header — keep controls from overlapping columns */
+#martial-mastery .mm-head{
+  flex-wrap: wrap;          /* allow Reset/✎ to drop to the next line */
+  gap: .5rem;               /* keep spacing tidy when wrapped */
+  min-height: 2rem;         /* keep your existing height rhythm */
+}
+#martial-mastery .mm-head form{ display:inline-block; margin:0; }
+#martial-mastery .mm-head .btn{ white-space:nowrap; padding:.1rem .5rem; }
+
   /* Modals on top of everything */
   .modal { z-index: 2000 !important; }
   .modal-backdrop { z-index: 1990 !important; }
