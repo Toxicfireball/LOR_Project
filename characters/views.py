@@ -6960,6 +6960,45 @@ def character_detail(request, pk):
 
     # Base profs from your resolver
     prof_by_code = {r["type_code"]: r for r in _current_proficiencies_for_character(character)}
+    # --- Ensure a DODGE proficiency row exists and backfill from class progress ---
+    if "dodge" not in prof_by_code:
+        prof_by_code["dodge"] = {
+            "type_code": "dodge",
+            "tier_name": "Untrained",
+            "modifier": 0,
+            "bonus": 0,
+            "is_proficient": False,
+            "source": "Default",
+        }
+
+    # take the highest tier the character qualifies for across their classes
+    for cp in class_progress:
+        cls = cp.character_class
+        lvl = int(cp.levels or 0)
+        for p in cls.prof_progress.select_related("tier"):
+            if int(getattr(p, "at_level", 0) or 0) > lvl:
+                continue
+            raw = getattr(p, "type_code", None) or getattr(p, "proficiency_type", None) or ""
+            disp = ""
+            try:
+                disp = p.get_proficiency_type_display()
+            except Exception:
+                pass
+            code = (str(raw) or str(disp) or "").strip().lower()
+            if code == "dodge":
+                cur_bonus = int(prof_by_code["dodge"].get("bonus", 0) or 0)
+                tier_bonus = int(getattr(p.tier, "bonus", 0) or 0)
+                if tier_bonus > cur_bonus:
+                    prof_by_code["dodge"] = {
+                        "type_code": "dodge",
+                        "tier_name": (p.tier.name or "Untrained").title(),
+                        "modifier": tier_bonus,
+                        "bonus": tier_bonus,
+                        "is_proficient": (str(p.tier.name).strip().lower() != "untrained"),
+                        "source": "Class",
+                    }
+    # (optional) quick sanity log
+    print("[DBG] dodge row →", prof_by_code.get("dodge"))
 
     # --- FIX: derive weapon group tiers from the class(es) the character actually has ---
     def _norm_g(code: str) -> str:
@@ -7021,7 +7060,20 @@ def character_detail(request, pk):
     # 1) NEW: apply TIER override first (changes tier_name + modifier)
     #    Key format: "prof_tier:{code}" -> value is ProficiencyLevel.pk
     tier_rows = ProficiencyLevel.objects.in_bulk()  # {pk: ProficiencyLevel}
-    # ALSO honor per-weapon-group tier overrides: weapon:simple|martial|special|black_powder
+    # --- Apply a Dodge tier override if set (key: prof_tier:dodge) ---
+    tier_pk = overrides.get("prof_tier:dodge")
+    if tier_pk and str(tier_pk).isdigit():
+        pl = tier_rows.get(int(tier_pk))
+        if pl:
+            r = prof_by_code.get("dodge") or {
+                "type_code": "dodge", "tier_name": "Untrained", "modifier": 0, "bonus": 0, "is_proficient": False, "source": "Default",
+            }
+            r["tier_name"]     = (pl.name or "Untrained").title()
+            r["modifier"]      = int(pl.bonus or 0)
+            r["bonus"]         = int(pl.bonus or 0)
+            r["is_proficient"] = (str(pl.name).strip().lower() != "untrained")
+            r["source"]        = "Tier override"
+            prof_by_code["dodge"] = r
     for gcode in ("weapon:simple","weapon:martial","weapon:special","weapon:black_powder"):
         tier_pk = overrides.get(f"prof_tier:{gcode}")
         if tier_pk and str(tier_pk).isdigit():
@@ -7089,6 +7141,7 @@ def character_detail(request, pk):
     by_code = {r["type_code"]: r for r in proficiency_summary}
 
     half_lvl = _half_level_total(character.level)
+    half_up  = math.ceil(character.level / 2)
 
     def hl_if_trained(code: str) -> int:
         r = by_code.get(code)
@@ -7248,20 +7301,23 @@ def character_detail(request, pk):
         getattr(selected_shield, "dex_cap", None) if selected_shield else None,
     )
 
-    dex_for_dodge = dex_mod
+    # Cap the *score*, then compute the modifier (e.g., cap 8 ⇒ (8-10)//2 = -1)
+    dex_score_raw = abil_score("dexterity")
     if combined_cap is not None:
-        dex_for_dodge = min(dex_mod, int(combined_cap))
+        dex_score_eff = min(dex_score_raw, int(combined_cap))
+        dex_for_dodge = _abil_mod(dex_score_eff)
+        dex_label = f"Dexterity (capped to {combined_cap})"
+    else:
+        dex_for_dodge = _abil_mod(dex_score_raw)
+        dex_label = "Dexterity"
 
-    dex_label = "Dexterity"
-    if combined_cap is not None and dex_mod > int(combined_cap):
-        dex_label = "Dexterity (capped)"
 
-
+    half_lvl_up = (character.level + 1) // 2 
 
     derived = {
         "half_level":      half_lvl,
-    "armor_total":     (armor_value + 2*shield_value) + armor_prof["bonus"] + half_armor,
-       "dodge_total":     (10 + shield_value) + dex_for_dodge + prof_dodge + hl_if_trained("dodge"),
+    "armor_total":     (armor_value + 2*shield_value) + armor_prof["bonus"] + half_lvl,
+    "dodge_total":     10 + dex_for_dodge + shield_value + prof_dodge + half_lvl_up,
         "reflex_total":    dex_mod + prof_reflex + hl_if_trained("reflex"),
         "fortitude_total": con_mod + prof_fort   + hl_if_trained("fortitude"),
         "will_total":      wis_mod + prof_will   + hl_if_trained("will"),
@@ -7375,8 +7431,25 @@ def character_detail(request, pk):
     
 
     # base 10 + shield bonus
-    add_row("dodge", dex_label, dex_for_dodge, label="Dodge", base_const=(10 + shield_value))
+    # force ⌈level/2⌉ on Dodge (no training requirement)
+    add_row(
+        "dodge",
+        dex_label,
+        dex_for_dodge,
+        label="Dodge",
+        base_const=(10 + shield_value),
+        half_override=half_lvl_up
+    )
 
+    for code in ("armor","dodge","reflex","fortitude","will","perception","initiative","weapon","dc"):
+        tier_pk = overrides.get(f"prof_tier:{code}")
+        if tier_pk and str(tier_pk).isdigit():
+            pl = tier_rows.get(int(tier_pk))
+            if pl and code in prof_by_code:
+                r = prof_by_code[code]
+                r["modifier"]  = int(pl.bonus or 0)
+                r["tier_name"] = pl.name.title()
+                r["source"]    = "Tier override"
     add_row("reflex", "Dexterity", dex_mod, label="Reflex")
     add_row("fortitude","Constitution", con_mod, label="Fortitude")
     add_row("will",   "Wisdom",   wis_mod, label="Will")
@@ -7384,8 +7457,8 @@ def character_detail(request, pk):
     add_row("initiative",               label="Initiative")
     # armor_value + 2×shield_value
     add_row(
-        "armor", label="Armor", base_const=(armor_value + 3*shield_value),
-        prof_override=armor_prof["bonus"], half_override=half_armor
+    "armor", label="Armor", base_const=(armor_value + 2*shield_value),
+    prof_override=armor_prof["bonus"], half_override=half_lvl
     )
 
     by_slot = {

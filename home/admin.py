@@ -1613,6 +1613,7 @@ class ArmorAdmin(admin.ModelAdmin):
     list_display = ("name","armor_value","type","speed_penalty","dex_cap","hinderance","strength_requirement")
     list_filter  = ("type","traits")
     search_fields= ("name",)
+    exclude = ("traits",)
     inlines      = [ArmorTraitInline]
     
 
