@@ -40,6 +40,7 @@ from .models import Spell, CharacterKnownSpell, CharacterPreparedSpell, Characte
 from django.db.models import Q
 from django.views.decorators.http import require_GET
 # ── helpers that read the LEVEL TRIGGER instead of JSON ───────────────────
+import json as _json
 import uuid
 from .utils import parse_formula
 def _mm_cost(m) -> int:
@@ -5911,7 +5912,125 @@ def character_detail(request, pk):
         return redirect('characters:character_detail', pk=pk)
 
 
+    # --- SPEED: additive adjustments (same UX as Skills) ---------------------------
+    if request.method == "POST" and can_edit and request.POST.get("speed_op"):
+        sop   = (request.POST.get("speed_op") or "").strip()
+        if sop == "add_delta":
+            delta_s = (request.POST.get("delta") or "").strip()
+            note    = (request.POST.get("note")  or "").strip()
+            if not note:
+                messages.error(request, "Reason is required for a speed adjustment.")
+                return redirect('characters:character_detail', pk=pk)
+            try:
+                delta = int(eval(_normalize_formula(delta_s), {"__builtins__": {}}, {}))
+            except Exception:
+                messages.error(request, "Adjustment must be a whole number (e.g., -5, +10).")
+                return redirect('characters:character_detail', pk=pk)
+            k = f"speed_delta:{uuid.uuid4().hex[:8]}"
+            CharacterFieldOverride.objects.update_or_create(
+                character=character, key=k, defaults={"value": str(delta)}
+            )
+            CharacterFieldNote.objects.update_or_create(
+                character=character, key=k, defaults={"note": note}
+            )
+            messages.success(request, "Speed adjustment added.")
+            return redirect('characters:character_detail', pk=pk)
 
+        if sop == "remove_delta":
+            mod_key = (request.POST.get("mod_key") or "").strip()
+            if not mod_key.startswith("speed_delta:"):
+                messages.error(request, "Invalid speed adjustment key.")
+                return redirect('characters:character_detail', pk=pk)
+            CharacterFieldOverride.objects.filter(character=character, key=mod_key).delete()
+            CharacterFieldNote.objects.filter(character=character, key=mod_key).delete()
+            messages.success(request, "Speed adjustment removed.")
+            return redirect('characters:character_detail', pk=pk)
+
+        if sop == "clear_deltas":
+            CharacterFieldOverride.objects.filter(
+                character=character, key__startswith="speed_delta:"
+            ).delete()
+            CharacterFieldNote.objects.filter(
+                character=character, key__startswith="speed_delta:"
+            ).delete()
+            messages.success(request, "All speed adjustments cleared.")
+            return redirect('characters:character_detail', pk=pk)
+    # -------------------------------------------------------------------------------
+
+    # --- TRACKABLE RESOURCES (Core) -----------------------------------------------
+    if request.method == "POST" and can_edit and request.POST.get("resource_op"):
+        rop = (request.POST.get("resource_op") or "").strip()
+
+        idx_ov = CharacterFieldOverride.objects.filter(character=character, key="resource:index").first()
+        try:
+            res_idx = _json.loads(idx_ov.value) if (idx_ov and idx_ov.value) else []
+        except Exception:
+            res_idx = []
+
+        def _slugify(s):
+            import re as _re
+            s = (s or "").strip().lower()
+            s = _re.sub(r'[^a-z0-9_]+', '_', s)
+            s = s.strip('_')
+            return s or f"res_{uuid.uuid4().hex[:6]}"
+
+        def _save_index(lst):
+            CharacterFieldOverride.objects.update_or_create(
+                character=character, key="resource:index", defaults={"value": _json.dumps(list(lst))}
+            )
+
+        if rop == "add":
+            name = (request.POST.get("name") or "Resource").strip()
+            slug = _slugify(request.POST.get("slug") or name)
+            try:
+                mx = int(request.POST.get("max") or "0")
+                cu = int(request.POST.get("cur") or "0")
+            except Exception:
+                messages.error(request, "Max/Current must be numbers.")
+                return redirect('characters:character_detail', pk=pk)
+            if slug not in res_idx:
+                res_idx.append(slug); _save_index(res_idx)
+            CharacterFieldOverride.objects.update_or_create(character=character, key=f"resource:{slug}:name", defaults={"value": name})
+            CharacterFieldOverride.objects.update_or_create(character=character, key=f"resource:{slug}:max",  defaults={"value": str(max(0,mx))})
+            CharacterFieldOverride.objects.update_or_create(character=character, key=f"resource:{slug}:cur",  defaults={"value": str(max(0,min(mx,cu)))})
+            messages.success(request, "Resource added.")
+            return redirect('characters:character_detail', pk=pk)
+
+        if rop == "update":
+            slug = (request.POST.get("slug") or "").strip()
+            try:
+                mx = int(request.POST.get("max") or "0")
+                cu = int(request.POST.get("cur") or "0")
+            except Exception:
+                messages.error(request, "Max/Current must be numbers.")
+                return redirect('characters:character_detail', pk=pk)
+            CharacterFieldOverride.objects.update_or_create(character=character, key=f"resource:{slug}:max", defaults={"value": str(max(0,mx))})
+            CharacterFieldOverride.objects.update_or_create(character=character, key=f"resource:{slug}:cur", defaults={"value": str(max(0, min(mx, cu)))})
+            messages.success(request, "Resource updated.")
+            return redirect('characters:character_detail', pk=pk)
+
+        if rop == "set_current":
+            slug = (request.POST.get("slug") or "").strip()
+            try:
+                cu = int(request.POST.get("cur") or "0")
+            except Exception:
+                messages.error(request, "Current must be a number.")
+                return redirect('characters:character_detail', pk=pk)
+            mx_ov = CharacterFieldOverride.objects.filter(character=character, key=f"resource:{slug}:max").first()
+            try:
+                mx = int(mx_ov.value) if mx_ov and mx_ov.value else 0
+            except Exception:
+                mx = 0
+            CharacterFieldOverride.objects.update_or_create(character=character, key=f"resource:{slug}:cur", defaults={"value": str(max(0, min(mx, cu)))})
+            return redirect('characters:character_detail', pk=pk)
+
+        if rop == "delete":
+            slug = (request.POST.get("slug") or "").strip()
+            res_idx = [x for x in res_idx if x != slug]; _save_index(res_idx)
+            CharacterFieldOverride.objects.filter(character=character, key__startswith=f"resource:{slug}:").delete()
+            messages.success(request, "Resource removed.")
+            return redirect('characters:character_detail', pk=pk)
+    # -------------------------------------------------------------------------------
 
     # --- SKILLS: additive adjustments with reasons (multi-entry) -------------------
     if request.method == "POST" and can_edit and request.POST.get("skills_op"):
@@ -7091,9 +7210,87 @@ def character_detail(request, pk):
                
     field_overrides = {o.key: o.value for o in character.field_overrides.all()}
     field_notes     = {n.key: n.note  for n in character.field_notes.all()}
+    # --- SPEED context (base + deltas + total) ------------------------------------
+    race_speed = 30
+    if character.subrace and getattr(character.subrace, "speed", None):
+        race_speed = int(character.subrace.speed or 30)
+    elif character.race and getattr(character.race, "speed", None):
+        race_speed = int(character.race.speed or 30)
+
+    speed_base = int(character.speed) if character.speed is not None else race_speed
+
+    spd_rows = list(CharacterFieldOverride.objects
+        .filter(character=character, key__startswith="speed_delta:")
+        .order_by("id"))
+    spd_notes = {n.key: n.note for n in CharacterFieldNote.objects
+        .filter(character=character, key__startswith="speed_delta:")}
+
+    speed_mods = []
+    speed_adj  = 0
+    for o in spd_rows:
+        try:
+            v = int(o.value)
+        except Exception:
+            continue
+        speed_mods.append({
+            "key":   o.key,
+            "value": v,
+            "note":  (spd_notes.get(o.key) or "").strip(),
+        })
+        speed_adj += v
+
+    speed_total = max(0, speed_base + speed_adj)
+    speed_ctx = {
+        "base":          speed_base,
+        "race_default":  race_speed,
+        "deltas":        speed_mods,
+        "total":         speed_total,
+    }
+    # Remember to add `speed_ctx` to your final render context
+    # ------------------------------------------------------------------------------
 
     # ------- OVERRIDES map (includes numbers the user sets with a reason) -------
     overrides = {o.key: o.value for o in character.field_overrides.all()}
+    # --- RESOURCES context ---------------------------------------------------------
+    idx_ov = CharacterFieldOverride.objects.filter(character=character, key="resource:index").first()
+    try:
+        res_idx = _json.loads(idx_ov.value) if (idx_ov and idx_ov.value) else []
+    except Exception:
+        res_idx = []
+
+    # Bootstrap default: Legend Points (max 3)
+    if "legend_points" not in res_idx:
+        res_idx.append("legend_points")
+        CharacterFieldOverride.objects.update_or_create(
+            character=character, key="resource:index", defaults={"value": _json.dumps(res_idx)}
+        )
+        CharacterFieldOverride.objects.update_or_create(
+            character=character, key="resource:legend_points:name", defaults={"value": "Legend Points"}
+        )
+        CharacterFieldOverride.objects.update_or_create(
+            character=character, key="resource:legend_points:max", defaults={"value": "3"}
+        )
+        # keep current if it already exists; else 0
+        if not CharacterFieldOverride.objects.filter(character=character, key="resource:legend_points:cur").exists():
+            CharacterFieldOverride.objects.update_or_create(
+                character=character, key="resource:legend_points:cur", defaults={"value": "0"}
+            )
+
+    resource_rows = []
+    for slug in res_idx:
+        name_ov = CharacterFieldOverride.objects.filter(character=character, key=f"resource:{slug}:name").first()
+        max_ov  = CharacterFieldOverride.objects.filter(character=character, key=f"resource:{slug}:max").first()
+        cur_ov  = CharacterFieldOverride.objects.filter(character=character, key=f"resource:{slug}:cur").first()
+        def _i(ov, d=0):
+            try: return int(ov.value) if ov and ov.value is not None else d
+            except: return d
+        resource_rows.append({
+            "slug": slug,
+            "name": (name_ov.value if name_ov and name_ov.value else slug.replace("_"," ").title()),
+            "max":  _i(max_ov, 0),
+            "cur":  _i(cur_ov, 0),
+        })
+
 
     # Base profs from your resolver
     prof_by_code = {r["type_code"]: r for r in _current_proficiencies_for_character(character)}
@@ -7481,6 +7678,12 @@ def character_detail(request, pk):
         "weapon_with_dex": 0,
         "spell_dcs":       [],
     }
+    derived["speed_total"] = speed_ctx["total"]
+    # === SYNC CORE PANEL WITH COMBAT TAB (Combat is source of truth) ===
+
+
+
+    # === END SYNC ===
 
     LABELS = dict(PROFICIENCY_TYPES)
     defense_rows = []
@@ -7568,7 +7771,9 @@ def character_detail(request, pk):
             # Provide debug as JSON for the modal viewer
             "debug_json": json.dumps(debug),
         })
-
+    def _total_for(code, default=0):
+        row = next((r for r in defense_rows if r["code"] == code), None)
+        return int(row["calc"]["total"]) if row else default
     defense_totals = {r["type"]: r["total_s"] for r in (defense_rows or [])}
 
     # Ensure all core prof codes exist so Defense never collapses
@@ -7747,7 +7952,22 @@ def character_detail(request, pk):
             label="Class DC",
             base_const=10
         )
+    derived.update({
+        "armor_total":      _total_for("armor"),
+        "dodge_total":      _total_for("dodge"),
+        "reflex_total":     _total_for("reflex"),
+        "fortitude_total":  _total_for("fortitude"),
+        "will_total":       _total_for("will"),
+        "perception_total": _total_for("perception"),
+    })
 
+    def _atk_total(label):
+        row = next((r for r in attack_rows if r["label"] == label), None)
+        return int(row["calc"]["total"]) if row else 0
+
+    derived["weapon_base"]     = _atk_total("Weapon (base)")
+    derived["weapon_with_str"] = _atk_total("Weapon (STR)")
+    derived["weapon_with_dex"] = _atk_total("Weapon (DEX)")
     # (keep spell_dc_rows = [] if you need it later)
     spell_dc_rows = []
 
@@ -8210,6 +8430,110 @@ def character_detail(request, pk):
     active_rows  = [r for r in all_rows if r["active"]]
     passive_rows = [r for r in all_rows if not r["active"]]
 
+
+    # 1) Headers: index + properties
+    _hdr_idx_ov = CharacterFieldOverride.objects.filter(
+        character=character, key="custom:headers"
+    ).first()
+    try:
+        header_ids = _json.loads(_hdr_idx_ov.value) if (_hdr_idx_ov and _hdr_idx_ov.value) else []
+    except Exception:
+        header_ids = []
+
+    def _hdr_label(hid):
+        ov = CharacterFieldOverride.objects.filter(
+            character=character, key=f"custom:header:{hid}:label"
+        ).first()
+        return (ov.value or "").strip() if ov else ""
+
+    def _hdr_hidden(hid):
+        ov = CharacterFieldOverride.objects.filter(
+            character=character, key=f"custom:header:{hid}:hidden"
+        ).first()
+        return (str(ov.value).strip() == "1") if ov else False
+
+    # Bootstrap a default header if none
+    if not header_ids:
+        default_hid = f"hdr_{uuid.uuid4().hex[:6]}"
+        CharacterFieldOverride.objects.update_or_create(
+            character=character, key="custom:headers",
+            defaults={"value": _json.dumps([default_hid])}
+        )
+        CharacterFieldOverride.objects.update_or_create(
+            character=character, key=f"custom:header:{default_hid}:label",
+            defaults={"value": "My Custom"}
+        )
+        header_ids = [default_hid]
+
+    headers = [{"id": hid, "label": _hdr_label(hid) or "—", "hidden": _hdr_hidden(hid)} for hid in header_ids]
+
+    # 2) User-created custom items
+    item_ovs = CharacterFieldOverride.objects.filter(character=character, key__startswith="custom:item:").values_list("key","value")
+    # collate by item id
+    from collections import defaultdict as _dd
+    _item_map = _dd(dict)
+    for k, v in item_ovs:
+        # keys are custom:item:<id>:(name|desc|header)
+        parts = (k or "").split(":")
+        if len(parts) >= 4:
+            _id  = parts[2]
+            attr = parts[3]
+            _item_map[_id][attr] = v
+
+    custom_items = []
+    for iid, attrs in _item_map.items():
+        custom_items.append({
+            "id":     iid,
+            "kind":   "custom",
+            "name":   (attrs.get("name") or "").strip() or "(Untitled)",
+            "desc":   (attrs.get("desc") or "").strip(),
+            "header": (attrs.get("header") or "").strip() or None,
+        })
+
+    # 3) Assignments from existing Active/Passive lists
+    assign_ovs = CharacterFieldOverride.objects.filter(
+        character=character, key__startswith="custom:assign:"
+    ).values_list("key","value")
+    assign_map = {}  # (ctype_id, obj_id) -> header_id
+    for k, v in assign_ovs:
+        # custom:assign:<ct>:<id>
+        parts = (k or "").split(":")
+        if len(parts) >= 4:
+            try:
+                ct = int(parts[2]); oid = int(parts[3])
+            except Exception:
+                continue
+            assign_map[(ct, oid)] = (v or "").strip() or None
+
+    # Build rows for the Custom tab: headers -> items
+    # Start with user-defined custom items
+    items_by_header = _dd(list)
+    for it in custom_items:
+        items_by_header[it["header"]].append(it)
+
+    # Add references from Active/Passive if assigned
+    def _mk_ref(row):
+        return {
+            "id":     f"ref_{row['ctype']}:{row['obj_id']}",
+            "kind":   "ref",
+            "name":   row["label"],
+            "desc":   row.get("desc","") or "",
+            "ref":    {"ctype": row["ctype"], "obj_id": row["obj_id"], "meta": row.get("meta","")},
+            "header": assign_map.get((row["ctype"], row["obj_id"])) or None,
+        }
+
+    for _r in (active_rows + passive_rows):
+        hid = assign_map.get((_r["ctype"], _r["obj_id"]))
+        if hid:
+            items_by_header[hid].append(_mk_ref(_r))
+
+    custom_ctx = {
+        "headers": headers,                # ordered
+        "items_by_header": dict(items_by_header),
+    }
+    # Remember to add `custom_ctx` to your final render context
+    # ===========================================================================
+
     # ...after you compute prof_armor/prof_dodge/etc. and half_lvl...
     prof_weapon = prof_by_code.get("weapon", {"modifier": 0})["modifier"]
     dc_ability = None
@@ -8251,6 +8575,137 @@ def character_detail(request, pk):
         },
     }]
 
+    # --- CUSTOM TAB POST -----------------------------------------------------------
+    if request.method == "POST" and can_edit and request.POST.get("custom_op"):
+        cop = (request.POST.get("custom_op") or "").strip()
+
+        # reload the current header index
+        _idx_ov = CharacterFieldOverride.objects.filter(character=character, key="custom:headers").first()
+        try:
+            _idx = _json.loads(_idx_ov.value) if (_idx_ov and _idx_ov.value) else []
+        except Exception:
+            _idx = []
+
+        def _save_idx(ids):
+            CharacterFieldOverride.objects.update_or_create(
+                character=character, key="custom:headers",
+                defaults={"value": _json.dumps(list(ids))}
+            )
+
+        if cop == "create_header":
+            label = (request.POST.get("label") or "New Header").strip()
+            hid = f"hdr_{uuid.uuid4().hex[:6]}"
+            _idx.append(hid)
+            _save_idx(_idx)
+            CharacterFieldOverride.objects.update_or_create(
+                character=character, key=f"custom:header:{hid}:label", defaults={"value": label}
+            )
+            messages.success(request, "Header created.")
+            return redirect('characters:character_detail', pk=pk)
+
+        if cop == "rename_header":
+            hid   = (request.POST.get("header_id") or "").strip()
+            label = (request.POST.get("label") or "").strip()
+            if hid and label:
+                CharacterFieldOverride.objects.update_or_create(
+                    character=character, key=f"custom:header:{hid}:label", defaults={"value": label}
+                )
+                messages.success(request, "Header renamed.")
+            return redirect('characters:character_detail', pk=pk)
+
+        if cop == "toggle_header":
+            hid = (request.POST.get("header_id") or "").strip()
+            if hid:
+                cur = CharacterFieldOverride.objects.filter(
+                    character=character, key=f"custom:header:{hid}:hidden"
+                ).first()
+                newv = "0"
+                if cur and str(cur.value).strip() == "0":
+                    newv = "1"
+                elif cur is None:
+                    newv = "1"
+                CharacterFieldOverride.objects.update_or_create(
+                    character=character, key=f"custom:header:{hid}:hidden", defaults={"value": newv}
+                )
+                messages.success(request, "Header visibility updated.")
+            return redirect('characters:character_detail', pk=pk)
+
+        if cop == "move_header":
+            # Expect order[]=hid in POST
+            order = request.POST.getlist("order[]")
+            if order:
+                _save_idx(order)
+                messages.success(request, "Header order updated.")
+            return redirect('characters:character_detail', pk=pk)
+
+        if cop == "delete_header":
+            hid = (request.POST.get("header_id") or "").strip()
+            if hid:
+                _idx = [x for x in _idx if x != hid]
+                _save_idx(_idx)
+                CharacterFieldOverride.objects.filter(character=character, key__startswith=f"custom:header:{hid}:").delete()
+                # unassign anything pointing at this header
+                CharacterFieldOverride.objects.filter(character=character, key__startswith="custom:item:").filter(value=hid).delete()
+                CharacterFieldOverride.objects.filter(character=character, key__startswith="custom:assign:").filter(value=hid).delete()
+                messages.success(request, "Header deleted.")
+            return redirect('characters:character_detail', pk=pk)
+
+        if cop == "add_item":
+            name   = (request.POST.get("name")   or "").strip() or "(Untitled)"
+            desc   = (request.POST.get("desc")   or "").strip()
+            header = (request.POST.get("header_id") or "").strip()
+            iid = f"itm_{uuid.uuid4().hex[:6]}"
+            CharacterFieldOverride.objects.update_or_create(character=character, key=f"custom:item:{iid}:name",   defaults={"value": name})
+            CharacterFieldOverride.objects.update_or_create(character=character, key=f"custom:item:{iid}:desc",   defaults={"value": desc})
+            CharacterFieldOverride.objects.update_or_create(character=character, key=f"custom:item:{iid}:header", defaults={"value": header})
+            messages.success(request, "Custom feature added.")
+            return redirect('characters:character_detail', pk=pk)
+
+        if cop == "update_item":
+            iid    = (request.POST.get("item_id") or "").strip()
+            name   = (request.POST.get("name")    or "").strip()
+            desc   = (request.POST.get("desc")    or "").strip()
+            header = (request.POST.get("header_id") or "").strip()
+            if iid:
+                if name != "":
+                    CharacterFieldOverride.objects.update_or_create(character=character, key=f"custom:item:{iid}:name",   defaults={"value": name})
+                CharacterFieldOverride.objects.update_or_create(character=character, key=f"custom:item:{iid}:desc",   defaults={"value": desc})
+                CharacterFieldOverride.objects.update_or_create(character=character, key=f"custom:item:{iid}:header", defaults={"value": header})
+                messages.success(request, "Custom feature updated.")
+            return redirect('characters:character_detail', pk=pk)
+
+        if cop == "delete_item":
+            iid = (request.POST.get("item_id") or "").strip()
+            if iid:
+                CharacterFieldOverride.objects.filter(character=character, key__startswith=f"custom:item:{iid}:").delete()
+                messages.success(request, "Custom feature deleted.")
+            return redirect('characters:character_detail', pk=pk)
+
+        if cop == "assign_ref":
+            try:
+                ct  = int(request.POST.get("ctype"))
+                oid = int(request.POST.get("obj_id"))
+            except Exception:
+                messages.error(request, "Invalid reference.")
+                return redirect('characters:character_detail', pk=pk)
+            header = (request.POST.get("header_id") or "").strip()
+            CharacterFieldOverride.objects.update_or_create(
+                character=character, key=f"custom:assign:{ct}:{oid}",
+                defaults={"value": header}
+            )
+            messages.success(request, "Moved to Custom.")
+            return redirect('characters:character_detail', pk=pk)
+
+        if cop == "unassign_ref":
+            try:
+                ct  = int(request.POST.get("ctype"))
+                oid = int(request.POST.get("obj_id"))
+            except Exception:
+                return redirect('characters:character_detail', pk=pk)
+            CharacterFieldOverride.objects.filter(character=character, key=f"custom:assign:{ct}:{oid}").delete()
+            messages.success(request, "Removed from Custom.")
+            return redirect('characters:character_detail', pk=pk)
+    # -------------------------------------------------------------------------------
 
     CharacterItem = apps.get_model("characters", "CharacterItem")
     Weapon = apps.get_model("characters", "Weapon")  # ← ensure defined here
@@ -9189,6 +9644,10 @@ def character_detail(request, pk):
 "effective_speed": effective_speed,
     # list of spell slot table features with full descriptions
     "spell_slot_features": spell_slot_features,
+
+        "speed_ctx":        speed_ctx,         # base, deltas[], total
+    "custom_ctx":       custom_ctx,        # headers[], items_by_header{hid:[...]}
+    "trackable_resources": resource_rows,  # list of {slug,name,max,cur}
     })
 
 

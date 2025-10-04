@@ -61,6 +61,58 @@
 .tab-content { padding-top: 0 !important; }
 .tab-pane > .card:first-child,
 .tab-pane > .card:first-of-type { margin-top: 0 !important; }
+/* Resources: keep everything inside the card and wrap nicely */
+/* Resources — compact, single-line rows that don't overflow */
+#resources-card .list-group-item { padding:.5rem .75rem; }
+#resources-card .resource-item { overflow:visible; }
+#resources-card .r-grid{
+  display:grid;
+  grid-template-columns: minmax(0,1fr) auto; /* let name shrink instead of forcing overflow */
+  align-items:center;
+  column-gap:.5rem;
+  row-gap:.25rem;
+}
+
+
+/* a touch slimmer so the name column breathes */
+#resources-card .r-input{ width:64px; }
+
+@media (max-width: 540px){
+  #resources-card .r-grid{ grid-template-columns: 1fr; }
+  #resources-card .r-right{ justify-content:flex-start; }
+}
+
+
+
+#resources-card .r-name{
+  min-width:0;
+  white-space:normal;        /* allow wrapping */
+  overflow:visible;
+  text-overflow:clip;
+  word-break:break-word;     /* long tokens wrap */
+  hyphens:auto;
+}
+
+
+#resources-card .r-right{
+  display:flex;
+  align-items:center;
+  gap:.5rem;
+  flex-wrap:wrap;           /* key: allow wrapping */
+  justify-content:flex-end;
+  max-width:100%;
+}
+#resources-card .r-meter{ white-space:nowrap; font-variant-numeric:tabular-nums; }
+#resources-card .r-input{ width:72px; max-width:100%; }
+
+#resources-card .r-meter{ white-space:nowrap; font-variant-numeric:tabular-nums; }
+#resources-card .btn{ white-space:nowrap; }
+#resources-card .r-input{ width:72px; }
+
+/* Slimmer number spinners */
+#resources-card input[type=number]::-webkit-outer-spin-button,
+#resources-card input[type=number]::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0; }
+#resources-card input[type=number]{ -moz-appearance:textfield; }
 
 </style>
 
@@ -181,66 +233,62 @@
                  value="{{ hp_max }}" min="0">
         </span>
       </li>
-{# insert after the Temp HP <li> and before the Save button <li> #}
-<li class="list-group-item d-flex justify-content-between align-items-center">
-  <span>Speed</span>
-  <span class="d-flex align-items-center gap-2">
-    <input
-      id="id_speed"
-      name="speed"
-      type="number" min="0" step="1"
-      class="form-control form-control-sm" style="width:90px"
-      value="{{ character.speed|default_if_none:'' }}"
-      placeholder="{{ race_speed|default:30 }}"
-    >
-    <span class="text-muted small">
-      ft{% if race_speed %} (race: {{ race_speed }} ft){% endif %}
-    </span>
-    {% if character.speed is not None %}
-<script>
-function resetSpeed(btn){
-  const form = btn.closest('form');
-  if (!form) return;
+<li class="list-group-item">
+  <div class="d-flex justify-content-between">
+    <span>Speed</span>
+    <span class="fw-bold">{{ speed_ctx.total }}</span>
+  </div>
 
-  const input = form.elements.namedItem('speed') || form.querySelector('#id_speed');
-  if (!input) return;
+  <details class="mt-2">
+    <summary>details</summary>
+    <div class="mt-2">
+      <div>Base:
+        <code>
+          {{ speed_ctx.base }}
+          {% if character.speed is None %}(from race: {{ speed_ctx.race_default }}){% endif %}
+        </code>
+      </div>
 
-  // Clear the value
-  input.value = '';
+      {% if speed_ctx.deltas %}
+      <ul class="mt-2 mb-2">
+        {% for m in speed_ctx.deltas %}
+        <li>
+          <code>{% if m.value >= 0 %}+{% endif %}{{ m.value }}</code>
+          <em class="ms-1">{{ m.note }}</em>
+          {% if can_edit %}
+          <form method="post" class="d-inline" action="{% url 'characters:character_detail' character.pk %}">
+            {% csrf_token %}
+            <input type="hidden" name="speed_op" value="remove_delta">
+            <input type="hidden" name="mod_key" value="{{ m.key }}">
+            <button type="submit" class="btn btn-xs btn-link text-danger p-0 ms-2">remove</button>
+          </form>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
 
-  // Fire input/change events with fallback for older browsers
-  try {
-    input.dispatchEvent(new Event('input',  { bubbles: true }));
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-  } catch {
-    if (document.createEvent) {
-      const ev1 = document.createEvent('Event'); ev1.initEvent('input',  true, true);  input.dispatchEvent(ev1);
-      const ev2 = document.createEvent('Event'); ev2.initEvent('change', true, true);  input.dispatchEvent(ev2);
-    }
-  }
-
-  // Persist immediately — prefer clicking the Save button so its name/value posts
-  const saveBtn = form.querySelector('button[name="save_core_stats_submit"]');
-  if (saveBtn) {
-    saveBtn.click();
-  } else if (form.requestSubmit) {
-    form.requestSubmit(); // may include first submitter's name/value
-  } else {
-    // final fallback: ensure the server sees the "save" flag
-    const h = document.createElement('input');
-    h.type = 'hidden';
-    h.name = 'save_core_stats_submit';
-    h.value = '1';
-    form.appendChild(h);
-    form.submit();
-  }
-}
-</script>
-
-
-    {% endif %}
-  </span>
+      {% if can_edit %}
+      <form method="post" class="row g-2 align-items-end" action="{% url 'characters:character_detail' character.pk %}">
+        {% csrf_token %}
+        <input type="hidden" name="speed_op" value="add_delta">
+        <div class="col-auto">
+          <label class="form-label form-label-sm mb-0">Δ</label>
+          <input name="delta" type="text" inputmode="numeric" class="form-control form-control-sm" placeholder="+5 or -5" required>
+        </div>
+        <div class="col">
+          <label class="form-label form-label-sm mb-0">Reason</label>
+          <input name="note" type="text" class="form-control form-control-sm" placeholder="Haste, armor, etc." required>
+        </div>
+        <div class="col-auto">
+          <button type="submit" class="btn btn-sm btn-outline-primary">Add</button>
+        </div>
+      </form>
+      {% endif %}
+    </div>
+  </details>
 </li>
+
 
 
       <li class="list-group-item d-flex justify-content-between align-items-center">
@@ -314,8 +362,59 @@ function resetSpeed(btn){
   </form>
 </div>
 
+<div class="card mt-3" id="resources-card">
+  <div class="card-header fw-bold">Resources</div>
 
+  <ul class="list-group list-group-flush">
+    {% for r in trackable_resources %}
+<li class="list-group-item resource-item">
+  <div class="r-grid">
+    <div class="r-name">{{ r.name }}</div>
+
+    <div class="r-right">
+      <span class="r-meter me-2">
+        <strong>{{ r.cur }}</strong><span class="text-muted"> / {{ r.max }}</span>
+      </span>
+
+      {% if can_edit %}
+      <form method="post" class="d-inline-flex align-items-center gap-2"
+            action="{% url 'characters:character_detail' character.pk %}">
+        {% csrf_token %}
+        <input type="hidden" name="resource_op" value="set_current">
+        <input type="hidden" name="slug" value="{{ r.slug }}">
+        <input name="cur" type="number" class="form-control form-control-sm r-input"
+               value="{{ r.cur }}" min="0" max="{{ r.max }}">
+        <button class="btn btn-sm btn-outline-primary">Set</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+</li>
+
+
+    {% empty %}
+      <li class="list-group-item text-muted">No resources yet.</li>
+    {% endfor %}
+  </ul>
+
+  {% if can_edit %}
+  <div class="card-body">
+<form method="post" class="row g-2" action="{% url 'characters:character_detail' character.pk %}">
+  {% csrf_token %}
+  <input type="hidden" name="resource_op" value="add">
+  <div class="col-12 col-sm-5"><input name="name" class="form-control form-control-sm" placeholder="Name" required></div>
+  <div class="col-6 col-sm-3"><input name="max"  type="number" min="0" class="form-control form-control-sm" placeholder="Max" required></div>
+  <div class="col-6 col-sm-3"><input name="cur"  type="number" min="0" class="form-control form-control-sm" placeholder="Cur" value="0"></div>
+  <div class="col-12 col-sm-1 d-grid"><button class="btn btn-sm btn-primary">Add</button></div>
+</form>
+
+  </div>
+  {% endif %}
+</div>
       </div>
+
+
+
     </aside>
 
     <!-- RIGHT: tabs + panes -->
@@ -328,6 +427,8 @@ function resetSpeed(btn){
         <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-feats"   type="button">Feats</button></li>
 <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-active"       type="button">Active</button></li>
 <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-passive"      type="button">Passive</button></li>
+<li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-custom" type="button">Custom</button></li>
+
 <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-all"          type="button">All</button></li>
   <li class="nav-item" role="presentation" {% if not show_martial_mastery_tab %}hidden{% endif %}>
     <button class="nav-link" id="martial-mastery-tab"
@@ -392,8 +493,19 @@ function resetSpeed(btn){
 <li class="list-group-item d-flex justify-content-between"><span>Dodge</span><span class="fw-bold">{{ derived.dodge_total  }}</span></li>
 <li class="list-group-item d-flex justify-content-between"><span>Reflex</span><span class="fw-bold">{{ defense_totals.Reflex|default:"—" }}</span></li>
 <li class="list-group-item d-flex justify-content-between"><span>Fortitude</span><span class="fw-bold">{{ defense_totals.Fortitude|default:"—" }}</span></li>
-<li class="list-group-item d-flex justify-content-between"><span>Will</span><span class="fw-bold">{{ defense_totals.Will|default:"—" }}</span></li>
-
+<li class="list-group-item d-flex justify-content-between align-items-center">
+  <span>Speed</span>
+  <span class="d-flex align-items-center gap-2">
+    <input
+      name="speed"
+      type="number" min="0" step="1"
+      class="form-control form-control-sm" style="width:90px"
+      value="{% if character.speed is not None %}{{ character.speed }}{% endif %}"
+      placeholder="{{ speed_ctx.race_default }}"
+    >
+    <small class="text-muted">ft (race: {{ speed_ctx.race_default }})</small>
+  </span>
+</li>
 
                 </ul>
                 <div class="card-body">
@@ -1445,6 +1557,96 @@ function resetSpeed(btn){
     {% endif %}
   </div>
 </div>
+<div class="tab-pane fade" id="tab-custom">
+  <div class="card p-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h5 class="mb-0">Custom</h5>
+      {% if can_edit %}
+      <form method="post" class="d-flex gap-2" action="{% url 'characters:character_detail' character.pk %}">
+        {% csrf_token %}
+        <input type="hidden" name="custom_op" value="create_header">
+        <input name="label" class="form-control form-control-sm" placeholder="New header" required>
+        <button class="btn btn-sm btn-outline-primary">Add Header</button>
+      </form>
+      {% endif %}
+    </div>
+
+    {% if custom_ctx and custom_ctx.headers %}
+      {% for h in custom_ctx.headers %}
+      <section class="mb-3 border rounded p-2" data-hid="{{ h.id }}">
+        <header class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="mb-0">{{ h.label }}</h6>
+          {% if can_edit %}
+          <div class="d-flex gap-2">
+            <form method="post" class="d-flex gap-2" action="{% url 'characters:character_detail' character.pk %}">
+              {% csrf_token %}
+              <input type="hidden" name="custom_op" value="rename_header">
+              <input type="hidden" name="header_id" value="{{ h.id }}">
+              <input name="label" class="form-control form-control-sm" placeholder="Rename">
+              <button class="btn btn-sm btn-outline-secondary">Rename</button>
+            </form>
+            <form method="post" action="{% url 'characters:character_detail' character.pk %}">
+              {% csrf_token %}
+              <input type="hidden" name="custom_op" value="toggle_header">
+              <input type="hidden" name="header_id" value="{{ h.id }}">
+              <button class="btn btn-sm btn-outline-secondary">{% if h.hidden %}Show{% else %}Hide{% endif %}</button>
+            </form>
+            <form method="post" action="{% url 'characters:character_detail' character.pk %}">
+              {% csrf_token %}
+              <input type="hidden" name="custom_op" value="delete_header">
+              <input type="hidden" name="header_id" value="{{ h.id }}">
+              <button class="btn btn-sm btn-outline-danger">Delete</button>
+            </form>
+          </div>
+          {% endif %}
+        </header>
+
+        <ul class="list-group mb-2">
+          {% for it in custom_ctx.items_by_header|get_item:h.id %}
+            <li class="list-group-item">
+              <div class="d-flex justify-content-between align-items-start">
+                <div>
+                  <div class="fw-semibold">{{ it.name }}</div>
+                  {% if it.desc %}<div class="text-muted small">{{ it.desc|linebreaksbr }}</div>{% endif %}
+                </div>
+                {% if can_edit %}
+                <form method="post" class="d-inline" action="{% url 'characters:character_detail' character.pk %}">
+                  {% csrf_token %}
+                  <input type="hidden" name="custom_op" value="{% if it.kind == 'ref' %}unassign_ref{% else %}delete_item{% endif %}">
+                  {% if it.kind == "ref" %}
+                    <input type="hidden" name="ctype" value="{{ it.ref.ctype }}">
+                    <input type="hidden" name="obj_id" value="{{ it.ref.obj_id }}">
+                  {% else %}
+                    <input type="hidden" name="item_id" value="{{ it.id }}">
+                  {% endif %}
+                  <button class="btn btn-sm btn-outline-danger">Remove</button>
+                </form>
+                {% endif %}
+              </div>
+            </li>
+          {% empty %}
+            <li class="list-group-item text-muted">No items yet.</li>
+          {% endfor %}
+        </ul>
+
+        {% if can_edit %}
+        <form method="post" class="row g-2" action="{% url 'characters:character_detail' character.pk %}">
+          {% csrf_token %}
+          <input type="hidden" name="custom_op" value="add_item">
+          <input type="hidden" name="header_id" value="{{ h.id }}">
+          <div class="col-md-4"><input name="name" class="form-control form-control-sm" placeholder="Name" required></div>
+          <div class="col-md-7"><input name="desc" class="form-control form-control-sm" placeholder="Description (optional)"></div>
+          <div class="col-md-1 d-grid"><button class="btn btn-sm btn-outline-primary">Add</button></div>
+        </form>
+        {% endif %}
+      </section>
+      {% endfor %}
+    {% else %}
+      <p class="text-muted mb-0">No custom headers yet.</p>
+    {% endif %}
+  </div>
+</div>
+
 <!-- MARTIAL MASTERY TAB -->
 <div class="tab-pane fade" id="martial-mastery" role="tabpanel" aria-labelledby="martial-mastery-tab">
   {% if show_martial_mastery_tab %}
@@ -1726,19 +1928,39 @@ function resetSpeed(btn){
                 {% note_icon r.note_key %}
                 {% if r.active %}<span class="badge text-bg-success ms-2">Active</span>{% else %}<span class="badge text-bg-secondary ms-2">Passive</span>{% endif %}
               </div>
-                <div class="d-flex align-items-center gap-2">
-                  <input class="form-control form-control-sm act-note" placeholder="Note (optional)">
-            <button class="btn btn-sm btn-outline-primary toggle-activation"
-                    data-ctype="{{ r.ctype }}" data-obj="{{ r.obj_id }}" data-active="1">
-              Set Active
-            </button>
-            <button class="btn btn-sm btn-outline-secondary toggle-activation"
-                    data-ctype="{{ r.ctype }}" data-obj="{{ r.obj_id }}" data-active="0">
-              Passive
-            </button>
 
-                  <button class="btn btn-sm btn-link p-0 toggle-desc" type="button">Details</button> <!-- add this -->
-                </div>
+<div class="d-flex align-items-center gap-2">
+  <input class="form-control form-control-sm act-note" placeholder="Note (optional)">
+
+  <button class="btn btn-sm btn-outline-primary toggle-activation"
+          data-ctype="{{ r.ctype }}" data-obj="{{ r.obj_id }}" data-active="1">
+    Set Active
+  </button>
+  <button class="btn btn-sm btn-outline-secondary toggle-activation"
+          data-ctype="{{ r.ctype }}" data-obj="{{ r.obj_id }}" data-active="0">
+    Passive
+  </button>
+
+  {% if can_edit and custom_ctx and custom_ctx.headers %}
+  <form method="post"
+        class="d-flex align-items-center gap-2 m-0"
+        action="{% url 'characters:character_detail' character.pk %}">
+    {% csrf_token %}
+    <input type="hidden" name="custom_op" value="assign_ref">
+    <input type="hidden" name="ctype" value="{{ r.ctype }}">
+    <input type="hidden" name="obj_id" value="{{ r.obj_id }}">
+
+    <select name="header_id" class="form-select form-select-sm" style="width:auto">
+      {% for h in custom_ctx.headers %}
+        <option value="{{ h.id }}">{{ h.label }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn btn-sm btn-outline-secondary">Move</button>
+  </form>
+  {% endif %}
+
+  <button class="btn btn-sm btn-link p-0 toggle-desc" type="button">Details</button>
+</div>
 
             </div>
             <div class="d-none desc-body mt-2">
