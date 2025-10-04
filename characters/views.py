@@ -5146,19 +5146,25 @@ def character_detail(request, pk):
     def _is_details_submit(req):
         if req.method != "POST":
             return False
-        # Fast path: explicit flag
+
+        non_detail_flags = {
+            "resource_op","spells_op","inventory_op","skills_op",
+            "martial_op","override_submit","save_core_stats_submit",
+            "level_up_submit","manual_add_submit",
+        }
+        if non_detail_flags & set(req.POST.keys()):
+            return False
+
         if (req.POST.get("form") or "").strip().lower() == "details":
             return True
-        # Back-compat button names
-        if any(k in req.POST for k in ("edit_character_submit", "details_submit", "edit_submit")):
+        if any(k in req.POST for k in ("edit_character_submit","details_submit","edit_submit")):
             return True
-        # Safety net: if the POST contains any CharacterEditForm field names, treat it as details
+
         details_keys = {"name","backstory","worshipped_gods","believers_and_ideals",
                         "iconic_strengths","iconic_flaws","bonds_relationships",
                         "ties_connections","outlook"}
-        if details_keys & set(req.POST.keys()):
-            return True
-        return False
+        return bool(details_keys & set(req.POST.keys()))
+
 
     is_details_submit = _is_details_submit(request)
     if is_details_submit and can_edit:
