@@ -52,13 +52,18 @@
   function hideBubble() { bubble.style.display = "none"; }
 
   // ---- load terms -----------------------------------------------------------
-  async function loadTerms() {
-    try {
-      const res = await fetch("/glossary.json", { credentials: "same-origin" });
-      if (!res.ok) return null;
-      return await res.json();
-    } catch { return null; }
-  }
+async function loadTerms() {
+  try {
+    const ver = Math.floor(Date.now() / (15 * 60 * 1000)); // changes every 15 min
+    const res = await fetch(`/glossary.json?v=${ver}`, {
+      credentials: "same-origin",
+      cache: "no-store" // avoid stale browser cache
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch { return null; }
+}
+
 
   function buildMatchers(data) {
     const matchers = [];

@@ -6,7 +6,7 @@ from django.views.decorators.cache import cache_page
 from .models import GlossaryTerm
 
 # Cache for 1 hour (adjust as needed)
-@cache_page(60 * 60)
+@cache_page(60 * 15)
 def glossary_json(request):
     items = (GlossaryTerm.objects
              .filter(active=True)
