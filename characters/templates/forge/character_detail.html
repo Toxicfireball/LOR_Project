@@ -401,14 +401,17 @@ function resetSpeed(btn){
                         method="post" action="{% url 'characters:set_armor_choice' character.pk %}">
                     {% csrf_token %}
                     <label class="me-2 fw-semibold">Armor:</label>
-                    <select name="armor_id" class="form-select form-select-sm" style="max-width: 320px">
-                      <option value="">— No armor —</option>
-                      {% for a in armor_list %}
-                        <option value="{{ a.id }}" {% if selected_armor and selected_armor.id == a.id %}selected{% endif %}>
-                          {{ a.name }} (+{{ a.armor_value }})
-                        </option>
-                      {% endfor %}
-                    </select>
+                <select name="armor_id" class="form-select form-select-sm" style="max-width: 420px">
+                  <option value="">— No armor —</option>
+                  {% for a in armor_list %}
+                    <option value="{{ a.id }}"
+                            title="{{ a.long_label }}"
+                            {% if selected_armor and selected_armor.id == a.id %}selected{% endif %}>
+                      {{ a.short_label }}
+                    </option>
+                  {% endfor %}
+                </select>
+
                     <button class="btn btn-sm btn-outline-primary">Save</button>
                     {% if selected_armor %}
                       <span class="text-muted ms-2">Equipped: {{ selected_armor.name }}</span>
@@ -423,14 +426,17 @@ function resetSpeed(btn){
     <input type="hidden" name="override_reason" value="Equip shield">
 
     <label class="me-2 fw-semibold">Shield:</label>
-    <select name="override_final" class="form-select form-select-sm" style="max-width: 320px">
-      <option value="">— No shield —</option>
-      {% for s in shield_list %}
-        <option value="{{ s.id }}" {% if selected_shield and selected_shield.id == s.id %}selected{% endif %}>
-          {{ s.name }} (+{{ s.armor_value }})
-        </option>
-      {% endfor %}
-    </select>
+<select name="override_final" class="form-select form-select-sm" style="max-width: 420px">
+  <option value="">— No shield —</option>
+  {% for s in shield_list %}
+    <option value="{{ s.id }}"
+            title="{{ s.long_label }}"
+            {% if selected_shield and selected_shield.id == s.id %}selected{% endif %}>
+      {{ s.short_label }}
+    </option>
+  {% endfor %}
+</select>
+
     <button class="btn btn-sm btn-outline-primary">Save</button>
     {% if selected_shield %}
       <span class="text-muted ms-2">Equipped: {{ selected_shield.name }}</span>

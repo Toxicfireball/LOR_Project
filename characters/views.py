@@ -2285,7 +2285,17 @@ def set_armor_choice(request, pk):
     if armor_id == "":
         CharacterFieldOverride.objects.filter(character=character, key="equipped_armor_id").delete()
         CharacterFieldOverride.objects.filter(character=character, key="armor_value").delete()
-        return JsonResponse({"ok": True})
+        wants_json = (
+            request.headers.get("HX-Request") or
+            request.headers.get("X-Requested-With") == "XMLHttpRequest" or
+            "application/json" in (request.headers.get("Accept", ""))
+        )
+
+        if wants_json:
+            return JsonResponse({"ok": True})
+
+        messages.success(request, "Armor updated.")
+        return redirect("characters:character_detail", pk=pk)
 
     # Resolve armor
     try:
@@ -4919,6 +4929,133 @@ def character_detail(request, pk):
             return Weapon.objects.get(pk=wid)
         except Exception:
             return None
+    # ── helpers for compact option labels ──────────────────────────────────────────
+    def _first(obj, *names, default=None):
+        for n in names:
+            if hasattr(obj, n):
+                val = getattr(obj, n)
+                if callable(val):
+                    try:
+                        val = val()
+                    except Exception:
+                        continue
+                return val
+        return default
+
+    def _traits_list(obj):
+        # tries several likely relations; silently ignores if missing
+        names = set()
+        for rel in ("traits", "weapon_traits", "armor_traits"):
+            qs = getattr(obj, rel, None)
+            if qs is not None and hasattr(qs, "all"):
+                try:
+                    for t in qs.all():
+                        names.add(getattr(t, "name", str(t)))
+                except Exception:
+                    pass
+        # also try typical *TraitValue relations (trait -> name)
+        for rel in ("weapontraitvalue_set", "weapon_trait_values", "armortraitvalue_set"):
+            mgr = getattr(obj, rel, None)
+            try:
+                for tv in mgr.all():
+                    tr = getattr(tv, "trait", None)
+                    if tr:
+                        names.add(getattr(tr, "name", str(tr)))
+            except Exception:
+                pass
+        # light dedupe, stable-ish order
+        return ", ".join(sorted(n for n in names if n))
+
+    def _armor_short_label(a):
+        # curated, non-empty only
+        bits = []
+        av = _first(a, "armor_value")
+        if av not in (None, "", 0):
+            bits.append(f"AV +{int(av)}")
+        dexcap = _first(a, "dex_cap", "dexterity_cap")
+        if dexcap not in (None, "", 0):
+            bits.append(f"DexCap {dexcap}")
+        sp = _first(a, "speed_penalty", "speed_mod")
+        if sp not in (None, "", 0):
+            bits.append(f"Speed {sp:+d}" if isinstance(sp, int) else f"Speed {sp}")
+        grp = _armor_group_for(a) if "Armor" in str(type(a)) else None
+        if grp:
+            bits.append(f"{grp.title()}")
+        typ = _first(a, "type")
+        if typ:
+            bits.append(str(typ).title())
+        tr = _traits_list(a)
+        if tr:
+            bits.append(f"Traits: {tr}")
+        return f"{getattr(a, 'name', 'Armor')} — " + ", ".join(bits) if bits else f"{getattr(a, 'name', 'Armor')}"
+
+    def _armor_long_label(a):
+        # a slightly more verbose one for the option title=
+        fields = []
+        for label, keys in [
+            ("Armor Value", ("armor_value",)),
+            ("Dex Cap", ("dex_cap","dexterity_cap")),
+            ("Speed", ("speed_penalty","speed_mod")),
+            ("Weight", ("weight",)),
+            ("Type", ("type",)),
+            ("Group", ()),  # computed
+        ]:
+            if label == "Group":
+                val = _armor_group_for(a)
+            else:
+                val = _first(a, *keys)
+            if isinstance(val, (int, float)) and val == 0:
+                continue
+            if val not in (None, "", 0):
+                fields.append(f"{label}: {val}")
+        tr = _traits_list(a)
+        if tr:
+            fields.append(f"Traits: {tr}")
+        return " • ".join(fields)
+
+    def _weapon_short_label(w):
+        bits = []
+        dmg = _first(w, "damage", "damage_die", "damage_dice")
+        if dmg:
+            bits.append(str(dmg))
+        rng = _first(w, "range", "range_increment", "max_range")
+        if rng not in (None, "", 0):
+            bits.append(f"Rng {rng}")
+        hands = _first(w, "hands", "handedness")
+        if hands:
+            bits.append(f"{hands}H")
+        reload_v = _first(w, "reload", "reload_time")
+        if reload_v not in (None, "", 0):
+            bits.append(f"Reload {reload_v}")
+        grp = _first(w, "group")
+        if grp:
+            bits.append(str(grp).title())
+        tr = _traits_list(w)
+        if tr:
+            bits.append(f"Traits: {tr}")
+        name = getattr(w, "name", "Weapon")
+        return f"{name} ({', '.join(bits)})" if bits else f"{name}"
+
+    def _weapon_long_label(w):
+        fields = []
+        for label, keys in [
+            ("Damage", ("damage","damage_die","damage_dice")),
+            ("Range", ("range","range_increment","max_range")),
+            ("Hands", ("hands","handedness")),
+            ("Reload", ("reload","reload_time")),
+            ("Group", ("group",)),
+            ("Weight", ("weight",)),
+            ("Crit", ("crit_range","crit_mod","crit_multiplier")),
+        ]:
+            val = _first(w, *keys)
+            if isinstance(val, (int, float)) and val == 0:
+                continue
+            if val not in (None, "", 0):
+                fields.append(f"{label}: {val}")
+        tr = _traits_list(w)
+        if tr:
+            fields.append(f"Traits: {tr}")
+        return " • ".join(fields)
 
     equipped_weapon_1 = _get_equipped_weapon(1)
     equipped_weapon_2 = _get_equipped_weapon(2)
@@ -7161,10 +7298,12 @@ def character_detail(request, pk):
     # ---- Effective proficiency for the EQUIPPED ARMOR (per-item/per-group) ----
     Armor = apps.get_model("characters", "Armor")               # ← ensure model exists in this scope
 
-    # ---- Equipped ARMOR (unchanged behavior) ----
     selected_armor = None
     try:
-        equipped_id = overrides.get("equipped_armor_id")
+        equipped_id = (
+            overrides.get("final:equipped_armor_id")  # ← value saved by the override form
+            or overrides.get("equipped_armor_id")     # ← legacy fallback if you had older data
+        )
         armor_value = int(overrides.get("armor_value") or 0)
         if equipped_id:
             selected_armor = Armor.objects.get(pk=int(equipped_id))
@@ -7172,6 +7311,7 @@ def character_detail(request, pk):
     except Exception:
         armor_value = 0
         selected_armor = None
+
 
     # ---- NEW: Equipped SHIELD (must be Armor.type == "shield") ----
     # --- Equipped SHIELD (saved by the generic override handler) ---
@@ -7225,8 +7365,22 @@ def character_detail(request, pk):
         shield_objs = [a for a in owned_armor if _looks_like_shield(a)]
         armor_objs  = [a for a in owned_armor if not _looks_like_shield(a)]
 
-        armor_list  = [{"id": a.id, "name": a.name, "armor_value": a.armor_value or 0} for a in armor_objs]
-        shield_list = [{"id": s.id, "name": s.name, "armor_value": s.armor_value or 0} for s in shield_objs]
+        armor_list = []
+        for a in armor_objs:
+            armor_list.append({
+                "id": a.id,
+                "short_label": _armor_short_label(a),
+                "long_label":  _armor_long_label(a),
+            })
+
+        shield_list = []
+        for s in shield_objs:
+            shield_list.append({
+                "id": s.id,
+                "short_label": _armor_short_label(s),
+                "long_label":  _armor_long_label(s),
+            })
+
     except Exception:
         armor_list = []
         shield_list = []
