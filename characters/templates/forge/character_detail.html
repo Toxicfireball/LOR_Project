@@ -25,7 +25,12 @@
   .summernote-content h4,.summernote-content h5,.summernote-content h6{
     margin:.75rem 0 .5rem; font-size:inherit; font-weight:600;
   }
-
+  #resources-bar .r-wrap{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
+  #resources-bar .r-pill{display:flex;align-items:center;gap:.5rem;background:var(--bs-gray-100);
+    border:1px solid rgba(0,0,0,.1);border-radius:.5rem;padding:.25rem .5rem}
+  #resources-bar .r-name{font-weight:600;min-width:0}
+  #resources-bar .r-meter{white-space:nowrap;font-variant-numeric:tabular-nums}
+  #resources-bar .r-input{width:72px}
   table tbody tr.is-active { outline: 2px solid #0d6efd; }
 
   #general-feats-table tbody tr.is-selected { background: #fff9db; }
@@ -362,55 +367,6 @@
   </form>
 </div>
 
-<div class="card mt-3" id="resources-card">
-  <div class="card-header fw-bold">Resources</div>
-
-  <ul class="list-group list-group-flush">
-    {% for r in trackable_resources %}
-<li class="list-group-item resource-item">
-  <div class="r-grid">
-    <div class="r-name">{{ r.name }}</div>
-
-    <div class="r-right">
-      <span class="r-meter me-2">
-        <strong>{{ r.cur }}</strong><span class="text-muted"> / {{ r.max }}</span>
-      </span>
-
-      {% if can_edit %}
-      <form method="post" class="d-inline-flex align-items-center gap-2"
-            action="{% url 'characters:character_detail' character.pk %}">
-        {% csrf_token %}
-        <input type="hidden" name="resource_op" value="set_current">
-        <input type="hidden" name="slug" value="{{ r.slug }}">
-        <input name="cur" type="number" class="form-control form-control-sm r-input"
-               value="{{ r.cur }}" min="0" max="{{ r.max }}">
-        <button class="btn btn-sm btn-outline-primary">Set</button>
-      </form>
-      {% endif %}
-    </div>
-  </div>
-</li>
-
-
-    {% empty %}
-      <li class="list-group-item text-muted">No resources yet.</li>
-    {% endfor %}
-  </ul>
-
-  {% if can_edit %}
-  <div class="card-body">
-<form method="post" class="row g-2" action="{% url 'characters:character_detail' character.pk %}">
-  {% csrf_token %}
-  <input type="hidden" name="resource_op" value="add">
-  <div class="col-12 col-sm-5"><input name="name" class="form-control form-control-sm" placeholder="Name" required></div>
-  <div class="col-6 col-sm-3"><input name="max"  type="number" min="0" class="form-control form-control-sm" placeholder="Max" required></div>
-  <div class="col-6 col-sm-3"><input name="cur"  type="number" min="0" class="form-control form-control-sm" placeholder="Cur" value="0"></div>
-  <div class="col-12 col-sm-1 d-grid"><button class="btn btn-sm btn-primary">Add</button></div>
-</form>
-
-  </div>
-  {% endif %}
-</div>
       </div>
 
 
@@ -419,7 +375,49 @@
 
     <!-- RIGHT: tabs + panes -->
     <main class="col-lg-9">
-      <!-- ONE set of tabs only -->
+<main class="col-lg-9">
+
+  <!-- RESOURCES ROW (above tabs) -->
+  {% if trackable_resources or can_edit %}
+  <div class="card mb-3" id="resources-bar">
+    <div class="card-body py-2">
+      <div class="r-wrap">
+        {% for r in trackable_resources %}
+          <div class="r-pill">
+            <span class="r-name text-truncate">{{ r.name }}</span>
+            <span class="r-meter"><strong>{{ r.cur }}</strong><span class="text-muted"> / {{ r.max }}</span></span>
+
+            {% if can_edit %}
+            <form method="post" class="d-inline-flex align-items-center gap-2"
+                  action="{% url 'characters:character_detail' character.pk %}">
+              {% csrf_token %}
+              <input type="hidden" name="resource_op" value="set_current">
+              <input type="hidden" name="slug" value="{{ r.slug }}">
+              <input name="cur" type="number" class="form-control form-control-sm r-input"
+                     value="{{ r.cur }}" min="0" max="{{ r.max }}">
+              <button class="btn btn-sm btn-outline-primary">Set</button>
+            </form>
+            {% endif %}
+          </div>
+        {% endfor %}
+
+        {% if can_edit %}
+        <form method="post" class="d-flex align-items-center gap-2 ms-auto"
+              action="{% url 'characters:character_detail' character.pk %}">
+          {% csrf_token %}
+          <input type="hidden" name="resource_op" value="add">
+          <input name="name" class="form-control form-control-sm" placeholder="Name" required style="width:160px">
+          <input name="max"  type="number" min="0" class="form-control form-control-sm" placeholder="Max"  required style="width:90px">
+          <input name="cur"  type="number" min="0" class="form-control form-control-sm" placeholder="Cur" value="0" style="width:90px">
+          <button class="btn btn-sm btn-primary">Add</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  </ul>
       <ul class="nav nav-tabs" id="sheetTabs" role="tablist">
         <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-details" type="button">Details</button></li>
         <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-combat"  type="button">Combat</button></li>
