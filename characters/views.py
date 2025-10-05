@@ -31,6 +31,8 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.db.models import Q
 # ⬇️ add these (module-level!)
 from .models import CharacterMartialMastery, MartialMastery, CharacterItem  
+from collections import defaultdict
+from .models import NoteCategory, CharacterNote
 
 from django.views.decorators.http import require_POST
 from django.http import JsonResponse, HttpResponseBadRequest
@@ -5150,7 +5152,7 @@ def character_detail(request, pk):
         non_detail_flags = {
             "resource_op","spells_op","inventory_op","skills_op",
             "martial_op","override_submit","save_core_stats_submit",
-            "level_up_submit","manual_add_submit",
+            "level_up_submit","manual_add_submit","notes_op",
         }
         if non_detail_flags & set(req.POST.keys()):
             return False
@@ -5167,7 +5169,7 @@ def character_detail(request, pk):
 
 
     is_details_submit = _is_details_submit(request)
-    if is_details_submit and can_edit:
+    if is_details_submit and can_edit and not request.POST.get("notes_op"):
         edit_form = CharacterEditForm(request.POST, instance=character)
         if edit_form.is_valid():
             # ✅ No reason required: just save the changes.
@@ -9404,6 +9406,25 @@ def character_detail(request, pk):
 
         messages.success(request, "Combat equipment updated.")
         return redirect("characters:character_detail", pk=pk)
+    # ===== DETAILS IMAGE (upload/remove) =====
+    if request.method == "POST" and can_edit and request.POST.get("details_op") == "set_image":
+        if request.POST.get("clear"):
+            if character.details_image:
+                character.details_image.delete(save=False)
+            character.details_image = None
+            character.save(update_fields=["details_image"])
+            messages.success(request, "Image removed.")
+        else:
+            img = request.FILES.get("details_image")
+            if not img:
+                messages.error(request, "Please choose an image.")
+            else:
+                character.details_image = img
+                character.save(update_fields=["details_image"])
+                messages.success(request, "Image updated.")
+        return redirect("characters:character_detail", pk=pk)
+
+
 
     skill_points_balance = CharacterSkillPointTx.balance_for(character)
     if request.method == "POST" and not is_details_submit:
@@ -9536,6 +9557,103 @@ def character_detail(request, pk):
         # r["type"] should be one of: Dodge, Reflex, Fortitude, Will
         # prefer the preformatted string total if present; fall back to numeric
         defense_totals[r["type"]] = r.get("total_s") or r.get("total") or 0
+    # ===== NOTES (categories & notes CRUD) — single authoritative block =====
+    if request.method == "POST" and can_edit and request.POST.get("notes_op"):
+        op = (request.POST.get("notes_op") or "").strip()
+
+        # Add Category
+        if op == "add_category":
+            name = (request.POST.get("name") or "").strip()
+            if not name:
+                messages.error(request, "Category name is required.")
+            else:
+                # unique per character (enforced by model unique_together)
+                NoteCategory.objects.get_or_create(character=character, name=name[:120])
+                messages.success(request, "Category added.")
+            return redirect("characters:character_detail", pk=pk)
+
+        # Delete Category (moves notes to Uncategorised/None first)
+        if op == "delete_category":
+            cid = (request.POST.get("category_id") or "").strip()
+            cat = NoteCategory.objects.filter(character=character, id=int(cid) if cid.isdigit() else 0).first()
+            if not cat:
+                messages.error(request, "Category not found.")
+                return redirect("characters:character_detail", pk=pk)
+            CharacterNote.objects.filter(character=character, category=cat).update(category=None)
+            cat.delete()
+            messages.success(request, "Category deleted. Notes moved to Uncategorised.")
+            return redirect("characters:character_detail", pk=pk)
+
+        # Add Note (optional image + optional category)
+        if op == "add_note":
+            title = (request.POST.get("title") or "").strip()
+            desc  = (request.POST.get("description") or "").strip()
+            cid   = (request.POST.get("category_id") or "").strip()
+            if not title:
+                messages.error(request, "Title is required.")
+                return redirect("characters:character_detail", pk=pk)
+
+            category = None
+            if cid.isdigit():
+                category = NoteCategory.objects.filter(character=character, id=int(cid)).first()
+
+            note = CharacterNote.objects.create(
+                character=character,
+                category=category,
+                title=title[:200],
+                description=desc,
+            )
+            img = request.FILES.get("image")
+            if img:
+                note.image = img
+                note.save(update_fields=["image"])
+
+            messages.success(request, "Note added.")
+            return redirect("characters:character_detail", pk=pk)
+
+        # Delete Note
+        if op == "delete_note":
+            nid = (request.POST.get("note_id") or "").strip()
+            if nid.isdigit():
+                deleted, _ = CharacterNote.objects.filter(character=character, id=int(nid)).delete()
+                if deleted:
+                    messages.success(request, "Note deleted.")
+                else:
+                    messages.error(request, "Note not found.")
+            else:
+                messages.error(request, "Invalid note id.")
+            return redirect("characters:character_detail", pk=pk)
+
+        # Move Note to a category (or None)
+        if op == "move_note":
+            nid = (request.POST.get("note_id") or "").strip()
+            cid = (request.POST.get("category_id") or "").strip()
+            if not nid.isdigit():
+                messages.error(request, "Invalid note id.")
+                return redirect("characters:character_detail", pk=pk)
+
+            category = None
+            if cid.isdigit():
+                category = NoteCategory.objects.filter(character=character, id=int(cid)).first()
+
+            CharacterNote.objects.filter(character=character, id=int(nid)).update(category=category)
+            messages.success(request, "Note moved.")
+            return redirect("characters:character_detail", pk=pk)
+
+    # Build Notes context for GET (and after POST redirects)
+    note_categories = NoteCategory.objects.filter(character=character).order_by("name")
+    notes_qs = (
+        CharacterNote.objects.filter(character=character)
+        .select_related("category")
+        .order_by("category__name", "-created_at", "title")
+    )
+    notes_by_category = {}
+    for n in notes_qs:
+        notes_by_category.setdefault(n.category_id, []).append(n)
+
+
+
+
     return render(request, 'forge/character_detail.html', {
         "spell_table_by_rank": rows_by_rank,
         "show_starting_skill_picker": show_starting_skill_picker,
@@ -9545,7 +9663,8 @@ def character_detail(request, pk):
         'character':          character,
         "show_spellcasting_tab": show_spellcasting_tab,
     'can_edit':           can_edit,
-    # NEW — sharing
+    "note_categories": note_categories,
+    "notes_by_category": notes_by_category,
     'available_users':    available_users,
     'can_share':          can_edit,          # gate the Share button to owner/GM
     'share_invites':      active_invites,    # pending invites queryset

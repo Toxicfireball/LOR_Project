@@ -435,6 +435,9 @@
 <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-active"       type="button">Active</button></li>
 <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-passive"      type="button">Passive</button></li>
 <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-custom" type="button">Custom</button></li>
+<li class="nav-item">
+  <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-notes" type="button">Notes</button>
+</li>
 
 <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-all"          type="button">All</button></li>
   <li class="nav-item" role="presentation" {% if not show_martial_mastery_tab %}hidden{% endif %}>
@@ -475,6 +478,34 @@
 </div>
 
 
+<div class="card mb-3">
+  <div class="card-header fw-bold">Image</div>
+  <div class="card-body">
+    {% if character.details_image %}
+      <img src="{{ character.details_image.url }}" class="img-fluid rounded mb-2">
+    {% else %}
+      <div class="text-muted mb-2">No image yet.</div>
+    {% endif %}
+    {% if can_edit %}
+      <form method="post" enctype="multipart/form-data" action="{% url 'characters:character_detail' character.pk %}">
+        {% csrf_token %}
+        <input type="hidden" name="details_op" value="set_image">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-8">
+            <label class="form-label form-label-sm">Upload image</label>
+            <input type="file" name="details_image" accept="image/*" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-4 d-flex gap-2">
+            <button class="btn btn-sm btn-primary">Save</button>
+            {% if character.details_image %}
+              <button class="btn btn-sm btn-outline-danger" name="clear" value="1">Remove</button>
+            {% endif %}
+          </div>
+        </div>
+      </form>
+    {% endif %}
+  </div>
+</div>
 
 {# Always show the read view below; the edit form above is collapsed #}
 <div class="mb-4"><h6>Backstory</h6><div class="summernote-view">{{ character.backstory|safe|default:"—" }}</div></div>
@@ -1916,6 +1947,216 @@
     <div class="alert alert-secondary my-3">This character has no Martial Mastery entitlements yet.</div>
   {% endif %}
 </div>
+<div class="tab-pane fade" id="tab-notes" role="tabpanel" aria-labelledby="tab-notes-tab">
+  <div class="row g-3">
+
+    <!-- FORMS ON TOP, FULL WIDTH -->
+    <aside class="col-12 order-1">
+      {% if can_edit %}
+      <div class="card mb-3">
+        <div class="card-header fw-bold">Add Category</div>
+        <div class="card-body">
+          <form method="post" action="{% url 'characters:character_detail' character.pk %}">
+            {% csrf_token %}
+            <input type="hidden" name="notes_op" value="add_category">
+            <div class="mb-2">
+              <label for="note-cat-name" class="form-label form-label-sm">Category name</label>
+              <input id="note-cat-name" name="name" class="form-control form-control-sm"
+                     placeholder="e.g. NPCs, Quests" maxlength="120" required>
+              <div id="note-cat-help" class="form-text">Up to 120 characters.</div>
+            </div>
+            <button class="btn btn-sm btn-primary" type="submit">Add</button>
+          </form>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-header fw-bold">Add Note</div>
+        <div class="card-body">
+          <form method="post" enctype="multipart/form-data"
+                action="{% url 'characters:character_detail' character.pk %}">
+            {% csrf_token %}
+            <input type="hidden" name="notes_op" value="add_note">
+
+            <div class="mb-2">
+              <label for="note-title" class="form-label form-label-sm">Title</label>
+              <input id="note-title" name="title" class="form-control form-control-sm"
+                     maxlength="200" required>
+            </div>
+
+            <div class="mb-2">
+              <label for="note-category" class="form-label form-label-sm">Category (optional)</label>
+              <select id="note-category" name="category_id" class="form-select form-select-sm">
+                <option value="">— None —</option>
+                {% for c in note_categories %}
+                  <option value="{{ c.id }}">{{ c.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="mb-2">
+              <label for="note-desc" class="form-label form-label-sm">Description</label>
+              <textarea id="note-desc" name="description" rows="4"
+                        class="form-control form-control-sm"
+                        placeholder="Write your note…"></textarea>
+              <div class="form-text" id="note-desc-help">Plain text; line breaks are kept.</div>
+            </div>
+
+            <div class="mb-3">
+              <label for="note-image" class="form-label form-label-sm">Image (optional)</label>
+              <input id="note-image" type="file" name="image" accept="image/*"
+                     class="form-control form-control-sm" aria-describedby="note-image-help">
+              <div id="note-image-help" class="form-text">JPEG/PNG/GIF, a few MB max.</div>
+            </div>
+
+            <button class="btn btn-sm btn-primary" type="submit">Add Note</button>
+          </form>
+        </div>
+      </div>
+      {% endif %}
+    </aside>
+
+    <!-- RESULTS BELOW, FULL WIDTH -->
+    <section class="col-12 order-2">
+      <div class="card mb-3">
+        <div class="card-body py-2 d-flex align-items-center gap-2">
+          <label for="note-search" class="form-label mb-0 small">Search</label>
+          <input id="note-search" class="form-control form-control-sm" placeholder="Filter by title…"
+                 oninput="for(const r of document.querySelectorAll('[data-note-title]')){r.closest('.note-row').style.display = r.dataset.noteTitle.includes(this.value.toLowerCase())?'':'none';}">
+        </div>
+      </div>
+
+      {% if note_categories %}
+        {% for c in note_categories %}
+        <div class="card mb-3">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <span class="fw-bold">{{ c.name }}</span>
+            {% if can_edit %}
+            <form method="post" class="m-0"
+                  action="{% url 'characters:character_detail' character.pk %}"
+                  onsubmit="return confirm('Delete category “{{ c.name }}”? Notes will become uncategorised.');">
+              {% csrf_token %}
+              <input type="hidden" name="notes_op" value="delete_category">
+              <input type="hidden" name="category_id" value="{{ c.id }}">
+              <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+            </form>
+            {% endif %}
+          </div>
+          <div class="card-body">
+            {% with rows=notes_by_category|get_item:c.id %}
+              {% if rows %}
+                <ul class="list-group">
+                  {% for n in rows %}
+                  <li class="list-group-item note-row">
+                    <div class="d-flex justify-content-between align-items-start">
+                      <div class="pe-3">
+                        <div class="fw-semibold" data-note-title="{{ n.title|lower }}">{{ n.title }}</div>
+                        {% if n.image %}
+                          <img src="{{ n.image.url }}" class="img-fluid rounded my-2" style="max-height:160px" alt="">
+                        {% endif %}
+                        {% if n.description %}
+                          <div class="text-muted small">{{ n.description|linebreaksbr }}</div>
+                        {% endif %}
+                        <div class="text-muted small mt-1">Added {{ n.created_at|date:"M j, Y H:i" }}</div>
+                      </div>
+                      {% if can_edit %}
+                      <div class="text-end">
+                        <form method="post" class="d-inline" action="{% url 'characters:character_detail' character.pk %}">
+                          {% csrf_token %}
+                          <input type="hidden" name="notes_op" value="delete_note">
+                          <input type="hidden" name="note_id" value="{{ n.id }}">
+                          <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+                        </form>
+                        <form method="post" class="d-inline" action="{% url 'characters:character_detail' character.pk %}">
+                          {% csrf_token %}
+                          <input type="hidden" name="notes_op" value="move_note">
+                          <input type="hidden" name="note_id" value="{{ n.id }}">
+                          <label class="visually-hidden" for="mv-{{ n.id }}">Move to…</label>
+                          <select id="mv-{{ n.id }}" name="category_id"
+                                  class="form-select form-select-sm d-inline-block" style="width:auto">
+                            <option value="">— None —</option>
+                            {% for c2 in note_categories %}
+                              <option value="{{ c2.id }}" {% if n.category_id == c2.id %}selected{% endif %}>{{ c2.name }}</option>
+                            {% endfor %}
+                          </select>
+                          <button class="btn btn-sm btn-outline-secondary" type="submit">Move</button>
+                        </form>
+                      </div>
+                      {% endif %}
+                    </div>
+                  </li>
+                  {% endfor %}
+                </ul>
+              {% else %}
+                <div class="text-muted">No notes in this category.</div>
+              {% endif %}
+            {% endwith %}
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="alert alert-secondary">No categories yet. Create one above to get started.</div>
+      {% endif %}
+
+      <!-- Uncategorised -->
+      <div class="card">
+        <div class="card-header fw-bold">Uncategorised</div>
+        <div class="card-body">
+          {% with rows=notes_by_category|get_item:None %}
+            {% if rows %}
+              <ul class="list-group">
+                {% for n in rows %}
+                <li class="list-group-item note-row">
+                  <div class="d-flex justify-content-between align-items-start">
+                    <div class="pe-3">
+                      <div class="fw-semibold" data-note-title="{{ n.title|lower }}">{{ n.title }}</div>
+                      {% if n.image %}
+                        <img src="{{ n.image.url }}" class="img-fluid rounded my-2" style="max-height:160px" alt="">
+                      {% endif %}
+                      {% if n.description %}
+                        <div class="text-muted small">{{ n.description|linebreaksbr }}</div>
+                      {% endif %}
+                      <div class="text-muted small mt-1">Added {{ n.created_at|date:"M j, Y H:i" }}</div>
+                    </div>
+                    {% if can_edit %}
+                    <div class="text-end">
+                      <form method="post" class="d-inline" action="{% url 'characters:character_detail' character.pk %}">
+                        {% csrf_token %}
+                        <input type="hidden" name="notes_op" value="delete_note">
+                        <input type="hidden" name="note_id" value="{{ n.id }}">
+                        <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+                      </form>
+                      <form method="post" class="d-inline" action="{% url 'characters:character_detail' character.pk %}">
+                        {% csrf_token %}
+                        <input type="hidden" name="notes_op" value="move_note">
+                        <input type="hidden" name="note_id" value="{{ n.id }}">
+                        <label class="visually-hidden" for="mv-{{ n.id }}-u">Move to…</label>
+                        <select id="mv-{{ n.id }}-u" name="category_id"
+                                class="form-select form-select-sm d-inline-block" style="width:auto">
+                          <option value="">— None —</option>
+                          {% for c2 in note_categories %}
+                            <option value="{{ c2.id }}">{{ c2.name }}</option>
+                          {% endfor %}
+                        </select>
+                        <button class="btn btn-sm btn-outline-secondary" type="submit">Move</button>
+                      </form>
+                    </div>
+                    {% endif %}
+                  </div>
+                </li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              <div class="text-muted">No uncategorised notes.</div>
+            {% endif %}
+          {% endwith %}
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
 
 <!-- ALL TAB -->
 <!-- ALL TAB -->

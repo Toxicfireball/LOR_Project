@@ -502,9 +502,34 @@ class CharacterShareInvite(models.Model):
     def __str__(self):
         return f"{self.invited_email} → {self.character}"
 
-# ------------------------------------------------------------------------------
-# Core Character
-# ------------------------------------------------------------------------------
+class NoteCategory(models.Model):
+    character = models.ForeignKey('Character', on_delete=models.CASCADE, related_name='note_categories')
+    name = models.CharField(max_length=120)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('character', 'name')
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
+class CharacterNote(models.Model):
+    character = models.ForeignKey('Character', on_delete=models.CASCADE, related_name='notes')
+    category = models.ForeignKey(NoteCategory, on_delete=models.SET_NULL, null=True, blank=True, related_name='notes')
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    image = models.ImageField(upload_to='character_notes/%Y/%m/%d/', blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.title
+
+
 class Character(models.Model):
 
     STATUS_CHOICES = (
@@ -528,6 +553,7 @@ class Character(models.Model):
     HP = models.IntegerField(blank=True, null = True)
     temp_HP = models.IntegerField( blank=True,  null = True)
     # ability scores
+    details_image = models.ImageField(upload_to='character_details/%Y/%m/%d/', blank=True, null=True)
     strength           = models.IntegerField(default=8)
     dexterity          = models.IntegerField(default=8)
     constitution       = models.IntegerField(default=8)
