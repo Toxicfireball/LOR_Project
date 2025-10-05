@@ -577,6 +577,7 @@ class Character(models.Model):
     bonds_relationships  = SummernoteTextField(blank=True)
     ties_connections     = SummernoteTextField(blank=True)
     outlook              = SummernoteTextField(blank=True)
+    appearance              = SummernoteTextField(blank=True)
     # characters/models.py (inside Character)
     gold   = models.IntegerField(default=0)
     silver = models.IntegerField(default=0)

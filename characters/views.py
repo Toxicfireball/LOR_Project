@@ -5164,7 +5164,7 @@ def character_detail(request, pk):
 
         details_keys = {"name","backstory","worshipped_gods","believers_and_ideals",
                         "iconic_strengths","iconic_flaws","bonds_relationships",
-                        "ties_connections","outlook"}
+                        "ties_connections","outlook", "appearance"}
         return bool(details_keys & set(req.POST.keys()))
 
 
