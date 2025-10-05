@@ -1,5 +1,10 @@
 from django.urls import path
 from . import views
+from django.contrib import admin
+from django.urls import path, include, re_path
+from django.conf import settings
+from django.conf.urls.static import static
+from django.views.static import serve as dj_serve
 
 app_name = "characters"
 
@@ -82,3 +87,11 @@ path("search/", views.global_search, name="global_search"),
         path("backgrounds/propose/", views.propose_background, name="propose_background"),
     path("backgrounds/<int:pb_id>/approve/", views.approve_pending_background, name="approve_pending_background"),
 ]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+else:
+    # Prod TEMP: let Django serve media so your uploaded images load
+    urlpatterns += [
+        re_path(r'^media/(?P<path>.*)$', dj_serve, {'document_root': settings.MEDIA_ROOT}),
+    ]
