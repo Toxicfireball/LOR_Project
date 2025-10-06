@@ -437,22 +437,35 @@
       </form>
       {% endif %}
 
-      <ul class="divide-y">
-        {% for e in encounters %}
-          <li class="p-4 flex items-center justify-between">
-            <div>
-              <div class="font-semibold">
-                <a class="hover:underline" href="{% url 'campaigns:encounter_detail' campaign.id e.id %}">{{ e.name }}</a>
-              </div>
-              {% if e.description %}<div class="text-sm text-gray-600">{{ e.description }}</div>{% endif %}
-            </div>
-            <a class="text-sm px-2 py-1 rounded-md border border-gray-300 hover:bg-gray-50"
-               href="{% url 'campaigns:encounter_detail' campaign.id e.id %}">Open</a>
-          </li>
-        {% empty %}
-          <li class="p-6 text-gray-600">No encounters yet.</li>
-        {% endfor %}
-      </ul>
+<ul class="divide-y">
+  {% for e in encounters %}
+    <li class="p-4 flex items-center justify-between">
+      <div>
+        <div class="font-semibold">
+          <a class="hover:underline" href="{% url 'campaigns:encounter_detail' campaign.id e.id %}">{{ e.name }}</a>
+        </div>
+        {% if e.description %}<div class="text-sm text-gray-600">{{ e.description }}</div>{% endif %}
+      </div>
+
+      <div class="flex items-center gap-2">
+        <a class="text-sm px-2 py-1 rounded-md border border-gray-300 hover:bg-gray-50"
+           href="{% url 'campaigns:encounter_detail' campaign.id e.id %}">Open</a>
+
+        {% if is_gm %}
+        <form method="post"
+              action="{% url 'campaigns:delete_encounter' campaign.id e.id %}"
+              onsubmit="return confirm('Delete encounter {{ e.name }}? This will remove all its enemies.');">
+          {% csrf_token %}
+          <button class="text-sm text-red-600 hover:underline">Delete</button>
+        </form>
+        {% endif %}
+      </div>
+    </li>
+  {% empty %}
+    <li class="p-6 text-gray-600">No encounters yet.</li>
+  {% endfor %}
+</ul>
+
     </div>
 
     <!-- RIGHT: Enemy Types table + Create -->
@@ -526,7 +539,7 @@
       <td>
         <div class="flex items-center gap-2">
           <!-- (Optional) Edit link if you add an edit view later -->
-          <!-- <a class="text-sm text-indigo-600 hover:underline" href="{% url 'campaigns:edit_enemy_type' campaign.id et.id %}">Edit</a> -->
+  <a class="text-sm text-indigo-600 hover:underline" href="{% url 'campaigns:edit_enemy_type' campaign.id et.id %}">Edit</a> 
 
           <form method="post"
                 action="{% url 'campaigns:delete_enemy_type' campaign.id et.id %}"

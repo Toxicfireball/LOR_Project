@@ -672,6 +672,46 @@ def set_encounter_enemy_hp(request, campaign_id):
     messages.success(request, f"{ee.display_name} HP set to {ee.current_hp}/{ee.max_hp}.")
     return redirect("campaigns:encounter_detail", campaign_id=campaign.id, encounter_id=ee.encounter_id)
 
+@login_required
+def edit_enemy_type(request, campaign_id, et_id):
+    campaign = get_object_or_404(Campaign, id=campaign_id)
+    if not _is_gm(request.user, campaign):
+        return HttpResponseForbidden("GM only.")
+    et = get_object_or_404(EnemyType, id=et_id)
+
+    if request.method == "POST":
+        form = EnemyTypeCreateForm(request.POST, instance=et, campaign=campaign)
+        formset = EnemyAbilityInlineFormSet(request.POST, instance=et, prefix="ab")
+        if form.is_valid() and formset.is_valid():
+            et = form.save()
+            formset.save()
+            messages.success(request, f"Enemy Type '{et.name}' updated.")
+            return redirect(f"{reverse('campaigns:campaign_detail', args=[campaign.id])}#encounters")
+    else:
+        form = EnemyTypeCreateForm(instance=et, campaign=campaign)
+        formset = EnemyAbilityInlineFormSet(instance=et, prefix="ab")
+
+    return render(request, "campaigns/enemytype_form.html", {
+        "campaign": campaign,
+        "form": form,
+        "formset": formset,
+        "tags": EnemyTag.objects.all(),
+    })
+
+
+@login_required
+def delete_encounter(request, campaign_id, encounter_id):
+    campaign = get_object_or_404(Campaign, id=campaign_id)
+    if not _is_gm(request.user, campaign):
+        return HttpResponseForbidden("GM only.")
+    if request.method != "POST":
+        raise Http404()
+
+    enc = get_object_or_404(Encounter, id=encounter_id, campaign=campaign)
+    name = enc.name
+    enc.delete()  # relies on your FK cascade to remove EncounterEnemy rows
+    messages.info(request, f"Encounter '{name}' deleted.")
+    return redirect(f"{reverse('campaigns:campaign_detail', args=[campaign.id])}#encounters")
 
 @login_required
 def adjust_encounter_enemy_hp(request, campaign_id):

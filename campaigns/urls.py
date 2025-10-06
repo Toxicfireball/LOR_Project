@@ -29,7 +29,8 @@ path("<int:campaign_id>/encounters/quick-add-enemy/", views.quick_add_enemy, nam
     path("<int:campaign_id>/encounters/<int:encounter_id>/", views.encounter_detail, name="encounter_detail"),
     path("<int:campaign_id>/encounters/create/", views.create_encounter, name="create_encounter"),
 path("<int:campaign_id>/enemies/<int:et_id>/delete/", views.delete_enemy_type, name="delete_enemy_type"),
-
+    path("<int:campaign_id>/enemy-types/<int:et_id>/edit/", views.edit_enemy_type, name="edit_enemy_type"),
     # NEW dedicated page
     path("<int:campaign_id>/enemies/new/", views.new_enemy_type, name="new_enemy_type"),
+        path("<int:campaign_id>/encounters/<int:encounter_id>/delete/", views.delete_encounter, name="delete_encounter"),
 ]

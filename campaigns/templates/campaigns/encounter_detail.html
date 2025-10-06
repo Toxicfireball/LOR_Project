@@ -4,7 +4,18 @@
 
   <div class="flex items-center justify-between">
     <div>
-      <h1 class="text-xl font-bold">{{ encounter.name }}</h1>
+      <div class="flex items-center justify-between">
+  <h1 class="text-xl font-bold">{{ encounter.name }}</h1>
+  {% if is_gm %}
+  <form method="post"
+        action="{% url 'campaigns:delete_encounter' campaign.id encounter.id %}"
+        onsubmit="return confirm('Delete this encounter? This will remove all its enemies.');">
+    {% csrf_token %}
+    <button class="text-sm text-red-600 hover:underline">Delete Encounter</button>
+  </form>
+  {% endif %}
+</div>
+
       {% if encounter.description %}<p class="text-sm text-gray-600">{{ encounter.description }}</p>{% endif %}
       <p class="text-xs text-gray-500 mt-1">
         <a class="hover:underline" href="{% url 'campaigns:campaign_detail' campaign.id %}">← Back to campaign</a>
