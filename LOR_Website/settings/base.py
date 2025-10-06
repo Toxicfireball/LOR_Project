@@ -138,8 +138,18 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_DIRS = [BASE_DIR.parent / 'static']
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
+# ✅ Persist uploads on the Railway Volume mounted at /data
+from pathlib import Path
 MEDIA_URL  = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+MEDIA_ROOT = Path('/data/media')
+
+# Make sure the base folder exists at boot
+import os
+os.makedirs(MEDIA_ROOT, exist_ok=True)
+
+# (optional but sensible)
+FILE_UPLOAD_PERMISSIONS = 0o644
+FILE_UPLOAD_DIRECTORY_PERMISSIONS = 0o755
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -174,3 +184,10 @@ RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
 
 # Resend API key from env (unchanged style)
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+from pathlib import Path
+MEDIA_ROOT = Path("/data/media")
+MEDIA_URL  = "/media/"
+
+# ensure the dir exists at boot
+import os
+os.makedirs(MEDIA_ROOT, exist_ok=True)
