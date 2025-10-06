@@ -65,7 +65,9 @@
       <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900" data-tab="#skillfeats" role="tab" aria-controls="skillfeats">Skill Feats</button>
       <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900" data-tab="#inventory" role="tab" aria-controls="inventory">Party Inventory</button>
       <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900" data-tab="#messages" role="tab" aria-controls="messages">Messages</button>
+      {% if is_gm %}
     <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900" data-tab="#encounters" role="tab" aria-controls="encounters">Encounters</button>
+    {% endif %}
     </div>
   </div>
 
