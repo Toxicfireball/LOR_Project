@@ -21,6 +21,7 @@ from django.contrib import admin
 from django.conf import settings
 from django.conf.urls.static import static
 import nested_admin
+from django.views.static import serve as dj_serve
 urlpatterns = [] 
 if not settings.DEBUG:
     urlpatterns += [
