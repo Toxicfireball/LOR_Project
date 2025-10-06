@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="max-w-6xl mx-auto px-4 py-6 space-y-4">
+
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-xl font-bold">{{ encounter.name }}</h1>
+      {% if encounter.description %}<p class="text-sm text-gray-600">{{ encounter.description }}</p>{% endif %}
+      <p class="text-xs text-gray-500 mt-1">
+        <a class="hover:underline" href="{% url 'campaigns:campaign_detail' campaign.id %}">← Back to campaign</a>
+      </p>
+    </div>
+    <div></div>
+  </div>
+
+  {% if messages %}
+  <div class="space-y-2">
+    {% for message in messages %}
+      <div class="rounded-md border px-4 py-2 text-sm
+                  {% if message.tags == 'error' %}border-red-300 bg-red-50 text-red-800
+                  {% elif message.tags == 'success' %}border-green-300 bg-green-50 text-green-800
+                  {% elif message.tags == 'warning' %}border-yellow-300 bg-yellow-50 text-yellow-800
+                  {% else %}border-blue-300 bg-blue-50 text-blue-800{% endif %}">
+        {{ message }}
+      </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="grid lg:grid-cols-3 gap-4">
+    <div class="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200">
+      <div class="p-4 border-b font-semibold">Enemies</div>
+
+      <div class="p-4">
+        <table class="w-full text-sm">
+          <thead class="text-xs text-gray-500">
+            <tr class="text-left">
+              <th class="py-2">Name</th>
+              <th>LV</th><th>Armor</th><th>Dodge</th>
+              <th class="w-48">HP</th>
+              {% if is_gm %}<th class="w-40">Quick HP</th><th></th>{% endif %}
+            </tr>
+          </thead>
+          <tbody class="divide-y">
+            {% for ee in enemies %}
+            <tr>
+              <td class="py-2">
+                <div class="font-semibold">{{ ee.display_name }}</div>
+                <div class="text-xs text-gray-500">Type: {{ ee.enemy_type.name }}</div>
+              </td>
+              <td>{{ ee.enemy_type.level }}</td>
+              <td>{{ ee.enemy_type.armor }}</td>
+              <td>{{ ee.enemy_type.dodge }}</td>
+              <td>
+                <form method="post" action="{% url 'campaigns:set_encounter_enemy_hp' campaign.id %}" class="flex items-center gap-2">
+                  {% csrf_token %}
+                  <input type="hidden" name="ee_id" value="{{ ee.id }}">
+                  <input type="number" name="current_hp" value="{{ ee.current_hp }}" class="w-20 border rounded px-2 py-1">
+                  <span class="text-gray-500">/ {{ ee.max_hp }}</span>
+                  {% if is_gm %}
+                  <button class="px-2 py-1 text-xs rounded-md border border-gray-300 hover:bg-gray-50">Set</button>
+                  {% endif %}
+                </form>
+              </td>
+
+              {% if is_gm %}
+              <td>
+                <form method="post" action="{% url 'campaigns:adjust_encounter_enemy_hp' campaign.id %}" class="flex items-center gap-1">
+                  {% csrf_token %}
+                  <input type="hidden" name="ee_id" value="{{ ee.id }}">
+                  <button name="delta" value="-10" class="px-2 py-1 text-xs rounded-md border hover:bg-gray-50">-10</button>
+                  <button name="delta" value="-1"  class="px-2 py-1 text-xs rounded-md border hover:bg-gray-50">-1</button>
+                  <button name="delta" value="+1"  class="px-2 py-1 text-xs rounded-md border hover:bg-gray-50">+1</button>
+                  <button name="delta" value="+10" class="px-2 py-1 text-xs rounded-md border hover:bg-gray-50">+10</button>
+                </form>
+              </td>
+              <td class="text-right">
+                <form method="post" action="{% url 'campaigns:remove_encounter_enemy' campaign.id encounter.id ee.id %}" onsubmit="return confirm('Remove this enemy?');">
+                  {% csrf_token %}
+                  <button class="px-2 py-1 text-xs rounded-md border border-red-300 text-red-700 hover:bg-red-50">Remove</button>
+                </form>
+              </td>
+              {% endif %}
+            </tr>
+            {% empty %}
+            <tr><td class="py-4 text-gray-600" colspan="7">No enemies yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200">
+      <div class="p-4 border-b font-semibold">Add Enemies</div>
+      <div class="p-4">
+        {% if is_gm %}
+        <form method="post" action="{% url 'campaigns:add_enemy_to_encounter' campaign.id encounter.id %}" class="space-y-2">
+          {% csrf_token %}
+          <div>{{ add_form.enemy_type }}</div>
+          <div>{{ add_form.count }}</div>
+          <button class="px-3 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">Add to Encounter</button>
+        </form>
+        {% else %}
+        <p class="text-gray-600 text-sm">Only GMs can add enemies.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

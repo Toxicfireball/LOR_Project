@@ -6,8 +6,9 @@ import re
 from .models import Campaign, CampaignNote, CampaignMessage
 from characters.models import Character, Weapon, Armor, SpecialItem
 from characters.models import Character, ClassFeat
-
+from .models import EnemyType, EnemyAbility, Encounter, EncounterEnemy, EnemyTag
 from django.db.models import Q
+from django.forms.models import inlineformset_factory
 # ===== Helper: build a single "equipment" select =====
 def equipment_choices():
     opts = []
@@ -208,3 +209,99 @@ def parse_equipment_key(key: str):
         return None, None
     ctype = ContentType.objects.get_for_model(model)
     return ctype, sid
+# campaigns/forms.py  (ADD)
+
+from django import forms
+from .models import EnemyType, EnemyAbility, Encounter, EncounterEnemy
+
+class EnemyTypeForm(forms.ModelForm):
+    class Meta:
+        model = EnemyType
+        fields = [
+            "name","level","hp","armor","dodge","initiative",
+            "str_score","dex_score","con_score","int_score","wis_score","cha_score",
+            "will_save","reflex_save","fortitude_save",
+            "perception","stealth",
+            "description","resistances",
+        ]
+
+
+class EnemyAbilityForm(forms.ModelForm):
+    class Meta:
+        model = EnemyAbility
+        fields = ["enemy_type","ability_type","action_cost","title","description"]
+        widgets = {"description": forms.Textarea(attrs={"rows":2})}
+
+class EncounterForm(forms.ModelForm):
+    class Meta:
+        model = Encounter
+        fields = ["name","description"]
+        widgets = {"description": forms.Textarea(attrs={"rows":2})}
+
+
+class AddEnemyToEncounterForm(forms.Form):
+    enemy_type = forms.ModelChoiceField(queryset=EnemyType.objects.all())
+    count = forms.IntegerField(min_value=1, initial=1, help_text="How many copies to add")
+
+class SetEncounterEnemyHPForm(forms.Form):
+    ee_id = forms.IntegerField()
+    current_hp = forms.IntegerField()
+
+class AdjustEncounterEnemyHPForm(forms.Form):
+    ee_id = forms.IntegerField()
+    delta = forms.IntegerField(help_text="+/- number to change HP")
+from .models import EnemyType, Encounter  # already imported above for other forms
+
+class QuickAddEnemyForm(forms.Form):
+    encounter = forms.ModelChoiceField(queryset=Encounter.objects.none())
+    enemy_type = forms.ModelChoiceField(queryset=EnemyType.objects.all())
+    count = forms.IntegerField(min_value=1, initial=1)
+
+    def __init__(self, *args, campaign=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if campaign is not None:
+            self.fields["encounter"].queryset = campaign.encounters.all()
+EnemyAbilityInlineFormSet = inlineformset_factory(
+    parent_model=EnemyType,
+    model=EnemyAbility,
+    form=EnemyAbilityForm,
+    fields=("ability_type", "action_cost", "title", "description"),
+    extra=0,          # render none by default; JS will add rows
+    can_delete=True
+)
+
+
+
+
+class EnemyTypeCreateForm(forms.ModelForm):
+    SCOPE_CHOICES = (("campaign", "This campaign"), ("global", "Global"))
+    scope = forms.ChoiceField(choices=SCOPE_CHOICES, initial="campaign")
+    tags  = forms.ModelMultipleChoiceField(
+        queryset=EnemyTag.objects.all(), required=False,
+        widget=forms.SelectMultiple(attrs={"size": 6})
+    )
+    class Meta:
+        model = EnemyType
+        fields = [
+            "name","level","hp","armor","dodge","initiative",
+            "str_score","dex_score","con_score","int_score","wis_score","cha_score",
+            "will_save","reflex_save","fortitude_save",
+            "perception","stealth",
+            "description","resistances","tags",
+        ]
+        widgets = {
+            "description": forms.Textarea(attrs={"rows": 4}),
+            "resistances": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args, campaign=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.campaign = campaign
+
+    def save(self, commit=True):
+        obj = super().save(commit=False)
+        obj.campaign = None if self.cleaned_data.get("scope") == "global" else self.campaign
+        if commit:
+            obj.save()
+            self.save_m2m()
+        return obj

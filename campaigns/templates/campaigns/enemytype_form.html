@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="max-w-5xl mx-auto px-4 py-6 space-y-6">
+
+  <div class="flex items-center justify-between">
+    <div class="min-w-0">
+      <h1 class="text-2xl font-semibold tracking-tight">Create Enemy Type</h1>
+      <p class="text-sm text-gray-600 mt-1">
+        Campaign: <strong>{{ campaign.name }}</strong> •
+        <a class="text-indigo-600 hover:underline" href="{% url 'campaigns:campaign_detail' campaign.id %}#encounters">Back to Encounters</a>
+      </p>
+    </div>
+  </div>
+
+  {% if messages %}
+    <div class="space-y-2">
+      {% for message in messages %}
+        <div class="rounded-md border px-4 py-2 text-sm
+                    {% if message.tags == 'error' %}border-red-300 bg-red-50 text-red-800
+                    {% elif message.tags == 'success' %}border-green-300 bg-green-50 text-green-800
+                    {% else %}border-blue-300 bg-blue-50 text-blue-800{% endif %}">
+          {{ message }}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <form method="post" class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+    {% csrf_token %}
+
+    <!-- Basics -->
+    <div class="p-5 border-b">
+      <h2 class="font-semibold text-lg">Basics</h2>
+      <p class="text-xs text-gray-600">Choose whether this type is <strong>Global</strong> (usable in all campaigns) or only for this campaign.</p>
+    </div>
+    <div class="p-5 grid grid-cols-1 md:grid-cols-12 gap-4">
+      <div class="md:col-span-4">
+        <label class="block text-xs text-gray-600 mb-1">Scope</label>
+        {{ form.scope }}
+      </div>
+      <div class="md:col-span-8">
+        <label class="block text-xs text-gray-600 mb-1">Name</label>
+        {{ form.name }}
+      </div>
+
+      <div class="md:col-span-2">
+        <label class="block text-xs text-gray-600 mb-1">Level</label>
+        {{ form.level }}
+      </div>
+      <div class="md:col-span-2">
+        <label class="block text-xs text-gray-600 mb-1">HP</label>
+        {{ form.hp }}
+      </div>
+      <div class="md:col-span-2">
+        <label class="block text-xs text-gray-600 mb-1">Armor</label>
+        {{ form.armor }}
+      </div>
+      <div class="md:col-span-2">
+        <label class="block text-xs text-gray-600 mb-1">Dodge</label>
+        {{ form.dodge }}
+      </div>
+      <div class="md:col-span-4">
+        <label class="block text-xs text-gray-600 mb-1">Initiative</label>
+        {{ form.initiative }}
+      </div>
+    </div>
+
+    <!-- Ability Scores -->
+    <div class="p-5 border-t">
+      <h3 class="font-semibold mb-3">Ability Scores</h3>
+      <div class="grid grid-cols-2 md:grid-cols-6 gap-3">
+        <div><label class="block text-xs text-gray-600 mb-1">STR</label>{{ form.str_score }}</div>
+        <div><label class="block text-xs text-gray-600 mb-1">DEX</label>{{ form.dex_score }}</div>
+        <div><label class="block text-xs text-gray-600 mb-1">CON</label>{{ form.con_score }}</div>
+        <div><label class="block text-xs text-gray-600 mb-1">INT</label>{{ form.int_score }}</div>
+        <div><label class="block text-xs text-gray-600 mb-1">WIS</label>{{ form.wis_score }}</div>
+        <div><label class="block text-xs text-gray-600 mb-1">CHA</label>{{ form.cha_score }}</div>
+      </div>
+    </div>
+
+    <!-- Saves & Skills -->
+    <div class="p-5 border-t">
+      <h3 class="font-semibold mb-3">Saves & Skills</h3>
+      <div class="grid grid-cols-2 md:grid-cols-6 gap-3">
+        <div><label class="block text-xs text-gray-600 mb-1">Will</label>{{ form.will_save }}</div>
+        <div><label class="block text-xs text-gray-600 mb-1">Reflex</label>{{ form.reflex_save }}</div>
+        <div><label class="block text-xs text-gray-600 mb-1">Fortitude</label>{{ form.fortitude_save }}</div>
+        <div><label class="block text-xs text-gray-600 mb-1">Perception</label>{{ form.perception }}</div>
+        <div><label class="block text-xs text-gray-600 mb-1">Stealth</label>{{ form.stealth }}</div>
+      </div>
+    </div>
+
+    <!-- Text -->
+    <div class="p-5 border-t grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <label class="block text-xs text-gray-600 mb-1">Description</label>
+        {{ form.description }}
+      </div>
+      <div>
+        <label class="block text-xs text-gray-600 mb-1">Resistances (text)</label>
+        {{ form.resistances }}
+      </div>
+    </div>
+
+    <!-- Tags -->
+    <div class="p-5 border-t">
+      <h3 class="font-semibold mb-3">Tags</h3>
+      <div class="grid md:grid-cols-2 gap-4">
+        <div>{{ form.tags }}</div>
+        <div class="text-xs text-gray-600">
+          <p class="mb-2">Available tags (create in Admin):</p>
+          <div class="flex flex-wrap gap-2">
+            {% for t in tags %}
+              <span class="px-2 py-0.5 rounded bg-gray-100 text-gray-700">{{ t.name }}</span>
+            {% empty %}
+              <span class="text-gray-400">No tags yet.</span>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+<!-- Abilities Inline -->
+<div class="p-5 border-t">
+  <div class="flex items-center justify-between">
+    <h3 class="font-semibold mb-3">Abilities</h3>
+    <button type="button" id="ab-add"
+            class="px-3 py-1.5 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">
+      + Add ability
+    </button>
+  </div>
+
+  {{ formset.management_form }}
+
+  <div id="ab-forms" class="space-y-3">
+    {% for f in formset.forms %}
+      <div class="grid grid-cols-1 md:grid-cols-12 gap-3 border rounded-lg p-3 ability-row">
+        <div class="md:col-span-2">
+          <label class="block text-xs text-gray-600 mb-1">Type</label>
+          {{ f.ability_type }}
+        </div>
+        <div class="md:col-span-2">
+          <label class="block text-xs text-gray-600 mb-1">Action</label>
+          {{ f.action_cost }}
+        </div>
+        <div class="md:col-span-7">
+          <label class="block text-xs text-gray-600 mb-1">Title</label>
+          {{ f.title }}
+        </div>
+        <div class="md:col-span-1 flex items-end justify-end">
+          {% if formset.can_delete %}
+          <label class="inline-flex items-center gap-2 text-xs text-red-700">
+            {{ f.DELETE }} Delete
+          </label>
+          {% endif %}
+        </div>
+        <div class="md:col-span-12">
+          <label class="block text-xs text-gray-600 mb-1">Description</label>
+          {{ f.description }}
+        </div>
+      </div>
+    {% empty %}
+      <p class="text-sm text-gray-500">No abilities yet. Click “Add ability”.</p>
+    {% endfor %}
+  </div>
+
+  <!-- Prototype row for JS (uses __prefix__ from empty_form) -->
+  <template id="ab-empty-template">
+    <div class="grid grid-cols-1 md:grid-cols-12 gap-3 border rounded-lg p-3 ability-row">
+      <div class="md:col-span-2">
+        <label class="block text-xs text-gray-600 mb-1">Type</label>
+        {{ formset.empty_form.ability_type }}
+      </div>
+      <div class="md:col-span-2">
+        <label class="block text-xs text-gray-600 mb-1">Action</label>
+        {{ formset.empty_form.action_cost }}
+      </div>
+      <div class="md:col-span-7">
+        <label class="block text-xs text-gray-600 mb-1">Title</label>
+        {{ formset.empty_form.title }}
+      </div>
+      <div class="md:col-span-1 flex items-end justify-end">
+        {% if formset.can_delete %}
+        <label class="inline-flex items-center gap-2 text-xs text-red-700">
+          {{ formset.empty_form.DELETE }} Delete
+        </label>
+        {% endif %}
+      </div>
+      <div class="md:col-span-12">
+        <label class="block text-xs text-gray-600 mb-1">Description</label>
+        {{ formset.empty_form.description }}
+      </div>
+    </div>
+  </template>
+
+  <p class="text-xs text-gray-500 mt-2">Add as many abilities as you need. Tick “Delete” to remove a row.</p>
+</div>
+
+
+    <!-- Footer -->
+    <div class="p-5 border-t flex items-center justify-end gap-3">
+      <a href="{% url 'campaigns:campaign_detail' campaign.id %}#encounters"
+         class="px-3 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">Cancel</a>
+      <button class="px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">Create Enemy Type</button>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  // Uses the formset prefix "ab" → Django renders management inputs with ids:
+  // id_ab-TOTAL_FORMS, id_ab-INITIAL_FORMS, etc.
+  const addBtn = document.getElementById('ab-add');
+  const container = document.getElementById('ab-forms');
+  const tmpl = document.getElementById('ab-empty-template');
+  if (!addBtn || !container || !tmpl) return;
+
+  const totalInput = document.getElementById('id_ab-TOTAL_FORMS');
+
+  function addRow() {
+    const idx = parseInt(totalInput.value, 10);
+    // Replace __prefix__ in *attributes* that Django sets on empty_form
+    // (Django already puts __prefix__ into ids/names).
+    const html = tmpl.innerHTML.replaceAll('__prefix__', idx);
+    const frag = document.createRange().createContextualFragment(html);
+    container.appendChild(frag);
+    totalInput.value = idx + 1;
+  }
+
+  addBtn.addEventListener('click', addRow);
+
+  // Optional: start with one blank if none rendered
+  if (totalInput && parseInt(totalInput.value, 10) === 0) {
+    addRow();
+  }
+})();
+</script>
+{% endblock %}

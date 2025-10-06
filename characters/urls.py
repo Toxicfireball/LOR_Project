@@ -13,7 +13,7 @@ urlpatterns = [
     path("<int:pk>/delete/", views.delete_character, name="delete_character"),
     path("bulk-delete/", views.bulk_delete_characters, name="bulk_delete_characters"),
 
-    # AJAX / mutations
+    # Character mutations / AJAX (POST)
     path("ajax/race-features/", views.race_features_data, name="race_features_data"),
     path("<int:pk>/set-weapon/", views.set_weapon_choice, name="set_weapon_choice"),
     path("<int:pk>/set-armor/", views.set_armor_choice, name="set_armor_choice"),
@@ -24,14 +24,23 @@ urlpatterns = [
     path("<int:pk>/override/", views.set_field_override, name="set_field_override"),
     path("<int:pk>/set-shield/", views.set_shield_choice, name="set_shield_choice"),
 
-    # Search / share
+    # Link character ↔ campaign
+    path(
+        "campaigns/<int:campaign_id>/link/<int:character_id>/",
+        views.link_character_to_campaign,
+        name="link_character_to_campaign",
+    ),
+
+    # Search
     path("search/", views.global_search, name="global_search"),
+
+    # Sharing
     path("<int:pk>/share/", views.character_share_create, name="character_share_create"),
     path("<uuid:token>/share/accept/", views.character_share_accept, name="character_share_accept"),
     path("<int:pk>/share/revoke/<int:invite_id>/", views.character_share_revoke, name="character_share_revoke"),
     path("<int:pk>/share/remove/<int:user_id>/", views.character_share_remove_viewer, name="character_share_remove"),
 
-    # Codex / Loremaster / Rulebooks (keep as you had, trimmed here for brevity)
+    # Codex
     path("codex/", views.codex_index, name="codex_index"),
     path("codex/spells/", views.spell_list, name="codex_spells"),
     path("codex/feats/", views.feat_list, name="codex_feats"),
@@ -48,13 +57,31 @@ urlpatterns = [
     path("codex/masteries/data/", views.mastery_data, name="mastery_data"),
     path("codex/masteries/<int:pk>/", views.mastery_detail, name="mastery_detail"),
 
+    # Legacy alias for race features
+    path("races/features/", views.race_features_data, name="race_features_data_legacy"),
+
+    # Loremaster
     path("loremaster/", views.LoremasterListView.as_view(), name="loremaster_list"),
     path("loremaster/<slug:slug>/", views.LoremasterDetailView.as_view(), name="loremaster_detail"),
     path("loremaster/id/<int:pk>/", views.LoremasterDetailView.as_view(), name="loremaster_detail_by_pk"),
 
-    # Rulebook pages (both styles)
+    # Rulebooks
     path("rulebooks/", views.RulebookListView.as_view(), name="rulebook_list"),
     path("rulebooks/<int:pk>/", views.RulebookDetailView.as_view(), name="rulebook_detail"),
-    path("rulebooks/<int:rulebook_pk>/page/<int:pk>/", views.RulebookPageDetailView.as_view(), name="rulebook_page_detail"),
-    path("rulebooks/page/<int:pk>/", views.RulebookPageDetailView.as_view(), name="rulebook_page_detail_by_pk"),
+    path(
+        "rulebooks/<int:rulebook_pk>/page/<int:pk>/",
+        views.RulebookPageDetailView.as_view(),
+        name="rulebook_page_detail",
+    ),
+    path(
+        "rulebooks/page/<int:pk>/",
+        views.RulebookPageDetailView.as_view(),
+        name="rulebook_page_detail_by_pk",
+    ),
+
+    # Background proposals (these were the ones you called out)
+    path("propose-background/", views.propose_background_inline, name="propose_background_inline"),
+    path("autocomplete/classfeats/", views.ClassFeatAutocomplete.as_view(), name="classfeat_autocomplete"),
+    path("backgrounds/propose/", views.propose_background, name="propose_background"),
+    path("backgrounds/<int:pb_id>/approve/", views.approve_pending_background, name="approve_pending_background"),
 ]

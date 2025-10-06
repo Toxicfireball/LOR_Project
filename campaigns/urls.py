@@ -18,4 +18,18 @@ urlpatterns = [
     path("<int:campaign_id>/notes/add/", views.add_campaign_note, name="add_campaign_note"),
     path("<int:campaign_id>/messages/send/", views.send_campaign_message, name="send_campaign_message"),
         path("<int:campaign_id>/assign-skill-feats/", views.assign_skill_feats, name="assign_skill_feats"),
+    path("<int:campaign_id>/encounters/create/", views.create_encounter, name="create_encounter"),
+    path("<int:campaign_id>/enemies/create/", views.create_enemy_type, name="create_enemy_type"),
+    path("<int:campaign_id>/enemies/add-ability/", views.add_enemy_ability, name="add_enemy_ability"),
+    path("<int:campaign_id>/encounters/<int:encounter_id>/add-enemy/", views.add_enemy_to_encounter, name="add_enemy_to_encounter"),
+    path("<int:campaign_id>/encounters/set-hp/", views.set_encounter_enemy_hp, name="set_encounter_enemy_hp"),
+    path("<int:campaign_id>/encounters/adjust-hp/", views.adjust_encounter_enemy_hp, name="adjust_encounter_enemy_hp"),
+    path("<int:campaign_id>/encounters/<int:encounter_id>/remove/<int:ee_id>/", views.remove_encounter_enemy, name="remove_encounter_enemy"),
+path("<int:campaign_id>/encounters/quick-add-enemy/", views.quick_add_enemy, name="quick_add_enemy"),
+    path("<int:campaign_id>/encounters/<int:encounter_id>/", views.encounter_detail, name="encounter_detail"),
+    path("<int:campaign_id>/encounters/create/", views.create_encounter, name="create_encounter"),
+path("<int:campaign_id>/enemies/<int:et_id>/delete/", views.delete_enemy_type, name="delete_enemy_type"),
+
+    # NEW dedicated page
+    path("<int:campaign_id>/enemies/new/", views.new_enemy_type, name="new_enemy_type"),
 ]

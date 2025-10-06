@@ -65,6 +65,7 @@
       <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900" data-tab="#skillfeats" role="tab" aria-controls="skillfeats">Skill Feats</button>
       <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900" data-tab="#inventory" role="tab" aria-controls="inventory">Party Inventory</button>
       <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900" data-tab="#messages" role="tab" aria-controls="messages">Messages</button>
+    <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900" data-tab="#encounters" role="tab" aria-controls="encounters">Encounters</button>
     </div>
   </div>
 
@@ -399,6 +400,187 @@
         </div>
       </div>
     </section>
+
+    <!-- Encounters -->
+<!-- Encounters -->
+<section id="encounters" class="tab-panel hidden bg-white rounded-xl shadow-sm border border-gray-200 p-5" role="tabpanel">
+
+  <div class="grid lg:grid-cols-2 gap-6">
+
+    <!-- LEFT: Encounters list + Add Encounter -->
+    <div class="rounded-lg border border-gray-200">
+      <div class="p-4 flex items-center justify-between border-b">
+        <h2 class="font-semibold">Encounters in this campaign</h2>
+        {% if is_gm %}
+          <button type="button" class="px-3 py-1.5 rounded-md bg-indigo-600 text-white hover:bg-indigo-700"
+                  onclick="document.getElementById('enc-new').classList.toggle('hidden')">
+            Add Encounter
+          </button>
+        {% endif %}
+      </div>
+
+      {% if is_gm %}
+      <form id="enc-new" method="post" action="{% url 'campaigns:create_encounter' campaign.id %}"
+            class="p-4 border-b space-y-2 hidden">
+        {% csrf_token %}
+        <div class="grid grid-cols-12 gap-2">
+          <div class="col-span-5">
+            <label class="block text-xs text-gray-600 mb-1">Name</label>
+            {{ encounter_form.name }}
+          </div>
+          <div class="col-span-7">
+            <label class="block text-xs text-gray-600 mb-1">Description</label>
+            {{ encounter_form.description }}
+          </div>
+        </div>
+        <button class="px-3 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">Create</button>
+      </form>
+      {% endif %}
+
+      <ul class="divide-y">
+        {% for e in encounters %}
+          <li class="p-4 flex items-center justify-between">
+            <div>
+              <div class="font-semibold">
+                <a class="hover:underline" href="{% url 'campaigns:encounter_detail' campaign.id e.id %}">{{ e.name }}</a>
+              </div>
+              {% if e.description %}<div class="text-sm text-gray-600">{{ e.description }}</div>{% endif %}
+            </div>
+            <a class="text-sm px-2 py-1 rounded-md border border-gray-300 hover:bg-gray-50"
+               href="{% url 'campaigns:encounter_detail' campaign.id e.id %}">Open</a>
+          </li>
+        {% empty %}
+          <li class="p-6 text-gray-600">No encounters yet.</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <!-- RIGHT: Enemy Types table + Create -->
+    <div class="rounded-lg border border-gray-200">
+      <div class="p-4 flex items-center justify-between border-b">
+        <h2 class="font-semibold">Enemy Types (reusable)</h2>
+        {% if is_gm %}
+<a class="px-3 py-1.5 rounded-md bg-indigo-600 text-white hover:bg-indigo-700"
+   href="{% url 'campaigns:new_enemy_type' campaign.id %}">
+  Create Type
+</a>
+
+        {% endif %}
+      </div>
+
+      {% if is_gm %}
+      <form id="et-new" method="post" action="{% url 'campaigns:create_enemy_type' campaign.id %}"
+            class="p-4 border-b space-y-2 hidden">
+        {% csrf_token %}
+        <div class="grid grid-cols-12 gap-2">
+          <div class="col-span-5">
+            <label class="block text-xs text-gray-600 mb-1">Name</label>
+            {{ enemy_type_form.name }}
+          </div>
+          <div class="col-span-2">
+            <label class="block text-xs text-gray-600 mb-1">Level</label>
+            {{ enemy_type_form.level }}
+          </div>
+          <div class="col-span-2">
+            <label class="block text-xs text-gray-600 mb-1">HP</label>
+            {{ enemy_type_form.hp }}
+          </div>
+          <div class="col-span-1">
+            <label class="block text-xs text-gray-600 mb-1">Armor</label>
+            {{ enemy_type_form.armor }}
+          </div>
+          <div class="col-span-2">
+            <label class="block text-xs text-gray-600 mb-1">Dodge</label>
+            {{ enemy_type_form.dodge }}
+          </div>
+          <div class="col-span-12">
+            <label class="block text-xs text-gray-600 mb-1">Description</label>
+            {{ enemy_type_form.description }}
+          </div>
+          <div class="col-span-12">
+            <label class="block text-xs text-gray-600 mb-1">Resistances (text)</label>
+            {{ enemy_type_form.resistances }}
+          </div>
+        </div>
+        <button class="px-3 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">Create Enemy Type</button>
+      </form>
+      {% endif %}
+
+      <div class="p-4 overflow-x-auto">
+        <table class="w-full text-sm">
+<thead class="text-xs text-gray-500">
+  <tr class="text-left">
+    <th class="py-2">Name</th>
+    <th>Lv</th><th>HP</th><th>Armor</th><th>Dodge</th>
+    {% if is_gm %}<th class="w-28">Actions</th>{% endif %}
+  </tr>
+</thead>
+
+<tbody class="divide-y">
+  {% for et in enemy_types %}
+    <tr>
+      <td class="py-2 font-medium">{{ et.name }}</td>
+      <td>{{ et.level }}</td><td>{{ et.hp }}</td><td>{{ et.armor }}</td><td>{{ et.dodge }}</td>
+
+      {% if is_gm %}
+      <td>
+        <div class="flex items-center gap-2">
+          <!-- (Optional) Edit link if you add an edit view later -->
+          <!-- <a class="text-sm text-indigo-600 hover:underline" href="{% url 'campaigns:edit_enemy_type' campaign.id et.id %}">Edit</a> -->
+
+          <form method="post"
+                action="{% url 'campaigns:delete_enemy_type' campaign.id et.id %}"
+                onsubmit="return confirm('Delete {{ et.name }}?');">
+            {% csrf_token %}
+            <button class="text-red-600 hover:underline text-sm">Delete</button>
+          </form>
+        </div>
+      </td>
+      {% endif %}
+    </tr>
+  {% empty %}
+    <tr>
+      <td class="py-4 text-gray-600" colspan="{% if is_gm %}6{% else %}5{% endif %}">
+        No enemy types yet.
+      </td>
+    </tr>
+  {% endfor %}
+</tbody>
+
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- QUICK ADD ENEMY TO ENCOUNTER -->
+  {% if is_gm and encounters %}
+  <div class="mt-6 rounded-lg border border-gray-200">
+    <div class="p-4 border-b font-semibold">Quick Add Enemy to Encounter</div>
+    <form method="post" action="{% url 'campaigns:quick_add_enemy' campaign.id %}" class="p-4 grid grid-cols-12 gap-3">
+      {% csrf_token %}
+      <div class="col-span-4">
+        <label class="block text-xs text-gray-600 mb-1">Encounter</label>
+        {{ quick_add_enemy_form.encounter }}
+      </div>
+      <div class="col-span-5">
+        <label class="block text-xs text-gray-600 mb-1">Enemy Type</label>
+        {{ quick_add_enemy_form.enemy_type }}
+      </div>
+      <div class="col-span-2">
+        <label class="block text-xs text-gray-600 mb-1">Count</label>
+        {{ quick_add_enemy_form.count }}
+      </div>
+      <div class="col-span-1 flex items-end">
+        <button class="w-full px-3 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">Add</button>
+      </div>
+    </form>
+    <p class="px-4 pb-4 text-xs text-gray-600">After adding, you’ll jump to the encounter to manage HP, notes, etc.</p>
+  </div>
+  {% endif %}
+
+</section>
+
   </div>
 
 {% endblock %}

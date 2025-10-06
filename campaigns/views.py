@@ -29,8 +29,11 @@ def send_campaign_message(request, campaign_id):
     messages.success(request, "Message sent.")
     return redirect(f"{reverse('campaigns:campaign_detail', args=[campaign.id])}#messages")
 
-from .models import Campaign, CampaignMembership
-from .forms import CampaignCreationForm, AttachCharacterForm, AssignSkillFeatsForm
+from .models import Campaign, CampaignMembership, EnemyTag
+from .forms import (
+    CampaignCreationForm, AttachCharacterForm, AssignSkillFeatsForm,
+    EnemyTypeCreateForm, EnemyAbilityInlineFormSet,
+)
 from characters.models import Character
 # BEFORE imports
 # from .models import Campaign, CampaignMembership
@@ -38,9 +41,13 @@ from characters.models import Character
 # AFTER imports
 from .models import Campaign, CampaignMembership, CampaignNote, PartyItem, CampaignMessage
 from .forms import (
-    CampaignCreationForm, AttachCharacterForm,
-    JoinCampaignForm, CampaignNoteForm, MessageForm
+    CampaignCreationForm, AttachCharacterForm, CampaignNoteForm, PartyItemForm, MessageForm, JoinCampaignForm,
+    AssignSkillFeatsForm,
+    EnemyTypeForm, EnemyAbilityForm, EncounterForm, AddEnemyToEncounterForm,
+    SetEncounterEnemyHPForm, AdjustEncounterEnemyHPForm,
+    QuickAddEnemyForm,   # NEW
 )
+
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Prefetch, Q, Count
 
@@ -59,7 +66,16 @@ def campaign_list(request):
 
 from django.db.models import Q
 from django.contrib import messages
-from .forms import CampaignCreationForm, AttachCharacterForm, CampaignNoteForm, PartyItemForm, MessageForm, JoinCampaignForm
+from .models import (
+    Campaign, CampaignMembership, CampaignNote, PartyItem, CampaignMessage,
+    EnemyType, EnemyAbility, Encounter, EncounterEnemy   # NEW
+)
+from .forms import (
+    CampaignCreationForm, AttachCharacterForm, CampaignNoteForm, PartyItemForm, MessageForm, JoinCampaignForm,
+    AssignSkillFeatsForm,                      # you already had this
+    EnemyTypeForm, EnemyAbilityForm, EncounterForm, AddEnemyToEncounterForm,  # NEW
+    SetEncounterEnemyHPForm, AdjustEncounterEnemyHPForm                       # NEW
+)
 from .models import Campaign, CampaignMembership, CampaignNote, PartyItem, CampaignMessage
 
 @login_required
@@ -142,9 +158,44 @@ def campaign_detail(request, campaign_id):
     context["assign_skill_feats_form"] = assign_skill_feats_form
     add_item_form = PartyItemForm()
     context["add_item_form"] = add_item_form
+    encounters = list(campaign.encounters.all().only("id","name","description","created_at"))
+    context["encounters"] = encounters
+    context["enemy_types"] = (EnemyType.objects
+        .filter(Q(campaign__isnull=True) | Q(campaign=campaign))
+        .prefetch_related("tags")
+        .order_by("name")
+    )
+    context["encounter_form"] = EncounterForm()
+    context["quick_add_enemy_form"] = QuickAddEnemyForm(campaign=campaign)  # NEW
+
 
     return render(request, "campaigns/campaign_detail.html", context)
 
+@login_required
+def quick_add_enemy(request, campaign_id):
+    campaign = get_object_or_404(Campaign, id=campaign_id)
+    if not _is_gm(request.user, campaign):
+        return HttpResponseForbidden("GM only.")
+    if request.method != "POST":
+        raise Http404()
+
+    form = QuickAddEnemyForm(request.POST, campaign=campaign)
+    if not form.is_valid():
+        messages.error(request, "Pick encounter, enemy, and count.")
+        return redirect(f"{reverse('campaigns:campaign_detail', args=[campaign.id])}#encounters")
+
+    enc = form.cleaned_data["encounter"]
+    et  = form.cleaned_data["enemy_type"]
+    cnt = form.cleaned_data["count"]
+
+    from .models import EncounterEnemy
+    for _ in range(cnt):
+        EncounterEnemy.objects.create(
+            encounter=enc, enemy_type=et, max_hp=et.hp, current_hp=et.hp
+        )
+
+    messages.success(request, f"Added {cnt} × {et.name} to '{enc.name}'.")
+    return redirect("campaigns:encounter_detail", campaign_id=campaign.id, encounter_id=enc.id)
 
 # campaigns/views.py
 from django.shortcuts import get_object_or_404
@@ -429,3 +480,231 @@ def leave_campaign(request, campaign_id):
     membership.delete()
     messages.success(request, "You left the campaign.")
     return redirect("campaigns:campaign_list")
+# ====== ENEMIES & ENCOUNTERS (GM only) =======================================
+
+@login_required
+def create_enemy_type(request, campaign_id):
+    campaign = get_object_or_404(Campaign, id=campaign_id)
+    if not _is_gm(request.user, campaign):
+        return HttpResponseForbidden("GM only.")
+    if request.method != "POST": raise Http404()
+    form = EnemyTypeForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Fix the enemy fields.")
+        return redirect("campaigns:campaign_detail", campaign_id=campaign.id)
+    et = form.save()
+    messages.success(request, f"Enemy '{et.name}' created.")
+    return redirect("campaigns:campaign_detail", campaign_id=campaign.id)
+
+
+@login_required
+def add_enemy_ability(request, campaign_id):
+    campaign = get_object_or_404(Campaign, id=campaign_id)
+    if not _is_gm(request.user, campaign):
+        return HttpResponseForbidden("GM only.")
+    if request.method != "POST": raise Http404()
+    form = EnemyAbilityForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Fill in ability details.")
+        return redirect("campaigns:campaign_detail", campaign_id=campaign.id)
+    ab = form.save()
+    messages.success(request, f"Added {ab.get_ability_type_display()} ability to {ab.enemy_type.name}.")
+    return redirect("campaigns:campaign_detail", campaign_id=campaign.id)
+
+
+@login_required
+def create_encounter(request, campaign_id):
+    campaign = get_object_or_404(Campaign, id=campaign_id)
+    if not _is_gm(request.user, campaign):
+        return HttpResponseForbidden("GM only.")
+    if request.method != "POST": raise Http404()
+    form = EncounterForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Name your encounter.")
+        return redirect("campaigns:campaign_detail", campaign_id=campaign.id)
+    enc = form.save(commit=False)
+    enc.campaign = campaign
+    enc.save()
+    messages.success(request, f"Encounter '{enc.name}' created.")
+    return redirect("campaigns:encounter_detail", campaign_id=campaign.id, encounter_id=enc.id)
+
+
+@login_required
+def encounter_detail(request, campaign_id, encounter_id):
+    campaign = get_object_or_404(Campaign, id=campaign_id)
+    enc = get_object_or_404(Encounter, id=encounter_id, campaign=campaign)
+
+    is_member = campaign.members.filter(id=request.user.id).exists()
+    is_gm = _is_gm(request.user, campaign)
+
+    enemies = (enc.enemies
+               .select_related("enemy_type")
+               .order_by("id"))
+
+    add_form = AddEnemyToEncounterForm()
+    add_form.fields["enemy_type"].queryset = EnemyType.objects.filter(
+        Q(campaign__isnull=True) | Q(campaign=campaign)
+    ).order_by("name")
+
+    set_hp_form = SetEncounterEnemyHPForm()
+    adj_hp_form = AdjustEncounterEnemyHPForm()
+
+    return render(request, "campaigns/encounter_detail.html", {
+        "campaign": campaign,
+        "encounter": enc,
+        "enemies": enemies,
+        "is_member": is_member,
+        "is_gm": is_gm,
+        "add_form": add_form,
+        "set_hp_form": set_hp_form,
+        "adj_hp_form": adj_hp_form,
+    })
+@login_required
+def delete_enemy_type(request, campaign_id, et_id):
+    campaign = get_object_or_404(Campaign, id=campaign_id)
+    if not _is_gm(request.user, campaign):
+        return HttpResponseForbidden("GM only.")
+    if request.method != "POST":
+        raise Http404()
+
+    et = get_object_or_404(
+        EnemyType,
+        id=et_id,
+        # allow deleting either global or this campaign's types; restrict global deletion to GMs here
+        # who are in this campaign (adjust policy if you want stricter)
+    )
+
+    # block deletion if used by any EncounterEnemy
+    in_use = EncounterEnemy.objects.filter(enemy_type=et).exists()
+    if in_use:
+        messages.error(request, f"Cannot delete '{et.name}' – it is used in one or more encounters.")
+        return redirect(f"{reverse('campaigns:campaign_detail', args=[campaign.id])}#encounters")
+
+    et.delete()
+    messages.success(request, f"Enemy Type '{et.name}' deleted.")
+    return redirect(f"{reverse('campaigns:campaign_detail', args=[campaign.id])}#encounters")
+
+
+@login_required
+def new_enemy_type(request, campaign_id):
+    campaign = get_object_or_404(Campaign, id=campaign_id)
+    if not _is_gm(request.user, campaign):
+        return HttpResponseForbidden("GM only.")
+
+    if request.method == "POST":
+        form = EnemyTypeCreateForm(request.POST, campaign=campaign)
+        if form.is_valid():
+            et = form.save(commit=False)
+            et.save()
+            form.save_m2m()
+            formset = EnemyAbilityInlineFormSet(request.POST, instance=et, prefix="ab")
+            if formset.is_valid():
+                formset.save()
+                messages.success(
+                    request,
+                    f"Enemy Type '{et.name}' created ({'Global' if et.campaign_id is None else campaign.name})."
+                )
+                return redirect(f"{reverse('campaigns:campaign_detail', args=[campaign.id])}#encounters")
+        else:
+            formset = EnemyAbilityInlineFormSet(request.POST, prefix="ab")
+    else:
+        form = EnemyTypeCreateForm(campaign=campaign)
+        # empty formset for inline abilities
+        dummy = EnemyType(campaign=campaign, name="__draft__")
+        formset = EnemyAbilityInlineFormSet(instance=dummy, prefix="ab")
+
+    tags = EnemyTag.objects.all()
+    return render(request, "campaigns/enemytype_form.html", {
+        "campaign": campaign,
+        "form": form,
+        "formset": formset,
+        "tags": tags,
+    })
+
+@login_required
+def add_enemy_to_encounter(request, campaign_id, encounter_id):
+    campaign = get_object_or_404(Campaign, id=campaign_id)
+    if not _is_gm(request.user, campaign):
+        return HttpResponseForbidden("GM only.")
+    enc = get_object_or_404(Encounter, id=encounter_id, campaign=campaign)
+    if request.method != "POST": raise Http404()
+
+    form = AddEnemyToEncounterForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Pick an enemy and count.")
+        return redirect("campaigns:encounter_detail", campaign_id=campaign.id, encounter_id=enc.id)
+
+    et = form.cleaned_data["enemy_type"]
+    count = form.cleaned_data["count"]
+    created = 0
+    for _ in range(count):
+        EncounterEnemy.objects.create(
+            encounter=enc,
+            enemy_type=et,
+            max_hp=et.hp,
+            current_hp=et.hp,
+        )
+        created += 1
+
+    messages.success(request, f"Added {created} × {et.name}.")
+    return redirect("campaigns:encounter_detail", campaign_id=campaign.id, encounter_id=enc.id)
+
+
+@login_required
+def set_encounter_enemy_hp(request, campaign_id):
+    campaign = get_object_or_404(Campaign, id=campaign_id)
+    if not _is_gm(request.user, campaign):
+        return HttpResponseForbidden("GM only.")
+    if request.method != "POST": raise Http404()
+
+    form = SetEncounterEnemyHPForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Enter a valid HP value.")
+        # Try to bounce to referring page
+        return redirect(request.META.get("HTTP_REFERER", "campaigns:campaign_detail"), campaign_id=campaign.id)
+
+    ee = get_object_or_404(EncounterEnemy, id=form.cleaned_data["ee_id"], encounter__campaign=campaign)
+    ee.current_hp = form.cleaned_data["current_hp"]
+    # keep within [<= max], but allow negatives if you like. Here clamp min at -999 for safety.
+    ee.current_hp = max(min(ee.current_hp, ee.max_hp), -999)
+    ee.save(update_fields=["current_hp"])
+
+    messages.success(request, f"{ee.display_name} HP set to {ee.current_hp}/{ee.max_hp}.")
+    return redirect("campaigns:encounter_detail", campaign_id=campaign.id, encounter_id=ee.encounter_id)
+
+
+@login_required
+def adjust_encounter_enemy_hp(request, campaign_id):
+    campaign = get_object_or_404(Campaign, id=campaign_id)
+    if not _is_gm(request.user, campaign):
+        return HttpResponseForbidden("GM only.")
+    if request.method != "POST": raise Http404()
+
+    form = AdjustEncounterEnemyHPForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Invalid adjustment.")
+        return redirect(request.META.get("HTTP_REFERER", "campaigns:campaign_detail"), campaign_id=campaign.id)
+
+    ee = get_object_or_404(EncounterEnemy, id=form.cleaned_data["ee_id"], encounter__campaign=campaign)
+    ee.current_hp = ee.current_hp + form.cleaned_data["delta"]
+    ee.current_hp = max(min(ee.current_hp, ee.max_hp), -999)
+    ee.save(update_fields=["current_hp"])
+
+    sign = "+" if form.cleaned_data["delta"] >= 0 else ""
+    messages.success(request, f"{ee.display_name} HP {sign}{form.cleaned_data['delta']} → {ee.current_hp}/{ee.max_hp}.")
+    return redirect("campaigns:encounter_detail", campaign_id=campaign.id, encounter_id=ee.encounter_id)
+
+
+@login_required
+def remove_encounter_enemy(request, campaign_id, encounter_id, ee_id):
+    campaign = get_object_or_404(Campaign, id=campaign_id)
+    if not _is_gm(request.user, campaign):
+        return HttpResponseForbidden("GM only.")
+    enc = get_object_or_404(Encounter, id=encounter_id, campaign=campaign)
+    if request.method != "POST": raise Http404()
+
+    ee = get_object_or_404(EncounterEnemy, id=ee_id, encounter=enc)
+    name = ee.display_name
+    ee.delete()
+    messages.info(request, f"Removed {name}.")
+    return redirect("campaigns:encounter_detail", campaign_id=campaign.id, encounter_id=enc.id)
