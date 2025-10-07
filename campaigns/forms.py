@@ -227,8 +227,6 @@ class EnemyTypeForm(forms.ModelForm):
 
 
 # campaigns/forms.py
-
-
 # keep this for the standalone "add ability" view
 class EnemyAbilityForm(forms.ModelForm):
     class Meta:
@@ -243,14 +241,31 @@ class EnemyAbilityInlineForm(forms.ModelForm):
         fields = ["ability_type", "action_cost", "title", "description"]
         widgets = {"description": forms.Textarea(attrs={"rows": 2})}
 
-# IMPORTANT: do not pass `fields=` when you pass a `form=...`
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # allow “— (Passive/None)” empty option without throwing a required error
+        if "action_cost" in self.fields:
+            self.fields["action_cost"].required = False
+
+# NEW: make the FK hidden field non-required so missing/blank FK won't block validation
+from django.forms.models import BaseInlineFormSet
+class _EnemyAbilityBaseInlineFormSet(BaseInlineFormSet):
+    def add_fields(self, form, index):
+        super().add_fields(form, index)
+        fk_name = self.fk.name  # usually "enemy_type"
+        if fk_name in form.fields:
+            form.fields[fk_name].required = False  # <- key line
+
+# IMPORTANT: do not pass `fields=` when you pass `form=...`
 EnemyAbilityInlineFormSet = inlineformset_factory(
     parent_model=EnemyType,
     model=EnemyAbility,
     form=EnemyAbilityInlineForm,
+    formset=_EnemyAbilityBaseInlineFormSet,  # <- use custom base
     extra=0,
     can_delete=True,
 )
+
 
 class EncounterForm(forms.ModelForm):
     class Meta:
