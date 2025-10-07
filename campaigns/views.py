@@ -683,11 +683,13 @@ def edit_enemy_type(request, campaign_id, et_id):
         form = EnemyTypeCreateForm(request.POST, instance=et, campaign=campaign)
         formset = EnemyAbilityInlineFormSet(request.POST, instance=et, prefix="ab")
         if form.is_valid() and formset.is_valid():
-            et = form.save()      # saves fields + scope/campaign
-            form.save_m2m()       # ✅ persist tag changes
-            formset.save()        # persist abilities
+            et = form.save()
+            form.save_m2m()
+            formset.save()
             messages.success(request, f"Enemy Type '{et.name}' updated.")
             return redirect(f"{reverse('campaigns:campaign_detail', args=[campaign.id])}#encounters")
+        # 👇 if invalid, show a clear error and fall through to render the bound forms
+        messages.error(request, "Please fix the errors below and try again.")
     else:
         form = EnemyTypeCreateForm(instance=et, campaign=campaign)
         formset = EnemyAbilityInlineFormSet(instance=et, prefix="ab")
@@ -698,8 +700,8 @@ def edit_enemy_type(request, campaign_id, et_id):
         "formset": formset,
         "tags": EnemyTag.objects.all(),
     })
-
-
+    
+    
 @login_required
 def delete_encounter(request, campaign_id, encounter_id):
     campaign = get_object_or_404(Campaign, id=campaign_id)
