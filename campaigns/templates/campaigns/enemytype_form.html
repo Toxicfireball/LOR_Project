@@ -223,7 +223,7 @@
   <div class="grid grid-cols-1 md:grid-cols-12 gap-3 border rounded-lg p-3 ability-row">
     {# include hidden fields (ab-__prefix__-id) so JS-add works cleanly #}
     {% for hidden in formset.empty_form.hidden_fields %}{{ hidden }}{% endfor %}
-
+{{ formset.empty_form[formset.fk.name] }}
     <div class="md:col-span-2">
       <label class="block text-xs text-gray-600 mb-1">Type</label>
       {{ formset.empty_form.ability_type }}
