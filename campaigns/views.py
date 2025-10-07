@@ -683,8 +683,9 @@ def edit_enemy_type(request, campaign_id, et_id):
         form = EnemyTypeCreateForm(request.POST, instance=et, campaign=campaign)
         formset = EnemyAbilityInlineFormSet(request.POST, instance=et, prefix="ab")
         if form.is_valid() and formset.is_valid():
-            et = form.save()
-            formset.save()
+            et = form.save()      # saves fields + scope/campaign
+            form.save_m2m()       # ✅ persist tag changes
+            formset.save()        # persist abilities
             messages.success(request, f"Enemy Type '{et.name}' updated.")
             return redirect(f"{reverse('campaigns:campaign_detail', args=[campaign.id])}#encounters")
     else:
