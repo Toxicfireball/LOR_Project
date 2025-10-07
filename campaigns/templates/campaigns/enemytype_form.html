@@ -159,70 +159,84 @@
 
       {{ formset.management_form }}
 
-      <div id="ab-forms" class="space-y-3">
-        {% for f in formset.forms %}
-          <div class="grid grid-cols-1 md:grid-cols-12 gap-3 border rounded-lg p-3 ability-row">
-            {% if f.non_field_errors %}
-              <div class="md:col-span-12 text-sm text-red-700">{{ f.non_field_errors }}</div>
-            {% endif %}
-            <div class="md:col-span-2">
-              <label class="block text-xs text-gray-600 mb-1">Type</label>
-              {{ f.ability_type }}
-            </div>
-            <div class="md:col-span-2">
-              <label class="block text-xs text-gray-600 mb-1">Action</label>
-              {{ f.action_cost }}
-            </div>
-            <div class="md:col-span-7">
-              <label class="block text-xs text-gray-600 mb-1">Title</label>
-              {{ f.title }}
-            </div>
-            <div class="md:col-span-1 flex items-end justify-end">
-              {% if formset.can_delete %}
-              <label class="inline-flex items-center gap-2 text-xs text-red-700">
-                {{ f.DELETE }} Delete
-              </label>
-              {% endif %}
-            </div>
-            <div class="md:col-span-12">
-              <label class="block text-xs text-gray-600 mb-1">Description</label>
-              {{ f.description }}
-            </div>
-          </div>
-        {% empty %}
-          <p class="text-sm text-gray-500">No abilities yet. Click “Add ability”.</p>
-        {% endfor %}
+{# Show any formset-level errors (e.g., bad management form counts) #}
+{% if formset.non_field_errors %}
+  <div class="p-3 text-sm text-red-700 bg-red-50 border-b border-red-200">
+    {{ formset.non_field_errors }}
+  </div>
+{% endif %}
+
+<div id="ab-forms" class="space-y-3">
+  {% for f in formset.forms %}
+    <div class="grid grid-cols-1 md:grid-cols-12 gap-3 border rounded-lg p-3 ability-row">
+      {% if f.non_field_errors %}
+        <div class="md:col-span-12 text-sm text-red-700">{{ f.non_field_errors }}</div>
+      {% endif %}
+
+      <div class="md:col-span-2">
+        <label class="block text-xs text-gray-600 mb-1">Type</label>
+        {{ f.ability_type }}
+        {% if f.errors.ability_type %}<div class="text-xs text-red-700 mt-1">{{ f.errors.ability_type|join:", " }}</div>{% endif %}
       </div>
 
-      <!-- Prototype row for JS (uses __prefix__ from empty_form) -->
-      <template id="ab-empty-template">
-        <div class="grid grid-cols-1 md:grid-cols-12 gap-3 border rounded-lg p-3 ability-row">
-          <div class="md:col-span-2">
-            <label class="block text-xs text-gray-600 mb-1">Type</label>
-            {{ formset.empty_form.ability_type }}
-          </div>
-          <div class="md:col-span-2">
-            <label class="block text-xs text-gray-600 mb-1">Action</label>
-            {{ formset.empty_form.action_cost }}
-          </div>
-          <div class="md:col-span-7">
-            <label class="block text-xs text-gray-600 mb-1">Title</label>
-            {{ formset.empty_form.title }}
-          </div>
-          <div class="md:col-span-1 flex items-end justify-end">
-            {% if formset.can_delete %}
-            <label class="inline-flex items-center gap-2 text-xs text-red-700">
-              {{ formset.empty_form.DELETE }} Delete
-            </label>
-            {% endif %}
-          </div>
-          <div class="md:col-span-12">
-            <label class="block text-xs text-gray-600 mb-1">Description</label>
-            {{ formset.empty_form.description }}
-          </div>
-        </div>
-      </template>
+      <div class="md:col-span-2">
+        <label class="block text-xs text-gray-600 mb-1">Action</label>
+        {{ f.action_cost }}
+        {% if f.errors.action_cost %}<div class="text-xs text-red-700 mt-1">{{ f.errors.action_cost|join:", " }}</div>{% endif %}
+      </div>
 
+      <div class="md:col-span-7">
+        <label class="block text-xs text-gray-600 mb-1">Title</label>
+        {{ f.title }}
+        {% if f.errors.title %}<div class="text-xs text-red-700 mt-1">{{ f.errors.title|join:", " }}</div>{% endif %}
+      </div>
+
+      <div class="md:col-span-1 flex items-end justify-end">
+        {% if formset.can_delete %}
+        <label class="inline-flex items-center gap-2 text-xs text-red-700">
+          {{ f.DELETE }} Delete
+        </label>
+        {% endif %}
+      </div>
+
+      <div class="md:col-span-12">
+        <label class="block text-xs text-gray-600 mb-1">Description</label>
+        {{ f.description }}
+        {% if f.errors.description %}<div class="text-xs text-red-700 mt-1">{{ f.errors.description|join:", " }}</div>{% endif %}
+      </div>
+    </div>
+  {% empty %}
+    <p class="text-sm text-gray-500">No abilities yet. Click “Add ability”.</p>
+  {% endfor %}
+</div>
+
+<template id="ab-empty-template">
+  <div class="grid grid-cols-1 md:grid-cols-12 gap-3 border rounded-lg p-3 ability-row">
+    <div class="md:col-span-2">
+      <label class="block text-xs text-gray-600 mb-1">Type</label>
+      {{ formset.empty_form.ability_type }}
+    </div>
+    <div class="md:col-span-2">
+      <label class="block text-xs text-gray-600 mb-1">Action</label>
+      {{ formset.empty_form.action_cost }}
+    </div>
+    <div class="md:col-span-7">
+      <label class="block text-xs text-gray-600 mb-1">Title</label>
+      {{ formset.empty_form.title }}
+    </div>
+    <div class="md:col-span-1 flex items-end justify-end">
+      {% if formset.can_delete %}
+      <label class="inline-flex items-center gap-2 text-xs text-red-700">
+        {{ formset.empty_form.DELETE }} Delete
+      </label>
+      {% endif %}
+    </div>
+    <div class="md:col-span-12">
+      <label class="block text-xs text-gray-600 mb-1">Description</label>
+      {{ formset.empty_form.description }}
+    </div>
+  </div>
+</template>
       <p class="text-xs text-gray-500 mt-2">Add as many abilities as you need. Tick “Delete” to remove a row.</p>
     </div>
 
@@ -241,7 +255,6 @@
 {% block extra_js %}
 <script>
 (function () {
-  // Formset JS (prefix "ab")
   const addBtn = document.getElementById('ab-add');
   const container = document.getElementById('ab-forms');
   const tmpl = document.getElementById('ab-empty-template');
@@ -259,7 +272,7 @@
 
   addBtn.addEventListener('click', addRow);
 
-  // Do NOT auto-add a blank ability row; user will click “+ Add ability”.
+  // IMPORTANT: do NOT auto-add a blank ability row on load.
 })();
 </script>
 {% endblock %}
