@@ -228,27 +228,30 @@ class EnemyTypeForm(forms.ModelForm):
 
 # campaigns/forms.py
 
+
+# keep this for the standalone "add ability" view
 class EnemyAbilityForm(forms.ModelForm):
-    # keep this for the standalone add-ability view (needs enemy_type)
     class Meta:
         model = EnemyAbility
         fields = ["enemy_type", "ability_type", "action_cost", "title", "description"]
         widgets = {"description": forms.Textarea(attrs={"rows": 2})}
 
-# NEW – used by the inline formset only (NO enemy_type field here)
+# NEW: used by the inline formset (NO enemy_type here)
 class EnemyAbilityInlineForm(forms.ModelForm):
     class Meta:
         model = EnemyAbility
         fields = ["ability_type", "action_cost", "title", "description"]
         widgets = {"description": forms.Textarea(attrs={"rows": 2})}
 
+# IMPORTANT: do not pass `fields=` when you pass a `form=...`
 EnemyAbilityInlineFormSet = inlineformset_factory(
     parent_model=EnemyType,
     model=EnemyAbility,
-    form=EnemyAbilityInlineForm,  # ← use the inline form that excludes enemy_type
+    form=EnemyAbilityInlineForm,
     extra=0,
     can_delete=True,
 )
+
 class EncounterForm(forms.ModelForm):
     class Meta:
         model = Encounter
