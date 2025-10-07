@@ -4,7 +4,9 @@
 
   <div class="flex items-center justify-between">
     <div class="min-w-0">
-      <h1 class="text-2xl font-semibold tracking-tight">Create Enemy Type</h1>
+     <h1 class="text-2xl font-semibold tracking-tight">
+  {% if form.instance.pk %}Edit Enemy Type{% else %}Create Enemy Type{% endif %}
+</h1>
       <p class="text-sm text-gray-600 mt-1">
         Campaign: <strong>{{ campaign.name }}</strong> •
         <a class="text-indigo-600 hover:underline" href="{% url 'campaigns:campaign_detail' campaign.id %}#encounters">Back to Encounters</a>
@@ -25,7 +27,14 @@
     </div>
   {% endif %}
 
-  <form method="post" class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+<form method="post"
+      action="{% if form.instance.pk %}
+                 {% url 'campaigns:edit_enemy_type' campaign.id form.instance.id %}
+               {% else %}
+                 {% url 'campaigns:new_enemy_type' campaign.id %}
+               {% endif %}"
+      class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      
     {% csrf_token %}
 
     <!-- Basics -->
@@ -134,7 +143,10 @@
 
   <div id="ab-forms" class="space-y-3">
     {% for f in formset.forms %}
-      <div class="grid grid-cols-1 md:grid-cols-12 gap-3 border rounded-lg p-3 ability-row">
+    <div class="grid grid-cols-1 md:grid-cols-12 gap-3 border rounded-lg p-3 ability-row">
+  {% if f.non_field_errors %}
+    <div class="md:col-span-12 text-sm text-red-700">{{ f.non_field_errors }}</div>
+  {% endif %}
         <div class="md:col-span-2">
           <label class="block text-xs text-gray-600 mb-1">Type</label>
           {{ f.ability_type }}
@@ -201,7 +213,9 @@
     <div class="p-5 border-t flex items-center justify-end gap-3">
       <a href="{% url 'campaigns:campaign_detail' campaign.id %}#encounters"
          class="px-3 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">Cancel</a>
-      <button class="px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">Create Enemy Type</button>
+     <button class="px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">
+  {% if form.instance.pk %}Save Changes{% else %}Create Enemy Type{% endif %}
+</button>
     </div>
   </form>
 </div>
