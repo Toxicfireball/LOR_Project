@@ -4,9 +4,9 @@
 
   <div class="flex items-center justify-between">
     <div class="min-w-0">
-     <h1 class="text-2xl font-semibold tracking-tight">
-  {% if form.instance.pk %}Edit Enemy Type{% else %}Create Enemy Type{% endif %}
-</h1>
+      <h1 class="text-2xl font-semibold tracking-tight">
+        {% if form.instance.pk %}Edit Enemy Type{% else %}Create Enemy Type{% endif %}
+      </h1>
       <p class="text-sm text-gray-600 mt-1">
         Campaign: <strong>{{ campaign.name }}</strong> •
         <a class="text-indigo-600 hover:underline" href="{% url 'campaigns:campaign_detail' campaign.id %}#encounters">Back to Encounters</a>
@@ -27,15 +27,33 @@
     </div>
   {% endif %}
 
-<form method="post"
-      action="{% if form.instance.pk %}
-                 {% url 'campaigns:edit_enemy_type' campaign.id form.instance.id %}
-               {% else %}
-                 {% url 'campaigns:new_enemy_type' campaign.id %}
-               {% endif %}"
-      class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-      
+  <form method="post"
+        action="{% if form.instance.pk %}
+                   {% url 'campaigns:edit_enemy_type' campaign.id form.instance.id %}
+                 {% else %}
+                   {% url 'campaigns:new_enemy_type' campaign.id %}
+                 {% endif %}"
+        class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
     {% csrf_token %}
+
+    {# ==== Error blocks ==== #}
+    {% if form.non_field_errors %}
+      <div class="p-4 text-sm text-red-700 bg-red-50 border-b border-red-200">
+        {{ form.non_field_errors }}
+      </div>
+    {% endif %}
+    {% for field in form.visible_fields %}
+      {% if field.errors %}
+        <div class="p-3 text-sm text-red-700 bg-red-50 border-b border-red-200">
+          <strong>{{ field.label }}:</strong> {{ field.errors|join:", " }}
+        </div>
+      {% endif %}
+    {% endfor %}
+    {% if formset.non_field_errors %}
+      <div class="p-3 text-sm text-red-700 bg-red-50 border-b border-red-200">
+        {{ formset.non_field_errors }}
+      </div>
+    {% endif %}
 
     <!-- Basics -->
     <div class="p-5 border-b">
@@ -129,93 +147,92 @@
       </div>
     </div>
 
-<!-- Abilities Inline -->
-<div class="p-5 border-t">
-  <div class="flex items-center justify-between">
-    <h3 class="font-semibold mb-3">Abilities</h3>
-    <button type="button" id="ab-add"
-            class="px-3 py-1.5 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">
-      + Add ability
-    </button>
-  </div>
+    <!-- Abilities Inline -->
+    <div class="p-5 border-t">
+      <div class="flex items-center justify-between">
+        <h3 class="font-semibold mb-3">Abilities</h3>
+        <button type="button" id="ab-add"
+                class="px-3 py-1.5 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">
+          + Add ability
+        </button>
+      </div>
 
-  {{ formset.management_form }}
+      {{ formset.management_form }}
 
-  <div id="ab-forms" class="space-y-3">
-    {% for f in formset.forms %}
-    <div class="grid grid-cols-1 md:grid-cols-12 gap-3 border rounded-lg p-3 ability-row">
-  {% if f.non_field_errors %}
-    <div class="md:col-span-12 text-sm text-red-700">{{ f.non_field_errors }}</div>
-  {% endif %}
-        <div class="md:col-span-2">
-          <label class="block text-xs text-gray-600 mb-1">Type</label>
-          {{ f.ability_type }}
-        </div>
-        <div class="md:col-span-2">
-          <label class="block text-xs text-gray-600 mb-1">Action</label>
-          {{ f.action_cost }}
-        </div>
-        <div class="md:col-span-7">
-          <label class="block text-xs text-gray-600 mb-1">Title</label>
-          {{ f.title }}
-        </div>
-        <div class="md:col-span-1 flex items-end justify-end">
-          {% if formset.can_delete %}
-          <label class="inline-flex items-center gap-2 text-xs text-red-700">
-            {{ f.DELETE }} Delete
-          </label>
-          {% endif %}
-        </div>
-        <div class="md:col-span-12">
-          <label class="block text-xs text-gray-600 mb-1">Description</label>
-          {{ f.description }}
-        </div>
+      <div id="ab-forms" class="space-y-3">
+        {% for f in formset.forms %}
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-3 border rounded-lg p-3 ability-row">
+            {% if f.non_field_errors %}
+              <div class="md:col-span-12 text-sm text-red-700">{{ f.non_field_errors }}</div>
+            {% endif %}
+            <div class="md:col-span-2">
+              <label class="block text-xs text-gray-600 mb-1">Type</label>
+              {{ f.ability_type }}
+            </div>
+            <div class="md:col-span-2">
+              <label class="block text-xs text-gray-600 mb-1">Action</label>
+              {{ f.action_cost }}
+            </div>
+            <div class="md:col-span-7">
+              <label class="block text-xs text-gray-600 mb-1">Title</label>
+              {{ f.title }}
+            </div>
+            <div class="md:col-span-1 flex items-end justify-end">
+              {% if formset.can_delete %}
+              <label class="inline-flex items-center gap-2 text-xs text-red-700">
+                {{ f.DELETE }} Delete
+              </label>
+              {% endif %}
+            </div>
+            <div class="md:col-span-12">
+              <label class="block text-xs text-gray-600 mb-1">Description</label>
+              {{ f.description }}
+            </div>
+          </div>
+        {% empty %}
+          <p class="text-sm text-gray-500">No abilities yet. Click “Add ability”.</p>
+        {% endfor %}
       </div>
-    {% empty %}
-      <p class="text-sm text-gray-500">No abilities yet. Click “Add ability”.</p>
-    {% endfor %}
-  </div>
 
-  <!-- Prototype row for JS (uses __prefix__ from empty_form) -->
-  <template id="ab-empty-template">
-    <div class="grid grid-cols-1 md:grid-cols-12 gap-3 border rounded-lg p-3 ability-row">
-      <div class="md:col-span-2">
-        <label class="block text-xs text-gray-600 mb-1">Type</label>
-        {{ formset.empty_form.ability_type }}
-      </div>
-      <div class="md:col-span-2">
-        <label class="block text-xs text-gray-600 mb-1">Action</label>
-        {{ formset.empty_form.action_cost }}
-      </div>
-      <div class="md:col-span-7">
-        <label class="block text-xs text-gray-600 mb-1">Title</label>
-        {{ formset.empty_form.title }}
-      </div>
-      <div class="md:col-span-1 flex items-end justify-end">
-        {% if formset.can_delete %}
-        <label class="inline-flex items-center gap-2 text-xs text-red-700">
-          {{ formset.empty_form.DELETE }} Delete
-        </label>
-        {% endif %}
-      </div>
-      <div class="md:col-span-12">
-        <label class="block text-xs text-gray-600 mb-1">Description</label>
-        {{ formset.empty_form.description }}
-      </div>
+      <!-- Prototype row for JS (uses __prefix__ from empty_form) -->
+      <template id="ab-empty-template">
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-3 border rounded-lg p-3 ability-row">
+          <div class="md:col-span-2">
+            <label class="block text-xs text-gray-600 mb-1">Type</label>
+            {{ formset.empty_form.ability_type }}
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-xs text-gray-600 mb-1">Action</label>
+            {{ formset.empty_form.action_cost }}
+          </div>
+          <div class="md:col-span-7">
+            <label class="block text-xs text-gray-600 mb-1">Title</label>
+            {{ formset.empty_form.title }}
+          </div>
+          <div class="md:col-span-1 flex items-end justify-end">
+            {% if formset.can_delete %}
+            <label class="inline-flex items-center gap-2 text-xs text-red-700">
+              {{ formset.empty_form.DELETE }} Delete
+            </label>
+            {% endif %}
+          </div>
+          <div class="md:col-span-12">
+            <label class="block text-xs text-gray-600 mb-1">Description</label>
+            {{ formset.empty_form.description }}
+          </div>
+        </div>
+      </template>
+
+      <p class="text-xs text-gray-500 mt-2">Add as many abilities as you need. Tick “Delete” to remove a row.</p>
     </div>
-  </template>
-
-  <p class="text-xs text-gray-500 mt-2">Add as many abilities as you need. Tick “Delete” to remove a row.</p>
-</div>
-
 
     <!-- Footer -->
     <div class="p-5 border-t flex items-center justify-end gap-3">
       <a href="{% url 'campaigns:campaign_detail' campaign.id %}#encounters"
          class="px-3 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">Cancel</a>
-     <button class="px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">
-  {% if form.instance.pk %}Save Changes{% else %}Create Enemy Type{% endif %}
-</button>
+      <button class="px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">
+        {% if form.instance.pk %}Save Changes{% else %}Create Enemy Type{% endif %}
+      </button>
     </div>
   </form>
 </div>
@@ -224,19 +241,16 @@
 {% block extra_js %}
 <script>
 (function () {
-  // Uses the formset prefix "ab" → Django renders management inputs with ids:
-  // id_ab-TOTAL_FORMS, id_ab-INITIAL_FORMS, etc.
+  // Formset JS (prefix "ab")
   const addBtn = document.getElementById('ab-add');
   const container = document.getElementById('ab-forms');
   const tmpl = document.getElementById('ab-empty-template');
-  if (!addBtn || !container || !tmpl) return;
-
   const totalInput = document.getElementById('id_ab-TOTAL_FORMS');
+
+  if (!addBtn || !container || !tmpl || !totalInput) return;
 
   function addRow() {
     const idx = parseInt(totalInput.value, 10);
-    // Replace __prefix__ in *attributes* that Django sets on empty_form
-    // (Django already puts __prefix__ into ids/names).
     const html = tmpl.innerHTML.replaceAll('__prefix__', idx);
     const frag = document.createRange().createContextualFragment(html);
     container.appendChild(frag);
@@ -245,10 +259,7 @@
 
   addBtn.addEventListener('click', addRow);
 
-  // Optional: start with one blank if none rendered
-  if (totalInput && parseInt(totalInput.value, 10) === 0) {
-    addRow();
-  }
+  // Do NOT auto-add a blank ability row; user will click “+ Add ability”.
 })();
 </script>
 {% endblock %}
