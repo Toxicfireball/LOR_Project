@@ -169,6 +169,15 @@
 <div id="ab-forms" class="space-y-3">
   {% for f in formset.forms %}
     <div class="grid grid-cols-1 md:grid-cols-12 gap-3 border rounded-lg p-3 ability-row">
+      {# IMPORTANT: include hidden fields (especially the primary-key id) #}
+      {% for hidden in f.hidden_fields %}{{ hidden }}{% endfor %}
+      {# (optional) if you want to actually show hidden-field errors: #}
+      {% for hidden in f.hidden_fields %}
+        {% if hidden.errors %}
+          <div class="md:col-span-12 text-xs text-red-700">{{ hidden.errors|join:", " }}</div>
+        {% endif %}
+      {% endfor %}
+
       {% if f.non_field_errors %}
         <div class="md:col-span-12 text-sm text-red-700">{{ f.non_field_errors }}</div>
       {% endif %}
@@ -212,6 +221,9 @@
 
 <template id="ab-empty-template">
   <div class="grid grid-cols-1 md:grid-cols-12 gap-3 border rounded-lg p-3 ability-row">
+    {# include hidden fields (ab-__prefix__-id) so JS-add works cleanly #}
+    {% for hidden in formset.empty_form.hidden_fields %}{{ hidden }}{% endfor %}
+
     <div class="md:col-span-2">
       <label class="block text-xs text-gray-600 mb-1">Type</label>
       {{ formset.empty_form.ability_type }}
