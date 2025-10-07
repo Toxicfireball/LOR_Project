@@ -297,7 +297,10 @@ class EnemyTypeCreateForm(forms.ModelForm):
     def __init__(self, *args, campaign=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.campaign = campaign
-
+        # when editing, reflect the instance's current scope instead of defaulting to "campaign"
+        if self.instance and self.instance.pk:
+            self.fields["scope"].initial = "global" if self.instance.campaign_id is None else "campaign"
+    
     def save(self, commit=True):
         obj = super().save(commit=False)
         obj.campaign = None if self.cleaned_data.get("scope") == "global" else self.campaign
