@@ -43,7 +43,9 @@ path("<int:campaign_id>/encounters/<int:encounter_id>/record_damage", views.reco
 path("<int:campaign_id>/encounters/<int:encounter_id>/enemy_note", views.update_enemy_note, name="update_enemy_note"),
 path("<int:campaign_id>/encounters/<int:encounter_id>/combat/set_init", views.set_combat_initiative, name="set_combat_initiative"),
 path("<int:campaign_id>/encounters/<int:encounter_id>/combat/nudge",     views.nudge_combat_initiative, name="nudge_combat_initiative"),
-
+ path("<int:campaign_id>/inventory/<int:pi_id>/claim/", views.claim_party_item, name="claim_party_item"),
+    path("<int:campaign_id>/inventory/<int:pi_id>/unclaim/", views.unclaim_party_item, name="unclaim_party_item"),
+    path("<int:campaign_id>/inventory/<int:pi_id>/remove/", views.remove_party_item, name="remove_party_item"),
 path("<int:campaign_id>/damage_stats", views.campaign_damage_stats, name="campaign_damage_stats"),
 
 ]

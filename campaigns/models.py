@@ -1,4 +1,4 @@
-# campaigns/models.py  (additions marked 'NEW')
+from django.utils import timezone
 from django.db import models
 from django.contrib.auth.models import User
 from django.contrib.contenttypes.models import ContentType   # NEW
@@ -61,7 +61,7 @@ class CampaignNote(models.Model):
         return f"{self.campaign.name} note by {self.author} ({self.visibility})"
 
 
-# ========== NEW: Party inventory (campaign-level items) ==========
+
 class PartyItem(models.Model):
     campaign = models.ForeignKey(Campaign, on_delete=models.CASCADE, related_name="party_items")
     added_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
@@ -72,11 +72,24 @@ class PartyItem(models.Model):
     note              = models.CharField(max_length=255, blank=True)
     created_at        = models.DateTimeField(auto_now_add=True)
 
+    # NEW (string reference, no import):
+    claimed_by = models.ForeignKey(
+        "characters.Character",  # <- string avoids circular import
+        null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="claimed_party_items",
+    )
+    claimed_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         ordering = ["-created_at"]
 
+    @property
+    def is_claimed(self) -> bool:
+        return self.claimed_by_id is not None
+
     def __str__(self):
-        return f"{self.campaign.name} – {self.item} ×{self.quantity}"
+        who = f" (claimed by {self.claimed_by.name})" if self.claimed_by_id else ""
+        return f"{self.campaign.name} – {self.item} ×{self.quantity}{who}"
 
 
 # ========== NEW: Simple direct messages between campaign members ==========
@@ -201,7 +214,6 @@ class Encounter(models.Model):
         return f"{self.campaign.name} – {self.name}"
 
 
-from characters.models import Character  # NEW
 
 class EncounterEnemy(models.Model):
     SIDE = (("enemy", "Enemy"), ("neutral", "Neutral"), ("ally", "Ally"))
@@ -234,15 +246,15 @@ class EncounterEnemy(models.Model):
         return self.name_override or self.enemy_type.name
 
 
-# NEW: who’s in this encounter & their initiative
 class EncounterParticipant(models.Model):
     ROLE_CHOICES = (("pc", "Player"), )
     encounter = models.ForeignKey(Encounter, on_delete=models.CASCADE, related_name="participants")
-    character = models.ForeignKey(Character, on_delete=models.CASCADE, related_name="encounter_participations")
+    character = models.ForeignKey("characters.Character", on_delete=models.CASCADE, related_name="encounter_participations")
     role = models.CharField(max_length=3, choices=ROLE_CHOICES, default="pc")
     initiative = models.IntegerField(null=True, blank=True)
     added_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
 
     class Meta:
         unique_together = [("encounter", "character")]
@@ -258,14 +270,14 @@ class DamageEvent(models.Model):
 
     encounter = models.ForeignKey(Encounter, on_delete=models.CASCADE, related_name="damage_events")
 
-    # Attacker can be a player (character) OR a creature (encounter enemy)
     attacker_user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="damage_events")
-    attacker_character = models.ForeignKey(Character, on_delete=models.SET_NULL, null=True, blank=True, related_name="outgoing_damage_events")
+    attacker_character = models.ForeignKey("characters.Character", on_delete=models.SET_NULL, null=True, blank=True, related_name="outgoing_damage_events")
     attacker_enemy = models.ForeignKey(EncounterEnemy, on_delete=models.SET_NULL, null=True, blank=True, related_name="outgoing_events")
 
     # Target can be a creature OR a player
+    # Target can be a creature OR a player
     target_enemy = models.ForeignKey(EncounterEnemy, on_delete=models.SET_NULL, null=True, blank=True, related_name="incoming_events")
-    target_character = models.ForeignKey(Character, on_delete=models.SET_NULL, null=True, blank=True, related_name="incoming_damage_events")
+    target_character = models.ForeignKey("characters.Character", on_delete=models.SET_NULL, null=True, blank=True, related_name="incoming_damage_events")
 
     kind = models.CharField(max_length=4, choices=KIND, default="dmg")
     amount = models.PositiveIntegerField()

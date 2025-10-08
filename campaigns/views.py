@@ -121,10 +121,9 @@ def campaign_detail(request, campaign_id):
         notes = notes_q.filter(visibility="party").select_related("author")
     notes = notes.order_by("-created_at")
 
-    # ✅ Inventory: same rule; only follow real FKs
     inventory = (PartyItem.objects
-                 .filter(campaign=campaign)
-                 .select_related("added_by"))
+                .filter(campaign=campaign)
+                .select_related("added_by", "claimed_by"))
 
     inbox = (CampaignMessage.objects
              .filter(campaign=campaign)
@@ -907,6 +906,86 @@ def delete_enemy_type(request, campaign_id, et_id):
     messages.success(request, f"Enemy Type '{et.name}' deleted.")
     return redirect(f"{reverse('campaigns:campaign_detail', args=[campaign.id])}#encounters")
 
+# campaigns/views.py
+
+from django.utils import timezone
+from .models import PartyItem
+
+@login_required
+def claim_party_item(request, campaign_id, pi_id):
+    if request.method != "POST":
+        raise Http404()
+    campaign = get_object_or_404(Campaign, id=campaign_id)
+
+    if not campaign.members.filter(id=request.user.id).exists():
+        return HttpResponseForbidden("Join the campaign first.")
+
+    # You can choose: allow any member to claim, or only the character they have attached.
+    # Below assumes a player may claim for one of their attached characters in this campaign.
+    char = (campaign.characters
+            .filter(user=request.user)
+            .order_by("id")
+            .first())
+    if not char:
+        messages.error(request, "Attach a character to claim party items.")
+        return redirect(f"{reverse('campaigns:campaign_detail', args=[campaign.id])}#inventory")
+
+    it = get_object_or_404(PartyItem, id=pi_id, campaign=campaign)
+
+    if it.is_claimed:
+        messages.info(request, f"Already claimed by {it.claimed_by.name}.")
+        return redirect(f"{reverse('campaigns:campaign_detail', args=[campaign.id])}#inventory")
+
+    it.claimed_by = char
+    it.claimed_at = timezone.now()
+    it.save(update_fields=["claimed_by", "claimed_at"])
+    messages.success(request, f"You claimed {it.item.name} ×{it.quantity} for {char.name}.")
+    return redirect(f"{reverse('campaigns:campaign_detail', args=[campaign.id])}#inventory")
+
+
+@login_required
+def unclaim_party_item(request, campaign_id, pi_id):
+    if request.method != "POST":
+        raise Http404()
+    campaign = get_object_or_404(Campaign, id=campaign_id)
+    it = get_object_or_404(PartyItem, id=pi_id, campaign=campaign)
+
+    # Policy: GM can unclaim anyone; a player can only unclaim if they claimed it.
+    is_gm = _is_gm(request.user, campaign)
+    if not is_gm and (not it.claimed_by or it.claimed_by.user_id != request.user.id):
+        return HttpResponseForbidden("You can only unclaim items you claimed.")
+
+    if not it.is_claimed:
+        messages.info(request, "That item is not claimed.")
+    else:
+        it.claimed_by = None
+        it.claimed_at = None
+        it.save(update_fields=["claimed_by", "claimed_at"])
+        messages.success(request, "Item returned to party inventory.")
+    return redirect(f"{reverse('campaigns:campaign_detail', args=[campaign.id])}#inventory")
+
+
+@login_required
+def remove_party_item(request, campaign_id, pi_id):
+    """Delete inventory rows — but block if the item is claimed."""
+    if request.method != "POST":
+        raise Http404()
+    campaign = get_object_or_404(Campaign, id=campaign_id)
+    if not _is_gm(request.user, campaign):
+        return HttpResponseForbidden("Only GMs can remove party items.")
+    it = get_object_or_404(PartyItem, id=pi_id, campaign=campaign)
+
+    if it.is_claimed:
+        messages.error(
+            request,
+            f"Cannot remove {it.item.name} — it’s currently claimed by {it.claimed_by.name}. Unclaim it first."
+        )
+        return redirect(f"{reverse('campaigns:campaign_detail', args=[campaign.id])}#inventory")
+
+    name = it.item.name
+    it.delete()
+    messages.info(request, f"Removed {name} from party inventory.")
+    return redirect(f"{reverse('campaigns:campaign_detail', args=[campaign.id])}#inventory")
 
 @login_required
 def new_enemy_type(request, campaign_id):

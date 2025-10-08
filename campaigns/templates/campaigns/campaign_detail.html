@@ -347,37 +347,84 @@
       {% endif %}
     </section>
 
-    <!-- Inventory -->
-    <section id="inventory" class="tab-panel hidden bg-white rounded-xl shadow-sm border border-gray-200" role="tabpanel">
-      {% if is_gm %}
-      <form method="post" action="{% url 'campaigns:add_party_item' campaign.id %}" class="flex flex-wrap items-end gap-3 p-4 border-b border-gray-200">
-        {% csrf_token %}
-        <div class="min-w-[260px]">
-          <label class="block text-sm text-gray-600 mb-1">Item</label>
-          {{ add_item_form.item }}
-        </div>
-        <div>
-          <label class="block text-sm text-gray-600 mb-1">Quantity</label>
-          {{ add_item_form.quantity }}
-        </div>
-        <button type="submit" class="inline-flex items-center px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">Add to Party</button>
-      </form>
-      {% endif %}
+<!-- Inventory -->
+<section id="inventory" class="tab-panel hidden bg-white rounded-xl shadow-sm border border-gray-200" role="tabpanel">
+  {% if is_gm %}
+  <form method="post" action="{% url 'campaigns:add_party_item' campaign.id %}" class="flex flex-wrap items-end gap-3 p-4 border-b border-gray-200">
+    {% csrf_token %}
+    <div class="min-w-[260px]">
+      <label class="block text-sm text-gray-600 mb-1">Item</label>
+      {{ add_item_form.item }}
+    </div>
+    <div>
+      <label class="block text-sm text-gray-600 mb-1">Quantity</label>
+      {{ add_item_form.quantity }}
+    </div>
+    <button type="submit" class="inline-flex items-center px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">Add to Party</button>
+  </form>
+  {% endif %}
 
-      <ul class="divide-y divide-gray-200">
-        {% for it in inventory %}
-          <li class="p-4 flex items-center justify-between">
-            <div>
-              <div class="font-semibold">{{ it.item.name }}</div>
-              <div class="text-sm text-gray-600">Added by {{ it.added_by|default:"System" }} • {{ it.created_at|date:"M j, Y" }}</div>
-            </div>
-            <span class="text-xs px-2 py-1 rounded-md bg-gray-100 text-gray-700">×{{ it.quantity }}</span>
-          </li>
-        {% empty %}
-          <li class="p-4 text-gray-600">No party items yet.</li>
-        {% endfor %}
-      </ul>
-    </section>
+  <ul class="divide-y divide-gray-200">
+    {% for it in inventory %}
+      <li class="p-4 flex items-center justify-between gap-4">
+        <div class="min-w-0">
+          <div class="font-semibold truncate">{{ it.item.name }}</div>
+          <div class="text-sm text-gray-600">
+            Added by {{ it.added_by|default:"System" }} • {{ it.created_at|date:"M j, Y" }}
+          </div>
+          <div class="mt-1 text-xs">
+            {% if it.claimed_by %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-amber-100 text-amber-800">Claimed by {{ it.claimed_by.name }}</span>
+            {% else %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-green-100 text-green-800">Unclaimed</span>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2 shrink-0">
+          <span class="text-xs px-2 py-1 rounded-md bg-gray-100 text-gray-700">×{{ it.quantity }}</span>
+
+          {# Claim / Unclaim (any member can claim for their own attached char; claimers or GM can unclaim) #}
+{% if is_member and not it.claimed_by %}
+  <form method="post" action="{% url 'campaigns:claim_party_item' campaign.id it.id %}">
+    {% csrf_token %}
+    <button class="text-sm px-2 py-1 rounded-md border border-gray-300 hover:bg-gray-50">Claim</button>
+  </form>
+{% endif %}
+
+{% if it.claimed_by %}
+  {% if is_gm or it.claimed_by.user_id == request.user.id %}
+    <form method="post" action="{% url 'campaigns:unclaim_party_item' campaign.id it.id %}">
+      {% csrf_token %}
+      <button class="text-sm px-2 py-1 rounded-md border border-gray-300 hover:bg-gray-50">Unclaim</button>
+    </form>
+  {% endif %}
+{% endif %}
+
+
+          {# Delete: GM only, disabled if claimed #}
+          {% if is_gm %}
+            {% if it.claimed_by %}
+              <button title="Unclaim before removing" disabled
+                      class="text-sm px-2 py-1 rounded-md border border-gray-200 text-gray-400 cursor-not-allowed">
+                Remove
+              </button>
+            {% else %}
+              <form method="post" action="{% url 'campaigns:remove_party_item' campaign.id it.id %}"
+                    onsubmit="return confirm('Remove {{ it.item.name }} from party inventory?');">
+                {% csrf_token %}
+                <button class="text-sm text-red-600 hover:underline">Remove</button>
+              </form>
+            {% endif %}
+          {% endif %}
+        </div>
+      </li>
+    {% empty %}
+      <li class="p-4 text-gray-600">No party items yet.</li>
+    {% endfor %}
+  </ul>
+</section>
+
 
     <!-- Messages -->
     <section id="messages" class="tab-panel hidden" role="tabpanel">
