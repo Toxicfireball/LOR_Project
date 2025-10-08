@@ -107,11 +107,12 @@ class EnemyTag(models.Model):
 class EnemyType(models.Model):
     """Reusable enemy/monster blueprint."""
     # NEW: scope (None => Global; set => Campaign-specific)
+    CATEGORY = (("monster", "Monster"), ("npc", "NPC"))
     campaign = models.ForeignKey(
         Campaign, null=True, blank=True, on_delete=models.CASCADE,
         related_name="enemy_types", help_text="Leave blank for Global"
     )
-
+    category = models.CharField(max_length=8, choices=CATEGORY, default="monster", db_index=True)
     # name is no longer globally unique (uniqueness handled via constraints below)
     name = models.CharField(max_length=120)
     level = models.PositiveIntegerField(default=0)
@@ -200,25 +201,29 @@ class Encounter(models.Model):
         return f"{self.campaign.name} – {self.name}"
 
 
+from characters.models import Character  # NEW
+
 class EncounterEnemy(models.Model):
-    """A placed instance of an enemy inside an encounter with editable HP."""
+    SIDE = (("enemy", "Enemy"), ("neutral", "Neutral"), ("ally", "Ally"))
+
     encounter = models.ForeignKey(Encounter, on_delete=models.CASCADE, related_name="enemies")
     enemy_type = models.ForeignKey(EnemyType, on_delete=models.PROTECT, related_name="instances")
-
-    # Snapshot fields (allow later balance edits on the type without changing existing instances)
     name_override = models.CharField(max_length=160, blank=True)
+
+    # NEW: which side this instance is on in THIS encounter
+    side = models.CharField(max_length=7, choices=SIDE, default="enemy", db_index=True)
+
     max_hp = models.PositiveIntegerField()
     current_hp = models.IntegerField()
-    initiative = models.IntegerField(null=True, blank=True)  # NEW: rolled/set per instance
-    notes = models.CharField(max_length=255, blank=True)  # e.g. “bloodied”, “on roof”
-
+    initiative = models.IntegerField(null=True, blank=True)
+    notes = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["id"]
 
     def save(self, *args, **kwargs):
-        if self.max_hp is None or self.max_hp == 0:
+        if not self.max_hp:
             self.max_hp = self.enemy_type.hp
         if self.current_hp is None:
             self.current_hp = self.max_hp
@@ -227,3 +232,49 @@ class EncounterEnemy(models.Model):
     @property
     def display_name(self):
         return self.name_override or self.enemy_type.name
+
+
+# NEW: who’s in this encounter & their initiative
+class EncounterParticipant(models.Model):
+    ROLE_CHOICES = (("pc", "Player"), )
+    encounter = models.ForeignKey(Encounter, on_delete=models.CASCADE, related_name="participants")
+    character = models.ForeignKey(Character, on_delete=models.CASCADE, related_name="encounter_participations")
+    role = models.CharField(max_length=3, choices=ROLE_CHOICES, default="pc")
+    initiative = models.IntegerField(null=True, blank=True)
+    added_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [("encounter", "character")]
+        ordering = ["-initiative", "id"]  # high to low like a tracker
+
+    def __str__(self):
+        return f"{self.character.name} in {self.encounter.name} ({self.initiative or '—'})"
+
+
+# NEW: immutable damage log (who hit what, for how much, with notes)
+class DamageEvent(models.Model):
+    KIND = (("dmg", "Damage"), ("heal", "Heal"))
+
+    encounter = models.ForeignKey(Encounter, on_delete=models.CASCADE, related_name="damage_events")
+
+    # Attacker can be a player (character) OR a creature (encounter enemy)
+    attacker_user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="damage_events")
+    attacker_character = models.ForeignKey(Character, on_delete=models.SET_NULL, null=True, blank=True, related_name="outgoing_damage_events")
+    attacker_enemy = models.ForeignKey(EncounterEnemy, on_delete=models.SET_NULL, null=True, blank=True, related_name="outgoing_events")
+
+    # Target can be a creature OR a player
+    target_enemy = models.ForeignKey(EncounterEnemy, on_delete=models.SET_NULL, null=True, blank=True, related_name="incoming_events")
+    target_character = models.ForeignKey(Character, on_delete=models.SET_NULL, null=True, blank=True, related_name="incoming_damage_events")
+
+    kind = models.CharField(max_length=4, choices=KIND, default="dmg")
+    amount = models.PositiveIntegerField()
+    note = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    @property
+    def signed_amount(self) -> int:
+        return self.amount if self.kind == "dmg" else -self.amount

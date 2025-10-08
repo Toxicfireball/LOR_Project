@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="max-w-6xl mx-auto px-4 py-6 space-y-6">
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight">Damage Analytics — {{ campaign.name }}</h1>
+      <p class="text-sm text-gray-600 mt-1">
+        <a class="hover:underline" href="{% url 'campaigns:campaign_detail' campaign.id %}">← Back to campaign</a>
+      </p>
+    </div>
+  </div>
+
+  <!-- Team Damage (PC → Enemies) -->
+  <div class="bg-white rounded-xl shadow-sm border">
+    <div class="p-4 border-b font-semibold flex items-center justify-between">
+      <span>Team Damage (PC → Enemies)</span>
+      <span class="text-sm text-gray-600">Total: <strong>{{ team_total|default:0 }}</strong></span>
+    </div>
+    <div class="p-4">
+      <table class="w-full text-sm">
+        <thead class="text-xs text-gray-500">
+          <tr>
+            <th class="text-left py-2">Character</th>
+            <th class="text-right py-2">Hits</th>
+            <th class="text-right py-2">Total</th>
+            <th class="text-left py-2 w-64">Share</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y">
+          {% for r in by_char %}
+          <tr>
+            <td class="py-2">{{ r.attacker_character__name|default:"—" }}</td>
+            <td class="py-2 text-right">{{ r.hits }}</td>
+            <td class="py-2 text-right">{{ r.total }}</td>
+            <td class="py-2">
+              <div class="flex items-center gap-2">
+                <div class="h-2 w-full bg-gray-100 rounded">
+                  <div class="h-2 rounded" style="width: {{ r.share_pct }}%; background-color: rgb(79,70,229);"></div>
+                </div>
+                <div class="text-xs text-gray-600 w-12 text-right">{{ r.share_pct }}%</div>
+              </div>
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="4" class="py-2 text-gray-600">No damage recorded.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Average Damage per Encounter -->
+  <div class="bg-white rounded-xl shadow-sm border">
+    <div class="p-4 border-b font-semibold">Average Damage per Encounter</div>
+    <div class="p-4">
+      <table class="w-full text-sm">
+        <thead class="text-xs text-gray-500">
+          <tr>
+            <th class="text-left py-2">Character</th>
+            <th class="text-right py-2">Encounters</th>
+            <th class="text-right py-2">Avg / Encounter</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y">
+          {% for r in per_enc %}
+          <tr>
+            <td class="py-2">{{ r.attacker_character__name|default:"—" }}</td>
+            <td class="py-2 text-right">{{ r.encounters }}</td>
+            <td class="py-2 text-right">{{ r.avg_per_encounter|floatformat:1 }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="3" class="py-2 text-gray-600">No encounters yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Breakdown: Damage to Enemy Types -->
+  <div class="bg-white rounded-xl shadow-sm border">
+    <div class="p-4 border-b font-semibold">Damage to Enemy Types</div>
+    <div class="p-4">
+      <table class="w-full text-sm">
+        <thead class="text-xs text-gray-500">
+          <tr>
+            <th class="text-left py-2">Enemy Type</th>
+            <th class="text-right py-2">Hits</th>
+            <th class="text-right py-2">Total</th>
+            <th class="text-left py-2 w-64">Share</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y">
+          {% for r in dmg_by_enemy_type %}
+          <tr>
+            <td class="py-2">{{ r.target_enemy__enemy_type__name }}</td>
+            <td class="py-2 text-right">{{ r.hits }}</td>
+            <td class="py-2 text-right">{{ r.total }}</td>
+            <td class="py-2">
+              <div class="flex items-center gap-2">
+                <div class="h-2 w-full bg-gray-100 rounded">
+                  <div class="h-2 rounded" style="width: {{ r.share_pct }}%; background-color: rgb(16,185,129);"></div>
+                </div>
+                <div class="text-xs text-gray-600 w-12 text-right">{{ r.share_pct }}%</div>
+              </div>
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="4" class="py-2 text-gray-600">No damage recorded.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Damage Taken (Enemies → PCs) -->
+  <div class="bg-white rounded-xl shadow-sm border">
+    <div class="p-4 border-b font-semibold flex items-center justify-between">
+      <span>Damage Taken (Enemies → PCs)</span>
+      <span class="text-sm text-gray-600">Total: <strong>{{ taken_total|default:0 }}</strong></span>
+    </div>
+    <div class="p-4">
+      <div class="grid md:grid-cols-2 gap-6">
+        <!-- By Player -->
+        <div>
+          <div class="text-sm font-semibold mb-2">By Player</div>
+          <table class="w-full text-sm">
+            <thead class="text-xs text-gray-500">
+              <tr>
+                <th class="text-left py-2">Character</th>
+                <th class="text-right py-2">Hits</th>
+                <th class="text-right py-2">Total</th>
+                <th class="text-left py-2 w-44">Share</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y">
+              {% for r in taken_by_pc %}
+              <tr>
+                <td class="py-2">{{ r.target_character__name }}</td>
+                <td class="py-2 text-right">{{ r.hits }}</td>
+                <td class="py-2 text-right">{{ r.total }}</td>
+                <td class="py-2">
+                  <div class="flex items-center gap-2">
+                    <div class="h-2 w-full bg-gray-100 rounded">
+                      <div class="h-2 rounded" style="width: {{ r.share_pct }}%; background-color: rgb(244,63,94);"></div>
+                    </div>
+                    <div class="text-xs text-gray-600 w-12 text-right">{{ r.share_pct }}%</div>
+                  </div>
+                </td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="4" class="py-2 text-gray-600">No damage taken.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <!-- By Enemy Type (sources) -->
+        <div>
+          <div class="text-sm font-semibold mb-2">By Enemy Type (Sources)</div>
+          <table class="w-full text-sm">
+            <thead class="text-xs text-gray-500">
+              <tr>
+                <th class="text-left py-2">Enemy Type</th>
+                <th class="text-right py-2">Hits</th>
+                <th class="text-right py-2">Total</th>
+                <th class="text-left py-2 w-44">Share</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y">
+              {% for r in src_enemy_type %}
+              <tr>
+                <td class="py-2">{{ r.attacker_enemy__enemy_type__name }}</td>
+                <td class="py-2 text-right">{{ r.hits }}</td>
+                <td class="py-2 text-right">{{ r.total }}</td>
+                <td class="py-2">
+                  <div class="flex items-center gap-2">
+                    <div class="h-2 w-full bg-gray-100 rounded">
+                      <div class="h-2 rounded" style="width: {{ r.share_pct }}%; background-color: rgb(249,115,22);"></div>
+                    </div>
+                    <div class="text-xs text-gray-600 w-12 text-right">{{ r.share_pct }}%</div>
+                  </div>
+                </td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="4" class="py-2 text-gray-600">No damage taken.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Highest Hits -->
+  <div class="grid md:grid-cols-2 gap-6">
+    <div class="bg-white rounded-xl shadow-sm border">
+      <div class="p-4 border-b font-semibold">Highest Single Hit (PC → Enemy)</div>
+      <div class="p-4 text-sm">
+        {% if highest_out %}
+          <p>
+            {% if highest_out.attacker_character %}
+              <span class="font-semibold">{{ highest_out.attacker_character.name }}</span>
+            {% elif highest_out.attacker_user %}
+              <span class="font-semibold">{{ highest_out.attacker_user.username }}</span>
+            {% else %}
+              <span class="font-semibold">Unknown</span>
+            {% endif %}
+            hit
+            <span class="font-semibold">{{ highest_out.target_enemy.display_name }}</span> for
+            <span class="font-semibold">{{ highest_out.amount }}</span> in
+            <a class="underline" href="{% url 'campaigns:encounter_detail' campaign.id highest_out.encounter.id %}">
+              {{ highest_out.encounter.name }}
+            </a>.
+          </p>
+          {% if highest_out.note %}<p class="text-gray-600 mt-1">Note: {{ highest_out.note }}</p>{% endif %}
+        {% else %}
+          <p class="text-gray-600">No damage recorded.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border">
+      <div class="p-4 border-b font-semibold">Biggest Hit Taken (Enemy → PC)</div>
+      <div class="p-4 text-sm">
+        {% if highest_in %}
+          <p>
+            {% if highest_in.attacker_enemy %}
+              <span class="font-semibold">{{ highest_in.attacker_enemy.enemy_type.name }}</span>
+            {% else %}
+              <span class="font-semibold">Unknown Enemy</span>
+            {% endif %}
+            hit
+            {% if highest_in.target_character %}
+              <span class="font-semibold">{{ highest_in.target_character.name }}</span>
+            {% else %}
+              <span class="font-semibold">Unknown PC</span>
+            {% endif %}
+            for <span class="font-semibold">{{ highest_in.amount }}</span> in
+            <a class="underline" href="{% url 'campaigns:encounter_detail' campaign.id highest_in.encounter.id %}">
+              {{ highest_in.encounter.name }}
+            </a>.
+          </p>
+          {% if highest_in.note %}<p class="text-gray-600 mt-1">Note: {{ highest_in.note }}</p>{% endif %}
+        {% else %}
+          <p class="text-gray-600">No damage taken.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -56,20 +56,30 @@
   </div>
 
   <!-- Tabs -->
-  <div id="campTabs" class="border-b border-gray-200 mb-4 sticky top-0 bg-white/70 backdrop-blur supports-[backdrop-filter]:bg-white/60" role="tablist">
-    <div class="flex flex-wrap gap-2">
-      <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900" data-tab="#overview" role="tab" aria-controls="overview">Overview</button>
-      <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900" data-tab="#characters" role="tab" aria-controls="characters">Characters</button>
-      <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900" data-tab="#members" role="tab" aria-controls="members">Members</button>
-      <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900" data-tab="#notes" role="tab" aria-controls="notes">Notes</button>
-      <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900" data-tab="#skillfeats" role="tab" aria-controls="skillfeats">Skill Feats</button>
-      <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900" data-tab="#inventory" role="tab" aria-controls="inventory">Party Inventory</button>
-      <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900" data-tab="#messages" role="tab" aria-controls="messages">Messages</button>
-      {% if is_gm %}
-    <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900" data-tab="#encounters" role="tab" aria-controls="encounters">Encounters</button>
+<div id="campTabs" class="border-b border-gray-200 mb-4 sticky top-0 bg-white/70 backdrop-blur supports-[backdrop-filter]:bg-white/60" role="tablist">
+  <div class="flex flex-wrap gap-2">
+    <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900" data-tab="#overview" role="tab" aria-controls="overview">Overview</button>
+    <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900" data-tab="#characters" role="tab" aria-controls="characters">Characters</button>
+    <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900" data-tab="#members" role="tab" aria-controls="members">Members</button>
+    <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900" data-tab="#notes" role="tab" aria-controls="notes">Notes</button>
+    <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900" data-tab="#skillfeats" role="tab" aria-controls="skillfeats">Skill Feats</button>
+    <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900" data-tab="#inventory" role="tab" aria-controls="inventory">Party Inventory</button>
+    <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900" data-tab="#messages" role="tab" aria-controls="messages">Messages</button>
+
+    {% if is_gm %}
+      <button class="tab-btn px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent data-[active=true]:border-gray-200 data-[active=true]:bg-white data-[active=true]:text-gray-900 text-gray-600 hover:text-gray-900" data-tab="#encounters" role="tab" aria-controls="encounters">Encounters</button>
     {% endif %}
-    </div>
+
+    {# NEW: Damage Stats (navigates to separate page) #}
+    {% if is_gm %}
+      <a href="{% url 'campaigns:campaign_damage_stats' campaign.id %}"
+         class="px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent text-gray-600 hover:text-gray-900 hover:bg-white">
+        Damage Stats
+      </a>
+    {% endif %}
   </div>
+</div>
+
 
   <div class="space-y-4">
         <!-- Overview -->
@@ -116,23 +126,26 @@
 
         <div class="space-y-3">
           <h3 class="font-semibold">Quick actions</h3>
-          {% if is_member %}
-            <a class="block text-center px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700"
-               href="{% url 'campaigns:join_campaign' campaign.id %}">
-              Change attached character
-            </a>
-          {% else %}
-            <a class="block text-center px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700"
-               href="{% url 'campaigns:join_campaign' campaign.id %}">
-              Join this campaign
-            </a>
-          {% endif %}
-          {% if is_gm %}
-            <a class="block text-center px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50"
-               href="{% url 'characters:propose_background' %}?campaign={{ campaign.id }}">
-              Propose custom background
-            </a>
-          {% endif %}
+{% if is_member %}
+  <a class="block text-center px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700"
+     href="{% url 'campaigns:join_campaign' campaign.id %}">
+    Change attached character
+  </a>
+
+{% else %}
+  <a class="block text-center px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700"
+     href="{% url 'campaigns:join_campaign' campaign.id %}">
+    Join this campaign
+  </a>
+{% endif %}
+
+{% if is_gm %}
+  <a class="block text-center px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50"
+     href="{% url 'characters:propose_background' %}?campaign={{ campaign.id }}">
+    Propose custom background
+  </a>
+{% endif %}
+
         </div>
       </div>
     </section>

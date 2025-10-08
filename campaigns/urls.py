@@ -35,4 +35,15 @@ path("<int:campaign_id>/enemies/<int:et_id>/delete/", views.delete_enemy_type, n
     # NEW dedicated page
     path("<int:campaign_id>/enemies/new/", views.new_enemy_type, name="new_enemy_type"),
         path("<int:campaign_id>/encounters/<int:encounter_id>/delete/", views.delete_encounter, name="delete_encounter"),
+        path("<int:campaign_id>/encounters/<int:encounter_id>/participants/add", views.add_participant, name="add_participant"),
+path("<int:campaign_id>/encounters/<int:encounter_id>/participants/set_init", views.set_participant_initiative, name="set_participant_initiative"),
+path("<int:campaign_id>/encounters/<int:encounter_id>/participants/<int:participant_id>/remove", views.remove_participant, name="remove_participant"),
+
+path("<int:campaign_id>/encounters/<int:encounter_id>/record_damage", views.record_damage, name="record_damage"),
+path("<int:campaign_id>/encounters/<int:encounter_id>/enemy_note", views.update_enemy_note, name="update_enemy_note"),
+path("<int:campaign_id>/encounters/<int:encounter_id>/combat/set_init", views.set_combat_initiative, name="set_combat_initiative"),
+path("<int:campaign_id>/encounters/<int:encounter_id>/combat/nudge",     views.nudge_combat_initiative, name="nudge_combat_initiative"),
+
+path("<int:campaign_id>/damage_stats", views.campaign_damage_stats, name="campaign_damage_stats"),
+
 ]

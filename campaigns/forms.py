@@ -266,6 +266,67 @@ EnemyAbilityInlineFormSet = inlineformset_factory(
     can_delete=True,
 )
 
+from .models import EncounterParticipant, DamageEvent
+
+
+# AddParticipantForm
+class AddParticipantForm(forms.Form):
+    character  = forms.ModelChoiceField(
+        queryset=Character.objects.none(),
+        empty_label="— Pick a character —",
+        label="Character",
+        widget=forms.Select(attrs={"class": "block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"})
+    )
+    role = forms.ChoiceField(
+        choices=(("pc","Player"),("ally","Ally")),
+        initial="pc", label="Role",
+        widget=forms.Select(attrs={"class": "block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"})
+    )
+    initiative = forms.IntegerField(
+        required=False, label="Initiative",
+        widget=forms.NumberInput(attrs={"class": "block w-24 rounded-md border border-gray-300 px-3 py-2 text-sm"})
+    )
+    def __init__(self, *args, campaign=None, encounter=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        qs = campaign.characters.order_by("user__username", "name") if campaign else Character.objects.none()
+        if encounter is not None:
+            qs = qs.exclude(encounter_participations__encounter=encounter)
+        self.fields["character"].queryset = qs
+
+class SetParticipantInitiativeForm(forms.Form):
+    participant_id = forms.IntegerField()
+    initiative = forms.IntegerField()
+
+
+class RecordDamageForm(forms.Form):
+    ee_id = forms.IntegerField()
+    attacker = forms.ModelChoiceField(queryset=Character.objects.none(), required=False,
+                                      help_text="(Optional) attribute damage to a character")
+    amount = forms.IntegerField(min_value=1, help_text="Positive number")
+    note = forms.CharField(required=False, max_length=255)
+    kind = forms.ChoiceField(choices=DamageEvent.KIND, initial="dmg")
+
+    def __init__(self, *args, campaign=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["attacker"].queryset = (
+            campaign.characters.order_by("user__username", "name") if campaign else Character.objects.none()
+        )
+
+class RecordEnemyToPCDamageForm(forms.Form):
+    attacker_ee_id = forms.IntegerField()
+    target_character = forms.ModelChoiceField(queryset=Character.objects.none())
+    amount = forms.IntegerField(min_value=1)
+    note = forms.CharField(required=False, max_length=255)
+
+    def __init__(self, *args, campaign=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["target_character"].queryset = (
+            campaign.characters.order_by("user__username", "name") if campaign else Character.objects.none()
+        )
+
+class UpdateEnemyNoteForm(forms.Form):
+    ee_id = forms.IntegerField()
+    notes = forms.CharField(required=False, max_length=255)
 
 class EncounterForm(forms.ModelForm):
     class Meta:
@@ -275,8 +336,12 @@ class EncounterForm(forms.ModelForm):
 
 
 class AddEnemyToEncounterForm(forms.Form):
-    enemy_type = forms.ModelChoiceField(queryset=EnemyType.objects.all())
-    count = forms.IntegerField(min_value=1, initial=1, help_text="How many copies to add")
+    enemy_type = forms.ModelChoiceField(queryset=EnemyType.objects.all(),
+        widget=forms.Select(attrs={"class":"block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"}))
+    side = forms.ChoiceField(choices=EncounterEnemy.SIDE, initial="enemy",
+        widget=forms.Select(attrs={"class":"block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"}))
+    count = forms.IntegerField(min_value=1, initial=1,
+        widget=forms.NumberInput(attrs={"class":"block w-24 rounded-md border border-gray-300 px-3 py-2 text-sm"}))
 
 class SetEncounterEnemyHPForm(forms.Form):
     ee_id = forms.IntegerField()
@@ -290,8 +355,8 @@ from .models import EnemyType, Encounter  # already imported above for other for
 class QuickAddEnemyForm(forms.Form):
     encounter = forms.ModelChoiceField(queryset=Encounter.objects.none())
     enemy_type = forms.ModelChoiceField(queryset=EnemyType.objects.all())
+    side = forms.ChoiceField(choices=EncounterEnemy.SIDE, initial="enemy")
     count = forms.IntegerField(min_value=1, initial=1)
-
     def __init__(self, *args, campaign=None, **kwargs):
         super().__init__(*args, **kwargs)
         if campaign is not None:
@@ -304,7 +369,7 @@ class EnemyTypeCreateForm(forms.ModelForm):
     SCOPE_CHOICES = (("campaign", "This campaign"), ("global", "Global"))
     scope = forms.ChoiceField(choices=SCOPE_CHOICES, initial="campaign")
     tags  = forms.ModelMultipleChoiceField(
-        queryset=EnemyTag.objects.all(), required=False,
+        queryset=EnemyTag.objects.none(), required=False,
         widget=forms.SelectMultiple(attrs={"size": 6})
     )
     class Meta:
@@ -314,7 +379,7 @@ class EnemyTypeCreateForm(forms.ModelForm):
             "str_score","dex_score","con_score","int_score","wis_score","cha_score",
             "will_save","reflex_save","fortitude_save",
             "perception","stealth",
-            "description","resistances","tags",
+            "description","resistances","category","tags",   # + category
         ]
         widgets = {
             "description": forms.Textarea(attrs={"rows": 4}),

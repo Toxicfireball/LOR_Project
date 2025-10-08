@@ -4,13 +4,13 @@
 
   <div class="flex items-center justify-between">
     <div class="min-w-0">
-      <h1 class="text-2xl font-semibold tracking-tight">
-        {% if form.instance.pk %}Edit Enemy Type{% else %}Create Enemy Type{% endif %}
-      </h1>
-      <p class="text-sm text-gray-600 mt-1">
-        Campaign: <strong>{{ campaign.name }}</strong> •
-        <a class="text-indigo-600 hover:underline" href="{% url 'campaigns:campaign_detail' campaign.id %}#encounters">Back to Encounters</a>
-      </p>
+<h1 class="text-2xl font-semibold tracking-tight">
+  {% if form.instance.pk %}Edit Creature Type{% else %}Create Creature Type{% endif %}
+</h1>
+<p class="text-sm text-gray-600 mt-1">
+  Campaign: <strong>{{ campaign.name }}</strong> •
+  <a class="text-indigo-600 hover:underline" href="{% url 'campaigns:campaign_detail' campaign.id %}#encounters">Back to Encounters</a>
+</p>
     </div>
   </div>
 
@@ -61,15 +61,18 @@
       <p class="text-xs text-gray-600">Choose whether this type is <strong>Global</strong> (usable in all campaigns) or only for this campaign.</p>
     </div>
     <div class="p-5 grid grid-cols-1 md:grid-cols-12 gap-4">
-      <div class="md:col-span-4">
+      <div class="md:col-span-3">
         <label class="block text-xs text-gray-600 mb-1">Scope</label>
         {{ form.scope }}
       </div>
-      <div class="md:col-span-8">
+      <div class="md:col-span-3">
+        <label class="block text-xs text-gray-600 mb-1">Category</label>
+        {{ form.category }}  {# Monster / NPC #}
+      </div>
+      <div class="md:col-span-6">
         <label class="block text-xs text-gray-600 mb-1">Name</label>
         {{ form.name }}
       </div>
-
       <div class="md:col-span-2">
         <label class="block text-xs text-gray-600 mb-1">Level</label>
         {{ form.level }}
@@ -257,8 +260,8 @@
       <a href="{% url 'campaigns:campaign_detail' campaign.id %}#encounters"
          class="px-3 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">Cancel</a>
       <button class="px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">
-        {% if form.instance.pk %}Save Changes{% else %}Create Enemy Type{% endif %}
-      </button>
+  {% if form.instance.pk %}Save Changes{% else %}Create Creature Type{% endif %}
+</button>
     </div>
   </form>
 </div>
