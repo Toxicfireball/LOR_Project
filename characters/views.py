@@ -598,8 +598,10 @@ def _search_model(model, query, limit_each=30):
     text_fields, cast_fields, related_lookups = _collect_search_targets(model)
 
     # Build annotations for cast-fields so we can i*contains on non-text columns.
-    annotations = {f"__s__{fname}": Cast(F(fname), output_field=models.CharField())
-                   for fname in cast_fields}
+    annotations = {
+    f"s_{fname}": Cast(F(fname), output_field=models.TextField())  # TextField is safer
+    for fname in cast_fields
+}
 
     seen = set()
     items = []
@@ -652,8 +654,7 @@ def _search_model(model, query, limit_each=30):
             q |= Q(**{f + op: query})
         # casted non-text via annotation
         for ann_key in annotations.keys():
-            q |= Q(**{ann_key + op: query})
-
+            q |= Q(**{f"{ann_key}{op}": query})
         if not q.children:
             return
 
