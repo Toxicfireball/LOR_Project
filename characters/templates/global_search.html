@@ -1,45 +1,72 @@
-{# inside your group loop … #}
-<ul class="list-unstyled">
-  {% for it in group.items %}
-    <li class="mb-3 p-3 border rounded bg-body">
-      <div class="d-flex justify-content-between align-items-baseline">
-        <div>
-          <strong class="me-2">{{ it.display }}</strong>
-          {% if it.code %}<span class="text-muted">[{{ it.code }}]</span>{% endif %}
-        </div>
-        <div>
-          {% if it.url %}
-            <a class="btn btn-sm btn-outline-primary" href="{{ it.url }}">Open</a>
-          {% endif %}
-        </div>
-      </div>
+{% extends "base.html" %}
+{% block content %}
+<div class="max-w-5xl mx-auto px-4 py-6">
+  <h1 class="text-xl font-semibold mb-4">Search: “{{ q }}”</h1>
 
-      {# Where it matched #}
-      {% if it.matched_in and it.matched_in|length %}
-        <div class="mt-2 small">
-          <span class="fw-semibold">Matched:</span>
-          {% for m in it.matched_in %}
-            <span class="badge text-bg-info me-1">
-              {{ m.label }} · {{ m.match }}
-            </span>
+  {% if top_exact %}
+    <div class="mb-6">
+      <h2 class="text-sm font-semibold text-gray-600 mb-2">Exact code matches</h2>
+      <ul class="space-y-2">
+        {% for it in top_exact %}
+          <li class="p-3 bg-white rounded border">
+            <div class="flex justify-between">
+              <div>
+                <strong>{{ it.display }}</strong>
+                {% if it.code %}<span class="text-gray-500">[{{ it.code }}]</span>{% endif %}
+                <span class="ml-2 text-xs text-gray-500">in {{ it.section }}</span>
+              </div>
+              {% if it.url %}<a class="text-blue-600 hover:underline" href="{{ it.url }}">Open</a>{% endif %}
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
+  {% if groups %}
+    {% for group in groups %}
+      <div class="mb-6">
+        <h2 class="text-sm font-semibold text-gray-600 mb-2">{{ group.label }} ({{ group.items|length }})</h2>
+        <ul class="space-y-3">
+          {% for it in group.items %}
+            <li class="p-3 bg-white rounded border">
+              <div class="flex justify-between items-baseline">
+                <div>
+                  <strong>{{ it.display }}</strong>
+                  {% if it.code %}<span class="text-gray-500">[{{ it.code }}]</span>{% endif %}
+                </div>
+                {% if it.url %}<a class="text-blue-600 hover:underline" href="{{ it.url }}">Open</a>{% endif %}
+              </div>
+
+              {% if it.matched_in %}
+                <div class="mt-1 text-xs text-gray-600">
+                  Matched:
+                  {% for m in it.matched_in %}
+                    <span class="inline-block px-1.5 py-0.5 border rounded bg-blue-50 border-blue-200 mr-1">
+                      {{ m.label }} · {{ m.match }}
+                    </span>
+                  {% endfor %}
+                </div>
+              {% endif %}
+
+              <details class="mt-2">
+                <summary class="text-xs text-gray-500">Show all fields</summary>
+                <div class="mt-2 text-sm">
+                  <dl>
+                    {% for row in it.kv_all %}
+                      <dt class="font-medium">{{ row.label }}</dt>
+                      <dd class="mb-2"><span>{{ row.render|safe }}</span></dd>
+                    {% endfor %}
+                  </dl>
+                </div>
+              </details>
+            </li>
           {% endfor %}
-        </div>
-      {% endif %}
-
-      {# Show all non-empty fields with highlighting #}
-      <div class="mt-2">
-        <details>
-          <summary class="small text-muted">Show all fields</summary>
-          <dl class="row mt-2">
-            {% for row in it.kv_all %}
-              <dt class="col-sm-3">{{ row.label }}</dt>
-              <dd class="col-sm-9">
-                <span>{{ row.render|safe }}</span>
-              </dd>
-            {% endfor %}
-          </dl>
-        </details>
+        </ul>
       </div>
-    </li>
-  {% endfor %}
-</ul>
+    {% endfor %}
+  {% else %}
+    <p class="text-gray-500">No results.</p>
+  {% endif %}
+</div>
+{% endblock %}
