@@ -65,6 +65,122 @@ def campaign_list(request):
     return render(request, "campaigns/campaign_list.html", {"campaigns": campaigns})
 
 # campaign_detail — AFTER (add extra context)
+# campaigns/views.py  (add near other imports)
+from characters.models import Skill, Armor, Character  # Armor & Skill needed
+from characters.models import ClassProficiencyProgress           
+
+# campaigns/views.py
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import get_object_or_404, render
+from django.http import HttpResponseForbidden
+from django.contrib.contenttypes.models import ContentType
+
+from .models import Campaign
+from characters.models import (
+    Character, Skill, Armor,
+    ClassProficiencyProgress,  # NOTE: this model lives in characters.models
+)
+
+def _is_gm(user, campaign: Campaign) -> bool:
+    from .models import CampaignMembership
+    return CampaignMembership.objects.filter(campaign=campaign, user=user, role="gm").exists()
+
+def _ability_mod(score):
+    try:
+        return (int(score) - 10) // 2
+    except (TypeError, ValueError):
+        return 0
+
+def _prof_bonus_for(character: Character, ptype: str) -> int:
+    """
+    Max tier bonus the character reaches across their class splits for a given proficiency type.
+    """
+    best = 0
+    for cp in character.class_progress.select_related('character_class').all():
+        row = (ClassProficiencyProgress.objects
+               .filter(character_class=cp.character_class,
+                       proficiency_type=ptype,
+                       at_level__lte=cp.levels)
+               .select_related('tier')
+               .order_by('at_level')
+               .last())
+        if row and row.tier:
+            best = max(best, int(row.tier.bonus))
+    return best
+# --- Helpers (add these just above gm_dashboard) --------------------------
+
+def _half_level_up(level: int | None) -> int:
+    return (int(level or 0) + 1) // 2  # ceil(level/2)
+
+
+def _prof_bonus(character: Character, code: str) -> int:
+    # Alias to your existing class-based proficiency lookup
+    return _prof_bonus_for(character, code)
+
+def _equipped_armor_value(character: Character) -> int:
+    # TODO: replace with your real equipped-armor logic when available
+    return 0
+def _half_if_trained(prof_bonus: int, half_up: int) -> int:
+    # trained if any positive proficiency tier bonus
+    return half_up if int(prof_bonus or 0) > 0 else 0
+@login_required
+def gm_dashboard(request, campaign_id: int):
+    campaign = get_object_or_404(Campaign, pk=campaign_id)
+
+    if not _is_gm(request.user, campaign):
+        return HttpResponseForbidden("GM access only.")
+
+    chars = (Character.objects
+             .filter(campaign=campaign, status="active")
+             .select_related("user", "race", "subrace"))
+
+    rows = []
+    for c in chars:
+        dex_mod = _ability_mod(c.dexterity)
+        con_mod = _ability_mod(c.constitution)
+        wis_mod = _ability_mod(c.wisdom)
+        half_up = (int(c.level or 0) + 1) // 2  # ceil(level/2)
+
+        # Passive Perception: no skill table lookups; just class prof + WIS + half-level
+        pp_class_prof = int(_prof_bonus(c, "perception") or 0)
+        passive_perception = 10 + wis_mod + half_up + pp_class_prof
+
+        # Armor: stubbed helper so it's defined (returns 0 until you wire equipment)
+        armor = int(_equipped_armor_value(c) or 0)
+
+        # Defenses: ability + prof + half_up if trained
+        dodge_prof = int(_prof_bonus(c, "dodge") or 0)
+        dodge = 10 + dex_mod + dodge_prof + (half_up if dodge_prof > 0 else 0)
+
+        reflex_prof = int(_prof_bonus(c, "reflex") or 0)
+        reflex = dex_mod + reflex_prof + (half_up if reflex_prof > 0 else 0)
+
+        fort_prof = int(_prof_bonus(c, "fortitude") or 0)
+        fortitude = con_mod + fort_prof + (half_up if fort_prof > 0 else 0)
+
+        will_prof = int(_prof_bonus(c, "will") or 0)
+        will = wis_mod + will_prof + (half_up if will_prof > 0 else 0)
+
+        rows.append({
+            "id": c.id,
+            "name": c.name,
+            "player": getattr(c.user, "username", "—"),
+            "level": c.level,
+            "speed": c.effective_speed if hasattr(c, "effective_speed") else 30,
+            "hp": int(c.HP or 0),
+            "temp": int(c.temp_HP or 0),
+            "pp": int(passive_perception),
+            "dodge": int(dodge),
+            "armor": int(armor),
+            "reflex": int(reflex),
+            "fortitude": int(fortitude),
+            "will": int(will),
+            "race": str(c.race) if c.race_id else "—",
+        })
+
+    context = {"campaign": campaign, "rows": rows}
+    return render(request, "campaigns/gm_dashboard.html", context)
+
 
 from django.db.models import Q
 from django.contrib import messages

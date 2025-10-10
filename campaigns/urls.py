@@ -47,5 +47,6 @@ path("<int:campaign_id>/encounters/<int:encounter_id>/combat/nudge",     views.n
     path("<int:campaign_id>/inventory/<int:pi_id>/unclaim/", views.unclaim_party_item, name="unclaim_party_item"),
     path("<int:campaign_id>/inventory/<int:pi_id>/remove/", views.remove_party_item, name="remove_party_item"),
 path("<int:campaign_id>/damage_stats", views.campaign_damage_stats, name="campaign_damage_stats"),
+    path("<int:campaign_id>/gm-dashboard/", views.gm_dashboard, name="gm_dashboard"),
 
 ]

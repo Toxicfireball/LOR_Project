@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto px-4 py-6">
+
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-4">
+    <div class="p-5 flex items-center justify-between">
+      <div>
+        <h1 class="text-xl font-bold">GM Dashboard – {{ campaign.name }}</h1>
+        <p class="text-sm text-gray-600">Static view • reload to update</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <a href="{% url 'campaigns:campaign_detail' campaign.id %}"
+           class="inline-flex items-center px-3 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 text-sm">
+          Back to campaign
+        </a>
+        <button type="button" onclick="location.reload()"
+                class="inline-flex items-center px-3 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 text-sm">
+          Refresh
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overflow-x-auto bg-white rounded-xl shadow-sm border border-gray-200">
+    <table class="min-w-full text-sm">
+      <thead class="bg-gray-50 text-gray-700">
+        <tr>
+          <th class="px-3 py-2 text-left">Player</th>
+          <th class="px-3 py-2 text-left">Character</th>
+          <th class="px-3 py-2 text-right">HP</th>
+          <th class="px-3 py-2 text-right">Temp</th>
+          <th class="px-3 py-2 text-right">Passive Perception</th>
+          <th class="px-3 py-2 text-right">Dodge</th>
+          <th class="px-3 py-2 text-right">Armor</th>
+          <th class="px-3 py-2 text-right">Ref</th>
+          <th class="px-3 py-2 text-right">Fort</th>
+          <th class="px-3 py-2 text-right">Will</th>
+          <th class="px-3 py-2 text-left">Info</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for r in rows %}
+          <tr class="hover:bg-gray-50">
+            <td class="px-3 py-2 text-gray-600">{{ r.player }}</td>
+            <td class="px-3 py-2 font-medium">
+              <a class="hover:underline" href="{% url 'characters:character_detail' r.id %}">
+                {{ r.name }}
+              </a>
+              <span class="text-xs text-gray-500 ml-1">L{{ r.level }} • {{ r.speed }}ft</span>
+            </td>
+            <td class="px-3 py-2 text-right tabular-nums">{{ r.hp }}</td>
+            <td class="px-3 py-2 text-right tabular-nums">{{ r.temp }}</td>
+            <td class="px-3 py-2 text-right tabular-nums">{{ r.pp }}</td>
+            <td class="px-3 py-2 text-right tabular-nums">{{ r.dodge }}</td>
+            <td class="px-3 py-2 text-right tabular-nums">{{ r.armor }}</td>
+            <td class="px-3 py-2 text-right tabular-nums">{{ r.reflex }}</td>
+            <td class="px-3 py-2 text-right tabular-nums">{{ r.fortitude }}</td>
+            <td class="px-3 py-2 text-right tabular-nums">{{ r.will }}</td>
+            <td class="px-3 py-2 text-gray-600">
+              <span class="inline-flex items-center gap-2">
+                <span class="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 text-xs">Race: {{ r.race }}</span>
+                <span class="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 text-xs">Player: {{ r.player }}</span>
+              </span>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td class="px-3 py-6 text-gray-600" colspan="11">No characters attached yet.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+</div>
+{% endblock %}

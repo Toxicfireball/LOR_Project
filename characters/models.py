@@ -461,7 +461,8 @@ from django.conf import settings
 from django.db import models
 from django.utils import timezone
 import uuid
-
+from math import floor
+from django.contrib.contenttypes.models import ContentType
 class CharacterViewer(models.Model):
     character  = models.ForeignKey("characters.Character", on_delete=models.CASCADE, related_name="viewers")
     user       = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="character_views")
@@ -586,6 +587,189 @@ class Character(models.Model):
         null=True, blank=True,
         help_text="Leave blank to use your race's default."
     )
+    # characters/models.py (inside class Character)
+
+
+    def ability_mod(self, key: str) -> int:
+        val = int(getattr(self, key, 10) or 10)
+        return floor((val - 10) / 2)
+
+    @property
+    def dex_mod(self): return self.ability_mod("dexterity")
+    @property
+    def con_mod(self): return self.ability_mod("constitution")
+    @property
+    def wis_mod(self): return self.ability_mod("wisdom")
+
+    def _base_prof_bonus(self, code: str) -> int:
+        """
+        Read the highest proficiency tier (bonus) this character reaches for `code`
+        from class progression rows. We look across ALL classes the character has,
+        using their current level in each class.
+        """
+        from .models import ClassProficiencyProgress, ProficiencyTier, CharacterClassProgress
+        best = 0
+        for cp in CharacterClassProgress.objects.filter(character=self).select_related("character_class"):
+            if cp.levels <= 0:
+                continue
+            # generic (non-weapon/non-armor group) rows for this progression
+            rows = (ClassProficiencyProgress.objects
+                    .filter(character_class=cp.character_class,
+                            proficiency_type=code,
+                            at_level__lte=cp.levels,
+                            armor_group__isnull=True,
+                            weapon_group__isnull=True)
+                    .select_related("tier"))
+            if rows.exists():
+                best = max(best, max(r.tier.bonus for r in rows if r.tier and isinstance(r.tier.bonus, int)))
+        return int(best)
+
+    def _feature_or_item_prof_override(self, code: str) -> int:
+        """
+        If any ClassFeature (kind=modify_proficiency) or active item trait sets a tier,
+        use the highest bonus among them. (Treat as override, not a stack.)
+        """
+        from .models import SpecialItemTraitValue, SpecialItem, CharacterFeature
+        best = 0
+
+        # from features
+        feats = (self.features
+                .filter(feature__kind="modify_proficiency",
+                        feature__modify_proficiency_target=code,
+                        feature__modify_proficiency_amount__isnull=False)
+                .select_related("feature__modify_proficiency_amount"))
+        for cf in feats:
+            t = cf.feature.modify_proficiency_amount
+            if t and isinstance(t.bonus, int):
+                best = max(best, t.bonus)
+
+        # from active special items (if you toggle them with CharacterActivation)
+        si_ct = ContentType.objects.get_for_model(SpecialItem)
+        active_item_ids = list(self.activations.filter(content_type=si_ct, is_active=True)
+                            .values_list("object_id", flat=True))
+        if active_item_ids:
+            for tv in SpecialItemTraitValue.objects.filter(
+                special_item_id__in=active_item_ids,
+                modify_proficiency_target=code
+            ):
+                try:
+                    best = max(best, int(tv.modify_proficiency_amount))
+                except (TypeError, ValueError):
+                    pass
+        return int(best)
+
+    def _prof_bonus(self, code: str) -> int:
+        """
+        Final proficiency bonus for `code`: max(class progression, feature/item override).
+        """
+        return max(self._base_prof_bonus(code), self._feature_or_item_prof_override(code))
+
+    def skill_total(self, skill_name: str) -> int:
+        """
+        If you treat Perception as a Skill, this gives ability mod + proficiency + any extra points.
+        """
+        from .models import Skill, CharacterSkillProficiency, CharacterSkillRating
+        try:
+            sk = Skill.objects.get(name__iexact=skill_name.strip())
+        except Skill.DoesNotExist:
+            return 0
+        total = self.ability_mod(sk.ability)
+
+        skill_ct = ContentType.objects.get_for_model(Skill)
+        prof = (self.skill_proficiencies
+                .filter(selected_skill_type=skill_ct, selected_skill_id=sk.id)
+                .select_related("proficiency")
+                .first())
+        if prof and prof.proficiency and isinstance(prof.proficiency.bonus, int):
+            total += prof.proficiency.bonus
+
+        rating = self.skill_ratings.filter(skill=sk).first()
+        if rating:
+            total += int(rating.bonus_points or 0)
+        return total
+
+        # ceil(level/2)
+        return (int(self.level or 0) + 1) // 2
+
+    def _is_trained(self, code: str) -> bool:
+        # Treat any positive tier bonus as trained
+        try:
+            return int(self._prof_bonus(code) or 0) > 0
+        except Exception:
+            return False
+
+    @property
+    def passive_perception(self) -> int:
+        """
+        10 + proficiency (Perception) + ceil(level/2) + WIS mod.
+        Uses the higher of class-based 'perception' proficiency or the Perception Skill proficiency.
+        """
+        wis = self.wis_mod
+        half_level = self._half_level_up()
+
+        class_prof = int(self._prof_bonus("perception") or 0)
+        skill_prof = 0
+        try:
+            from django.contrib.contenttypes.models import ContentType
+            from .models import Skill
+            sk = Skill.objects.get(name__iexact="Perception")
+            skill_ct = ContentType.objects.get_for_model(Skill)
+            sp = (self.skill_proficiencies
+                    .filter(selected_skill_type=skill_ct, selected_skill_id=sk.id)
+                    .select_related("proficiency")
+                    .first())
+            if sp and sp.proficiency and isinstance(sp.proficiency.bonus, int):
+                skill_prof = int(sp.proficiency.bonus)
+        except Exception:
+            pass
+
+        prof = max(class_prof, skill_prof)
+        return 10 + prof + half_level + wis
+
+    @property
+    def dodge_total(self) -> int:
+        # Base (the view may add shield & dex-cap logic)
+        prof = int(self._prof_bonus("dodge") or 0)
+        return 10 + self.dex_mod + prof + (self._half_level_up() if prof > 0 else 0)
+
+    @property
+    def reflex_save(self) -> int:
+        prof = int(self._prof_bonus("reflex") or 0)
+        return self.dex_mod + prof + (self._half_level_up() if prof > 0 else 0)
+
+    @property
+    def fortitude_save(self) -> int:
+        prof = int(self._prof_bonus("fortitude") or 0)
+        return self.con_mod + prof + (self._half_level_up() if prof > 0 else 0)
+
+    @property
+    def will_save(self) -> int:
+        prof = int(self._prof_bonus("will") or 0)
+        return self.wis_mod + prof + (self._half_level_up() if prof > 0 else 0)
+
+    def _equipped_armor_item(self):
+        """
+        Super simple: take the active SpecialItem with the highest armor_value.
+        If you track equip differently, replace this with your real 'equipped' lookup.
+        """
+        from .models import SpecialItem
+        si_ct = ContentType.objects.get_for_model(SpecialItem)
+        best = None
+        for act in self.activations.filter(content_type=si_ct, is_active=True):
+            si = act.target  # SpecialItem
+            if getattr(si, "armor", None) and getattr(si.armor, "armor_value", None) is not None:
+                if best is None or si.armor.armor_value > best.armor.armor_value:
+                    best = si
+        return best
+
+    @property
+    def armor_total(self) -> int:
+        eq = self._equipped_armor_item()
+        return int(eq.armor.armor_value) if eq and eq.armor else 0
+
+
+    def owner_name(self) -> str:
+        return getattr(self.user, "username", "—")
 
     @property
     def effective_speed(self) -> int:

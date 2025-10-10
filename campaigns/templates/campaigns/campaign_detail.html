@@ -77,6 +77,14 @@
         Damage Stats
       </a>
     {% endif %}
+
+    {% if is_gm %}
+  <a href="{% url 'campaigns:gm_dashboard' campaign.id %}"
+     class="px-3 py-2 text-sm rounded-t-md border border-b-0 border-transparent text-gray-600 hover:text-gray-900 hover:bg-white">
+    GM Dashboard
+  </a>
+{% endif %}
+
   </div>
 </div>
 
