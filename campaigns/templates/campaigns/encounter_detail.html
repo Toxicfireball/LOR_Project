@@ -1,421 +1,293 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="max-w-6xl mx-auto px-4 py-6 space-y-4">
-
-  <div class="flex items-center justify-between">
+  <!-- Header -->
+  <div class="flex items-start justify-between">
     <div>
-      <div class="flex items-center justify-between">
-  <h1 class="text-xl font-bold">{{ encounter.name }}</h1>
-  {% if is_gm %}
-  <form method="post"
-        action="{% url 'campaigns:delete_encounter' campaign.id encounter.id %}"
-        onsubmit="return confirm('Delete this encounter? This will remove all its enemies.');">
-    {% csrf_token %}
-    <button class="text-sm text-red-600 hover:underline">Delete Encounter</button>
-  </form>
-  {% endif %}
-</div>
-
+      <h1 class="text-xl font-bold">{{ encounter.name }}</h1>
       {% if encounter.description %}<p class="text-sm text-gray-600">{{ encounter.description }}</p>{% endif %}
       <p class="text-xs text-gray-500 mt-1">
         <a class="hover:underline" href="{% url 'campaigns:campaign_detail' campaign.id %}">← Back to campaign</a>
       </p>
     </div>
-    <div></div>
+    {% if is_gm %}
+    <form method="post"
+          action="{% url 'campaigns:delete_encounter' campaign.id encounter.id %}"
+          onsubmit="return confirm('Delete this encounter? All creatures will be removed.');">
+      {% csrf_token %}
+      <button class="text-sm text-red-600 hover:underline">Delete Encounter</button>
+    </form>
+    {% endif %}
   </div>
 
   {% if messages %}
-  <div class="space-y-2">
-    {% for message in messages %}
-      <div class="rounded-md border px-4 py-2 text-sm
-                  {% if message.tags == 'error' %}border-red-300 bg-red-50 text-red-800
-                  {% elif message.tags == 'success' %}border-green-300 bg-green-50 text-green-800
-                  {% elif message.tags == 'warning' %}border-yellow-300 bg-yellow-50 text-yellow-800
-                  {% else %}border-blue-300 bg-blue-50 text-blue-800{% endif %}">
-        {{ message }}
-      </div>
-    {% endfor %}
-  </div>
+    <div class="space-y-2">
+      {% for message in messages %}
+        <div class="rounded-md border px-4 py-2 text-sm
+          {% if message.tags == 'error' %}border-red-300 bg-red-50 text-red-800
+          {% elif message.tags == 'success' %}border-green-300 bg-green-50 text-green-800
+          {% elif message.tags == 'warning' %}border-yellow-300 bg-yellow-50 text-yellow-800
+          {% else %}border-blue-300 bg-blue-50 text-blue-800{% endif %}">
+          {{ message }}
+        </div>
+      {% endfor %}
+    </div>
   {% endif %}
 
   <div class="grid lg:grid-cols-3 gap-4">
-<div class="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200">
-  <div class="p-4 border-b font-semibold">Combat (Initiative Order)</div>
 
+    <!-- Combat -->
+    <div class="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200">
+      <div class="p-4 border-b font-semibold">Combat (Initiative Order)</div>
 
-<div class="p-4">
-  <table class="w-full text-sm">
-    <thead class="text-xs text-gray-500 bg-gray-50">
-      <tr class="text-left">
-        <th class="py-2 px-3 w-64">Name</th>
-        <th class="px-3 w-24">Type</th>
-        <th class="px-3 w-28">Initiative</th>
-        <th class="px-3">HP / Actions</th>
-        {% if is_gm %}<th class="px-3 w-40">Adjust</th><th class="px-3 w-24"></th>{% endif %}
-      </tr>
-    </thead>
-
-    <tbody class="divide-y">
-    {% for row in combat %}
-      <!-- MAIN ROW -->
-      <tr class="align-top">
-        <!-- Name -->
-        <td class="py-2 px-3">
-          <div class="font-semibold">{{ row.name }}</div>
-          <div class="text-xs text-gray-500">{{ row.sub }}</div>
-        </td>
-
-        <!-- Type -->
-<td class="px-3">
-  {% if row.kind == 'enemy' %}
-    <div class="flex items-center gap-2">
-      <span>Creature</span>
-      <span class="inline-flex items-center text-[10px] px-2 py-0.5 rounded-full
-                   {% if row.obj.side == 'enemy' %}bg-red-100 text-red-700
-                   {% elif row.obj.side == 'ally' %}bg-emerald-100 text-emerald-700
-                   {% else %}bg-gray-100 text-gray-700{% endif %}">
-        {{ row.obj.get_side_display }}
-      </span>
-    </div>
-  {% else %}
-    PC
-  {% endif %}
-</td>
-
-        <!-- Initiative -->
-        <td class="px-3">
-          {% if is_gm %}
-          <form method="post" action="{% url 'campaigns:set_combat_initiative' campaign.id encounter.id %}" class="flex flex-wrap items-center gap-2">
-            {% csrf_token %}
-            <input type="hidden" name="kind" value="{{ row.kind }}">
-            <input type="hidden" name="id" value="{{ row.id }}">
-            <input type="number" name="initiative" value="{{ row.initiative }}" class="h-8 w-20 rounded border px-2 text-xs">
-            <button class="h-8 px-2 text-xs rounded-md border border-gray-300 hover:bg-gray-50">Set</button>
-          </form>
-          {% else %}
-            {{ row.initiative|default:"—" }}
-          {% endif %}
-        </td>
-
-        <!-- HP / Actions -->
-        <td class="px-3">
-          {% if row.kind == 'enemy' %}
-          <div class="space-y-2">
-            <!-- HP set -->
-            <form method="post" action="{% url 'campaigns:set_encounter_enemy_hp' campaign.id %}" class="flex flex-wrap items-center gap-2">
-              {% csrf_token %}
-              <input type="hidden" name="ee_id" value="{{ row.id }}">
-              <input type="number" name="current_hp" value="{{ row.hp.0 }}" class="h-8 w-20 rounded border px-2 text-xs">
-              <span class="text-gray-500 text-xs">/ {{ row.hp.1 }}</span>
-              {% if is_gm %}
-              <button class="h-8 px-2 text-xs rounded-md border border-gray-300 hover:bg-gray-50">Set</button>
-              {% endif %}
-            </form>
-
-            <!-- Damage/heal -->
-<!-- Damage/heal (PC -> Enemy) -->
-<form method="post" action="{% url 'campaigns:record_damage' campaign.id encounter.id %}" class="flex flex-wrap items-center gap-2">
-  {% csrf_token %}
-  <input type="hidden" name="mode" value="pc_to_enemy">
-  <input type="hidden" name="ee_id" value="{{ row.id }}">
-  ...
-</form>
-
-<!-- Enemy -> Player damage -->
-<form method="post" action="{% url 'campaigns:record_damage' campaign.id encounter.id %}" class="flex flex-wrap items-center gap-2 mt-1">
-  {% csrf_token %}
-  <input type="hidden" name="mode" value="enemy_to_pc">
-  <input type="hidden" name="attacker_ee_id" value="{{ row.id }}">
-  <select name="target_character" class="h-8 rounded border px-2 text-xs max-w-[220px]" required>
-    <option value="">— Target PC —</option>
-    {% for ch in campaign.characters.all %}
-      <option value="{{ ch.id }}">{{ ch.user.username }} – {{ ch.name }}</option>
-    {% endfor %}
-  </select>
-  <input type="number" name="amount" min="1" placeholder="Amt" required class="h-8 w-16 rounded border px-2 text-xs">
-  <input type="text" name="note" placeholder="note (crit, breath…)" class="h-8 rounded border px-2 text-xs w-full md:w-44">
-  <button class="h-8 px-2 text-xs rounded-md border border-gray-300 hover:bg-gray-50">Log</button>
-</form>
-
-
-            <!-- GM note -->
-            {% if is_gm %}
-            <form method="post" action="{% url 'campaigns:update_enemy_note' campaign.id encounter.id %}" class="flex flex-wrap items-center gap-2">
-              {% csrf_token %}
-              <input type="hidden" name="ee_id" value="{{ row.id }}">
-              <input type="text" name="notes" value="{{ row.obj.notes }}" placeholder="GM note…" class="h-8 rounded border px-2 text-xs w-full md:w-60">
-              <button class="h-8 px-2 text-xs rounded-md border border-gray-300 hover:bg-gray-50">Save</button>
-            </form>
-            {% endif %}
-          </div>
-          {% else %}
-            <span class="text-gray-500 text-sm">—</span>
-          {% endif %}
-        </td>
-
-        {% if is_gm %}
-        <!-- Nudge -->
-        <td class="px-3">
-          <form method="post" action="{% url 'campaigns:nudge_combat_initiative' campaign.id encounter.id %}" class="flex flex-wrap items-center gap-1">
-            {% csrf_token %}
-            <input type="hidden" name="kind" value="{{ row.kind }}">
-            <input type="hidden" name="id" value="{{ row.id }}">
-            <button name="delta" value="+1"  class="h-7 px-2 text-xs rounded-md border hover:bg-gray-50">▲ +1</button>
-            <button name="delta" value="-1"  class="h-7 px-2 text-xs rounded-md border hover:bg-gray-50">▼ -1</button>
-            <button name="delta" value="+10" class="h-7 px-2 text-xs rounded-md border hover:bg-gray-50">+10</button>
-            <button name="delta" value="-10" class="h-7 px-2 text-xs rounded-md border hover:bg-gray-50">-10</button>
-          </form>
-        </td>
-
-        <!-- Remove -->
-        <td class="px-3 text-right">
-          {% if row.kind == 'enemy' %}
-          <form method="post" action="{% url 'campaigns:remove_encounter_enemy' campaign.id encounter.id row.id %}" onsubmit="return confirm('Remove this enemy?');">
-            {% csrf_token %}
-            <button class="h-8 px-2 text-xs rounded-md border border-red-300 text-red-700 hover:bg-red-50">Remove</button>
-          </form>
-          {% else %}
-          <form method="post" action="{% url 'campaigns:remove_participant' campaign.id encounter.id row.id %}" onsubmit="return confirm('Remove this participant?');">
-            {% csrf_token %}
-            <button class="h-8 px-2 text-xs rounded-md border border-red-300 text-red-700 hover:bg-red-50">Remove</button>
-          </form>
-          {% endif %}
-        </td>
-        {% endif %}
-      </tr>
-
-      {% if row.kind == 'enemy' %}
-      <!-- DETAILS ROW -->
-      <tr class="bg-gray-50/60">
-        <td class="px-3 py-3" colspan="{{ combat_colspan }}">
-          <details class="group">
-            <summary class="cursor-pointer select-none text-sm font-medium text-gray-700 flex items-center gap-2">
-              <span class="inline-block transition-transform group-open:rotate-90">▶</span>
-              Details
-            </summary>
-
-            <div class="mt-3 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-gray-800">
-              <!-- Defenses -->
-              <div>
-                <div class="font-semibold mb-1">Defenses</div>
-                <div>Level: {{ row.obj.enemy_type.level|default:"—" }}</div>
-                <div>Armor: {{ row.obj.enemy_type.armor|default:"—" }} · Dodge: {{ row.obj.enemy_type.dodge|default:"—" }}</div>
-                <div>Initiative (base): {{ row.obj.enemy_type.initiative|default:"—" }}</div>
-                <div>HP: {{ row.hp.0 }} / {{ row.hp.1 }}</div>
-                <div>Resistances: {{ row.obj.enemy_type.resistances|default:"—" }}</div>
-                <div>
-                  Tags:
-                  {% for t in row.obj.enemy_type.tags.all %}
-                    <span class="inline-block rounded bg-gray-200 px-2 py-0.5 text-xs mr-1">{{ t.name }}</span>
-                  {% empty %}<span class="text-gray-500">—</span>{% endfor %}
-                </div>
-              </div>
-
-              <!-- Ability Scores / Skills / Saves -->
-              <div>
-                <div class="font-semibold mb-1">Scores & Skills</div>
-                <div class="grid grid-cols-3 gap-x-3 gap-y-1">
-                  <div>STR {{ row.obj.enemy_type.str_score|default:"—" }}</div>
-                  <div>DEX {{ row.obj.enemy_type.dex_score|default:"—" }}</div>
-                  <div>CON {{ row.obj.enemy_type.con_score|default:"—" }}</div>
-                  <div>INT {{ row.obj.enemy_type.int_score|default:"—" }}</div>
-                  <div>WIS {{ row.obj.enemy_type.wis_score|default:"—" }}</div>
-                  <div>CHA {{ row.obj.enemy_type.cha_score|default:"—" }}</div>
-                </div>
-                <div class="mt-2">Perception {{ row.obj.enemy_type.perception|default:"—" }} · Stealth {{ row.obj.enemy_type.stealth|default:"—" }}</div>
-                <div>Saves — Will {{ row.obj.enemy_type.will_save|default:"—" }},
-                     Reflex {{ row.obj.enemy_type.reflex_save|default:"—" }},
-                     Fortitude {{ row.obj.enemy_type.fortitude_save|default:"—" }}</div>
-              </div>
-
-              <!-- Abilities -->
-              <div>
-                <div class="font-semibold mb-1">Abilities</div>
-                <ul class="space-y-2">
-                  {% for ab in row.obj.enemy_type.abilities.all %}
-
-                    <li>
-                      <div class="font-medium">{{ ab.get_ability_type_display }}{% if ab.title %}: {{ ab.title }}{% endif %}</div>
-                      <div class="text-gray-700 text-sm">{{ ab.description }}</div>
-                      {% if ab.action_cost %}<div class="text-xs text-gray-500 mt-0.5">Action: {{ ab.action_cost }}</div>{% endif %}
-                    </li>
-                  {% empty %}
-                    <li class="text-gray-500">No special abilities.</li>
-                  {% endfor %}
-                </ul>
-              </div>
-            </div>
-
-            {% if row.obj.enemy_type.description %}
-            <div class="mt-3 text-gray-700">{{ row.obj.enemy_type.description }}</div>
-            {% endif %}
-          </details>
-        </td>
-      </tr>
-      {% endif %}
-    {% empty %}
-      <tr><td class="py-4 px-3 text-gray-600" colspan="6">No combatants yet.</td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
-</div>
-
-</div>
-
-
-
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200">
-<div class="p-4 border-b font-semibold">Add Creatures</div>
       <div class="p-4">
-        {% if is_gm %}
-        <form method="post" action="{% url 'campaigns:add_enemy_to_encounter' campaign.id encounter.id %}" class="space-y-2">
-          {% csrf_token %}
-<div class="grid grid-cols-1 md:grid-cols-12 gap-2">
-  <div class="md:col-span-6">{{ add_form.enemy_type }}</div>
-  <div class="md:col-span-3">{{ add_form.side }}</div>
-  <div class="md:col-span-3">{{ add_form.count }}</div>
-</div>
-          <button class="px-3 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">Add to Encounter</button>
-        </form>
-        {% else %}
-        <p class="text-gray-600 text-sm">Only GMs can add enemies.</p>
-        {% endif %}
-      </div>
-    </div>
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 mt-4">
-  <div class="p-4 border-b font-semibold">Add Player to Combat</div>
-  <div class="p-4">
-    {% if is_gm %}
-    <form method="post" action="{% url 'campaigns:add_participant' campaign.id encounter.id %}" class="space-y-2">
-      {% csrf_token %}
-      <div>{{ add_participant_form.character }}</div>
-      <div>{{ add_participant_form.role }}</div>
-      <div>{{ add_participant_form.initiative }}</div>
-      <button class="px-3 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">Add to Combat</button>
-    </form>
-    {% else %}
-      <p class="text-gray-600 text-sm">Only GMs can add players to combat.</p>
-    {% endif %}
-  </div>
-</div>
-<div class="bg-white rounded-xl shadow-sm border border-gray-200 mt-6">
-  <div class="p-4 border-b font-semibold flex items-center justify-between">
-    <span>Encounter Analytics</span>
-    <span class="text-xs text-gray-500">Live from logged events</span>
-  </div>
-
-  <div class="p-4 space-y-6">
-
-    <!-- Team Damage to Enemies -->
-    <div>
-      <div class="flex items-baseline justify-between mb-2">
-        <h3 class="font-semibold">Team Damage to Enemies</h3>
-        <div class="text-xs text-gray-500">Total: {{ analytics.team_total|default:0 }}</div>
-      </div>
-      {% if analytics.team_by_char %}
-      <div class="space-y-2">
-        {% for row in analytics.team_by_char %}
-          <div>
-            <div class="flex items-center justify-between text-xs">
-              <div class="text-gray-700 font-medium">{{ row.attacker_character__name }}</div>
-              <div class="text-gray-500">{{ row.total }} ({{ row.share_pct }}%)</div>
-            </div>
-            <div class="h-2 w-full bg-gray-200 rounded">
-              <div class="h-2 rounded bg-indigo-600" style="width: {{ row.share_pct }}%"></div>
-            </div>
-          </div>
-        {% endfor %}
-      </div>
-      {% else %}
-        <p class="text-sm text-gray-500">No damage to enemies recorded.</p>
-      {% endif %}
-    </div>
-
-    <!-- Damage Taken by Players -->
-    <div>
-      <div class="flex items-baseline justify-between mb-2">
-        <h3 class="font-semibold">Damage Taken by Players</h3>
-        <div class="text-xs text-gray-500">Total: {{ analytics.taken_total|default:0 }}</div>
-      </div>
-      {% if analytics.taken_by_pc %}
-      <div class="space-y-2">
-        {% for row in analytics.taken_by_pc %}
-          <div>
-            <div class="flex items-center justify-between text-xs">
-              <div class="text-gray-700 font-medium">{{ row.target_character__name }}</div>
-              <div class="text-gray-500">{{ row.total }} ({{ row.share_pct }}%)</div>
-            </div>
-            <div class="h-2 w-full bg-gray-200 rounded">
-              <div class="h-2 rounded bg-rose-600" style="width: {{ row.share_pct }}%"></div>
-            </div>
-          </div>
-        {% endfor %}
-      </div>
-      {% else %}
-        <p class="text-sm text-gray-500">No enemy damage against players recorded.</p>
-      {% endif %}
-    </div>
-
-    <!-- What the team damaged (by enemy type & side) -->
-    <div class="grid md:grid-cols-2 gap-6">
-      <div>
-        <h3 class="font-semibold mb-2">Damage by Target (Enemy Type)</h3>
-        <table class="w-full text-sm border rounded">
+        <table class="w-full text-sm">
           <thead class="text-xs text-gray-500 bg-gray-50">
-            <tr>
-              <th class="text-left p-2">Enemy Type</th>
-              <th class="text-left p-2">Side</th>
-              <th class="text-right p-2">Total</th>
-              <th class="text-right p-2">% of Team</th>
+            <tr class="text-left">
+              <th class="py-2 px-3 w-64">Name</th>
+              <th class="px-3 w-28">Initiative</th>
+              <th class="px-3 w-40">HP</th>
+              {% if is_gm %}<th class="px-3">Actions</th>{% endif %}
             </tr>
           </thead>
+
           <tbody class="divide-y">
-            {% for row in analytics.by_enemy_type %}
-            <tr>
-              <td class="p-2">{{ row.target_enemy__enemy_type__name }}</td>
-              <td class="p-2">{{ row.target_enemy__side|title }}</td>
-              <td class="p-2 text-right">{{ row.total }}</td>
-              <td class="p-2 text-right">{{ row.share_pct }}%</td>
+          {% for row in combat %}
+            <tr class="align-top">
+              <!-- Name & type chip -->
+              <td class="py-2 px-3">
+                <div class="font-semibold">{{ row.name }}</div>
+                <div class="text-xs text-gray-500 flex items-center gap-2">
+                  {% if row.kind == 'enemy' %}
+                    <span>Creature</span>
+                    <span class="inline-flex items-center text-[10px] px-2 py-0.5 rounded-full
+                          {% if row.obj.side == 'enemy' %}bg-red-100 text-red-700
+                          {% elif row.obj.side == 'ally' %}bg-emerald-100 text-emerald-700
+                          {% else %}bg-gray-100 text-gray-700{% endif %}">
+                      {{ row.obj.get_side_display }}
+                    </span>
+                  {% else %}
+                    Player
+                  {% endif %}
+                </div>
+              </td>
+
+              <!-- Initiative -->
+              <td class="px-3">
+                {% if is_gm %}
+                  <form method="post" action="{% url 'campaigns:set_combat_initiative' campaign.id encounter.id %}" class="flex items-center gap-2">
+                    {% csrf_token %}
+                    <input type="hidden" name="kind" value="{{ row.kind }}">
+                    <input type="hidden" name="id" value="{{ row.id }}">
+                    <input type="number" name="initiative" value="{{ row.initiative }}" class="h-8 w-20 rounded border px-2 text-xs">
+                    <button class="h-8 px-2 text-xs rounded-md border hover:bg-gray-50">Set</button>
+                  </form>
+                {% else %}
+                  {{ row.initiative|default:"—" }}
+                {% endif %}
+              </td>
+
+              <!-- HP (always visible for enemies) -->
+              <td class="px-3">
+                {% if row.kind == 'enemy' %}
+                  <div class="text-sm">
+                    <div class="flex items-center justify-between">
+                      <span class="font-medium">{{ row.hp.0 }}</span>
+                      <span class="text-gray-500">/ {{ row.hp.1 }}</span>
+                    </div>
+                    <div class="h-2 w-full bg-gray-200 rounded mt-1 overflow-hidden">
+                      {% if row.hp.1 %}
+                        <div class="h-2 bg-indigo-600"
+                             style="width: calc({{ row.hp.0 }} / {{ row.hp.1 }} * 100%);"></div>
+                      {% else %}
+                        <div class="h-2 bg-indigo-600" style="width: 0%;"></div>
+                      {% endif %}
+                    </div>
+                  </div>
+                {% else %}
+                  <span class="text-gray-500">—</span>
+                {% endif %}
+              </td>
+
+              <!-- Actions (GM only) -->
+              {% if is_gm %}
+              <td class="px-3">
+                {% if row.kind == 'enemy' %}
+                  <!-- Remove HP + log who did it (this IS the log) -->
+                  <form method="post" action="{% url 'campaigns:record_damage' campaign.id encounter.id %}" class="flex flex-wrap items-center gap-2">
+                    {% csrf_token %}
+                    <input type="hidden" name="ee_id" value="{{ row.id }}">
+                    <input type="number" name="amount" min="1" placeholder="−HP" required
+                           class="h-8 w-20 rounded border px-2 text-xs">
+                    <select name="attacker" class="h-8 rounded border px-2 text-xs max-w-[240px]"
+                            data-target="other-{{ row.id }}" onchange="toggleOtherName(this)" required>
+                      <option value="">— Who did it? —</option>
+                      {% for ch in campaign.characters.all %}
+                        <option value="{{ ch.id }}">{{ ch.user.username }} – {{ ch.name }}</option>
+                      {% endfor %}
+                      <option value="other">Other…</option>
+                    </select>
+                    <input id="other-{{ row.id }}" type="text" name="other_name"
+                           placeholder="Other (name)" class="hidden h-8 rounded border px-2 text-xs w-40">
+                    <button class="h-8 px-2 text-xs rounded-md border hover:bg-gray-50">Apply</button>
+                  </form>
+
+                  <!-- GM note (single) -->
+                  <form method="post" action="{% url 'campaigns:update_enemy_note' campaign.id encounter.id %}" class="mt-2 flex items-center gap-2">
+                    {% csrf_token %}
+                    <input type="hidden" name="ee_id" value="{{ row.id }}">
+                    <input type="text" name="notes" value="{{ row.obj.notes }}" placeholder="GM note…"
+                           class="h-8 rounded border px-2 text-xs w-full md:w-60">
+                    <button class="h-8 px-2 text-xs rounded-md border hover:bg-gray-50">Save</button>
+                  </form>
+
+                  <!-- Remove creature (inline) -->
+                  <form method="post"
+                        action="{% url 'campaigns:remove_encounter_enemy' campaign.id encounter.id row.id %}"
+                        onsubmit="return confirm('Remove this creature?');"
+                        class="mt-2">
+                    {% csrf_token %}
+                    <button class="h-8 px-2 text-xs rounded-md border border-red-300 text-red-700 hover:bg-red-50">
+                      Remove
+                    </button>
+                  </form>
+                {% else %}
+                  <!-- Remove participant -->
+                  <form method="post" action="{% url 'campaigns:remove_participant' campaign.id encounter.id row.id %}"
+                        onsubmit="return confirm('Remove this participant?');">
+                    {% csrf_token %}
+                    <button class="h-8 px-2 text-xs rounded-md border border-red-300 text-red-700 hover:bg-red-50">Remove</button>
+                  </form>
+                {% endif %}
+              </td>
+              {% endif %}
             </tr>
-            {% empty %}
-            <tr><td colspan="4" class="p-3 text-gray-500">No data.</td></tr>
-            {% endfor %}
+
+            {% if row.kind == 'enemy' %}
+            <!-- Details (no extra “log” here) -->
+            <tr class="bg-gray-50/60">
+              <td class="px-3 py-3" colspan="{% if is_gm %}4{% else %}3{% endif %}">
+                <details class="group">
+                  <summary class="cursor-pointer select-none text-sm font-medium text-gray-700 flex items-center gap-2">
+                    <span class="inline-block transition-transform group-open:rotate-90">▶</span>
+                    Details
+                  </summary>
+
+                  <div class="mt-3 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-gray-800">
+                    <!-- Defenses -->
+                    <div>
+                      <div class="font-semibold mb-1">Defenses</div>
+                      <div>Level: {{ row.obj.enemy_type.level|default:"—" }}</div>
+                      <div>Armor: {{ row.obj.enemy_type.armor|default:"—" }} · Dodge: {{ row.obj.enemy_type.dodge|default:"—" }}</div>
+                      <div>Initiative (base): {{ row.obj.enemy_type.initiative|default:"—" }}</div>
+                      <div>HP: {{ row.hp.0 }} / {{ row.hp.1 }}</div>
+                      <div>Speed: {{ row.obj.enemy_type.speed|default:"—" }}</div>
+                      <div>Resistances: {{ row.obj.enemy_type.resistances|default:"—" }}</div>
+                      <div>
+                        Tags:
+                        {% for t in row.obj.enemy_type.tags.all %}
+                          <span class="inline-block rounded bg-gray-200 px-2 py-0.5 text-xs mr-1">{{ t.name }}</span>
+                        {% empty %}<span class="text-gray-500">—</span>{% endfor %}
+                      </div>
+                    </div>
+
+                    <!-- Scores & Saves -->
+                    <div>
+                      <div class="font-semibold mb-1">Scores & Skills</div>
+                      <div class="grid grid-cols-3 gap-x-3 gap-y-1">
+                        <div>STR {{ row.obj.enemy_type.str_score|default:"—" }}</div>
+                        <div>DEX {{ row.obj.enemy_type.dex_score|default:"—" }}</div>
+                        <div>CON {{ row.obj.enemy_type.con_score|default:"—" }}</div>
+                        <div>INT {{ row.obj.enemy_type.int_score|default:"—" }}</div>
+                        <div>WIS {{ row.obj.enemy_type.wis_score|default:"—" }}</div>
+                        <div>CHA {{ row.obj.enemy_type.cha_score|default:"—" }}</div>
+                      </div>
+                      <div class="mt-2">Perception {{ row.obj.enemy_type.perception|default:"—" }} · Stealth {{ row.obj.enemy_type.stealth|default:"—" }}</div>
+                      <div>Saves — Will {{ row.obj.enemy_type.will_save|default:"—" }},
+                           Reflex {{ row.obj.enemy_type.reflex_save|default:"—" }},
+                           Fortitude {{ row.obj.enemy_type.fortitude_save|default:"—" }}</div>
+                    </div>
+
+                    <!-- Abilities -->
+                    <div>
+                      <div class="font-semibold mb-1">Abilities</div>
+                      <ul class="space-y-2">
+                        {% for ab in row.obj.enemy_type.abilities.all %}
+                          <li>
+                            <div class="font-medium">{{ ab.get_ability_type_display }}{% if ab.title %}: {{ ab.title }}{% endif %}</div>
+                            <div class="text-gray-700 text-sm">{{ ab.description }}</div>
+                            {% if ab.action_cost %}<div class="text-xs text-gray-500 mt-0.5">Action: {{ ab.action_cost }}</div>{% endif %}
+                          </li>
+                        {% empty %}
+                          <li class="text-gray-500">No special abilities.</li>
+                        {% endfor %}
+                      </ul>
+                    </div>
+                  </div>
+
+                  {% if row.obj.enemy_type.description %}
+                    <div class="mt-3 text-gray-700">{{ row.obj.enemy_type.description }}</div>
+                  {% endif %}
+                </details>
+              </td>
+            </tr>
+            {% endif %}
+          {% empty %}
+            <tr><td class="py-4 px-3 text-gray-600" colspan="{% if is_gm %}4{% else %}3{% endif %}">No combatants yet.</td></tr>
+          {% endfor %}
           </tbody>
         </table>
       </div>
-
-      <div>
-        <h3 class="font-semibold mb-2">Damage Sources (Enemy → Players)</h3>
-        <table class="w-full text-sm border rounded">
-          <thead class="text-xs text-gray-500 bg-gray-50">
-            <tr>
-              <th class="text-left p-2">Enemy Type</th>
-              <th class="text-left p-2">Side</th>
-              <th class="text-right p-2">Total</th>
-              <th class="text-right p-2">% of Taken</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y">
-            {% for row in analytics.by_source_enemy_type %}
-            <tr>
-              <td class="p-2">{{ row.attacker_enemy__enemy_type__name }}</td>
-              <td class="p-2">{{ row.attacker_enemy__side|title }}</td>
-              <td class="p-2 text-right">{{ row.total }}</td>
-              <td class="p-2 text-right">{{ row.share_pct }}%</td>
-            </tr>
-            {% empty %}
-            <tr><td colspan="4" class="p-3 text-gray-500">No data.</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
     </div>
 
+    <!-- Right column -->
+    <div class="space-y-4">
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200">
+        <div class="p-4 border-b font-semibold">Add Creatures</div>
+        <div class="p-4">
+          {% if is_gm %}
+          <form method="post" action="{% url 'campaigns:add_enemy_to_encounter' campaign.id encounter.id %}" class="space-y-2">
+            {% csrf_token %}
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-2">
+              <div class="md:col-span-6">{{ add_form.enemy_type }}</div>
+              <div class="md:col-span-3">{{ add_form.side }}</div>
+              <div class="md:col-span-3">{{ add_form.count }}</div>
+            </div>
+            <button class="px-3 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">Add to Encounter</button>
+          </form>
+          {% else %}
+            <p class="text-gray-600 text-sm">Only GMs can add enemies.</p>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200">
+        <div class="p-4 border-b font-semibold">Add Player to Combat</div>
+        <div class="p-4">
+          {% if is_gm %}
+          <form method="post" action="{% url 'campaigns:add_participant' campaign.id encounter.id %}" class="space-y-2">
+            {% csrf_token %}
+            <div>{{ add_participant_form.character }}</div>
+            <div>{{ add_participant_form.role }}</div>
+            <div>{{ add_participant_form.initiative }}</div>
+            <button class="px-3 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">Add to Combat</button>
+          </form>
+          {% else %}
+            <p class="text-gray-600 text-sm">Only GMs can add players to combat.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
-
-  </div>
-
-</div>
+<script>
+  function toggleOtherName(sel){
+    var id = sel.getAttribute('data-target');
+    var el = document.getElementById(id);
+    if(!el) return;
+    if(sel.value === 'other') { el.classList.remove('hidden'); }
+    else { el.classList.add('hidden'); el.value = ''; }
+  }
+</script>
 {% endblock %}

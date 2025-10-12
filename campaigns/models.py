@@ -130,6 +130,7 @@ class EnemyType(models.Model):
     name = models.CharField(max_length=120)
     level = models.PositiveIntegerField(default=0)
     hp = models.PositiveIntegerField(default=1)
+    speed   = models.PositiveIntegerField(default=30)
     armor = models.IntegerField(default=0)
     dodge = models.IntegerField(default=0)
     initiative = models.IntegerField(default=0)  # NEW: base initiative
@@ -149,7 +150,7 @@ class EnemyType(models.Model):
     # Skills-ish
     perception = models.IntegerField(default=0)
     stealth = models.IntegerField(default=0)
-
+    athletics = models.IntegerField(default=0)
     # Text
     description = models.TextField(blank=True)
     resistances = models.TextField(blank=True, help_text="Free text for resistances/notes")

@@ -34,7 +34,7 @@ def send_campaign_message(request, campaign_id):
 from .models import Campaign, CampaignMembership, EnemyTag
 from .forms import (
     CampaignCreationForm, AttachCharacterForm, AssignSkillFeatsForm,
-    EnemyTypeCreateForm, EnemyAbilityInlineFormSet, AddParticipantForm, SetParticipantInitiativeForm, SetEncounterEnemyHPForm, RecordDamageForm, UpdateEnemyNoteForm
+    EnemyTypeCreateForm, EnemyAbilityInlineFormSet, AddParticipantForm, SetParticipantInitiativeForm, RecordDamageForm, UpdateEnemyNoteForm
 )
 from characters.models import Character
 # BEFORE imports
@@ -46,7 +46,7 @@ from .forms import (
     CampaignCreationForm, AttachCharacterForm, CampaignNoteForm, PartyItemForm, MessageForm, JoinCampaignForm,
     AssignSkillFeatsForm,RecordEnemyToPCDamageForm,
     EnemyTypeForm, EnemyAbilityForm, EncounterForm, AddEnemyToEncounterForm,
-    SetEncounterEnemyHPForm, AdjustEncounterEnemyHPForm,
+
     QuickAddEnemyForm,   # NEW
 )
 
@@ -192,7 +192,7 @@ from .forms import (
     CampaignCreationForm, AttachCharacterForm, CampaignNoteForm, PartyItemForm, MessageForm, JoinCampaignForm,
     AssignSkillFeatsForm,                      # you already had this
     EnemyTypeForm, EnemyAbilityForm, EncounterForm, AddEnemyToEncounterForm,  # NEW
-    SetEncounterEnemyHPForm, AdjustEncounterEnemyHPForm                       # NEW
+                       # NEW
 )
 from .models import Campaign, CampaignMembership, CampaignNote, PartyItem, CampaignMessage
 
@@ -710,66 +710,51 @@ def remove_participant(request, campaign_id, encounter_id, participant_id):
     return redirect("campaigns:encounter_detail", campaign_id=campaign.id, encounter_id=enc.id)
 
 
+@login_required
 def record_damage(request, campaign_id, encounter_id):
+    """Single path: remove HP from an enemy with a required 'who did it'."""
     campaign = get_object_or_404(Campaign, id=campaign_id)
     enc = get_object_or_404(Encounter, id=encounter_id, campaign=campaign)
-    if request.method != "POST": raise Http404()
+    if request.method != "POST":
+        raise Http404()
 
-    mode = request.POST.get("mode", "pc_to_enemy")
-
-    if mode == "enemy_to_pc":
-        form = RecordEnemyToPCDamageForm(request.POST, campaign=campaign)
-        if not form.is_valid():
-            messages.error(request, "Enter a valid enemy → player damage entry.")
-            return redirect("campaigns:encounter_detail", campaign_id=campaign.id, encounter_id=enc.id)
-
-        attacker_ee = get_object_or_404(EncounterEnemy, id=form.cleaned_data["attacker_ee_id"], encounter=enc)
-        victim = form.cleaned_data["target_character"]
-        amount = form.cleaned_data["amount"]
-        note = form.cleaned_data.get("note", "")
-
-        # Apply damage to PLAYERS? (We don't track PC HP here, so just log the event)
-        DamageEvent.objects.create(
-            encounter=enc,
-            attacker_enemy=attacker_ee,
-            target_character=victim,
-            kind="dmg",
-            amount=amount,
-            note=note,
-        )
-        messages.success(request, f"{attacker_ee.display_name} hit {victim.name} for {amount}.")
-        return redirect("campaigns:encounter_detail", campaign_id=campaign.id, encounter_id=enc.id)
-
-    # default: PC → Enemy (existing flow)
     form = RecordDamageForm(request.POST, campaign=campaign)
     if not form.is_valid():
-        messages.error(request, "Enter a valid damage/heal entry.")
+        messages.error(request, "Enter a valid HP removal and who did it.")
         return redirect("campaigns:encounter_detail", campaign_id=campaign.id, encounter_id=enc.id)
 
     ee = get_object_or_404(EncounterEnemy, id=form.cleaned_data["ee_id"], encounter=enc)
     amount = form.cleaned_data["amount"]
-    kind = form.cleaned_data["kind"]
-    attacker = form.cleaned_data.get("attacker")
+    attacker_choice = form.cleaned_data["attacker"]
+    other_name = (form.cleaned_data.get("other_name") or "").strip()
 
-    # Apply HP to ENEMY
-    signed = -amount if kind == "dmg" else amount
-    ee.current_hp = max(min(ee.current_hp + signed, ee.max_hp), -999)
+    # Always subtract HP
+    ee.current_hp = max(min(ee.current_hp - amount, ee.max_hp), -999)
     ee.save(update_fields=["current_hp"])
+
+    # Build event
+    attacker_character_id = int(attacker_choice) if attacker_choice.isdigit() else None
+    note = f"Other: {other_name}" if attacker_choice == "other" and other_name else ""
 
     DamageEvent.objects.create(
         encounter=enc,
         attacker_user=request.user,
-        attacker_character=attacker,
-        target_enemy=ee,             # <- changed from enemy=ee
-        kind=kind,
+        attacker_character_id=attacker_character_id,
+        target_enemy=ee,
+        kind="dmg",
         amount=amount,
-        note=form.cleaned_data.get("note", ""),
+        note=note,
     )
 
-    verb = "damaged" if kind == "dmg" else "healed"
-    who = attacker.name if attacker else request.user.username
-    messages.success(request, f"{who} {verb} {ee.display_name} for {amount}. Now {ee.current_hp}/{ee.max_hp}.")
+    if attacker_character_id:
+        who = (campaign.characters.filter(id=attacker_character_id)
+               .values_list("name", flat=True).first()) or "Unknown"
+    else:
+        who = other_name or "Other"
+
+    messages.success(request, f"{who} damaged {ee.display_name} for {amount}. Now {ee.current_hp}/{ee.max_hp}.")
     return redirect("campaigns:encounter_detail", campaign_id=campaign.id, encounter_id=enc.id)
+
 
 from django.db.models import Sum, Max, Count
 @login_required
@@ -946,13 +931,8 @@ def encounter_detail(request, campaign_id, encounter_id):
         Q(campaign__isnull=True) | Q(campaign=campaign)
     ).order_by("name")
 
-    set_hp_form = SetEncounterEnemyHPForm()
-    adj_hp_form = AdjustEncounterEnemyHPForm()
-
-    # NEW: bring in participants (players) and make a single Combat list (enemies + PCs)
     participants = enc.participants.select_related("character", "character__user")
 
-    # Build a simple, sortable structure
     combat = []
     for ee in enemies:
         combat.append({
@@ -971,16 +951,14 @@ def encounter_detail(request, campaign_id, encounter_id):
             "name": f"{p.character.user.username} · {p.character.name}",
             "sub": "Player",
             "initiative": p.initiative,
-            "hp": None,  # PCs aren't tracked here
+            "hp": None,
             "obj": p,
         })
-    # Highest initiative first; None sorts last
     combat.sort(key=lambda r: (999999 if r["initiative"] is None else -r["initiative"], r["name"]))
 
+    add_participant_form = AddParticipantForm(campaign=campaign, encounter=enc)
+    colspan = 6 if is_gm else 4  # keep/table may still use this; adjust if you reduce columns
 
-
-    add_participant_form = AddParticipantForm(campaign=campaign, encounter=enc)  # NEW
-    colspan = 6 if is_gm else 4
     return render(request, "campaigns/encounter_detail.html", {
         "campaign": campaign,
         "encounter": enc,
@@ -988,14 +966,41 @@ def encounter_detail(request, campaign_id, encounter_id):
         "is_member": is_member,
         "is_gm": is_gm,
         "add_form": add_form,
-        "set_hp_form": set_hp_form,
-        "adj_hp_form": adj_hp_form,
+        # removed: set_hp_form / adj_hp_form
         "participants": participants,
         "combat": combat,
         "combat_colspan": colspan,
         "add_participant_form": add_participant_form,
-
     })
+@login_required
+def record_enemy_to_pc_damage(request, campaign_id, encounter_id):
+    campaign = get_object_or_404(Campaign, id=campaign_id)
+    enc = get_object_or_404(Encounter, id=encounter_id, campaign=campaign)
+    if request.method != "POST":
+        raise Http404()
+
+    form = RecordEnemyToPCDamageForm(request.POST, campaign=campaign)
+    if not form.is_valid():
+        messages.error(request, "Enter a valid enemy → player damage entry.")
+        return redirect("campaigns:encounter_detail", campaign_id=campaign.id, encounter_id=enc.id)
+
+    attacker_ee = get_object_or_404(EncounterEnemy, id=form.cleaned_data["attacker_ee_id"], encounter=enc)
+    victim = form.cleaned_data["target_character"]
+    amount = form.cleaned_data["amount"]
+    note = form.cleaned_data.get("note", "")
+
+    # Log only — enemy HP is NOT changed here.
+    DamageEvent.objects.create(
+        encounter=enc,
+        attacker_enemy=attacker_ee,
+        target_character=victim,
+        kind="dmg",
+        amount=amount,
+        note=note,
+    )
+    messages.success(request, f"{attacker_ee.display_name} hit {victim.name} for {amount}.")
+    return redirect("campaigns:encounter_detail", campaign_id=campaign.id, encounter_id=enc.id)
+
 
 @login_required
 def delete_enemy_type(request, campaign_id, et_id):
@@ -1170,29 +1175,6 @@ def add_enemy_to_encounter(request, campaign_id, encounter_id):
     messages.success(request, f"Added {created} × {et.name}.")
     return redirect("campaigns:encounter_detail", campaign_id=campaign.id, encounter_id=enc.id)
 
-
-@login_required
-def set_encounter_enemy_hp(request, campaign_id):
-    campaign = get_object_or_404(Campaign, id=campaign_id)
-    if not _is_gm(request.user, campaign):
-        return HttpResponseForbidden("GM only.")
-    if request.method != "POST": raise Http404()
-
-    form = SetEncounterEnemyHPForm(request.POST)
-    if not form.is_valid():
-        messages.error(request, "Enter a valid HP value.")
-        # Try to bounce to referring page
-        return redirect(request.META.get("HTTP_REFERER", "campaigns:campaign_detail"), campaign_id=campaign.id)
-
-    ee = get_object_or_404(EncounterEnemy, id=form.cleaned_data["ee_id"], encounter__campaign=campaign)
-    ee.current_hp = form.cleaned_data["current_hp"]
-    # keep within [<= max], but allow negatives if you like. Here clamp min at -999 for safety.
-    ee.current_hp = max(min(ee.current_hp, ee.max_hp), -999)
-    ee.save(update_fields=["current_hp"])
-
-    messages.success(request, f"{ee.display_name} HP set to {ee.current_hp}/{ee.max_hp}.")
-    return redirect("campaigns:encounter_detail", campaign_id=campaign.id, encounter_id=ee.encounter_id)
-
 @login_required
 def edit_enemy_type(request, campaign_id, et_id):
     campaign = get_object_or_404(Campaign, id=campaign_id)
@@ -1236,27 +1218,6 @@ def delete_encounter(request, campaign_id, encounter_id):
     enc.delete()  # relies on your FK cascade to remove EncounterEnemy rows
     messages.info(request, f"Encounter '{name}' deleted.")
     return redirect(f"{reverse('campaigns:campaign_detail', args=[campaign.id])}#encounters")
-
-@login_required
-def adjust_encounter_enemy_hp(request, campaign_id):
-    campaign = get_object_or_404(Campaign, id=campaign_id)
-    if not _is_gm(request.user, campaign):
-        return HttpResponseForbidden("GM only.")
-    if request.method != "POST": raise Http404()
-
-    form = AdjustEncounterEnemyHPForm(request.POST)
-    if not form.is_valid():
-        messages.error(request, "Invalid adjustment.")
-        return redirect(request.META.get("HTTP_REFERER", "campaigns:campaign_detail"), campaign_id=campaign.id)
-
-    ee = get_object_or_404(EncounterEnemy, id=form.cleaned_data["ee_id"], encounter__campaign=campaign)
-    ee.current_hp = ee.current_hp + form.cleaned_data["delta"]
-    ee.current_hp = max(min(ee.current_hp, ee.max_hp), -999)
-    ee.save(update_fields=["current_hp"])
-
-    sign = "+" if form.cleaned_data["delta"] >= 0 else ""
-    messages.success(request, f"{ee.display_name} HP {sign}{form.cleaned_data['delta']} → {ee.current_hp}/{ee.max_hp}.")
-    return redirect("campaigns:encounter_detail", campaign_id=campaign.id, encounter_id=ee.encounter_id)
 
 
 @login_required

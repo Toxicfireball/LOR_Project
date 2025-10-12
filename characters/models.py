@@ -1498,24 +1498,24 @@ class SpecialItemTraitValue(models.Model):
     active       = models.BooleanField("Active", default=False)
 
     # Active‐only config
-    formula_target           = models.CharField(max_length=50, blank=True)
-    formula                  = models.CharField(max_length=100, blank=True)
-    uses                     = models.CharField(max_length=100, blank=True)
-    action_type              = models.CharField(max_length=50, blank=True)
-    damage_type              = models.CharField(max_length=50, blank=True)
-    saving_throw_required    = models.BooleanField(default=False)
-    saving_throw_type        = models.CharField(max_length=50, blank=True)
-    saving_throw_granularity = models.CharField(max_length=20, blank=True)
-    saving_throw_basic_success    = models.CharField(max_length=100, blank=True)
-    saving_throw_basic_failure    = models.CharField(max_length=100, blank=True)
-    saving_throw_critical_success = models.CharField(max_length=100, blank=True)
-    saving_throw_success         = models.CharField(max_length=100, blank=True)
-    saving_throw_failure         = models.CharField(max_length=100, blank=True)
-    saving_throw_critical_failure= models.CharField(max_length=100, blank=True)
+    formula_target           = models.CharField(max_length=50,null=True, blank=True)
+    formula                  = models.CharField(max_length=100,null=True, blank=True)
+    uses                     = models.CharField(max_length=100, null=True,blank=True)
+    action_type              = models.CharField(max_length=50,null=True, blank=True)
+    damage_type              = models.CharField(max_length=50, null=True,blank=True)
+    saving_throw_required    = models.BooleanField(null=True,default=False)
+    saving_throw_type        = models.CharField(max_length=50, null=True,blank=True)
+    saving_throw_granularity = models.CharField(max_length=20,null=True, blank=True)
+    saving_throw_basic_success    = models.CharField(max_length=100,null=True, blank=True)
+    saving_throw_basic_failure    = models.CharField(max_length=100,null=True, blank=True)
+    saving_throw_critical_success = models.CharField(max_length=100,null=True, blank=True)
+    saving_throw_success         = models.CharField(max_length=100,null=True, blank=True)
+    saving_throw_failure         = models.CharField(max_length=100,null=True, blank=True)
+    saving_throw_critical_failure= models.CharField(max_length=100,null=True, blank=True)
 
     # Passive‐only config
-    modify_proficiency_target = models.CharField(max_length=50, blank=True)
-    modify_proficiency_amount = models.CharField(max_length=50, blank=True)
+    modify_proficiency_target = models.CharField(max_length=50,null=True, blank=True)
+    modify_proficiency_amount = models.CharField(max_length=50,null=True, blank=True)
 
     SAVING_THROW_TYPE_CHOICES = [
         ("reflex",    "Reflex"),

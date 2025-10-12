@@ -220,8 +220,8 @@ class EnemyTypeForm(forms.ModelForm):
         fields = [
             "name","level","hp","armor","dodge","initiative",
             "str_score","dex_score","con_score","int_score","wis_score","cha_score",
-            "will_save","reflex_save","fortitude_save",
-            "perception","stealth",
+            "will_save","reflex_save","fortitude_save","speed",
+            "perception","stealth","athletics",
             "description","resistances",
         ]
 
@@ -299,18 +299,33 @@ class SetParticipantInitiativeForm(forms.Form):
 
 
 class RecordDamageForm(forms.Form):
+    """
+    The ONLY way to change enemy HP:
+    - amount: how much HP to remove
+    - attacker: one of the campaign's players OR "other"
+    - other_name: required only if attacker == "other"
+    """
     ee_id = forms.IntegerField()
-    attacker = forms.ModelChoiceField(queryset=Character.objects.none(), required=False,
-                                      help_text="(Optional) attribute damage to a character")
-    amount = forms.IntegerField(min_value=1, help_text="Positive number")
-    note = forms.CharField(required=False, max_length=255)
-    kind = forms.ChoiceField(choices=DamageEvent.KIND, initial="dmg")
+    amount = forms.IntegerField(min_value=1, label="Remove HP")
+    attacker = forms.ChoiceField(choices=[], label="Who did it?")
+    other_name = forms.CharField(required=False, max_length=80, label="Other (name)")
 
     def __init__(self, *args, campaign=None, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["attacker"].queryset = (
-            campaign.characters.order_by("user__username", "name") if campaign else Character.objects.none()
-        )
+        choices = []
+        if campaign:
+            choices = [(str(ch.id), f"{ch.user.username} – {ch.name}")
+                       for ch in campaign.characters.order_by("user__username", "name")]
+        choices.append(("other", "Other…"))
+        self.fields["attacker"].choices = [("", "— Who dealt it? —")] + choices
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get("attacker") == "other" and not (cleaned.get("other_name") or "").strip():
+            raise forms.ValidationError("Enter a name for ‘Other’.")
+        return cleaned
+
+
 
 class RecordEnemyToPCDamageForm(forms.Form):
     attacker_ee_id = forms.IntegerField()
@@ -343,13 +358,7 @@ class AddEnemyToEncounterForm(forms.Form):
     count = forms.IntegerField(min_value=1, initial=1,
         widget=forms.NumberInput(attrs={"class":"block w-24 rounded-md border border-gray-300 px-3 py-2 text-sm"}))
 
-class SetEncounterEnemyHPForm(forms.Form):
-    ee_id = forms.IntegerField()
-    current_hp = forms.IntegerField()
 
-class AdjustEncounterEnemyHPForm(forms.Form):
-    ee_id = forms.IntegerField()
-    delta = forms.IntegerField(help_text="+/- number to change HP")
 from .models import EnemyType, Encounter  # already imported above for other forms
 
 class QuickAddEnemyForm(forms.Form):
@@ -378,7 +387,7 @@ class EnemyTypeCreateForm(forms.ModelForm):
             "name","level","hp","armor","dodge","initiative",
             "str_score","dex_score","con_score","int_score","wis_score","cha_score",
             "will_save","reflex_save","fortitude_save",
-            "perception","stealth",
+            "perception","stealth","athletics","speed",
             "description","resistances","category","tags",   # + category
         ]
         widgets = {
