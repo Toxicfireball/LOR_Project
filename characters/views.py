@@ -7676,12 +7676,13 @@ def character_detail(request, pk):
 
     derived = {
         "half_level":      half_lvl,
-    "armor_total":     (armor_value + 2*shield_value) + armor_prof["bonus"] + half_lvl,
-    "dodge_total":     10 + dex_for_dodge + shield_value + prof_dodge + half_lvl_up,
+        "armor_total":     (armor_value + 2*shield_value) + armor_prof["bonus"] + half_lvl,
+        "dodge_total":     10 + dex_for_dodge + shield_value + prof_dodge + half_lvl_up,
         "reflex_total":    dex_mod + prof_reflex + hl_if_trained("reflex"),
         "fortitude_total": con_mod + prof_fort   + hl_if_trained("fortitude"),
         "will_total":      wis_mod + prof_will   + hl_if_trained("will"),
         "perception_total": prof_perception + hl_if_trained("perception"),  # (no ability in your model)
+        "initiative_total": dex_mod + prof_reflex + hl_if_trained("reflex"),
         "weapon_base":     0,
         "weapon_with_str": 0,
         "weapon_with_dex": 0,
