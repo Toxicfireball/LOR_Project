@@ -16,6 +16,11 @@ from characters.models import (
     SpellSlotRow , 
     ResourceType, ClassResource, CharacterResource, Spell, SubclassMasteryUnlock, ARMOR_GROUPS, WEAPON_GROUPS
 )
+from characters.models import CharacterPrestigeEnrollment, CharacterPrestigeLevelChoice
+
+from characters.models import (
+    PrestigeClass, PrestigeLevel, PrestigePrerequisite, PrestigeFeature
+)
 from django.db import transaction
 from django.contrib.contenttypes.models import ContentType
 from django.urls import resolve
@@ -2923,6 +2928,120 @@ class WeaponAdmin(admin.ModelAdmin):
 
     class Media:
         js = ("characters/js/weapon_admin.js",)
+
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Prestige Admin
+# ──────────────────────────────────────────────────────────────────────────────
+
+class PrestigeLevelChoiceInline(admin.TabularInline):
+    model = CharacterPrestigeLevelChoice
+    extra = 0
+    fields = ("prestige_level", "counts_as")
+    autocomplete_fields = ("counts_as",)
+    ordering = ("prestige_level",)
+
+
+@admin.register(CharacterPrestigeEnrollment)
+class CharacterPrestigeEnrollmentAdmin(admin.ModelAdmin):
+    list_display = ("character", "prestige_class", "entered_at_character_level", "gm_approved")
+    list_filter = ("gm_approved", "prestige_class")
+    search_fields = ("character__name", "prestige_class__name")
+    inlines = [PrestigeLevelChoiceInline]
+
+
+@admin.register(CharacterPrestigeLevelChoice)
+class CharacterPrestigeLevelChoiceAdmin(admin.ModelAdmin):
+    list_display = ("enrollment", "prestige_level", "counts_as")
+    list_filter = ("prestige_level", "counts_as")
+    autocomplete_fields = ("enrollment", "counts_as")
+
+
+
+class PrestigePrereqInlineForm(forms.ModelForm):
+    class Meta:
+        model = PrestigePrerequisite
+        fields = "__all__"
+
+    def clean(self):
+        cd = super().clean()
+        # mirror model.clean() errors with friendlier messages if needed
+        return cd
+
+
+class PrestigePrereqInline(admin.TabularInline):
+    model = PrestigePrerequisite
+    form = PrestigePrereqInlineForm
+    extra = 0
+    fields = (
+        "group_index", "intragroup_operator", "kind",
+        "target_class", "min_class_level",
+        "skill", "min_tier",
+        "race", "subrace",
+        "class_tag",
+        "race_tag" if hasattr(PrestigePrerequisite, "race_tag") else None,
+        "feat_code",
+    )
+    fields = tuple(f for f in fields if f)  # strip None when RaceTag absent
+    ordering = ("group_index", "id")
+from django.contrib import admin
+from characters.models import (
+    PrestigeClass, PrestigePrerequisite, PrestigeLevel, PrestigeFeature,
+    CharacterPrestigeEnrollment, CharacterPrestigeLevelChoice
+)
+
+class PrestigePrerequisiteInline(admin.StackedInline):
+    model = PrestigePrerequisite
+    extra = 0
+    ordering = ("group_index", "id")
+    autocomplete_fields = ("target_class","skill","race","subrace","class_tag","min_tier")
+    radio_fields = {"intragroup_operator": admin.HORIZONTAL, "kind": admin.VERTICAL}
+    fieldsets = (
+        (None, {"fields": ("group_index", "intragroup_operator", "kind")}),
+        ("Class level", {"fields": ("target_class", "min_class_level"), "classes": ("collapse",)}),
+        ("Skill tier",  {"fields": ("skill", "min_tier"), "classes": ("collapse",)}),
+        ("Race / Subrace", {"fields": ("race", "subrace"), "classes": ("collapse",)}),
+        ("Tags / Feat code", {"fields": ("class_tag", "feat_code"), "classes": ("collapse",)}),
+    )
+
+class PrestigeLevelInline(admin.TabularInline):
+    model = PrestigeLevel
+    extra = 0
+    autocomplete_fields = ("fixed_counts_as",)
+    filter_horizontal = ("allowed_counts_as",)
+    radio_fields = {"counts_as_mode": admin.HORIZONTAL}
+    fields = ("level","counts_as_mode","fixed_counts_as","allowed_counts_as")
+
+class PrestigeFeatureInline(admin.StackedInline):
+    model = PrestigeFeature
+    extra = 0
+    fields = ("at_prestige_level","code","name","description","grants_class_feature")
+@admin.action(description="Create prestige levels 1–5 (choose mode)")
+def create_default_prestige_levels(modeladmin, request, queryset):
+    for pc in queryset:
+        for i in range(1, 6):
+            PrestigeLevel.objects.get_or_create(
+                prestige_class=pc,
+                level=i,
+                defaults={"counts_as_mode": PrestigeLevel.MODE_CHOOSE},
+            )
+
+@admin.register(PrestigeClass)
+class PrestigeClassAdmin(admin.ModelAdmin):
+    list_display = ("name","min_entry_level","requires_gm_approval")
+    list_filter  = ("requires_gm_approval",)
+    search_fields = ("name",)
+    readonly_fields = ("min_entry_level",)
+    actions = [create_default_prestige_levels]
+
+    fieldsets = (
+        (None, {"fields": ("name","code","description")}),
+        ("Entry & Limits", {"fields": ("min_entry_level","requires_gm_approval")}),
+    )
+    inlines = [PrestigePrerequisiteInline, PrestigeLevelInline, PrestigeFeatureInline]
+    prepopulated_fields = {"code": ("name",)}
+
 
 
 

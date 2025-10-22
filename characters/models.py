@@ -530,6 +530,15 @@ class CharacterNote(models.Model):
     def __str__(self):
         return self.title
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Prestige Classes (additive, does not change existing models)
+# ──────────────────────────────────────────────────────────────────────────────
+from django.db import models
+from django.core.exceptions import ValidationError
+
+# Reuse existing types you already have:
+# CharacterClass, Skill, ProficiencyTier, Race, Subrace, ClassTag, RaceTag, ClassFeature
+
 
 class Character(models.Model):
 
@@ -2738,3 +2747,191 @@ class CharacterActivation(models.Model):
         k = self.content_type.model
         return f"{self.character.name} – {k}:{self.object_id} {'ACTIVE' if self.is_active else 'passive'}"
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Prestige Classes (no self-imports; use string FKs to avoid circular imports)
+# ──────────────────────────────────────────────────────────────────────────────
+from django.core.exceptions import ValidationError
+# characters/models.py
+class CharacterPrestigeLevelChoice(models.Model):
+    enrollment = models.ForeignKey(
+        "characters.CharacterPrestigeEnrollment",
+        on_delete=models.CASCADE,
+        related_name="level_choices",
+    )
+    prestige_level = models.PositiveSmallIntegerField(help_text="1, 2, 3, … within this prestige class")
+    counts_as = models.ForeignKey("characters.CharacterClass", on_delete=models.PROTECT)
+
+    class Meta:
+        unique_together = (("enrollment", "prestige_level"),)
+        ordering = ["enrollment", "prestige_level"]
+
+    def __str__(self):
+        return f"{self.enrollment.character} – P{self.prestige_level} counts as {self.counts_as}"
+
+class PrestigeClass(models.Model):
+    code = models.SlugField(max_length=40, unique=True)
+    name = models.CharField(max_length=120)
+    description = models.TextField(blank=True)
+    min_entry_level = models.PositiveSmallIntegerField(default=7, editable=False)
+    requires_gm_approval = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+    def clean(self):
+        super().clean()
+        if self.min_entry_level != 7:
+            raise ValidationError({"min_entry_level": "Minimum entry level is fixed at 7."})
+
+
+class PrestigePrerequisite(models.Model):
+    OP_AND = "AND"
+    OP_OR  = "OR"
+    OP_CHOICES = ((OP_AND, "AND (all in this group)"),
+                  (OP_OR,  "OR (any in this group)"))
+
+    KIND_CLASS_LEVEL = "class_level"
+    KIND_SKILL_TIER  = "skill_tier"
+    KIND_RACE        = "race"
+    KIND_SUBRACE     = "subrace"
+    KIND_CLASS_TAG   = "class_tag"
+    KIND_RACE_TAG    = "race_tag"
+    KIND_FEAT_CODE   = "feat_code"
+
+    KIND_CHOICES = (
+        (KIND_CLASS_LEVEL, "Class level (e.g., Fighter 5+)"),
+        (KIND_SKILL_TIER,  "Skill proficiency (min tier)"),
+        (KIND_RACE,        "Race"),
+        (KIND_SUBRACE,     "Subrace"),
+        (KIND_CLASS_TAG,   "Class Tag"),
+        (KIND_RACE_TAG,    "Race Tag"),
+        (KIND_FEAT_CODE,   "Feat / other tag (free text code)"),
+    )
+
+    prestige_class = models.ForeignKey("characters.PrestigeClass", on_delete=models.CASCADE, related_name="prereqs")
+    group_index = models.PositiveSmallIntegerField(default=1, help_text="All groups are ANDed together. Inside a group, use the operator below.")
+    intragroup_operator = models.CharField(max_length=3, choices=OP_CHOICES, default=OP_AND)
+
+    # class-level requirement
+    target_class = models.ForeignKey("characters.CharacterClass", null=True, blank=True, on_delete=models.SET_NULL)
+    min_class_level = models.PositiveSmallIntegerField(null=True, blank=True)
+
+    # skill tier requirement
+    skill = models.ForeignKey("characters.Skill", null=True, blank=True, on_delete=models.SET_NULL)
+    min_tier = models.ForeignKey("characters.ProficiencyTier", null=True, blank=True, on_delete=models.SET_NULL)
+
+    # race / subrace
+    race = models.ForeignKey("characters.Race", null=True, blank=True, on_delete=models.SET_NULL)
+    subrace = models.ForeignKey("characters.Subrace", null=True, blank=True, on_delete=models.SET_NULL)
+
+    # tags / feats
+    class_tag = models.ForeignKey("characters.ClassTag", null=True, blank=True, on_delete=models.SET_NULL)
+    race_tag = models.ForeignKey("characters.RaceTag", null=True, blank=True, on_delete=models.SET_NULL)
+    feat_code = models.CharField(max_length=80, blank=True, help_text="Optional free text code for feat/other tag (e.g. 'feat_toughness').")
+
+    class Meta:
+        ordering = ["prestige_class", "group_index", "id"]
+
+    def __str__(self):
+        return f"{self.prestige_class} – {self.get_kind_display()}"
+
+    def clean(self):
+        super().clean()
+        k = self.kind
+
+        def need(fields, msg):
+            for f in fields:
+                v = getattr(self, f, None)
+                if v is None or v == "":
+                    raise ValidationError({fields[0]: msg})
+
+        if k == self.KIND_CLASS_LEVEL:
+            need(("target_class", "min_class_level"), "Pick a class and minimum level (e.g., Fighter and 5).")
+        elif k == self.KIND_SKILL_TIER:
+            need(("skill", "min_tier"), "Pick the skill and the minimum proficiency tier.")
+        elif k == self.KIND_RACE:
+            need(("race",), "Pick a Race.")
+        elif k == self.KIND_SUBRACE:
+            need(("subrace",), "Pick a Subrace.")
+        elif k == self.KIND_CLASS_TAG:
+            need(("class_tag",), "Pick a Class Tag.")
+        elif k == self.KIND_RACE_TAG:
+            need(("race_tag",), "Pick a Race Tag.")
+        elif k == self.KIND_FEAT_CODE:
+            if not (self.feat_code or "").strip():
+                raise ValidationError({"feat_code": "Enter a code for the feat/tag."})
+
+    kind = models.CharField(max_length=20, choices=KIND_CHOICES)
+
+
+class PrestigeLevel(models.Model):
+    MODE_FIXED  = "fixed"
+    MODE_CHOOSE = "choose"
+    MODE_CHOICES = ((MODE_FIXED, "Fixed — this level always counts as the class below"),
+                    (MODE_CHOOSE, "Choose at level-up — pick one of the allowed classes"))
+
+    prestige_class = models.ForeignKey("characters.PrestigeClass", on_delete=models.CASCADE, related_name="levels")
+    level = models.PositiveSmallIntegerField(help_text="Prestige level (1 = entry; 1 is a dead level by rule).")
+    counts_as_mode = models.CharField(max_length=8, choices=MODE_CHOICES, default=MODE_FIXED)
+    fixed_counts_as = models.ForeignKey(
+        "characters.CharacterClass", null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+        help_text="Used only when mode = Fixed."
+    )
+    allowed_counts_as = models.ManyToManyField("characters.CharacterClass", blank=True, help_text="Used only when mode = Choose.")
+
+    class Meta:
+        unique_together = (("prestige_class", "level"),)
+        ordering = ["prestige_class", "level"]
+
+    def __str__(self):
+        return f"{self.prestige_class} L{self.level}"
+
+    def clean(self):
+        super().clean()
+        if self.counts_as_mode == self.MODE_FIXED and self.fixed_counts_as is None:
+            raise ValidationError({"fixed_counts_as": "Pick the counted class (mode is Fixed)."})
+
+
+class PrestigeFeature(models.Model):
+    prestige_class = models.ForeignKey("characters.PrestigeClass", on_delete=models.CASCADE, related_name="features")
+    at_prestige_level = models.PositiveSmallIntegerField()
+    code = models.SlugField(max_length=60, help_text="Unique within this prestige class.")
+    name = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    grants_class_feature = models.ForeignKey(
+        "characters.ClassFeature", null=True, blank=True, on_delete=models.SET_NULL,
+        help_text="Optional: link to an existing ClassFeature row to drive mechanics."
+    )
+
+    class Meta:
+        unique_together = (("prestige_class", "code"),)
+        ordering = ["prestige_class", "at_prestige_level", "name"]
+
+    def __str__(self):
+        return f"{self.prestige_class} L{self.at_prestige_level} – {self.name}"
+
+    def clean(self):
+        super().clean()
+        if self.at_prestige_level == 1:
+            raise ValidationError({"at_prestige_level": "Prestige 1 is a dead level; do not add features here."})
+
+
+class CharacterPrestigeEnrollment(models.Model):
+    character = models.ForeignKey("characters.Character", on_delete=models.CASCADE, related_name="prestige_enrollment")
+    prestige_class = models.ForeignKey("characters.PrestigeClass", on_delete=models.CASCADE, related_name="enrollments")
+    gm_approved = models.BooleanField(default=False)
+    entered_at_character_level = models.PositiveSmallIntegerField(default=7)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["character"], name="uniq_one_prestige_per_character"),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.entered_at_character_level < 7:
+            raise ValidationError({"entered_at_character_level": "Minimum character level to enter is 7."})
+# NEW: stores the player's choice for each prestige level when mode is "choose"
