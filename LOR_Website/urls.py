@@ -1,46 +1,37 @@
 """
 URL configuration for LOR_Website project.
-
-The `urlpatterns` list routes URLs to views. For more information please see:
-    https://docs.djangoproject.com/en/5.1/topics/http/urls/
-Examples:
-Function views
-    1. Add an import:  from my_app import views
-    2. Add a URL to urlpatterns:  path('', views.home, name='home')
-Class-based views
-    1. Add an import:  from other_app.views import Home
-    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
-Including another URLconf
-    1. Import the include() function: from django.urls import include, path
-    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 
 from django.urls import path, include, re_path
-
 from django.contrib import admin
 from django.conf import settings
 from django.conf.urls.static import static
-import nested_admin
-from django.views.static import serve as dj_serve
-urlpatterns = [] 
-if not settings.DEBUG:
-    urlpatterns += [
-        re_path(r'^media/(?P<path>.*)$', dj_serve, {'document_root': settings.MEDIA_ROOT}),
-    ]
-else:
-    from django.conf.urls.static import static
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
-urlpatterns += [
-      path("_nested_admin/", include("nested_admin.urls")),
+urlpatterns = [
     path("admin/", admin.site.urls),
-    path('', include('home.urls')),  
-    path('accounts/', include('accounts.urls')),   # User auth URLs
-    path('campaigns/', include('campaigns.urls')),   # Campaign system URLs (we’ll create these next)
-    path('characters/', include('characters.urls')),
-    path("__reload__/", include("django_browser_reload.urls")),
-    path('summernote/', include('django_summernote.urls')),
-        path("", include("glossary.urls")),
+
+    # Core apps
+    path("", include("home.urls")),
+    path("accounts/", include("accounts.urls")),
+    path("campaigns/", include("campaigns.urls")),
+    path("characters/", include("characters.urls")),
+    path("summernote/", include("django_summernote.urls")),
+    path("", include("glossary.urls")),
+
+    # 3P admin urls — no top-level `import nested_admin` required
+    path("_nested_admin/", include("nested_admin.urls")),
 ]
 
+# Dev-only additions
+if settings.DEBUG:
+    # Serve media during development
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
+    # Dev reload tool only in DEBUG (avoid import crash in prod)
+    urlpatterns += [path("__reload__/", include("django_browser_reload.urls"))]
+else:
+    # If you *must* serve media in a non-DEBUG env (not recommended), keep it guarded
+    from django.views.static import serve as dj_serve
+    urlpatterns += [
+        re_path(r"^media/(?P<path>.*)$", dj_serve, {"document_root": settings.MEDIA_ROOT}),
+    ]
