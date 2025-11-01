@@ -6,6 +6,7 @@ import gspread
 from io import StringIO
 from characters.models import Spell, ClassFeat
 from django.db import connection, transaction   # CHANGED
+from collections import defaultdict
 def canonical_name(s: str) -> str:
     """
     Normalize for matching & de-duping:
