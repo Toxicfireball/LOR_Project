@@ -5,8 +5,10 @@ from oauth2client.service_account import ServiceAccountCredentials
 import gspread
 from io import StringIO
 from characters.models import Spell, ClassFeat
-from django.db import connection, transaction   # CHANGED
+from django.db import connection, transaction
+from django.db.models.deletion import ProtectedError   # ← ADD
 from collections import defaultdict
+
 def canonical_name(s: str) -> str:
     """
     Normalize for matching & de-duping:
@@ -125,6 +127,9 @@ class Command(BaseCommand):
                 if key:
                     by_key[key].append(r['id'])
             
+            sheet_keys = set()   # ← ADD: will collect keys present in the sheet
+
+            
             pre_dup_groups = {k: v for k, v in by_key.items() if len(v) > 1}
             print(f"🧪 Pre-sync duplicate groups (case/space-insensitive): {len(pre_dup_groups)}", flush=True)
             if verbosity >= 2:
@@ -147,6 +152,8 @@ class Command(BaseCommand):
                     # Canonicalize for both matching and storage
                     feat_name = canonical_name(name_raw)
                     key = feat_name.lower()
+                    sheet_keys.add(key)     # ← ADD
+
             
                     # Normalize feat_type (LOG when 'Racial' is remapped)
                     raw_type = row.get('Feat Type', '')
@@ -215,11 +222,36 @@ class Command(BaseCommand):
                     print("🧹 Cache cleared (SYNC_CLEAR_CACHE=1).", flush=True)
                 except Exception as _:
                     pass
-
-
+            
+            # ── Deletion pass: remove feats NOT present in the sheet (case/space-insensitive) ──
+            print("🧮 Building deletion set (feats missing from sheet)...", flush=True)
+            all_db = list(ClassFeat.objects.all().values('id', 'name'))
+            to_delete = []
+            for r in all_db:
+                k = canonical_name(r['name']).lower()
+                if k and k not in sheet_keys:
+                    to_delete.append((r['id'], r['name']))
+            print(f"🗑️  Feats to delete: {len(to_delete)}", flush=True)
+            
+            if to_delete:
+                deleted_ok = protected = 0
+                for fid, fname in to_delete:
+                    try:
+                        ClassFeat.objects.filter(id=fid).delete()
+                        deleted_ok += 1
+                        if verbosity >= 2 and deleted_ok <= 10:
+                            print(f"   ✔ Deleted id={fid} name='{fname}'", flush=True)
+                    except ProtectedError:
+                        protected += 1
+                        print(f"   ⛔ Protected (kept) id={fid} name='{fname}'", flush=True)
+                print(f"✅ Deletion done. Removed {deleted_ok}; kept (protected) {protected}.", flush=True)
+            else:
+                print("👍 No feats to delete; DB matches sheet (by canonical name).", flush=True)
+            
             # ─── Summary ───────────────────────────────────────────────────
             total_spells = Spell.objects.count()
             total_feats  = ClassFeat.objects.count()
+
             print(f"📦 Total spells: {total_spells}", flush=True)
             print(f"📦 Total feats:  {total_feats}",  flush=True)
             print("✅ SYNC JOB DONE", flush=True)
