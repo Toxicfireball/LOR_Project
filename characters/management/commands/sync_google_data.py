@@ -10,17 +10,28 @@ from collections import defaultdict
 def get_feat_name_from_row(row: dict) -> str:
     """
     Return the feat name exactly as in the sheet (trim edges only).
-    We'll still use canonical_name(...) later ONLY for matching keys.
+    Works even if the first column header (A1) is blank.
     """
-    candidates = ('Feat', 'Feat Name', 'Name', 'Feature', 'Class Feat')
+    # include '' for a blank A1 header; gspread uses '' as the key
+    candidates = ('Feat', 'Feat Name', 'Name', 'Feature', 'Class Feat', '', 'Unnamed: 0')
     for key in candidates:
-        v = row.get(key)
-        if isinstance(v, str) and v.strip():
-            return v.strip()
+        if key in row:
+            v = row.get(key)
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+
+    # if any header contains "feat", use that
     for k, v in row.items():
         if 'feat' in str(k).lower() and isinstance(v, str) and v.strip():
             return v.strip()
+
+    # final fallback: pick the first non-empty string value in row order
+    for _, v in row.items():
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+
     return ''
+
 
 def first_nonempty(row: dict, *candidates: str) -> str:
     for k in candidates:
@@ -82,9 +93,10 @@ class Command(BaseCommand):
         parser.add_argument(
             '--min-sheet-rows',
             type=int,
-            default=50,
+            default=400,
             help='Safety: require at least this many feat rows from the sheet before allowing deletion.'
         )
+
 
     def handle(self, *args, **options):
         # DB info
@@ -295,11 +307,11 @@ class Command(BaseCommand):
                     pass
             
             # ── Deletion pass: remove feats NOT present in the sheet (case/space-insensitive) ──
-            # ── Deletion pass (SAFE): only when explicitly requested, with sanity checks ──
+            # ── Deletion pass (SAFE): remove feats NOT present in the sheet only with strong guardrails ──
             del_missing = bool(options.get('delete_missing'))
             dry_run     = bool(options.get('dry_run'))
-            min_rows    = int(options.get('min_sheet_rows', 50))
-            
+            min_rows    = int(options.get('min_sheet_rows', 400))
+
             if not del_missing:
                 print("ℹ️  Skipping deletion of missing feats (use --delete-missing to enable).", flush=True)
             else:
@@ -307,38 +319,58 @@ class Command(BaseCommand):
                 total_db = ClassFeat.objects.count()
                 print(f"   • sheet_keys gathered: {len(sheet_keys)}", flush=True)
                 print(f"   • current DB feats:    {total_db}", flush=True)
-            
-                # Safety rails
+
+                # Safety rails (1): Basic row count sanity
                 if len(sheet_keys) == 0:
                     print("⛔ Abort: sheet yielded 0 feat rows (wrong tab/header/permissions?). No deletions performed.", flush=True)
                 elif len(sheet_keys) < min_rows:
                     print(f"⛔ Abort: only {len(sheet_keys)} feat rows < min-sheet-rows={min_rows}. Raise --min-sheet-rows if intentional.", flush=True)
                 else:
+                    # Safety rails (2): Overlap sanity check vs DB (require ≥80% overlap)
                     all_db_rows = list(ClassFeat.objects.all().values('id', 'name'))
-                    to_delete = []
-                    for r in all_db_rows:
-                        k = canonical_name(r['name']).lower()
-                        if k and k not in sheet_keys:
-                            to_delete.append((r['id'], r['name']))
-            
-                    print(f"🗑️  Feats to delete: {len(to_delete)}", flush=True)
-                    if to_delete:
-                        if dry_run:
-                            print(f"🧪 DRY RUN: would delete ids={[fid for fid, _ in to_delete[:50]]}{' ...' if len(to_delete) > 50 else ''}", flush=True)
-                        else:
-                            deleted_ok = protected = 0
-                            for fid, fname in to_delete:
-                                try:
-                                    ClassFeat.objects.filter(id=fid).delete()
-                                    deleted_ok += 1
-                                    if verbosity >= 2 and deleted_ok <= 10:
-                                        print(f"   ✔ Deleted id={fid} name='{fname}'", flush=True)
-                                except ProtectedError:
-                                    protected += 1
-                                    print(f"   ⛔ Protected (kept) id={fid} name='{fname}'", flush=True)
-                            print(f"✅ Deletion done. Removed {deleted_ok}; kept (protected) {protected}.", flush=True)
+                    db_keys = [canonical_name(r['name']).lower() for r in all_db_rows if r['name']]
+                    db_total = len(db_keys)
+                    overlap = sum(1 for k in db_keys if k in sheet_keys)
+                    overlap_ratio = (overlap / db_total) if db_total else 1.0
+                    print(f"   • overlap with DB: {overlap}/{db_total} ({overlap_ratio:.1%})", flush=True)
+
+                    if overlap_ratio < 0.80:
+                        print("⛔ Abort: overlap < 80%. Refusing to delete (sheet likely misread or headers wrong).", flush=True)
                     else:
-                        print("👍 No feats to delete; DB matches sheet (by canonical name).", flush=True)
+                        # Safety rails (3): Explicit operator confirmation via env
+                        confirm_env = os.environ.get("SYNC_CONFIRM_DELETE", "").lower() == "yes"
+                        if not confirm_env:
+                            print("⛔ Abort: set SYNC_CONFIRM_DELETE=YES to allow deletions.", flush=True)
+                        else:
+                            # Safety rails (4): Require some create/update activity in this run
+                            if (created + updated) == 0:
+                                print("⛔ Abort: 0 rows created/updated in this run; refusing to delete.", flush=True)
+                            else:
+                                # Compute deletion set
+                                to_delete = []
+                                for r in all_db_rows:
+                                    k = canonical_name(r['name']).lower()
+                                    if k and k not in sheet_keys:
+                                        to_delete.append((r['id'], r['name']))
+
+                                print(f"🗑️  Feats to delete: {len(to_delete)}", flush=True)
+                                if to_delete:
+                                    if dry_run:
+                                        print(f"🧪 DRY RUN: would delete ids={[fid for fid, _ in to_delete[:50]]}{' ...' if len(to_delete) > 50 else ''}", flush=True)
+                                    else:
+                                        deleted_ok = protected = 0
+                                        for fid, fname in to_delete:
+                                            try:
+                                                ClassFeat.objects.filter(id=fid).delete()
+                                                deleted_ok += 1
+                                                if verbosity >= 2 and deleted_ok <= 10:
+                                                    print(f"   ✔ Deleted id={fid} name='{fname}'", flush=True)
+                                            except ProtectedError:
+                                                protected += 1
+                                                print(f"   ⛔ Protected (kept) id={fid} name='{fname}'", flush=True)
+                                        print(f"✅ Deletion done. Removed {deleted_ok}; kept (protected) {protected}.", flush=True)
+                                else:
+                                    print("👍 No feats to delete; DB matches sheet (by canonical name).", flush=True)
 
             
             # ─── Summary ───────────────────────────────────────────────────
