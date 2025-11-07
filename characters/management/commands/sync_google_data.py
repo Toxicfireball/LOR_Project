@@ -165,21 +165,40 @@ class Command(BaseCommand):
 
             # ─── FEATS ──────────────────────────────────────────────────────
             feat_book = client.open_by_key("1-WHN5KXt7O7kRmgyOZ0rXKLA6s6CbaOWFmvPflzD5bQ")
-            try:
-                # Tab name is literally "Feats"
-                feat_sheet = feat_book.worksheet("Feats")
-            except gspread.exceptions.WorksheetNotFound:
-                titles = [ws.title for ws in feat_book.worksheets()]
-                self.stderr.write(f"❌ Worksheet 'Feats' not found. Available tabs: {titles}")
+            # Find the "Feats" tab robustly (trim spaces, case-insensitive)
+            feat_sheet = None
+            all_ws = feat_book.worksheets()
+            for ws in all_ws:
+                if ws.title.strip().lower() == "feats":
+                    feat_sheet = ws
+                    break
+
+            if feat_sheet is None:
+                titles = [ws.title for ws in all_ws]
+                self.stderr.write(f"❌ Worksheet 'Feats' not found (even after trimming). Available tabs: {titles}")
                 return
+
+            # Optional transparency if the tab had stray whitespace/casing
+            if feat_sheet.title != "Feats":
+                print(f"⚠️ Using worksheet '{feat_sheet.title}' (normalized match for 'Feats').", flush=True)
+
             
             raw_feats = feat_sheet.get_all_records()
             if raw_feats:
-                print(f"🧾 Sheet headers: {list(raw_feats[0].keys())}", flush=True)
+                headers = [h.strip() for h in raw_feats[0].keys()]
+                print(f"🧾 Sheet headers: {headers}", flush=True)
             else:
-                print("⚠️ ‘Feats’ tab returned 0 rows. Check sharing/headers.", flush=True)
-            
+                print("⛔ ‘Feats’ tab returned 0 rows. Aborting feats sync to avoid accidental deletion.", flush=True)
+                return
+
+            # Safety: require a recognizable feat-name column AND at least one key metadata column
+            header_norm = {h.lower() for h in headers}
+            if not (any("feat" in h for h in header_norm) and ("description" in header_norm or "pre-req" in header_norm)):
+                print(f"⛔ Header sanity check failed (got: {sorted(header_norm)}). Aborting feats sync.", flush=True)
+                return
+
             verbosity = int(options.get('verbosity', 1))
+
             
             # Build a case/space-insensitive index of existing feats so we can update ALL duplicates
             existing_rows = list(ClassFeat.objects.all().values('id', 'name'))
