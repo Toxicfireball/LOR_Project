@@ -447,6 +447,20 @@ class LevelUpForm(forms.Form):
         if character.level == 0:
             # first pick at creation
             qs = CharacterClass.objects.order_by("name")
+            next_level = character.level + 1  # already computed earlier; keep or re-affirm here
+
+            if character.level == 0:
+                # first pick at creation
+                qs = CharacterClass.objects.order_by("name")
+            elif next_level < 5:
+                # until you reach 5th level, you must stick to classes you already have
+                existing = character.class_progress.values_list("character_class_id", flat=True)
+                qs = CharacterClass.objects.filter(pk__in=existing).order_by("name")
+            else:
+                # from 5th level onward, you may choose any class (multiclassing allowed)
+                qs = CharacterClass.objects.order_by("name")
+
+            self.fields["base_class"].queryset = qs
         elif next_level < 5:
             # until you reach 5th level, you must stick to classes you already have
             existing = character.class_progress.values_list("character_class_id", flat=True)
@@ -632,6 +646,8 @@ class LevelUpForm(forms.Form):
 
         cleaned["asi_mode"] = mode
         return cleaned
+# views.py (form)
+
 
 
 class CharacterDetailsForm(forms.ModelForm):

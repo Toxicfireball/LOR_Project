@@ -2767,6 +2767,22 @@ class CharacterPrestigeLevelChoice(models.Model):
 
     def __str__(self):
         return f"{self.enrollment.character} – P{self.prestige_level} counts as {self.counts_as}"
+class CharacterManualFeat(models.Model):
+    character = models.ForeignKey("characters.Character",
+                                  on_delete=models.CASCADE,
+                                  related_name="manual_feats")
+    feat = models.ForeignKey("characters.ClassFeat",
+                             on_delete=models.PROTECT)
+    note = models.CharField(max_length=200, blank=True)
+    added_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = (("character", "feat"),)
+        ordering = ["feat__name", "id"]
+
+    def __str__(self) -> str:
+        return f"{self.character} ↦ {self.feat}"
+
 
 class PrestigeClass(models.Model):
     code = models.SlugField(max_length=40, unique=True)

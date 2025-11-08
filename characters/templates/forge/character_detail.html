@@ -1757,6 +1757,65 @@ if (Number(state.base.atk||0) === 0) setTimeout(syncFromCombat, 0);
         <!-- FEATS TAB -->
 <!-- FEATS TAB -->
 <div class="tab-pane fade" id="tab-feats">
+    <!-- Manual Add Feat (searchable) -->
+  {% if can_edit %}
+  <div class="card mb-3">
+    <div class="card-header fw-bold d-flex justify-content-between align-items-center">
+      <span>Manual Add Feat</span>
+    </div>
+    <div class="card-body">
+      <form method="post" class="d-flex flex-wrap gap-2 align-items-center"
+            action="{% url 'characters:character_detail' character.pk %}">
+        {% csrf_token %}
+        <input type="hidden" name="feats_op" value="manual_add">
+
+        <label class="form-label mb-0 me-2">Select feat</label>
+        <select id="manual-feat-select" name="feat_id"
+                class="form-select"
+                style="min-width: 320px; max-width: 520px;" required>
+          <option value="">— Search and select a feat —</option>
+          {% for f in all_feats %}
+            <option value="{{ f.id }}">{{ f.name }}</option>
+          {% endfor %}
+        </select>
+
+        <button class="btn btn-sm btn-primary">Add</button>
+      </form>
+
+      <hr class="my-3">
+
+      <h6 class="mb-2">Manually Added Feats</h6>
+      {% if manual_feats %}
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead>
+              <tr><th>Name</th><th class="text-end" style="width:120px">Action</th></tr>
+            </thead>
+            <tbody>
+              {% for mf in manual_feats %}
+                <tr>
+                  <td>{{ mf.feat.name }}</td>
+                  <td class="text-end">
+                    <form method="post" class="d-inline"
+                          action="{% url 'characters:character_detail' character.pk %}">
+                      {% csrf_token %}
+                      <input type="hidden" name="feats_op" value="manual_remove">
+                      <input type="hidden" name="manual_id" value="{{ mf.id }}">
+                      <button class="btn btn-sm btn-outline-danger">Remove</button>
+                    </form>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p class="text-muted mb-0">No manual feats yet.</p>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
   <div class="row g-3">
     <!-- General -->
     <div class="col-md-4">
@@ -3246,8 +3305,9 @@ tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
 </script>
 
 {# ======= MODALS (unchanged except for context vars already provided) ======= #}
+<!-- LEVEL UP MODAL (REPLACEMENT) -->
+{% firstof request.POST.advance_track request.GET.advance_track form.advance_track.value 'base' as track %}
 
-<!-- LEVEL UP MODAL -->
 <div class="modal fade" id="levelUpModal" tabindex="-1" aria-labelledby="levelUpModalLabel" aria-hidden="true">
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <div class="modal-content">
@@ -3258,14 +3318,97 @@ tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
 
       <div class="modal-body p-0">
         <div class="row g-0">
-          <!-- LEFT column: class info / preview -->
+          <!-- LEFT column: track + selectors + preview -->
           <div class="col-12 col-xl-5 p-4 border-end">
-            <form method="get"
+
+            <!-- LEFT: PREVIEW/SELECTOR FORM (GET) -->
+            <form id="classPreviewForm"
+                  method="get"
                   action="{% url 'characters:character_detail' character.pk %}#levelUpModal"
                   class="mb-4">
-              {{ form.base_class }}
+
+              {% with next_level=total_level|add:"1" %}
+              <div class="mb-2">
+                <label class="form-label fw-semibold">Advance in…</label>
+
+                <div class="form-check">
+                  <input class="form-check-input"
+                        type="radio"
+                        id="adv-base"
+                        name="advance_track"
+                        value="base"
+                        {% if track != 'prestige' %}checked{% endif %}>
+                  <label class="form-check-label" for="adv-base">Base class</label>
+                </div>
+
+                <div class="form-check">
+                  <input class="form-check-input"
+                        type="radio"
+                        id="adv-prestige"
+                        name="advance_track"
+                        value="prestige"
+                        {% if next_level < 7 %}disabled{% endif %}
+                        {% if track == 'prestige' and next_level >= 7 %}checked{% endif %}>
+                  <label class="form-check-label" for="adv-prestige">
+                    Prestige class
+                    {% if next_level < 7 %}<span class="text-muted">(requires level 7+)</span>{% endif %}
+                  </label>
+                </div>
+
+                <div class="form-text small mt-1">
+                  Minimum level 7; at most one prestige class. Prerequisites must be met.
+                </div>
+              </div>
+              {% endwith %}
+
+              {# LEFT: Base class (visible when Base track) #}
+              {% with sel=request.GET.base_class|default:preview_class.id %}
+              <div id="left-base-wrap" class="mt-2" {% if track == 'prestige' %}hidden{% endif %}>
+                <label class="form-label fw-semibold">Base class</label>
+                <select name="base_class" id="left-base-class" class="form-select">
+                  {% for cls in base_class_choices %}
+                    <option value="{{ cls.id }}"
+                            {% if sel|stringformat:"s" == cls.id|stringformat:"s" %}selected{% endif %}>
+                      {{ cls.name }}
+                    </option>
+                  {% endfor %}
+                </select>
+              </div>
+              {% endwith %}
+
+              {# LEFT: Prestige dropdown (only visible when Prestige track) #}
+              <div id="left-prestige-wrap" class="mt-3" {% if track != 'prestige' %}hidden{% endif %}>
+                <label class="form-label fw-semibold">Prestige class</label>
+                {% if prestige_choices %}
+                  {% with psel=request.GET.prestige_enrollment|default:'' %}
+                    <select name="prestige_enrollment" id="left-prestige" class="form-select">
+                      <option value="">— Select prestige —</option>
+                      {% for p in prestige_choices %}
+                        <option value="{{ p.id }}"
+                                {% if p.allowed_bases.all %}
+                                  data-bases="{% for bc in p.allowed_bases.all %}{{ bc.id }}{% if not forloop.last %},{% endif %}{% endfor %}"
+                                {% endif %}
+                                {% if psel|stringformat:"s" == p.id|stringformat:"s" %}selected{% endif %}>
+                          {{ p.name }}
+                        </option>
+                      {% endfor %}
+                    </select>
+                  {% endwith %}
+                  <div class="form-text small mt-1" id="left-prestige-help" hidden>
+                    Select a Base class for this prestige.
+                  </div>
+                {% else %}
+                  <div class="text-muted small">No eligible prestige classes.</div>
+                {% endif %}
+              </div>
+
+              {# Optional: mapping { "<prestige_id>": [<base_id>...] } #}
+              {% if prestige_base_map %}
+                {{ prestige_base_map|json_script:"prestige-base-map" }}
+              {% endif %}
             </form>
 
+            <!-- PREVIEW / INFO PANE (LEFT) -->
             <div class="mb-3">
               <h6 class="mb-2">Description</h6>
               {% if preview_class.description %}
@@ -3299,9 +3442,7 @@ tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
                     {% for row in proficiency_rows %}
                       <tr>
                         <td>{{ row.type }}</td>
-                        {% for lvl in row.levels %}
-                          <td>{{ lvl }}</td>
-                        {% endfor %}
+                        {% for lvl in row.levels %}<td>{{ lvl }}</td>{% endfor %}
                       </tr>
                     {% endfor %}
                   </tbody>
@@ -3341,7 +3482,6 @@ tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
                         </table>
                       </div>
                     {% endif %}
-
                     <div class="mt-2">
                       {% include "partials/_feature_detail.html" with f=f %}
                     </div>
@@ -3351,56 +3491,85 @@ tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
                 {% endfor %}
               </ul>
             </div>
-
-
           </div> <!-- /LEFT -->
 
-            <div class="col-12 col-xl-7 p-4 position-relative" id="levelUpFormCol"><!-- RIGHT: form -->
-              <form method="post" action="{% url 'characters:character_detail' character.pk %}">
-                {% csrf_token %}
-  {% if show_starting_skill_picker %}
-    {% with sc=starting_skill_choices %}
-      {% if sc.skills or sc.subskills %}
-<div class="card skill-picker mb-3">
-  <div class="card-header d-flex justify-content-between align-items-center">
-    <span class="fw-semibold">Starting Skills (Level 1)</span>
-    <small class="text-muted">
-      <span id="ss-count">0</span>/<span id="ss-max">{{ starting_skill_max|default:0 }}</span> selected
-    </small>
-  </div>
+          <!-- RIGHT: ACTUAL POST FORM -->
+          <div class="col-12 col-xl-7 p-4 position-relative" id="levelUpFormCol">
+            <form method="post" action="{% url 'characters:character_detail' character.pk %}">
+              {% csrf_token %}
 
-  <div class="card-body p-0">
-    <div class="skill-toolbar p-2">
-      <input type="text" class="form-control form-control-sm" placeholder="Filter skills…" id="ss-filter">
-    </div>
+              {# Mirror of track + selectors for POST (hidden) #}
+              {% firstof request.POST.advance_track request.GET.advance_track form.advance_track.value 'base' as track %}
+              <input type="hidden" name="advance_track" id="postAdvanceTrack" value="{{ track|default:'base' }}">
 
-    <div class="skill-list" id="startingSkillList">
-      {% for s in starting_skill_flat %}
-        <label class="skill-item">
-          <input type="checkbox"
-                 class="form-check-input skill-checkbox"
-                 name="starting_skill_picks"
-                 value="{{ s.id_key }}">
-          <span class="skill-label">{{ s.label }}</span>
-        </label>
-      {% empty %}
-        <div class="p-3 text-muted">No available skills.</div>
-      {% endfor %}
-    </div>
-  </div>
+              {# Prestige-only (POST mirror, plus counts-as) #}
+              <div id="prestige-fields" {% if track != 'prestige' %}hidden{% endif %}>
+                {% if form.prestige_enrollment %}
+                  <input type="hidden"
+                        name="{{ form.prestige_enrollment.html_name }}"
+                        id="postPrestigeEnrollment"
+                        value="{{ request.GET.prestige_enrollment|default:'' }}">
+                {% endif %}
 
-  <div class="card-footer">
-    <div class="form-text">
-      Choose up to <strong>{{ starting_skill_max|default:0 }}</strong> total.
-    </div>
-  </div>
-</div>
-      {% endif %}
-    {% endwith %}
-  {% endif %}
+                {% if form.prestige_counts_as %}
+                  <div class="mb-3">
+                    <label class="form-label fw-semibold">Counts-as (this prestige level)</label>
+                    {{ form.prestige_counts_as }}
+                    {% for e in form.prestige_counts_as.errors %}
+                      <div class="text-danger small">{{ e }}</div>
+                    {% endfor %}
+                  </div>
+                {% endif %}
+              </div>
 
+              <!-- Base-only fields wrapper -->
+              <div id="base-fields" {% if track == 'prestige' %}hidden{% endif %}>
 
-                <input type="hidden" name="base_class" value="{{ form.base_class.value }}">
+                <!-- Keep POST base_class in sync with left select -->
+                <input type="hidden" name="base_class" id="postBaseClass"
+                      value="{{ request.GET.base_class|default:preview_class.id }}">
+
+                {% if show_starting_skill_picker %}
+                  {% with sc=starting_skill_choices %}
+                    {% if sc.skills or sc.subskills %}
+                      <div class="card skill-picker mb-3">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                          <span class="fw-semibold">Starting Skills (Level 1)</span>
+                          <small class="text-muted">
+                            <span id="ss-count">0</span>/<span id="ss-max">{{ starting_skill_max|default:0 }}</span> selected
+                          </small>
+                        </div>
+
+                        <div class="card-body p-0">
+                          <div class="skill-toolbar p-2">
+                            <input type="text" class="form-control form-control-sm" placeholder="Filter skills…" id="ss-filter">
+                          </div>
+
+                          <div class="skill-list" id="startingSkillList">
+                            {% for s in starting_skill_flat %}
+                              <label class="skill-item">
+                                <input type="checkbox"
+                                      class="form-check-input skill-checkbox"
+                                      name="starting_skill_picks"
+                                      value="{{ s.id_key }}">
+                                <span class="skill-label">{{ s.label }}</span>
+                              </label>
+                            {% empty %}
+                              <div class="p-3 text-muted">No available skills.</div>
+                            {% endfor %}
+                          </div>
+                        </div>
+
+                        <div class="card-footer">
+                          <div class="form-text">
+                            Choose up to <strong>{{ starting_skill_max|default:0 }}</strong> total.
+                          </div>
+                        </div>
+                      </div>
+                    {% endif %}
+                  {% endwith %}
+                {% endif %}
+</div> <!-- /#base-fields -->
 
                 {% if form.general_feat %}
                   <div class="mb-3">
@@ -3413,22 +3582,20 @@ tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
                           <th data-sort="1">Feat</th>
                           <th data-sort="2">Description</th>
                           <th data-sort="3">Level</th>
-            <th data-sort="4">
-              Requirements
-              <div class="dropdown d-inline ms-1" data-bs-auto-close="outside">
-                <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown" data-bs-display="static">▾</button>
-<!-- RIGHT (Requirements is column 4) -->
-<div class="dropdown-menu p-3 excel-menu" data-col="4" data-split="1" style="width:260px;"></div>
-              </div>
-            </th>
-            <th data-sort="5">
-              Tags
-              <div class="dropdown d-inline ms-1" data-bs-auto-close="outside">
-                <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown" data-bs-display="static">▾</button>
-                <!-- CHANGE 4 → 5 here -->
-                <div class="dropdown-menu p-3 excel-menu" data-col="5" data-split="1" style="width:260px;"></div>
-              </div>
-            </th>
+                          <th data-sort="4">
+                            Requirements
+                            <div class="dropdown d-inline ms-1" data-bs-auto-close="outside">
+                              <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown" data-bs-display="static">▾</button>
+                              <div class="dropdown-menu p-3 excel-menu" data-col="4" data-split="1" style="width:260px;"></div>
+                            </div>
+                          </th>
+                          <th data-sort="5">
+                            Tags
+                            <div class="dropdown d-inline ms-1" data-bs-auto-close="outside">
+                              <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown" data-bs-display="static">▾</button>
+                              <div class="dropdown-menu p-3 excel-menu" data-col="5" data-split="1" style="width:260px;"></div>
+                            </div>
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
@@ -3505,7 +3672,7 @@ tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
                     {% endfor %}
                   </div>
                 {% endif %}
-
+                <div id="base-fields-tail" {% if track == 'prestige' %}hidden{% endif %}>
                 {% if form.class_feat_pick %}
                   <div class="mb-4">
                     <label class="form-label">{{ form.class_feat_pick.label }}</label>
@@ -3522,14 +3689,14 @@ tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
                             Requirements
                             <div class="dropdown d-inline ms-1" data-bs-auto-close="outside">
                               <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown">▾</button>
-                            <div class="dropdown-menu p-3 excel-menu" data-col="4" data-split="1" style="width:260px;"></div>
+                              <div class="dropdown-menu p-3 excel-menu" data-col="4" data-split="1" style="width:260px;"></div>
                             </div>
                           </th>
                           <th data-sort="5">
                             Tags
                             <div class="dropdown d-inline ms-1" data-bs-auto-close="outside">
                               <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown">▾</button>
-                          <div class="dropdown-menu p-3 excel-menu" data-col="5" data-split="1" style="width:260px;"></div>
+                              <div class="dropdown-menu p-3 excel-menu" data-col="5" data-split="1" style="width:260px;"></div>
                             </div>
                           </th>
                         </tr>
@@ -3565,117 +3732,114 @@ tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
                     {% endfor %}
                   </div>
                 {% endif %}
-{# --- Skill Feat picker (supports single or multi-pick) --- #}
-{% if form.skill_feat_pick %}
-  {% with fld=form.skill_feat_pick %}
-    <div class="mb-4">
-      <label class="form-label">{{ fld.label }}</label>
-      <input type="text" id="skill-feat-filter" class="form-control mb-2" placeholder="Filter skill feats…">
 
-      <table id="skill-feats-table" class="table table-bordered">
-        <thead>
-          <tr>
-            <th></th>
-            <th data-sort="1">Feat</th>
-            <th data-sort="2">Description</th>
-            <th data-sort="3">Level</th>
-            <th data-sort="4">Requirements</th>
-            <th data-sort="5">Tags</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for feat in fld.field.queryset %}
-            <tr>
-              <td>
-                {% with multi=fld.field.widget.allow_multiple_selected %}
-                  <input
-                    type="{% if multi %}checkbox{% else %}radio{% endif %}"
-                    name="{{ fld.html_name }}"
-                    value="{{ feat.pk }}"
-                    {% if multi %}
-                      {% if fld.value and feat.pk|stringformat:"s" in fld.value %}checked{% endif %}
-                    {% else %}
-                      {% if fld.value|stringformat:"s" == feat.pk|stringformat:"s" %}checked{% endif %}
-                      {% if fld.field.required %}required{% endif %}
-                    {% endif %}
-                  >
-                {% endwith %}
-              </td>
-              <td class="feat-name">{{ feat.name }}</td>
-              <td class="feat-desc summernote-content">{{ feat.description|default:"(no description)"|safe }}</td>
-              <td class="feat-level">{{ feat.level_prerequisite|default:"None" }}</td>
-              <td class="feat-reqs">{{ feat.prerequisites|default:"—" }}</td>
-              <td class="feat-tags">{{ feat.tags|default:"None" }}</td>
-            </tr>
-          {% empty %}
-            <tr><td colspan="6" class="text-muted"><em>No skill feats available at this level.</em></td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
+                {% if form.skill_feat_pick %}
+                  {% with fld=form.skill_feat_pick %}
+                    <div class="mb-4">
+                      <label class="form-label">{{ fld.label }}</label>
+                      <input type="text" id="skill-feat-filter" class="form-control mb-2" placeholder="Filter skill feats…">
 
-      {% for err in fld.errors %}
-        <div class="text-danger">{{ err }}</div>
-      {% endfor %}
-    </div>
-  {% endwith %}
-{% elif form.skill_feat %}
-  {% with fld=form.skill_feat %}
-    {# same table/body as above, but using fld=form.skill_feat #}
-    <div class="mb-4">
-      <label class="form-label">{{ fld.label }}</label>
-      <input type="text" id="skill-feat-filter" class="form-control mb-2" placeholder="Filter skill feats…">
+                      <table id="skill-feats-table" class="table table-bordered">
+                        <thead>
+                          <tr>
+                            <th></th>
+                            <th data-sort="1">Feat</th>
+                            <th data-sort="2">Description</th>
+                            <th data-sort="3">Level</th>
+                            <th data-sort="4">Requirements</th>
+                            <th data-sort="5">Tags</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {% for feat in fld.field.queryset %}
+                            <tr>
+                              <td>
+                                {% with multi=fld.field.widget.allow_multiple_selected %}
+                                  <input
+                                    type="{% if multi %}checkbox{% else %}radio{% endif %}"
+                                    name="{{ fld.html_name }}"
+                                    value="{{ feat.pk }}"
+                                    {% if multi %}
+                                      {% if fld.value and feat.pk|stringformat:"s" in fld.value %}checked{% endif %}
+                                    {% else %}
+                                      {% if fld.value|stringformat:"s" == feat.pk|stringformat:"s" %}checked{% endif %}
+                                      {% if fld.field.required %}required{% endif %}
+                                    {% endif %}
+                                  >
+                                {% endwith %}
+                              </td>
+                              <td class="feat-name">{{ feat.name }}</td>
+                              <td class="feat-desc summernote-content">{{ feat.description|default:"(no description)"|safe }}</td>
+                              <td class="feat-level">{{ feat.level_prerequisite|default:"None" }}</td>
+                              <td class="feat-reqs">{{ feat.prerequisites|default:"—" }}</td>
+                              <td class="feat-tags">{{ feat.tags|default:"None" }}</td>
+                            </tr>
+                          {% empty %}
+                            <tr><td colspan="6" class="text-muted"><em>No skill feats available at this level.</em></td></tr>
+                          {% endfor %}
+                        </tbody>
+                      </table>
 
-      <table id="skill-feats-table" class="table table-bordered">
-        <thead>
-          <tr>
-            <th></th>
-            <th data-sort="1">Feat</th>
-            <th data-sort="2">Description</th>
-            <th data-sort="3">Level</th>
-            <th data-sort="4">Requirements</th>
-            <th data-sort="5">Tags</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for feat in fld.field.queryset %}
-            <tr>
-              <td>
-                {% with multi=fld.field.widget.allow_multiple_selected %}
-                  <input
-                    type="{% if multi %}checkbox{% else %}radio{% endif %}"
-                    name="{{ fld.html_name }}"
-                    value="{{ feat.pk }}"
-                    {% if multi %}
-                      {% if fld.value and feat.pk|stringformat:"s" in fld.value %}checked{% endif %}
-                    {% else %}
-                      {% if fld.value|stringformat:"s" == feat.pk|stringformat:"s" %}checked{% endif %}
-                      {% if fld.field.required %}required{% endif %}
-                    {% endif %}
-                  >
-                {% endwith %}
-              </td>
-              <td class="feat-name">{{ feat.name }}</td>
-              <td class="feat-desc summernote-content">{{ feat.description|default:"(no description)"|safe }}</td>
-              <td class="feat-level">{{ feat.level_prerequisite|default:"None" }}</td>
-              <td class="feat-reqs">{{ feat.prerequisites|default:"—" }}</td>
-              <td class="feat-tags">{{ feat.tags|default:"None" }}</td>
-            </tr>
-          {% empty %}
-            <tr><td colspan="6" class="text-muted"><em>No skill feats available at this level.</em></td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
+                      {% for err in fld.errors %}
+                        <div class="text-danger">{{ err }}</div>
+                      {% endfor %}
+                    </div>
+                  {% endwith %}
+                {% elif form.skill_feat %}
+                  {% with fld=form.skill_feat %}
+                    <div class="mb-4">
+                      <label class="form-label">{{ fld.label }}</label>
+                      <input type="text" id="skill-feat-filter" class="form-control mb-2" placeholder="Filter skill feats…">
 
-      {% for err in fld.errors %}
-        <div class="text-danger">{{ err }}</div>
-      {% endfor %}
-    </div>
-  {% endwith %}
-{% endif %}
+                      <table id="skill-feats-table" class="table table-bordered">
+                        <thead>
+                          <tr>
+                            <th></th>
+                            <th data-sort="1">Feat</th>
+                            <th data-sort="2">Description</th>
+                            <th data-sort="3">Level</th>
+                            <th data-sort="4">Requirements</th>
+                            <th data-sort="5">Tags</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {% for feat in fld.field.queryset %}
+                            <tr>
+                              <td>
+                                {% with multi=fld.field.widget.allow_multiple_selected %}
+                                  <input
+                                    type="{% if multi %}checkbox{% else %}radio{% endif %}"
+                                    name="{{ fld.html_name }}"
+                                    value="{{ feat.pk }}"
+                                    {% if multi %}
+                                      {% if fld.value and feat.pk|stringformat:"s" in fld.value %}checked{% endif %}
+                                    {% else %}
+                                      {% if fld.value|stringformat:"s" == feat.pk|stringformat:"s" %}checked{% endif %}
+                                      {% if fld.field.required %}required{% endif %}
+                                    {% endif %}
+                                  >
+                                {% endwith %}
+                              </td>
+                              <td class="feat-name">{{ feat.name }}</td>
+                              <td class="feat-desc summernote-content">{{ feat.description|default:"(no description)"|safe }}</td>
+                              <td class="feat-level">{{ feat.level_prerequisite|default:"None" }}</td>
+                              <td class="feat-reqs">{{ feat.prerequisites|default:"—" }}</td>
+                              <td class="feat-tags">{{ feat.tags|default:"None" }}</td>
+                            </tr>
+                          {% empty %}
+                            <tr><td colspan="6" class="text-muted"><em>No skill feats available at this level.</em></td></tr>
+                          {% endfor %}
+                        </tbody>
+                      </table>
 
+                      {% for err in fld.errors %}
+                        <div class="text-danger">{{ err }}</div>
+                      {% endfor %}
+                    </div>
+                  {% endwith %}
+                {% endif %}
 
-
-                {# === FEATURE FIELDS LOOP === #}
+                {# === FEATURE FIELDS LOOP (unchanged) === #}
                 {% for item in feature_fields %}
                   {% if item.kind == "subclass_choice" %}
                     <div class="mb-4">
@@ -3773,7 +3937,6 @@ tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
                         </div>
                       {% endif %}
 
-
                       <div class="d-grid gap-2">
                         {% with selected_vals=item.field.value %}
                           {% for f in item.eligible %}
@@ -3816,20 +3979,128 @@ tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
                       {% endfor %}
                     </div>
                   {% endif %}
-
                 {% endfor %}
                 {# === END FEATURE FIELDS LOOP === #}
+                </div> <!-- /#base-fields-tail -->
 
-                <button type="submit" name="level_up_submit" class="btn btn-primary">
-                  Confirm Level Up
-                </button>
+
+              <button type="submit" name="level_up_submit" class="btn btn-primary">
+                Confirm Level Up
+              </button>
             </form>
-          </div> <!-- /RIGHT form -->
+          </div> <!-- /RIGHT -->
         </div> <!-- /.row -->
+
+        <!-- Modal-scoped JS -->
+        <script>
+        (function(){
+          // Auto-open when hash is present
+          if (window.location.hash === "#levelUpModal") {
+            const el = document.getElementById("levelUpModal");
+            if (el && window.bootstrap) bootstrap.Modal.getOrCreateInstance(el).show();
+          }
+
+          const leftForm  = document.getElementById('classPreviewForm');
+          const advBase   = document.getElementById('adv-base');
+          const advPrest  = document.getElementById('adv-prestige');
+
+          const leftBaseWrap   = document.getElementById('left-base-wrap');
+          const leftBaseSelect = document.getElementById('left-base-class');
+          const leftPrestWrap  = document.getElementById('left-prestige-wrap');
+          const leftPrest      = document.getElementById('left-prestige');
+          const leftPrestHelp  = document.getElementById('left-prestige-help');
+
+          const postAdvance    = document.getElementById('postAdvanceTrack');
+          const postBase       = document.getElementById('postBaseClass');
+          const postPrest      = document.getElementById('postPrestigeEnrollment');
+
+
+          const baseHead       = document.getElementById('base-fields');
+          const baseTail       = document.getElementById('base-fields-tail');
+          const prestigeFields = document.getElementById('prestige-fields');
+
+          // Optional JSON mapping injected by view
+          let PBM = {};
+          const pbmEl = document.getElementById('prestige-base-map');
+          if (pbmEl && pbmEl.textContent) {
+            try { PBM = JSON.parse(pbmEl.textContent); } catch(e) {}
+          }
+
+          function getAllowedBases(){
+            if (!leftPrest || !leftPrest.value) return null;
+            const pid = String(leftPrest.value);
+            if (PBM && PBM[pid] && PBM[pid].length) return PBM[pid].map(String);
+            const opt = leftPrest.options[leftPrest.selectedIndex];
+            const csv = opt ? (opt.getAttribute('data-bases') || '') : '';
+            const arr = csv.split(',').map(s => s.trim()).filter(Boolean);
+            return arr.length ? arr : null;
+          }
+
+          function filterBaseForPrestige(){
+            if (!leftBaseSelect) return;
+            const allowed = getAllowedBases(); // null → no restriction
+            [...leftBaseSelect.options].forEach(o => {
+              const ok = !allowed || allowed.includes(String(o.value));
+              o.hidden = o.disabled = !ok;
+            });
+
+            const cur = leftBaseSelect.options[leftBaseSelect.selectedIndex];
+            if (!cur || cur.hidden || cur.disabled) {
+              const firstOk = [...leftBaseSelect.options].find(o => !o.hidden && !o.disabled);
+              if (firstOk) firstOk.selected = true;
+            }
+
+            const isPrestige = advPrest && advPrest.checked;
+            const showBaseForPrestige = isPrestige && allowed && allowed.length > 1;
+            if (leftBaseWrap) leftBaseWrap.hidden = isPrestige ? !showBaseForPrestige : false;
+            if (leftPrestHelp) leftPrestHelp.hidden = !showBaseForPrestige;
+
+            if (postBase && leftBaseSelect) postBase.value = leftBaseSelect.value || '';
+            if (leftForm && leftForm.requestSubmit) leftForm.requestSubmit();
+          }
+
+          function flipTrackUI(){
+            const isPrestige = advPrest && advPrest.checked;
+
+            if (leftPrestWrap) leftPrestWrap.hidden = !isPrestige;
+            if (leftBaseWrap)  leftBaseWrap.hidden  = isPrestige ? true : false;
+
+            if (baseHead)       baseHead.hidden       =  isPrestige;
+            if (baseTail)       baseTail.hidden       =  isPrestige;
+            if (prestigeFields) prestigeFields.hidden = !isPrestige;
+
+            if (postAdvance) postAdvance.value = isPrestige ? 'prestige' : 'base';
+
+            if (isPrestige) filterBaseForPrestige();
+
+            if (leftForm && leftForm.requestSubmit) leftForm.requestSubmit();
+          }
+
+          if (advBase)  advBase.addEventListener('change', flipTrackUI);
+          if (advPrest) advPrest.addEventListener('change', flipTrackUI);
+
+          if (leftPrest) {
+            leftPrest.addEventListener('change', () => {
+              if (postPrest) postPrest.value = leftPrest.value || '';
+              filterBaseForPrestige();
+            });
+          }
+
+          if (leftBaseSelect) {
+            leftBaseSelect.addEventListener('change', () => {
+              if (postBase) postBase.value = leftBaseSelect.value || '';
+              if (leftForm && leftForm.requestSubmit) leftForm.requestSubmit();
+            });
+          }
+
+          flipTrackUI();
+        })();
+        </script>
       </div> <!-- /.modal-body -->
     </div> <!-- /.modal-content -->
   </div> <!-- /.modal-dialog -->
 </div> <!-- /LEVEL UP MODAL -->
+
 {% if can_share %}
 <!-- SHARE MODAL (styled like the others) -->
 <div class="modal fade" id="shareModal" tabindex="-1" aria-labelledby="shareModalLabel" aria-hidden="true">
@@ -3927,7 +4198,7 @@ tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
 
-      <form method="post" action="{% url 'characters:character_detail' character.pk %}">
+<form id="levelUpPostForm" method="post" action="{% url 'characters:character_detail' character.pk %}">
         {% csrf_token %}
         <div class="modal-body">
           {% if edit_form %}
@@ -4030,9 +4301,19 @@ document.addEventListener("DOMContentLoaded", function(){
     const el = document.getElementById("levelUpModal");
     bootstrap.Modal.getOrCreateInstance(el).show();
   }
+
+  // Auto-submit the left-side preview form when base class changes
+  const previewForm = document.getElementById("classPreviewForm");
+  if (previewForm) {
+    const sel = previewForm.querySelector('select[name="{{ form.base_class.html_name|default:"base_class" }}"]');
+    if (sel) {
+      sel.addEventListener('change', () => {
+        if (previewForm.requestSubmit) previewForm.requestSubmit();
+        else previewForm.submit();
+      });
+    }
+  }
 });
-
-
 </script>
 
 
@@ -4669,6 +4950,20 @@ document.addEventListener('DOMContentLoaded', () => {
 </script>
 
 
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  const el = document.getElementById('manual-feat-select');
+  if (el && window.TomSelect){
+    new TomSelect(el, {
+      allowEmptyOption: true,
+      maxOptions: 10000,
+      searchField: ['text'],
+      sortField: { field: 'text', direction: 'asc' },
+      placeholder: 'Search feats…'
+    });
+  }
+});
+</script>
 
 <script>
   // Spellcasting tab tables (new)
@@ -4679,6 +4974,39 @@ document.addEventListener('DOMContentLoaded', () => {
 })();
 
 </script>
+<script>
+(function () {
+  const leftForm   = document.getElementById('classPreviewForm');
+  const leftSelect = leftForm ? leftForm.querySelector('select[name="base_class"]') : null;
+  const postHidden = document.getElementById('postBaseClass');
+
+  // keep POST hidden in sync with the left selector
+  if (leftSelect && postHidden) {
+    if (!postHidden.value) postHidden.value = leftSelect.value;   // initial fill
+    leftSelect.addEventListener('change', function () {
+      postHidden.value = this.value;
+      // auto-refresh the left preview to match the chosen class:
+      if (leftForm) leftForm.submit();
+    });
+  }
+
+  // (nice-to-have) mirror the advance_track radios into the left hidden
+  const trackHidden = leftForm ? leftForm.querySelector('input[name="advance_track"]') : null;
+  document.querySelectorAll('input[name="{{ form.advance_track.html_name }}"]').forEach(function (r) {
+    r.addEventListener('change', function () {
+      if (trackHidden) trackHidden.value = this.value;
+      // show/hide prestige/base sections without reload (optional)
+      const isPrestige = this.value === 'prestige';
+      const base = document.getElementById('base-fields');
+      const pre  = document.getElementById('prestige-fields');
+      if (base) base.hidden = isPrestige;
+      if (pre)  pre.hidden  = !isPrestige;
+    });
+  });
+})();
+</script>
+
+</div> <!-- /LEVEL UP MODAL -->
 
 <script>
 (function(){
@@ -4841,6 +5169,33 @@ document.addEventListener('DOMContentLoaded', function () {
 </script>
 
 
+<script>
+(function(){
+  // Use the Django-provided html_name if present, else fallback to literal "advance_track"
+  var fieldName = '{{ form.advance_track.html_name|default:"advance_track" }}';
+
+function applyToggle(){
+  var bHead  = document.getElementById('base-fields');
+  var bTail  = document.getElementById('base-fields-tail');
+  var presEl = document.getElementById('prestige-fields');
+
+  var chosen = document.querySelector('[name="'+fieldName+'"]:checked');
+  if (!chosen) chosen = document.querySelector('[name="'+fieldName+'"]');
+
+  var isPrestige = !!chosen && chosen.value === 'prestige';
+  if (bHead)  bHead.hidden  = isPrestige;
+  if (bTail)  bTail.hidden  = isPrestige;
+  if (presEl) presEl.hidden = !isPrestige;
+}
+
+
+  document.addEventListener('change', function(e){
+    if (e.target && e.target.name === fieldName) applyToggle();
+  });
+
+  document.addEventListener('DOMContentLoaded', applyToggle);
+})();
+</script>
 
 <script>
 (function () {
@@ -4979,6 +5334,24 @@ document.addEventListener('DOMContentLoaded', () => {
   }, false);
 })();
 </script>
+<script>
+document.addEventListener('change', function (e) {
+  if (e.target && e.target.name === 'advance_track') {
+    const isPrestige = e.target.value === 'prestige';
+    const pre   = document.getElementById('prestige-fields');
+    const bHead = document.getElementById('base-fields');
+    const bTail = document.getElementById('base-fields-tail');
+    if (pre)   pre.hidden   = !isPrestige;
+    if (bHead) bHead.hidden =  isPrestige;
+    if (bTail) bTail.hidden =  isPrestige;
+
+    // keep the left preview GET in sync
+    const mirror = document.querySelector('#classPreviewForm input[name="advance_track"]');
+    if (mirror) mirror.value = e.target.value;
+  }
+});
+
+</script>
 
 <script>
 function resetSpeed(btn){
@@ -5045,6 +5418,7 @@ function resetSpeed(btn){
     }
   });
 </script>
+
 
 
 {% endblock %}

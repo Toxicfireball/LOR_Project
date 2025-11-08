@@ -7,6 +7,10 @@ from django.db.models import Q, F
 from django.db.models.functions import Cast
 from django.db.models import Case, When, IntegerField
 # Create your views here.
+from types import SimpleNamespace
+import re as _re
+from django.db import models as dj_models  # keep if you actually use Django's models
+from . import models as app_models     
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth import get_user_model             # NEW
 from django.contrib import messages                     # NEW (if not already present)
@@ -14,9 +18,13 @@ from django.utils import timezone                       # NEW
 from django.urls import reverse                         # NEW
 from django.http import HttpResponseForbidden, Http404  # NEW
 from .models import CharacterViewer, CharacterShareInvite  # NEW
+from django.shortcuts import get_object_or_404, redirect
+from django.contrib import messages
+from .models import ClassFeat, CharacterManualFeat
 from .forms import CharacterEditForm
 from collections import defaultdict
 from collections import Counter
+from itertools import chain
 from .forms import CharacterEditForm
 from django.http import QueryDict
 from campaigns.models import CampaignMembership
@@ -1444,6 +1452,138 @@ def _weapon_trait_names_lower(weapon: Weapon) -> set[str]:
 def _wtraits_lower(weapon: Weapon) -> set[str]:
     vals = WeaponTraitValue.objects.filter(weapon=weapon).select_related("trait")
     return {(v.trait.name or "").strip().lower() for v in vals}
+# views.py (helpers)
+
+from collections import defaultdict
+from django import forms
+from django.db.models import Q
+
+def _char_base_class_levels(character, class_progress_qs):
+    """Return {class_id: levels} from *base* classes only (no prestige)."""
+    lvls = defaultdict(int)
+    for cp in class_progress_qs.select_related("character_class"):
+        # If you already store prestige here, filter them out if needed
+        lvls[int(cp.character_class_id)] += int(cp.levels or 0)
+    return lvls
+
+def meets_prestige_prereqs(character, pc, class_progress_qs):
+    """Evaluate your AND/OR prereq groups for one PrestigeClass."""
+    groups = defaultdict(list)
+    for pr in pc.prereqs.select_related(
+        "target_class","skill","min_tier","race","subrace","class_tag","race_tag"
+    ).all():
+        groups[int(pr.group_index)].append(pr)
+
+    # quick helpers you already have equivalents for
+    base_lvls = _char_base_class_levels(character, class_progress_qs)
+
+    def _has_class_level(pr):
+        if not pr.target_class_id or pr.min_class_level is None:
+            return False
+        return int(base_lvls.get(int(pr.target_class_id), 0)) >= int(pr.min_class_level)
+
+    def _has_skill_tier(pr):
+        # Find current tier for this skill; fall back to Untrained.
+        sp = character.skill_proficiencies.filter(
+            selected_skill_type=ContentType.objects.get_for_model(pr.skill.__class__),
+            selected_skill_id=pr.skill_id
+        ).select_related("proficiency").first() if pr.skill_id else None
+        have = (sp.proficiency.bonus if sp and sp.proficiency else 0)
+        need = (pr.min_tier.bonus if pr.min_tier else 9999)  # ensure False if missing
+        return int(have) >= int(need)
+
+    def _has_race(pr):
+        return pr.race_id and character.race_id == pr.race_id
+
+    def _has_subrace(pr):
+        return pr.subrace_id and character.subrace_id == pr.subrace_id
+
+    def _has_class_tag(pr):
+        try:
+            return pr.class_tag and character.class_progress.filter(
+                character_class__tags=pr.class_tag
+            ).exists()
+        except Exception:
+            return False
+
+    def _has_race_tag(pr):
+        try:
+            return pr.race_tag and character.race and character.race.tags.filter(pk=pr.race_tag_id).exists()
+        except Exception:
+            return False
+
+    def _has_feat_code(pr):
+        code = (pr.feat_code or "").strip().lower()
+        if not code: return False
+        return character.feats.filter(feat__code__iexact=code).exists()
+
+    kind_ok = {
+        "class_level": _has_class_level,
+        "skill_tier":  _has_skill_tier,
+        "race":        _has_race,
+        "subrace":     _has_subrace,
+        "class_tag":   _has_class_tag,
+        "race_tag":    _has_race_tag,
+        "feat_code":   _has_feat_code,
+    }
+
+    # All groups must pass; inside a group use AND/OR
+    for idx, items in groups.items():
+        if not items:
+            continue
+        op = items[0].intragroup_operator
+        checks = [(kind_ok.get(pr.kind, lambda _p: False))(pr) for pr in items]
+        ok = (all(checks) if op == "AND" else any(checks))
+        if not ok:
+            return False
+    return True
+
+def eligible_prestige_qs(character, class_progress_qs):
+    PrestigeClass = apps.get_model("characters", "PrestigeClass")
+    # Min level: entry happens at the *next* level
+    next_level = int(getattr(character, "level", 0) or 0) + 1
+    if next_level < 7:
+        return PrestigeClass.objects.none()
+
+    # One prestige class max
+    if character.prestige_enrollment.exists():
+        # Already enrolled -> only that class continues
+        pc = character.prestige_enrollment.first().prestige_class
+        return PrestigeClass.objects.filter(pk=pc.pk)
+
+    # Otherwise: filter by prereqs now
+    all_pc = list(PrestigeClass.objects.all().order_by("name"))
+    allowed_ids = [
+        pc.id for pc in all_pc
+        if meets_prestige_prereqs(character, pc, class_progress_qs)
+    ]
+    return PrestigeClass.objects.filter(id__in=allowed_ids).order_by("name")
+
+def prestige_next_level(character, pc):
+    """Return the next prestige level (1..n) if this character advances in pc."""
+    enr = character.prestige_enrollment.filter(prestige_class=pc).first()
+    if not enr:
+        return 1
+    # count recorded choices to infer current level; fall back to max(CharacterPrestigeLevelChoice)
+    cur = enr.level_choices.aggregate(m=models.Max("prestige_level"))["m"] or 0
+    return int(cur) + 1
+
+def counts_as_field_for(pc, next_pl):
+    """If the next prestige level is CHOOSE, return a Django Field configured for the allowed classes; else None."""
+    pl = pc.levels.filter(level=next_pl).select_related("fixed_counts_as").prefetch_related("allowed_counts_as").first()
+    if not pl:
+        return None  # no row (dead or undefined) – no counts-as choice
+    if pl.counts_as_mode == pl.MODE_FIXED:
+        return None
+    # choose mode
+    CharacterClass = apps.get_model("characters", "CharacterClass")
+    allowed = CharacterClass.objects.filter(id__in=pl.allowed_counts_as.values_list("id", flat=True))
+    return forms.ModelChoiceField(
+        queryset=allowed.order_by("name"),
+        required=True,
+        label=f"Counts as (P{next_pl})",
+        help_text="Pick which base class this prestige level counts as."
+    )
 
 def _weapon_math(weapon: Weapon, str_mod: int, dex_mod: int, prof_weapon: int, half_lvl_if_trained: int):
     """
@@ -3738,6 +3878,83 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
                     totals["prepared"] = None
 
         return totals
+    # === Prepared-caster multiclassing (3.1–3.4) support + effective levels ===
+    eff_levels, classes_by_id = _effective_class_levels(character, class_progress)
+
+    spell_tables_by_class = {}
+    prepared_flags_by_class = {}
+    origin_tokens_by_class = {}
+    for cp_ in class_progress:
+        fts_ = (ClassFeature.objects
+                .filter(kind="spell_table", character_class=cp_.character_class)
+                .distinct())
+        spell_tables_by_class[int(cp_.character_class_id)] = list(fts_)
+        prepared_flags_by_class[int(cp_.character_class_id)] = any(
+            (getattr(ft, "spells_prepared_formula", None) or "").strip()
+            for ft in fts_
+        )
+        toks = set()
+        for ft in fts_:
+            lbl = (getattr(ft, "get_spell_list_display", lambda: None)() or ft.spell_list or "").strip()
+            if lbl:
+                toks.add(lbl)
+        origin_tokens_by_class[int(cp_.character_class_id)] = toks
+
+    prepared_class_ids = [cid for cid, flag in prepared_flags_by_class.items() if flag]
+
+    # One-time choice (3.1): honor override if present; else default to highest effective level
+    highest_prepared_id = max(prepared_class_ids, key=lambda cid: int(eff_levels.get(cid, 0))) if prepared_class_ids else None
+    try:
+        ov_primary = CharacterFieldOverride.objects.filter(
+            character=character, key="prepared_primary_class"
+        ).values_list("value", flat=True).first()
+        if ov_primary and str(ov_primary).isdigit():
+            cand = int(ov_primary)
+            if cand in prepared_class_ids:
+                highest_prepared_id = cand
+    except Exception:
+        pass
+
+    highest_prepared_level = int(eff_levels.get(highest_prepared_id, 0)) if highest_prepared_id else 0
+    sum_other_prepared = sum(int(eff_levels.get(cid, 0)) for cid in prepared_class_ids if cid != highest_prepared_id)
+
+    prepared_caps_by_token = {}   # token -> max rank allowed from that list
+    prepared_primary_slots = {}   # rank -> slots from chosen primary prepared table (at considered level)
+
+    if highest_prepared_id:
+        primary_considered = highest_prepared_level + (sum_other_prepared // 2)
+        best_vec = None
+        best_r = 0
+        for ft in spell_tables_by_class.get(highest_prepared_id, []):
+            row = ft.spell_slot_rows.filter(level=primary_considered).first() or \
+                ft.spell_slot_rows.filter(level=highest_prepared_level).first()
+            if not row:
+                continue
+            vec = [row.slot1,row.slot2,row.slot3,row.slot4,row.slot5,row.slot6,row.slot7,row.slot8,row.slot9,row.slot10]
+            r = max((i+1 for i, s in enumerate(vec) if (s or 0) > 0), default=0)
+            if r > best_r:
+                best_r = r
+                best_vec = [int(s or 0) for s in vec[:r]]
+        if best_vec:
+            prepared_primary_slots = {i+1: v for i, v in enumerate(best_vec)}
+        for tok in origin_tokens_by_class.get(highest_prepared_id, set()):
+            prepared_caps_by_token[tok] = max(prepared_caps_by_token.get(tok, 0), best_r)
+
+        # Secondary prepared: cap = max rank at (this + floor(primary/2))
+        for cid in prepared_class_ids:
+            if cid == highest_prepared_id:
+                continue
+            considered = int(eff_levels.get(cid, 0)) + (highest_prepared_level // 2)
+            cap_r = 0
+            for ft in spell_tables_by_class.get(cid, []):
+                row = ft.spell_slot_rows.filter(level=considered).first() or \
+                    ft.spell_slot_rows.filter(level=int(eff_levels.get(cid, 0))).first()
+                if not row:
+                    continue
+                vec = [row.slot1,row.slot2,row.slot3,row.slot4,row.slot5,row.slot6,row.slot7,row.slot8,row.slot9,row.slot10]
+                cap_r = max(cap_r, max((i+1 for i, s in enumerate(vec) if (s or 0) > 0), default=0))
+            for tok in origin_tokens_by_class.get(cid, set()):
+                prepared_caps_by_token[tok] = max(prepared_caps_by_token.get(tok, 0), cap_r)
 
 
 
@@ -3751,6 +3968,7 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
         # ← NEW: accumulator to merge multiple spell tables per origin
         # === GLOBAL accumulators across ALL classes / ALL spell-table features ===
         sum_slots_by_rank   = {}           # {rank: total slots across all features}
+        extra_slots_by_rank = {}
         total_cantrips_max  = 0            # SUM of per-feature cantrip caps
         total_known_max     = 0            # SUM of per-feature known caps (when present)
         total_prepared_max  = 0            # SUM of per-feature prepared caps (when present)
@@ -3863,14 +4081,23 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
             if known_max    is not None: total_known_max    += int(known_max)
             if prepared_max is not None: total_prepared_max += int(prepared_max)
 
-            # --- accumulate SLOTS by SUM across all features (not max) ---
-            for r, s in enumerate(slots_vec, start=1):
-                if not s: continue
-                sum_slots_by_rank[r] = int(sum_slots_by_rank.get(r, 0)) + int(s or 0)
+            is_prepared_ft = bool((getattr(ft, "spells_prepared_formula", None) or "").strip())
+            if not is_prepared_ft:
+                for r, s in enumerate(slots_vec, start=1):
+                    if not s: 
+                        continue
+                    extra_slots_by_rank[r] = int(extra_slots_by_rank.get(r, 0)) + int(s or 0)
+
 
             # --- collect accessible origin tokens (used to filter learn list UNION) ---
             o_label = (getattr(ft, "get_spell_list_display", lambda: None)() or ft.spell_list or "").strip()
             if o_label: origin_tokens.add(o_label)
+        # Inject primary prepared slots (if any), then add non-prepared extras
+        if prepared_primary_slots:
+            for r, v in prepared_primary_slots.items():
+                sum_slots_by_rank[r] = int(sum_slots_by_rank.get(r, 0)) + int(v or 0)
+        for r, v in extra_slots_by_rank.items():
+            sum_slots_by_rank[r] = int(sum_slots_by_rank.get(r, 0)) + int(v or 0)
 
         # --- EMIT one block per ORIGIN (combined) ---
         # ===== ONE consolidated selection block (requirements #1 and #2) =====
@@ -3922,11 +4149,41 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
         cols = ["id","name","level","classification","effect","upcast_effect","saving_throw",
                 "casting_time","duration","components","range","target","origin","sub_origin","tags","last_synced"]
         known_ids_all = set(character.known_spells.values_list("spell_id", flat=True))
-        cantrip_choices = list(avail_base.filter(level=0).exclude(pk__in=known_ids_all).order_by("name").values(*cols))
+        cantrip_choices = list(
+            avail_base.filter(level=0).exclude(pk__in=known_ids_all).order_by("name").values(*cols)
+        )
+
+        token_res = {tok: re.compile(rf'(^|[,;/\s\(\)]+){re.escape(tok)}([,;/\s\(\)]+|$)', re.I)
+                    for tok in prepared_caps_by_token.keys()}
+
+        def _within_prepared_caps(v_level: int, v_origin: str, v_sub: str) -> bool:
+            matched = False
+            for tok, cre in token_res.items():
+                cap = int(prepared_caps_by_token.get(tok, 0) or 0)
+                if cap <= 0:
+                    continue
+                if (v_origin and cre.search(v_origin)) or (v_sub and cre.search(v_sub)):
+                    matched = True
+                    if v_level <= cap:
+                        return True
+            return not matched
+
+        def _filtered_values(qs, r):
+            vals = list(qs.order_by("name").values(*cols))
+            out = []
+            for v in vals:
+                lvl = int(v.get("level") or 0)
+                if lvl != r:
+                    continue
+                if _within_prepared_caps(lvl, v.get("origin") or "", v.get("sub_origin") or ""):
+                    out.append(v)
+            return out
+
         spell_choices_by_rank = {
-            r: list(avail_base.filter(level=r).exclude(pk__in=known_ids_all).order_by("name").values(*cols))
+            r: _filtered_values(avail_base.filter(level=r).exclude(pk__in=known_ids_all), r)
             for r in range(1, max_rank_all + 1)
         }
+
 
         def _rows_from_qs(qs):
             out=[]
@@ -4512,12 +4769,26 @@ def build_martial_mastery_context(character, class_progress) -> Dict[str, Any]:
     """
     from .models import MartialMastery, ClassFeature  # adapt if your paths differ
 
-    # 1) Collect MM entitlements from class features
-    total_level = sum(cp.levels for cp in class_progress)
-    class_levels = {cp.character_class.slug: cp.levels for cp in class_progress if getattr(cp.character_class, "slug", None)}
+    # 1) Collect MM entitlements from class features — with LOR multiclass combining
+    # Use EFFECTIVE levels (Counts-As) so prestige levels contribute to class levels here.
+    try:
+        eff_levels, classes_by_id = _effective_class_levels(character, class_progress)
+    except NameError:
+        # Fallback if helper isn’t present elsewhere in this module
+        eff_levels = {int(cp.character_class_id): int(cp.levels or 0) for cp in class_progress}
+        classes_by_id = {int(cp.character_class_id): cp.character_class for cp in class_progress}
+
+    total_level = sum(eff_levels.values())
+    class_levels = {getattr(c, "slug", ""): eff_levels.get(cid, 0)
+                    for cid, c in classes_by_id.items() if getattr(c, "slug", None)}
+
     by_feature = []
-    tot_points = 0
-    tot_known  = 0
+
+    # We’ll group per class, then apply: Highest class full; others max(0, formula − 5)
+    per_class_points = {}   # class_id -> total points from its MM features
+    per_class_known  = {}   # class_id -> total known cap from its MM features
+    global_points    = 0    # features not tied to a specific class
+    global_known     = 0
 
     # Any feature with kind == 'martial_mastery' contributes points/known slots
     char_classes = [cp.character_class for cp in class_progress]
@@ -4528,28 +4799,19 @@ def build_martial_mastery_context(character, class_progress) -> Dict[str, Any]:
         .distinct()
     )
     for f in feats_qs:
-        # Accept either constants or formulas on the feature
-        pf  = (getattr(f, "martial_points_formula", "") or "").strip()
-        kf  = (getattr(f, "available_masteries_formula", "") or "").strip()
-        pc  = 0
-        kc  = 0
-
-        # --- Build the same eval context the spell-table uses ---
+        # Build eval context with EFFECTIVE levels instead of raw class_progress
         def _abil(score: int) -> int: return (score - 10) // 2
-
         ctx = {}
-        # class-level tokens: fighter_level, war_priest_level, etc.
-        for prog in class_progress:
-            token = re.sub(r'[^a-z0-9_]', '', (prog.character_class.name or '')
-                        .strip().lower().replace(' ', '_'))
+        for cid, lvl in eff_levels.items():
+            cls = classes_by_id.get(int(cid))
+            if not cls: 
+                continue
+            token = re.sub(r'[^a-z0-9_]', '', (cls.name or '').strip().lower().replace(' ', '_'))
             if token:
-                ctx[f"{token}_level"] = int(prog.levels or 0)
+                ctx[f"{token}_level"] = int(lvl)
 
-        # aliases used in some data
-        ctx["level"] = int(sum(cp.levels for cp in class_progress) or 0)   # total level
-        ctx["total_level"] = ctx["level"]                                  # alias
-
-        # ability scores + modifiers (same as spell-table block)
+        ctx["level"] = int(total_level or 0)
+        ctx["total_level"] = ctx["level"]
         ctx.update({
             "strength_score":     int(character.strength),
             "dexterity_score":    int(character.dexterity),
@@ -4557,59 +4819,49 @@ def build_martial_mastery_context(character, class_progress) -> Dict[str, Any]:
             "intelligence_score": int(character.intelligence),
             "wisdom_score":       int(character.wisdom),
             "charisma_score":     int(character.charisma),
-
             "strength": _abil(character.strength),
             "dexterity": _abil(character.dexterity),
             "constitution": _abil(character.constitution),
             "intelligence": _abil(character.intelligence),
             "wisdom": _abil(character.wisdom),
             "charisma": _abil(character.charisma),
-
             "str_mod": _abil(character.strength),
             "dex_mod": _abil(character.dexterity),
             "con_mod": _abil(character.constitution),
             "int_mod": _abil(character.intelligence),
             "wis_mod": _abil(character.wisdom),
             "cha_mod": _abil(character.charisma),
-
-            # math helpers / round-up aliases (mirror spell table)
             "floor": math.floor, "ceil": math.ceil, "min": min, "max": max,
             "int": int, "round": round,
             "round_up": math.ceil, "roundup": math.ceil, "ceiling": math.ceil,
         })
-        # --- same normalizer the spell table uses ---
         def _normalize_formula(expr: str) -> str:
             if not expr:
                 return ""
             e = expr.strip().lower()
-            # caret to python power
             e = e.replace("^", "**")
-            # common whitespace cleanup
             e = re.sub(r"\s+", " ", e)
-            # optional: normalize commas to plus (rare in data)
             e = e.replace(",", " + ")
-            # handle "round up/down" by turning "x / n round up" -> "ceil((x)/n)"
-            e = re.sub(r"\bround\s+up\b", "ceil", e)    # simple alias safety
+            e = re.sub(r"\bround\s+up\b", "ceil", e)
             e = re.sub(r"\bround\s+down\b", "floor", e)
-            # pattern: "<expr> / <n> ceil"  -> "ceil((<expr>)/<n>)"
             e = re.sub(r"(.+?)\s*/\s*([0-9]+)\s+ceil\b", r"ceil((\1)/\2)", e)
             e = re.sub(r"(.+?)\s*/\s*([0-9]+)\s+floor\b", r"floor((\1)/\2)", e)
             return e
-
         def _eval(expr: str):
             if not expr:
                 return 0
             try:
-                expr = _normalize_formula(expr)  # same normalizer the spell table uses
-                val = eval(expr, {"__builtins__": {}}, ctx)
-                return int(val)
+                expr = _normalize_formula(expr)
+                return int(eval(expr, {"__builtins__": {}}, ctx))
             except Exception:
                 return 0
 
-        points = pc if pc else _eval(pf)
-        known  = kc if kc else _eval(kf)
+        pf = (getattr(f, "martial_points_formula", "") or "").strip()
+        kf = (getattr(f, "available_masteries_formula", "") or "").strip()
+        points = _eval(pf)
+        known  = _eval(kf)
 
-        # Per-feature overrides (optional)
+        # Per-feature overrides (your existing override logic kept)
         try:
             from .models import CharacterOverride
             slug = re.sub(r'[^a-z0-9_]+', '-', f.name.strip().lower())
@@ -4620,24 +4872,60 @@ def build_martial_mastery_context(character, class_progress) -> Dict[str, Any]:
         except Exception:
             pass
 
-
-
-
-
-
-        tot_points += points
-        tot_known  += known
+        # Attribute to class (if any); otherwise treat as global (no −5 reduction)
+        owner_cls = getattr(f, "character_class", None)
+        owner_id  = int(getattr(owner_cls, "id", 0) or 0) if owner_cls else 0
+        if owner_id:
+            per_class_points[owner_id] = per_class_points.get(owner_id, 0) + int(points)
+            per_class_known[owner_id]  = per_class_known.get(owner_id, 0)  + int(known)
+        else:
+            global_points += int(points)
+            global_known  += int(known)
 
         by_feature.append({
             "feature_name": f.name,
-            "class_name": getattr(f, "character_class", None).name if getattr(f, "character_class", None) else "",
+            "class_name": owner_cls.name if owner_cls else "",
             "points": points,
             "known_cap": known,
-            "points_formula": pf or (str(pc) if pc else ""),
-            "known_formula":  kf or (str(kc) if kc else ""),
+            "points_formula": pf or "",
+            "known_formula":  kf or "",
             "points_values":  str(points) if pf else "",
             "known_values":   str(known)  if kf else "",
         })
+
+    # Identify Martial classes (by tag) and apply LOR combine rule
+    martial_class_ids = set()
+    for cid, cls in classes_by_id.items():
+        try:
+            tags = [t.lower() for t in cls.tags.values_list("name", flat=True)]
+        except Exception:
+            tags = []
+        if "martial" in tags:
+            martial_class_ids.add(int(cid))
+
+    # Highest-level Martial class by EFFECTIVE level
+    highest_id = None
+    if martial_class_ids:
+        highest_id = max(martial_class_ids, key=lambda i: int(eff_levels.get(i, 0)))
+
+    # Totals per LOR: full highest; others −5 (min 0); add global (non-class) features as is
+    highest_points = per_class_points.get(highest_id, 0) if highest_id else 0
+    highest_known  = per_class_known.get(highest_id, 0)  if highest_id else 0
+
+    reduced_points = 0
+    reduced_known  = 0
+    for cid, pts in per_class_points.items():
+        if cid == highest_id:
+            continue
+        reduced_points += max(0, int(pts) - 5)
+    for cid, kn in per_class_known.items():
+        if cid == highest_id:
+            continue
+        reduced_known += max(0, int(kn) - 5)
+
+    tot_points = int(global_points) + int(highest_points) + int(reduced_points)
+    tot_known  = int(global_known)  + int(highest_known)  + int(reduced_known)
+
 
     show_tab = (tot_points > 0 or tot_known > 0 or feats_qs.exists())
 
@@ -4874,6 +5162,49 @@ def _looks_like_shield(armor_obj):
     t = ((getattr(armor_obj, "type", "") or "").strip().lower())
     n = ((getattr(armor_obj, "name", "") or "").strip().lower())
     return (t == "shield") or ("shield" in n)
+class AdvanceForm(forms.Form):
+    ADVANCE_CHOICES = (("base", "Base class"), ("prestige", "Prestige class"))
+    advance_mode = forms.ChoiceField(
+        choices=ADVANCE_CHOICES, widget=forms.RadioSelect, initial="base", label="Advance in…"
+    )
+    base_class = forms.ModelChoiceField(queryset=None, required=False, label="Base class")
+    prestige_class = forms.ModelChoiceField(queryset=None, required=False, label="Prestige class")
+
+    # dynamically injected if needed:
+    # counts_as = ModelChoiceField(...)
+
+    def __init__(self, *args, **kwargs):
+        character = kwargs.pop("character")
+        class_progress_qs = kwargs.pop("class_progress_qs")
+        base_choices = kwargs.pop("base_choices")
+        super().__init__(*args, **kwargs)
+
+        self.fields["base_class"].queryset = base_choices
+
+        pq = eligible_prestige_qs(character, class_progress_qs)
+        self.fields["prestige_class"].queryset = pq
+
+        # If prestige is selected (in GET or POST), attach counts_as if the next prestige level requires it
+        sel_pc = None
+        raw = (self.data.get("prestige_class") or self.initial.get("prestige_class"))
+        if raw and raw.isdigit():
+            sel_pc = pq.filter(pk=int(raw)).first()
+        if not sel_pc and pq.count() == 1:
+            sel_pc = pq.first()
+
+        self._prestige_preview = None
+        if sel_pc:
+            nxt = prestige_next_level(character, sel_pc)
+            f = counts_as_field_for(sel_pc, nxt)
+            if f:
+                self.fields["counts_as"] = f
+            # store preview for the template
+            self._prestige_preview = {
+                "class": sel_pc,
+                "next_level": nxt,
+                "features": list(sel_pc.features.filter(at_prestige_level=nxt).order_by("name")),
+                "level_row": sel_pc.levels.filter(level=nxt).first(),
+            }
 
 @login_required
 def character_detail(request, pk):
@@ -4902,6 +5233,60 @@ def character_detail(request, pk):
         .exclude(id__in=existing_ids)
         .order_by("username", "email")
     )
+    # --- Feats tab: single canonical manual add/remove ----------------------------
+    if request.method == "POST" and request.POST.get("feats_op"):
+        if not can_edit:
+            return HttpResponseForbidden("You don’t have permission to edit this character.")
+
+        op = (request.POST.get("feats_op") or "").strip()
+
+        if op == "manual_add":
+            fid_raw = (request.POST.get("feat_id") or "").strip()
+            if not fid_raw.isdigit():
+                messages.error(request, "Select a feat to add.")
+                return redirect(reverse("characters:character_detail", args=[character.pk]) + "#tab-feats")
+
+            feat = get_object_or_404(ClassFeat, pk=int(fid_raw))
+
+            # 1) audit trail (optional but useful)
+            ct = ContentType.objects.get_for_model(ClassFeat)
+            CharacterManualGrant.objects.get_or_create(
+                character=character,
+                content_type=ct,
+                object_id=feat.pk,
+                defaults={"reason": "Manual add from Feats tab"},
+            )
+
+            # 2) the row the Feats tab actually renders from
+            cf, created = CharacterFeat.objects.get_or_create(
+                character=character,
+                feat=feat,
+                defaults={"level": character.level},
+            )
+
+            if created:
+                messages.success(request, f"Added feat: {feat.name}")
+            else:
+                messages.info(request, f"{feat.name} is already on this character.")
+
+            return redirect(reverse("characters:character_detail", args=[character.pk]) + "#tab-feats")
+
+        if op == "manual_remove":
+            # Accept either a CharacterFeat.pk or a legacy manual id; try CharacterFeat first.
+            rid = (request.POST.get("manual_id") or "").strip()
+
+            removed = 0
+            if rid.isdigit():
+                removed, _ = CharacterFeat.objects.filter(pk=int(rid), character=character).delete()
+
+            if not removed:
+                # Legacy safety: if you still have old UI posting a different table’s id,
+                # gracefully no-op with an info message rather than 500.
+                messages.info(request, "Nothing to remove.")
+            else:
+                messages.success(request, "Removed feat.")
+
+            return redirect(reverse("characters:character_detail", args=[character.pk]) + "#tab-feats")
 
     # Sharing UI data for template
     active_invites = character.share_invites.filter(
@@ -4945,6 +5330,79 @@ def character_detail(request, pk):
                         continue
                 return val
         return default
+    def _effective_spell_slots_by_rank(character, class_progress):
+        """
+        Sum spell slots by rank using EFFECTIVE (counts-as) class levels.
+        Returns {rank: total_slots}.
+        """
+        from collections import defaultdict
+        ClassFeature = apps.get_model("characters", "ClassFeature")
+
+        totals = defaultdict(int)
+        eff_levels, classes_by_id = _effective_class_levels(character, class_progress)
+
+        for class_id, eff_lvl in eff_levels.items():
+            if not eff_lvl:
+                continue
+            cls = classes_by_id.get(class_id)
+            if not cls:
+                continue
+
+            # All spell-table features for this class, at the *effective* level
+            for ft in ClassFeature.objects.filter(kind="spell_table", character_class=cls).distinct():
+                row = ft.spell_slot_rows.filter(level=int(eff_lvl)).first()
+                if not row:
+                    continue
+                vec = [
+                    row.slot1, row.slot2, row.slot3, row.slot4, row.slot5,
+                    row.slot6, row.slot7, row.slot8, row.slot9, row.slot10
+                ]
+                for r, n in enumerate(vec, start=1):
+                    if n:
+                        totals[r] += int(n or 0)
+
+        return dict(totals)
+
+
+    def _effective_class_levels(character, class_progress):
+        """
+        Returns (levels_by_class_id, classes_by_id) where levels include:
+        • base class levels from `class_progress`
+        • +1 per prestige level that “counts as” a base class (NO approval gate)
+        Set COUNTS_AS_START_LEVEL to 1 if P1 should count-as (default),
+        or 2 if P1 is a dead level for counts-as.
+        """
+        from collections import defaultdict
+        PrestigeChoice = apps.get_model("characters", "CharacterPrestigeLevelChoice")
+
+        # Adjust this to 2 only if you want P1 NOT to count-as.
+        COUNTS_AS_START_LEVEL = 1
+
+        levels = defaultdict(int)   # class_id -> total effective levels
+        classes_by_id = {}          # class_id -> CharacterClass
+
+        # 1) Base classes already on the character
+        for cp in class_progress:
+            try:
+                cid = int(cp.character_class_id)
+            except Exception:
+                cid = cp.character_class.id
+            levels[cid] += int(cp.levels or 0)
+            classes_by_id[cid] = cp.character_class
+
+        # 2) Prestige counted-as (no approval)
+        for ch in (
+            PrestigeChoice.objects
+                .select_related("counts_as", "enrollment")
+                .filter(enrollment__character=character)
+        ):
+            lvl = int(ch.prestige_level or 0)
+            if lvl >= COUNTS_AS_START_LEVEL:
+                levels[ch.counts_as_id] += 1
+                classes_by_id[ch.counts_as_id] = ch.counts_as
+
+        return dict(levels), classes_by_id
+
 
     def _traits_list(obj):
         # tries several likely relations; silently ignores if missing
@@ -5403,14 +5861,21 @@ def character_detail(request, pk):
         return render(request, 'forge/character_detail.html', {"error": "No classes defined."})
 
 
-    # If a GET param “base_class” is present, use that; otherwise use default
-    selected_pk = (request.POST.get('base_class') or request.GET.get('base_class'))
-    try:
-        preview_cls = CharacterClass.objects.get(pk=int(selected_pk)) if (selected_pk and str(selected_pk).isdigit()) else default_cls
-    except CharacterClass.DoesNotExist:
+    # Respect an optional level_kind flag; default to "base" so your current UI keeps working.
+    level_kind = (data.get("level_kind") or "base").strip().lower()
+
+    if level_kind == "base":
+        selected_pk = (request.POST.get('base_class') or request.GET.get('base_class'))
+        try:
+            preview_cls = app_models.CharacterClass.objects.get(pk=int(selected_pk)) if (selected_pk and str(selected_pk).isdigit()) else default_cls
+        except app_models.CharacterClass.DoesNotExist:
+
+            preview_cls = default_cls
+    else:
+        # When previewing a prestige level, keep previewing with the default base class
+        # (actual prestige application happens on submit / separate flow).
         preview_cls = default_cls
 
-    # ↓↓↓ NEW: make sure posted_cls exists on GET paths too
     posted_cls = preview_cls  # will be overwritten in the POST branch below
 
 
@@ -5518,15 +5983,22 @@ def character_detail(request, pk):
 
 
 
-    # Use the *same* data for both branches so choices exist in the form's queryset
     if request.method == "POST":
 
+        level_kind = (data.get("level_kind") or "base").strip().lower()
 
-        base_class_raw = data.get("base_class")
-        try:
-            posted_cls = CharacterClass.objects.get(pk=int(base_class_raw))
-        except (TypeError, ValueError, CharacterClass.DoesNotExist):
+        if level_kind == "base":
+            base_class_raw = data.get("base_class")
+            try:
+                cls_id = int(base_class_raw)
+                CCModel = apps.get_model("characters", "CharacterClass")
+                posted_cls = CCModel.objects.get(pk=cls_id)
+            except Exception:
+                posted_cls = preview_cls
+        else:
             posted_cls = preview_cls
+
+
         cls_level_for_validate = _class_level_after_pick(character, posted_cls)
         try:
             cl_validate = (
@@ -5542,6 +6014,7 @@ def character_detail(request, pk):
         except ClassLevel.DoesNotExist:
             base_feats_validate = []
         base_feats = base_feats_validate
+
     else:
         # GET/preview
         cls_level_for_validate = _class_level_after_pick(character, preview_cls)
@@ -5772,13 +6245,11 @@ def character_detail(request, pk):
     # only real ClassFeature instances go here
     to_choose = base_feats.copy()
 
-    # Edit slots-left per rank (global, 5E casting tracker)
     if request.method == "POST" and request.POST.get("spells_op") == "set_slots_left" and can_edit:
         # Expect inputs like: slots_left[1], slots_left[2], ...
         updates = {}
         for k, v in request.POST.items():
-            # names like "slots_left[3]"
-            m = re.match(r'^slots_left\[(\d+)\]$', k)
+            m = re.match(r'^slots_left\[(\d+)\]$', k)  # e.g., "slots_left[3]"
             if not m:
                 continue
             r = int(m.group(1))
@@ -5788,23 +6259,8 @@ def character_detail(request, pk):
                 n = None
             updates[r] = n
 
-        # Compute today’s total slots to clamp saved values
-        # (reuse the same calculation as above)
-        sum_slots_by_rank_current = {}
-        for cp_ in class_progress:
-            tables_ = (ClassFeature.objects
-                    .filter(kind="spell_table", character_class=cp_.character_class)
-                    .distinct())
-            for ft_ in tables_:
-                row_ = ft_.spell_slot_rows.filter(level=cp_.levels).first()
-                if not row_:
-                    continue
-                vec_ = [row_.slot1,row_.slot2,row_.slot3,row_.slot4,row_.slot5,
-                        row_.slot6,row_.slot7,row_.slot8,row_.slot9,row_.slot10]
-                for rr, ss in enumerate(vec_, start=1):
-                    if not ss: 
-                        continue
-                    sum_slots_by_rank_current[rr] = int(sum_slots_by_rank_current.get(rr, 0)) + int(ss or 0)
+        # NEW: totals based on EFFECTIVE (counts-as) levels
+        sum_slots_by_rank_current = _effective_spell_slots_by_rank(character, class_progress)
 
         for r, n in updates.items():
             total_slots = int(sum_slots_by_rank_current.get(r, 0) or 0)
@@ -5820,7 +6276,6 @@ def character_detail(request, pk):
 
         messages.success(request, "Updated spell slots left.")
         return (spellcasting_blocks, spell_selection_blocks, redirect('characters:character_detail', pk=pk))
-
 
     # ── 3) PROFICIENCY TABLE FOR preview_cls ────────────────────────────────
     profs = list(
@@ -6488,17 +6943,34 @@ def character_detail(request, pk):
             return redirect('characters:character_detail', pk=pk)
         # invalid form -> fall through to render with errors
 
-
-
+    # === INIT LEVEL FORM (use LevelUpForm so general_feat/ASI appear) ===
+    # Ensure base_class is present in GET so binding matches the left preview.
+    if request.method == "GET":
+        bound = data.copy() if hasattr(data, "copy") else QueryDict("", mutable=True)
+        if "base_class" not in bound and preview_cls:
+            bound["base_class"] = str(preview_cls.pk)
+    else:
+        bound = data  # POST
 
     level_form = LevelUpForm(
-        data or None,
+        bound if (request.method == "POST" or bound) else None,
         character=character,
-        to_choose=to_choose,
-        uni=uni,
-        preview_cls=preview_cls,             # keep for UI preview
-        grants_class_feat=_grants_class_feat_at
+        to_choose=to_choose,                 # you already computed this from base_feats
+        preview_cls=preview_cls,             # your selected class for this level
+        grants_class_feat=_grants_class_feat_at,
+        uni=uni,                             # UniversalLevelFeature for next_level
     )
+
+    # Optional: expose the preview toggle (does not bypass approval/min-level because counting is gated)
+    if "level_kind" not in level_form.fields:
+        level_form.fields["level_kind"] = forms.ChoiceField(
+            label="Level Type",
+            choices=(("base","Base Class Level"), ("prestige","Prestige Level")),
+            required=False,
+            initial=(data.get("level_kind") or "base"),
+        )
+
+
     # Add Skill Feat picker field(s) here now that level_form exists
     if picks_required and "skill_feat_pick" not in level_form.fields:
         base_qs = ClassFeat.objects.filter(feat_type__iexact="Skill").order_by("name")
@@ -7183,6 +7655,64 @@ def character_detail(request, pk):
 
 
 
+    # --- PREVIEW: Prestige class features granted at this level ---
+    # Detect prestige by flag or tag; adjust if your model differs.
+    is_prestige_sel = bool(getattr(preview_cls, "is_prestige", False))
+    try:
+        # you already built cls_tag_names just below; reuse if available
+        is_prestige_sel = is_prestige_sel or any(t.lower() == "prestige" for t in cls_tag_names)
+    except NameError:
+        # fallback if cls_tag_names isn't defined here
+        try:
+            tag_names = set(preview_cls.tags.values_list("name", flat=True))
+            is_prestige_sel = is_prestige_sel or any(t.lower() == "prestige" for t in tag_names)
+        except Exception:
+            pass
+
+    if is_prestige_sel:
+        # features from THIS prestige class that the character doesn't already own
+        owned_in_this_class = set(
+            CharacterFeature.objects
+                .filter(character=character, feature__character_class=preview_cls)
+                .values_list("feature_id", flat=True)
+        )
+
+        # Prefer anything already pulled into base_feats for this level (fast path)
+        cand = [
+            f for f in (base_feats or [])
+            if isinstance(f, ClassFeature)
+            and getattr(f, "character_class_id", None) == preview_cls.id
+            and (getattr(f, "scope", "") or "") not in ("subclass_feat", "subclass_choice")  # handled elsewhere
+            and (getattr(f, "level_required", None) is None or int(f.level_required) <= int(cls_level_after))
+            and (getattr(f, "min_level", None)    is None or int(f.min_level)    <= int(cls_level_after))
+            and f.pk not in owned_in_this_class
+        ]
+
+        # If nothing was pre-attached, compute from DB with simple gates
+        if not cand:
+            cand = list(
+                ClassFeature.objects
+                    .filter(character_class=preview_cls)
+                    .exclude(pk__in=owned_in_this_class)
+                    .exclude(scope__in=["subclass_feat", "subclass_choice"])
+                    .filter(Q(level_required__isnull=True) | Q(level_required__lte=cls_level_after))
+                    .filter(Q(min_level__isnull=True)      | Q(min_level__lte=cls_level_after))
+                    .order_by("name")
+            )
+
+        # Show them as a read-only preview (exactly what this level grants)
+        if cand:
+            feature_fields.append({
+                # reuse the same renderer chunk you already use for subclass previews
+                "kind": "gain_subclass_feat",     # if your template keys on 'kind', you can keep this
+                # or use "gain_class_feature" and add a tiny template branch if you prefer
+                "label": f"Gain Prestige Feature – {getattr(preview_cls, 'name', 'Prestige')}",
+                "field": None,                    # read-only; granted on submit
+                "group": None,
+                "subclass": None,
+                "eligible": cand,                 # the features to display
+                "system": "prestige",             # harmless tag if you want to style it
+            })
 
     for feat in to_choose:
         if isinstance(feat, ClassFeature) and feat.scope == 'subclass_choice':
@@ -7207,15 +7737,45 @@ def character_detail(request, pk):
                 "field": level_form[fn],
                 "group": grp_enriched,
             })
-
-        elif isinstance(feat, ClassFeature) and feat.has_options:
+        elif isinstance(feat, ClassFeature) and getattr(feat, "has_options", False):
             fn = f"feat_{feat.pk}_option"
+
+            # Build options queryset
+            try:
+                opts_qs = feat.options.all()
+            except Exception:
+                FeatureOption = apps.get_model("characters", "FeatureOption")
+                opts_qs = FeatureOption.objects.filter(feature=feat)
+
+            # Pick a safe order field: name → label → id
+            model = opts_qs.model
+            field_names = {f.name for f in model._meta.get_fields()}
+            order_field = "name" if "name" in field_names else ("label" if "label" in field_names else "id")
+            opts_qs = opts_qs.order_by(order_field)
+
+            # Add the form field if missing
+            if fn not in level_form.fields:
+                fld = forms.ModelChoiceField(
+                    queryset=opts_qs,
+                    required=True,
+                    label=feat.name,
+                    help_text=getattr(feat, "option_help", "") or "Choose one",
+                )
+                # Nice display labels in the dropdown
+                if "label" in field_names:
+                    fld.label_from_instance = lambda obj: getattr(obj, "label", str(obj))
+                elif "name" in field_names:
+                    fld.label_from_instance = lambda obj: getattr(obj, "name", str(obj))
+                level_form.fields[fn] = fld
+
             feature_fields.append({
-                "kind":  "option",
-                "label": feat.name,
-                "field": level_form[fn],
-                "feature": feat,  
+                "kind":   "option",
+                "label":  feat.name,
+                "field":  level_form[fn],
+                "feature": feat,
             })
+
+
                
     field_overrides = {o.key: o.value for o in character.field_overrides.all()}
     field_notes     = {n.key: n.note  for n in character.field_notes.all()}
@@ -7314,12 +7874,17 @@ def character_detail(request, pk):
             "source": "Default",
         }
 
-    # take the highest tier the character qualifies for across their classes
-    for cp in class_progress:
-        cls = cp.character_class
-        lvl = int(cp.levels or 0)
-        for p in cls.prof_progress.select_related("tier"):
-            if int(getattr(p, "at_level", 0) or 0) > lvl:
+    # take the highest tier the character qualifies for across base + prestige counts-as
+    eff_levels, classes_by_id = _effective_class_levels(character, class_progress)
+
+    for class_id, lvl in eff_levels.items():
+        cls = classes_by_id.get(class_id)
+        if cls is None:
+            CharacterClass = apps.get_model("characters", "CharacterClass")
+            cls = CharacterClass.objects.get(pk=class_id)
+
+        for p in cls.prof_progress.select_related('tier'):
+            if int(getattr(p, "at_level", 0) or 0) > int(lvl):
                 continue
             raw = getattr(p, "type_code", None) or getattr(p, "proficiency_type", None) or ""
             disp = ""
@@ -7329,7 +7894,7 @@ def character_detail(request, pk):
                 pass
             code = (str(raw) or str(disp) or "").strip().lower()
             if code == "dodge":
-                cur_bonus = int(prof_by_code["dodge"].get("bonus", 0) or 0)
+                cur_bonus  = int(prof_by_code["dodge"].get("bonus", 0) or 0)
                 tier_bonus = int(getattr(p.tier, "bonus", 0) or 0)
                 if tier_bonus > cur_bonus:
                     prof_by_code["dodge"] = {
@@ -7338,16 +7903,123 @@ def character_detail(request, pk):
                         "modifier": tier_bonus,
                         "bonus": tier_bonus,
                         "is_proficient": (str(p.tier.name).strip().lower() != "untrained"),
-                        "source": "Class",
+                        "source": "Class/Prestige counts-as",
                     }
+
     # (optional) quick sanity log
     print("[DBG] dodge row →", prof_by_code.get("dodge"))
+    # === NEW: Split DC into Martial and Spellcaster using multiclass equalisation ===
+    def _tags_lower(cls_obj):
+        try:
+            return {t.lower() for t in cls_obj.tags.values_list("name", flat=True)}
+        except Exception:
+            return set()
 
-    # --- FIX: derive weapon group tiers from the class(es) the character actually has ---
-    def _norm_g(code: str) -> str:
-        c = (code or "").strip().lower().replace(" ", "_").replace("-", "_")
-        c = c.replace("weapon_", "weapon:")  # accept "weapon_simple" too
-        return c if c.startswith("weapon:") else ("weapon:" + c if c in {"simple","martial","special","black_powder"} else c)
+    def _covers_track(cls_obj, track):
+        tags = _tags_lower(cls_obj)
+        return (track == "martial" and "martial" in tags) or (track == "spellcaster" and "spellcaster" in tags)
+
+    def _level1_class_id():
+        # Prefer an explicit "entered_at_level" if your ClassProgress has it; else first row; else None
+        try:
+            cp = class_progress.filter(entered_at_level__isnull=False).order_by("entered_at_level", "id").first()
+            if cp:
+                return int(cp.character_class_id)
+        except Exception:
+            pass
+        try:
+            return int(first_prog.character_class_id) if first_prog else None
+        except Exception:
+            return None
+
+    def _equalised_dc_for(track):
+        # Collect covering classes with their effective levels (counts-as included)
+        entries = []
+        for cid, lvl in eff_levels.items():
+            cls = classes_by_id.get(cid)
+            if cls and _covers_track(cls, track):
+                entries.append((cls, int(lvl)))
+        if not entries:
+            return None
+
+        # Base = highest-level covering class (tie → level-1 class if available → lowest id)
+        max_lvl = max(l for _c, l in entries)
+        cands   = [pair for pair in entries if pair[1] == max_lvl]
+        if len(cands) == 1:
+            base_cls, base_lvl = cands[0]
+        else:
+            lvl1_id = _level1_class_id()
+            picked  = next(((c, l) for (c, l) in cands if getattr(c, "id", None) == lvl1_id), None)
+            base_cls, base_lvl = picked or sorted(cands, key=lambda x: getattr(x[0], "id", 0))[0]
+
+        other_sum = sum(l for c, l in entries if getattr(c, "id", None) != getattr(base_cls, "id", None))
+        eq_level  = int(base_lvl + (other_sum // 2))  # floor
+
+        # Map equalised level onto the BASE CLASS's DC progression
+        prog = [p for p in base_cls.prof_progress.select_related("tier").all()
+                if (str(getattr(p, "type_code", "") or getattr(p, "proficiency_type", "")).lower() == "dc")]
+        tier = None
+        for p in prog:
+            if int(getattr(p, "at_level", 0) or 0) <= eq_level:
+                if (tier is None) or int(getattr(p.tier, "bonus", 0) or 0) > int(getattr(tier, "bonus", 0) or 0):
+                    tier = p.tier
+        if not tier:
+            tier = ProficiencyLevel.objects.filter(name__iexact="Untrained").order_by("bonus").first()
+
+        return {
+            "type_code": f"{track}_dc",
+            "tier_name": (getattr(tier, "name", "Untrained") or "Untrained").title(),
+            "modifier":  int(getattr(tier, "bonus", 0) or 0),
+            "bonus":     int(getattr(tier, "bonus", 0) or 0),
+            "is_proficient": (str(getattr(tier, "name", "")).strip().lower() != "untrained"),
+            "source": f"Equalisation: {getattr(base_cls, 'name', 'Class')} base @ {eq_level}",
+        }
+
+    martial_row = _equalised_dc_for("martial")
+    spell_row   = _equalised_dc_for("spellcaster")
+
+    # Write new rows; keep a compat 'dc' entry (highest of the two if both exist)
+    if martial_row:
+        prof_by_code["martial_dc"] = martial_row
+    if spell_row:
+        prof_by_code["spell_dc"]   = spell_row
+
+    if martial_row and spell_row:
+        use = martial_row if martial_row["modifier"] >= spell_row["modifier"] else spell_row
+        prof_by_code["dc"] = {**use, "type_code": "dc", "source": "Compat (max of Martial/Spellcaster DC)"}
+    elif martial_row or spell_row:
+        only = martial_row or spell_row
+        prof_by_code["dc"] = {**only, "type_code": "dc", "source": only["source"]}
+    # === END new DC split ===
+
+
+
+    def _norm_g(code) -> str:
+        """Normalize various labels into 'weapon:<group>' or '' if not a weapon group."""
+        if code is None:
+            return ""
+        s = str(code).strip().lower()
+        # normalize separators & plurals
+        s = s.replace("-", "_").replace("/", "_").replace(" ", "_")
+        s = s.replace("weapons", "weapon")
+        s = _re.sub(r"__+", "_", s)
+
+        # already normalized
+        if s.startswith("weapon:"):
+            return s
+
+        # common variants from type/display fields
+        if "black" in s and "powder" in s:
+            return "weapon:black_powder"
+        if "special" in s:
+            return "weapon:special"
+        if "martial" in s:
+            return "weapon:martial"
+        if "simple" in s:
+            return "weapon:simple"
+
+        # not a weapon group we care about
+        return ""
 
     group_best = {}  # "weapon:simple" -> ProficiencyLevel
     for cp in class_progress:  # character.class_progress already loaded
@@ -7371,6 +8043,7 @@ def character_detail(request, pk):
             cur = group_best.get(key)
             if cur is None or int(p.tier.bonus or 0) > int(getattr(cur, "bonus", 0) or 0):
                 group_best[key] = p.tier
+
 
     # write/inject group rows into prof_by_code (so later code sees them)
     # DEBUG: what tiers did we derive from classes?
@@ -7623,24 +8296,29 @@ def character_detail(request, pk):
     race_hp = int(getattr(character, "race_hp", 0) or 0)  # uses Character.race_hp if present
     # === HP calculation (spec): race starting HP + ((CON mod + class hit die) × level) ===
     # Try a few common places race "starting HP" might live.
+    # === HP calculation (spec): race starting HP + Σ_over_classes((hit die + CON mod) × effective levels) ===
     race_starting_hp = (
-        # Prefer Character.race.starting_hp if your Race model has it
         int(getattr(getattr(character, "race", None), "starting_hp", 0) or 0)
-        # Or Character.race_hp if you store it denormalized on the character
         or int(getattr(character, "race_hp", 0) or 0)
     )
 
-    # Choose the class whose hit die should be used (you already computed primary_cp)
-    class_hit_die = int(getattr(getattr(primary_cp, "character_class", None), "hit_die", 0) or 0)
+    # Use effective class levels so prestige counts-as contributes the counted class's hit die
+    eff_levels, classes_by_id = _effective_class_levels(character, class_progress)
 
-    # Constitution modifier already computed above as con_mod (using override-aware abil_mod)
-    hp_max_base = race_starting_hp + (class_hit_die + con_mod) * int(character.level or 0)
-    print(race_starting_hp)
-    # Allow a user override for hp_max, but default to the computed value
+    hp_from_classes = 0
+    for class_id, eff_lvl in eff_levels.items():
+        cls = classes_by_id.get(class_id)
+        if not cls:
+            continue
+        hd = int(getattr(cls, "hit_die", 0) or 0)
+        hp_from_classes += (hd + con_mod) * int(eff_lvl)
+
+    hp_max_base = race_starting_hp + hp_from_classes
     try:
         hp_max = int(overrides.get("hp_max", hp_max_base))
     except (TypeError, ValueError):
         hp_max = hp_max_base
+
 
     # Current HP / Temp HP respect manual overrides, else fall back to model fields
     def _int_or_zero(v):
@@ -8822,12 +9500,19 @@ def character_detail(request, pk):
 
 
 
-    # Build class-level tokens like "wizard_level": 3, "fighter_level": 2
+    # Build class-level tokens like "wizard_level": 3, "fighter_level": 2 (prestige-aware)
     _class_levels_ctx = {}
-    for prog in class_progress:
-        token = re.sub(r'[^a-z0-9_]', '', (prog.character_class.name or '').strip().lower().replace(' ', '_'))
+    eff_levels, classes_by_id = _effective_class_levels(character, class_progress)
+    for class_id, lvl in eff_levels.items():
+        cls = classes_by_id.get(class_id)
+        if cls is None:
+            CCModel = apps.get_model("characters", "CharacterClass")
+            cls = CCModel.objects.get(pk=class_id)
+
+        token = re.sub(r'[^a-z0-9_]', '', (getattr(cls, "name", "") or '').strip().lower().replace(' ', '_'))
         if token:
-            _class_levels_ctx[f"{token}_level"] = prog.levels
+            _class_levels_ctx[f"{token}_level"] = int(lvl)
+
 
     owned_mm_features = list(
         ClassFeature.objects.filter(
@@ -9654,131 +10339,385 @@ def character_detail(request, pk):
         notes_by_category.setdefault(n.category_id, []).append(n)
 
 
+    is_lvl6_plus = (total_level or 0) >= 6
+    if is_lvl6_plus:
+        base_class_choices = list(
+            app_models.CharacterClass.objects
+            .filter(levels__level=1).distinct().order_by('name')
+        )
+    else:
+        base_class_choices = [cp.character_class for cp in class_progress]
 
+    # Build the Advance form
+    AdvanceFormClass = AdvanceForm
+    advance_form = AdvanceFormClass(
+        request.POST or None,
+        character=character,
+        class_progress_qs=class_progress,
+        base_choices=app_models.CharacterClass.objects.filter(id__in=[c.id for c in base_class_choices]).order_by("name"),
+        initial={"advance_mode": "base"},
+    )
+
+    prestige_preview = getattr(advance_form, "_prestige_preview", None)
+
+
+    # Reuse the form's queryset (so eligibility rules stay consistent) if present
+    if level_form is not None and hasattr(level_form, 'prestige_enrollment'):
+        prestige_choices = list(getattr(level_form.prestige_enrollment.field, 'queryset', []))
+    else:
+        prestige_choices = []
+
+    if request.method == "POST" and can_edit and request.POST.get("advance_submit") == "1":
+        if not advance_form.is_valid():
+            messages.error(request, "Please fix the errors below.")
+            return redirect("characters:character_detail", pk=pk)
+
+        mode = advance_form.cleaned_data["advance_mode"]
+        if mode == "base":
+            # keep your existing base-class level-up flow as-is
+            pass
+
+        else:  # prestige
+            PrestigeClass = apps.get_model("characters", "PrestigeClass")
+            CharacterPrestigeEnrollment = apps.get_model("characters", "CharacterPrestigeEnrollment")
+            CharacterPrestigeLevelChoice = apps.get_model("characters", "CharacterPrestigeLevelChoice")
+
+            pc = advance_form.cleaned_data.get("prestige_class")
+            if not pc:
+                messages.error(request, "Choose a prestige class.")
+                return redirect("characters:character_detail", pk=pk)
+
+            # enforce “min level 7; at most one prestige class; prereqs”
+            next_level = int(getattr(character, "level", 0) or 0) + 1
+            if next_level < 7:
+                messages.error(request, "You can’t enter prestige before level 7.")
+                return redirect("characters:character_detail", pk=pk)
+            if character.prestige_enrollment.exists() and not character.prestige_enrollment.filter(prestige_class=pc).exists():
+                messages.error(request, "You may only have one prestige class.")
+                return redirect("characters:character_detail", pk=pk)
+            if not meets_prestige_prereqs(character, pc, class_progress):
+                messages.error(request, "Prerequisites not met for that prestige class.")
+                return redirect("characters:character_detail", pk=pk)
+
+            # create or reuse the enrollment
+            enr, _ = CharacterPrestigeEnrollment.objects.get_or_create(
+                character=character, defaults={"prestige_class": pc, "entered_at_character_level": next_level}
+            )
+            if enr.prestige_class_id != pc.id:
+                messages.error(request, "You are already enrolled in a different prestige class.")
+                return redirect("characters:character_detail", pk=pk)
+
+            # determine the prestige level we are gaining
+            pl = prestige_next_level(character, pc)
+
+            # counts-as decision for this level
+            lvl_row = pc.levels.filter(level=pl).select_related("fixed_counts_as").prefetch_related("allowed_counts_as").first()
+            counts_as = None
+            if lvl_row:
+                if lvl_row.counts_as_mode == lvl_row.MODE_FIXED:
+                    counts_as = lvl_row.fixed_counts_as
+                else:
+                    counts_as = advance_form.cleaned_data.get("counts_as")
+                    if not counts_as:
+                        messages.error(request, "Pick which class this prestige level counts as.")
+                        return redirect("characters:character_detail", pk=pk)
+
+            # persist the choice row (only if this level hasn’t been stored yet)
+            if not enr.level_choices.filter(prestige_level=pl).exists():
+                CharacterPrestigeLevelChoice.objects.create(
+                    enrollment=enr, prestige_level=pl, counts_as=counts_as
+                )
+
+            messages.success(request, f"Advanced prestige: {pc.name} (P{pl}).")
+            return redirect("characters:character_detail", pk=pk)
+    available_feats = list(chain(
+        general_feats or [],
+        class_feats or [],
+        skill_feats or [],
+        other_feats or [],
+    ))
+    feat_groups = {
+        "General": general_feats,
+        "Class":   class_feats,
+        "Skill":   skill_feats,
+        "Other":   other_feats,
+    }
+
+    # All feats for the dropdown (works even if the default manager is filtered)
+    def _all_feats_qs():
+        Model = ClassFeat
+        manager = getattr(Model, "all_objects", None) or Model._base_manager or Model.objects
+        return manager.only("id", "name").order_by("name")
+    all_feats = list(_all_feats_qs())
+
+    # Build rows for “Manually Added Feats”
+    feat_ct = ContentType.objects.get_for_model(ClassFeat)
+    mg_qs   = character.manual_grants.filter(content_type=feat_ct).only("id", "object_id")
+    feat_ids = list(mg_qs.values_list("object_id", flat=True))
+    feats_by_id = {f.id: f for f in ClassFeat._base_manager.filter(id__in=feat_ids).only("id", "name")}
+    manual_feats = [
+        SimpleNamespace(id=mg.id, feat=feats_by_id.get(mg.object_id))
+        for mg in mg_qs if feats_by_id.get(mg.object_id)
+    ]
+
+
+    all_feats = list(_all_feats_qs())
+    if request.method == "POST" and request.POST.get("feats_op"):
+        op = request.POST["feats_op"]
+        feat_ct = ContentType.objects.get_for_model(ClassFeat)
+
+        if op == "manual_add":
+            try:
+                feat_id = int(request.POST.get("feat_id") or "0")
+            except ValueError:
+                feat_id = 0
+            if feat_id:
+                # avoid duplicates
+                character.manual_grants.get_or_create(
+                    content_type=feat_ct,
+                    object_id=feat_id,
+                    defaults={}
+                )
+            return redirect(reverse("characters:character_detail", args=[character.pk]) + "#tab-feats")
+
+        if op == "manual_remove":
+            try:
+                mid = int(request.POST.get("manual_id") or "0")
+            except ValueError:
+                mid = 0
+            if mid:
+                character.manual_grants.filter(id=mid, content_type=feat_ct).delete()
+            return redirect(reverse("characters:character_detail", args=[character.pk]) + "#tab-feats")
+    # All feats for the dropdown (works even if the default manager is filtered)
+    def _all_feats_qs():
+        Model = ClassFeat
+        manager = getattr(Model, "all_objects", None) or Model._base_manager or Model.objects
+        return manager.only("id", "name").order_by("name")
+    all_feats = list(_all_feats_qs())
+
+    # Build rows for “Manually Added Feats”
+    feat_ct = ContentType.objects.get_for_model(ClassFeat)
+    mg_qs   = character.manual_grants.filter(content_type=feat_ct).only("id", "object_id")
+    feat_ids = list(mg_qs.values_list("object_id", flat=True))
+    feats_by_id = {f.id: f for f in ClassFeat._base_manager.filter(id__in=feat_ids).only("id", "name")}
+    manual_feats = [
+        SimpleNamespace(id=mg.id, feat=feats_by_id.get(mg.object_id))
+        for mg in mg_qs if feats_by_id.get(mg.object_id)
+    ]
 
     return render(request, 'forge/character_detail.html', {
-        "spell_table_by_rank": rows_by_rank,
-        "show_starting_skill_picker": show_starting_skill_picker,
-"starting_skill_choices": starting_skill_choices,
-        "spell_rank_range": scx["rank_range"],
-        "spellcasting_ctx": _spellcasting_context(character),
-        'character':          character,
-        "show_spellcasting_tab": show_spellcasting_tab,
-    'can_edit':           can_edit,
-    "note_categories": note_categories,
-    "notes_by_category": notes_by_category,
-    'available_users':    available_users,
-    'can_share':          can_edit,          # gate the Share button to owner/GM
-    'share_invites':      active_invites,    # pending invites queryset
-    'shared_viewers':     shared_viewers,    # people who currently have view access
-    'subrace_name':       subrace_name,
+        # — Identity / permissions / sharing —
+        'character': character,
+        'can_edit': can_edit,
+        'can_share': can_edit,
+         "manual_feats": manual_feats,
+        'available_users': available_users,
+        'share_invites': active_invites,
+        'shared_viewers': shared_viewers,
 
+        # — Notes —
+        "note_categories": note_categories,
+        "notes_by_category": notes_by_category,
+    "all_feats":       all_feats,  # <- now populated even if .objects is filtered
+        # — Core choices —
+        'subrace_name': subrace_name,
+        'base_class_choices': base_class_choices,
+        'prestige_choices': prestige_choices,
         'subclass_groups': subclass_groups,
-        'ability_map':        ability_map,
-        'skill_proficiencies':skill_proficiencies,
-        'class_progress':     class_progress,
-        'racial_features':    racial_features,
-        'universal_feats':    universal_feats,
-        'total_level':        total_level,
-        'preview_class':      preview_cls,
-        'tier_names':         tier_names,
-        "starting_skill_max": starting_skill_max,
-        'auto_feats':         auto_feats,
-        'form':               level_form,
-        'edit_form':          edit_form,
-        'details_form':       details_form,
-    'feature_fields':         feature_fields,
-    'spellcasting_blocks': spellcasting_blocks,
-    "skill_points_balance": skill_points_balance,
-    "combat_blocks": combat_blocks,
-"weapon_group_display": weapon_group_display,
-    # 🔻 NEW: flat aliases for legacy JS/templates
-    "weapons_list": weapons_list,  # [{id,name,damage,range_type}, ...]
-    "armor_list":   armor_list,    # [{id,name,armor_value}, ...]
+        'tier_names': tier_names,
+            'available_feats': available_feats,   # flat list for simple loops
+            'feat_groups':     feat_groups,       # grouped dict for sectioned UIs
 
-    # currently equipped (for default selection in the UI)
-    "equipped_weapons": {
-        1: (equipped_main.weapon.id if equipped_main else None),
-        2: (equipped_alt.weapon.id  if equipped_alt  else None),
-        3: (by_slot.get(3).weapon.id if by_slot.get(3) else None),
-    },
-    "equipped_armor_id": (selected_armor.id if selected_armor else None),
-
-    # detailed lines you already build (Primary/Secondary/Tertiary)
-    "attacks_detailed": attacks_detailed,
-    "equipped_armor_id": (selected_armor.id if selected_armor else None),
-    'subclass_feats_at_next': subclass_feats_at_next,
-            'proficiency_rows':   proficiency_rows,   # (preview table you already had)
+        # — Abilities / proficiencies —
+        'ability_map': ability_map,
+        'abilities': abilities,
+        'skill_proficiencies': skill_proficiencies,
+        'skills_rows': all_skill_rows,
+        'skill_prof_errors': skill_prof_errors,
+        'proficiency_tiers': proficiency_tiers,      # == prof_levels
+        'proficiency_rows': proficiency_rows,
         'proficiency_summary': proficiency_summary,
-        'racial_feature_rows': racial_feature_rows,
-        'manual_form': manual_form,
-        "starting_skill_flat": starting_skill_flat,
-         **_inventory_context(character),
-        'manual_grants': character.manual_grants.select_related('content_type').all(),
-            'field_overrides': field_overrides,
-            'field_notes': field_notes,
-        'derived':            derived,
-        'skills_rows':        all_skill_rows,
-        'proficiency_levels': prof_levels,
-        'skill_prof_errors':  skill_prof_errors,
-        'general_feats': general_feats,
-'class_feats':   class_feats,
-'skill_feats':   skill_feats,
-'other_feats':   other_feats,
-'owned_features': owned_features,
-'armor_list': armor_list,
-'selected_armor': selected_armor,
-       'spellcasting_blocks': spellcasting_blocks,   # you already pass this
-        'spell_selection_blocks': spell_selection_blocks,  # NEW
-'proficiency_detailed': rows,
-'attack_rows': attack_rows,
-'spell_dc_rows': spell_dc_rows,
-    'ability_map': ability_map,
-    'abilities': abilities, 
-'armor_total': derived["armor_total"],
-'spell_dc_rows': spell_dc_rows,
-'attack_rows': attack_rows,
-    "derived": derived,
-    "armor_total": derived["armor_total"],  # keep legacy var if the template uses it elsewhere
-    "attack_rows": attack_rows,
-    "spell_dc_rows": spell_dc_rows,
-    "spell_dc_main": spell_dc_main,
-    "defense_rows": defense_rows,
-    "defense_totals": defense_totals,
-    "hp_current": hp_current,
-    "hp_max": hp_max,
-    "temp_hp": temp_hp,
-    "active_rows": active_rows,
-    "passive_rows": passive_rows,
-    "all_rows": all_rows,
-    # if you also reference selected_armor/armor_list anywhere:
-    "armor_list": armor_list,
-    "selected_armor": selected_armor,
-    "spell_rank_blocks": spell_rank_blocks,
- "backgrounds": backgrounds,
-"show_martial_mastery_tab": mm_ctx["show_martial_mastery_tab"],
-"martial_mastery_ctx": mm_ctx["martial_mastery_ctx"],
-"martial_mastery_known": mm_ctx["martial_mastery_known"],
-"martial_mastery_available": mm_ctx["martial_mastery_available"],
-"edit_form": edit_form,
-    "weapon_group_display": weapon_group_display,
-    "proficiency_tiers":    proficiency_tiers,   # you already computed this as prof_levels
-    "proficiency_detailed": by_code,       # optional, but already useful elsewhere
-    "shield_list": shield_list,
-    "selected_shield": selected_shield,
-    "spell_slots_editors": spell_slots_editors,
-"race_speed": race_speed,
-"effective_speed": effective_speed,
-    # list of spell slot table features with full descriptions
-    "spell_slot_features": spell_slot_features,
+        'proficiency_detailed': rows,                # keep original table
+        'proficiency_by_code': by_code,              # renamed to avoid override
 
-        "speed_ctx":        speed_ctx,         # base, deltas[], total
-    "custom_ctx":       custom_ctx,        # headers[], items_by_header{hid:[...]}
-    "trackable_resources": resource_rows,  # list of {slug,name,max,cur}
+        # — Features & feats —
+        'feature_fields': feature_fields,
+        'racial_features': racial_features,
+        'racial_feature_rows': racial_feature_rows,
+        'universal_feats': universal_feats,
+        'general_feats': general_feats,
+        'class_feats': class_feats,
+        'skill_feats': skill_feats,
+        'other_feats': other_feats,
+        'owned_features': owned_features,
+        'subclass_feats_at_next': subclass_feats_at_next,
+        'auto_feats': auto_feats,
+
+        # — Leveling & forms —
+        'total_level': total_level,
+        'preview_class': preview_cls,
+        'form': level_form,
+        'edit_form': edit_form,
+        'details_form': details_form,
+        'manual_form': manual_form,
+
+        # — Overrides & manual grants —
+        'field_overrides': field_overrides,
+        'field_notes': field_notes,
+        'manual_grants': character.manual_grants.select_related('content_type').all(),
+
+        # — Derived & defenses —
+        'derived': derived,
+        'armor_total': derived["armor_total"],
+        'defense_rows': defense_rows,
+        'defense_totals': defense_totals,
+        'hp_current': hp_current,
+        'hp_max': hp_max,
+        'temp_hp': temp_hp,
+
+        # — Combat —
+        'combat_blocks': combat_blocks,
+        'attack_rows': attack_rows,
+        'attacks_detailed': attacks_detailed,
+        'weapon_group_display': weapon_group_display,
+
+        # — Inventory / equipment —
+        **_inventory_context(character),  # provides weapons_list, armor_list, selected_armor, etc.
+        'equipped_weapons': {
+            1: (equipped_main.weapon.id if equipped_main else None),
+            2: (equipped_alt.weapon.id  if equipped_alt  else None),
+            3: (by_slot.get(3).weapon.id if by_slot.get(3) else None),
+        },
+        'equipped_armor_id': (selected_armor.id if selected_armor else None),
+        'shield_list': shield_list,
+        'selected_shield': selected_shield,
+
+        # — Spellcasting —
+        "show_spellcasting_tab": show_spellcasting_tab,
+        "spellcasting_ctx": scx,                    # use the precomputed context
+        "spell_rank_range": scx["rank_range"],
+        "spellcasting_blocks": spellcasting_blocks,
+        "spell_selection_blocks": spell_selection_blocks,
+        "spell_table_by_rank": rows_by_rank,
+        "spell_rank_blocks": spell_rank_blocks,
+        "spell_slots_editors": spell_slots_editors,
+        "spell_slot_features": spell_slot_features,
+        "spell_dc_rows": spell_dc_rows,
+        "spell_dc_main": spell_dc_main,
+
+        # — Speeds —
+        "race_speed": race_speed,
+        "effective_speed": effective_speed,
+        "speed_ctx": speed_ctx,
+
+        # — Custom & resources —
+        "custom_ctx": custom_ctx,
+        "trackable_resources": resource_rows,
+
+        # — Skills UI —
+        "show_starting_skill_picker": show_starting_skill_picker,
+        "starting_skill_choices": starting_skill_choices,
+        "starting_skill_max": starting_skill_max,
+        "starting_skill_flat": starting_skill_flat,
+        "skill_points_balance": skill_points_balance,
+
+        # — Activity logs —
+        "active_rows": active_rows,
+        "passive_rows": passive_rows,
+        "all_rows": all_rows,
+
+        # — Backgrounds —
+        "backgrounds": backgrounds,
+
+        # — Martial Mastery —
+        "show_martial_mastery_tab": mm_ctx["show_martial_mastery_tab"],
+        "martial_mastery_ctx": mm_ctx["martial_mastery_ctx"],
+        "martial_mastery_known": mm_ctx["martial_mastery_known"],
+        "martial_mastery_available": mm_ctx["martial_mastery_available"],
     })
 
+def _effective_spell_slots_by_rank(character, class_progress):
+    """
+    Sum spell slots by rank using EFFECTIVE (counts-as) class levels.
+    Returns {rank: total_slots}.
+    """
+    from collections import defaultdict
+    ClassFeature = apps.get_model("characters", "ClassFeature")
 
+    totals = defaultdict(int)
+    eff_levels, classes_by_id = _effective_class_levels(character, class_progress)
+
+    for class_id, eff_lvl in eff_levels.items():
+        if not eff_lvl:
+            continue
+        cls = classes_by_id.get(class_id)
+        if not cls:
+            continue
+
+        # All spell-table features for this class, at the *effective* level
+        for ft in ClassFeature.objects.filter(kind="spell_table", character_class=cls).distinct():
+            row = ft.spell_slot_rows.filter(level=int(eff_lvl)).first()
+            if not row:
+                continue
+            vec = [
+                row.slot1, row.slot2, row.slot3, row.slot4, row.slot5,
+                row.slot6, row.slot7, row.slot8, row.slot9, row.slot10
+            ]
+            for r, n in enumerate(vec, start=1):
+                if n:
+                    totals[r] += int(n or 0)
+
+    return dict(totals)
+
+def _effective_class_levels(character, class_progress):
+        """
+        Returns (levels_by_class_id, classes_by_id) where levels include prestige
+        'Counts-As' levels for this character.
+        """
+        levels = {int(cp.character_class_id): int(cp.levels or 0) for cp in class_progress}
+        classes_by_id = {int(cp.character_class_id): cp.character_class for cp in class_progress}
+        try:
+            PrestigeChoice = apps.get_model("characters", "CharacterPrestigeLevelChoice")
+            qs = (PrestigeChoice.objects
+                .select_related("enrollment", "counts_as", "enrollment__counts_as")
+                .filter(enrollment__character=character))
+            for ch in qs:
+                cls = ch.counts_as or getattr(ch.enrollment, "counts_as", None)
+                if cls:
+                    cid = int(cls.id)
+                    levels[cid] = int(levels.get(cid, 0)) + 1
+                    classes_by_id.setdefault(cid, cls)
+        except Exception:
+            # If models not available, fall back to raw levels
+            pass
+        return (levels, classes_by_id)
 # NEW — dedicated view for applying a level-up
+
+def _grant_prestige_features(character, prestige_class, prestige_level):
+    """
+    Grant this prestige class’s features at the given prestige level.
+    P1 is a dead level for features by rule (counts-as still applies elsewhere).
+    """
+    if int(prestige_level) <= 1:
+        return
+    PrestigeFeature = apps.get_model("characters", "PrestigeFeature")
+    CharacterFeature = apps.get_model("characters", "CharacterFeature")
+
+    feats = PrestigeFeature.objects.filter(
+        prestige_class=prestige_class,
+        at_prestige_level=int(prestige_level)
+    )
+    for pf in feats:
+        # If mapped to a ClassFeature, grant that. Otherwise skip (no inference).
+        if pf.grants_class_feature_id:
+            CharacterFeature.objects.get_or_create(
+                character=character,
+                feature=pf.grants_class_feature,
+                defaults={"level": character.level}
+            )
+
+
+
 @login_required
 def character_level_up(request, pk):
     """
@@ -9794,6 +10733,8 @@ def character_level_up(request, pk):
     # is_gm_for_campaign, enforces permission, and sets `can_edit`.
     character = get_object_or_404(Character, pk=pk)
     is_gm_for_campaign = False
+
+        
     if character.campaign_id:
         is_gm_for_campaign = CampaignMembership.objects.filter(
             campaign=character.campaign, user=request.user, role="gm"
@@ -9954,7 +10895,8 @@ def character_level_up(request, pk):
 
     # >>> ADD THESE TWO LINES (defensive init)
     posted_cls = default_cls
-    posted_cls_id = request.POST.get('base_class')
+    posted_cls_id = (request.POST.get('base_class') or request.GET.get('base_class'))
+
 
     try:
         posted_cls = CharacterClass.objects.get(pk=int(posted_cls_id))
@@ -10004,18 +10946,138 @@ def character_level_up(request, pk):
     cls_name   = target_cls.name
 
     post = request.POST.copy()
-    # ... inside character_level_up(...)
+    # Mirror the selected class from GET/preview into POST so the bound form sees it
+    if not post.get("base_class"):
+        sel = (request.GET.get("base_class") or getattr(posted_cls, "pk", None) or getattr(default_cls, "pk", None))
+        if sel:
+            post["base_class"] = str(sel)
 
-    # 1) Normalize which class/level we are validating for this request
-    # 1) Normalize which class/level we are validating for this request
-    effective_cls = posted_cls  # always POST in this view; avoid NameError
-    cls_level_for_validate = _class_level_after_pick(character, effective_cls)
+    # keep advance_track as-is (radio lives on the POST form)
+    advance_track = (post.get("advance_track") or "base").strip()
+
+    # make POST the canonical bound data from here on
+    request.POST = post
+
+    if advance_track == "prestige":
+        PrestigeEnrollment = apps.get_model("characters", "CharacterPrestigeEnrollment")
+        PrestigeChoice     = apps.get_model("characters", "CharacterPrestigeLevelChoice")
+        CharacterClassModel = apps.get_model("characters", "CharacterClass")  # ← alias to avoid shadowing
+        CharacterFeature   = apps.get_model("characters", "CharacterFeature")
+
+        # 1) Rule: minimum level 7+
+        next_level = character.level + 1
+        if next_level < 7:
+            messages.error(request, "You must be level 7+ to take a prestige level.")
+            return redirect("characters:character_detail", pk=pk)
+
+        # 2) Which enrollment (GM-approved)
+        enr_id = (request.POST.get("prestige_enrollment") or "").strip()
+        if not enr_id.isdigit():
+            # If only one eligible enrollment exists, accept it automatically
+            elig = PrestigeEnrollment.objects.filter(character=character, gm_approved=True)
+            # Lock to the one already chosen before (one prestige only)
+            first_choice = (PrestigeChoice.objects
+                .select_related("enrollment")
+                .filter(enrollment__character=character)
+                .order_by("id").first())
+            if first_choice:
+                elig = elig.filter(pk=first_choice.enrollment_id)
+            if elig.count() != 1:
+                messages.error(request, "Pick a prestige class (GM-approved).")
+                return redirect("characters:character_detail", pk=pk)
+            enrollment = elig.first()
+        else:
+            enrollment = PrestigeEnrollment.objects.filter(
+                pk=int(enr_id), character=character, gm_approved=True
+            ).first()
+            if not enrollment:
+                messages.error(request, "Invalid or unapproved prestige selection.")
+                return redirect("characters:character_detail", pk=pk)
+
+        # 3) Rule: one prestige only (disallow switching)
+        prev = (PrestigeChoice.objects
+            .select_related("enrollment")
+            .filter(enrollment__character=character)
+            .order_by("id").first())
+        if prev and prev.enrollment_id != enrollment.pk:
+            messages.error(request, "You already chose a different prestige class.")
+            return redirect("characters:character_detail", pk=pk)
+
+        # 4) Determine counts-as for THIS prestige level from PrestigeLevel
+        p_level = PrestigeChoice.objects.filter(enrollment=enrollment).count() + 1
+        try:
+            pl = PrestigeLevel.objects.get(prestige_class=enrollment.prestige_class, level=p_level)
+        except PrestigeLevel.DoesNotExist:
+            messages.error(request, "PrestigeLevel row not configured for this prestige level.")
+            return redirect("characters:character_detail", pk=pk)
+
+        counts_as = None
+        if pl.counts_as_mode == PrestigeLevel.MODE_FIXED:
+            counts_as = pl.fixed_counts_as
+        else:
+            counts_as_id = (request.POST.get("prestige_counts_as") or "").strip()
+            if counts_as_id.isdigit():
+                cand = CharacterClassModel.objects.filter(pk=int(counts_as_id)).first()
+                if cand and pl.allowed_counts_as.filter(pk=cand.pk).exists():
+                    counts_as = cand
+            if not counts_as:
+                messages.error(request, "Pick a valid counts-as class for this prestige level.")
+                return redirect("characters:character_detail", pk=pk)
+
+        # 6) Record the prestige level choice
+        PrestigeChoice.objects.create(
+            enrollment=enrollment,
+            prestige_level=p_level,
+            counts_as=counts_as,  # FK to CharacterClass; can be null if not applicable
+        )
+
+        # 7) Apply “Dead Level on Entry” — P1 grants no features
+        if p_level == 1:
+            # You STILL get all Counts-As effects via your other code paths
+            # (HP die, spellcasting advancement, core profs, martial mastery math).
+            messages.success(request, f"Took {enrollment} (Prestige 1). Dead level—no features gained.")
+            # Bump character to the next level and finish
+            character.level = next_level
+            character.save(update_fields=["level"])
+            return redirect("characters:character_detail", pk=pk)
+
+        # 8) P2+ — grant prestige features that are attached to this prestige/level
+        # Adjust this query to match your schema.
+        PrestigeFeature = apps.get_model("characters", "PrestigeFeature")
+        feats = PrestigeFeature.objects.filter(
+            prestige_class=enrollment.prestige_class,
+            at_prestige_level=p_level,
+        )
+
+        granted = 0
+        for pf in feats:
+            cf = getattr(pf, "grants_class_feature", None)
+            if cf:
+                CharacterFeature.objects.get_or_create(
+                    character=character,
+                    feature=cf,
+                    defaults={"level": next_level},
+                )
+                granted += 1
+
+
+        # Finally bump the character level
+        character.level = next_level
+        character.save(update_fields=["level"])
+
+        messages.success(
+            request,
+            f"Advanced in {enrollment} (Prestige {p_level}). "
+            + (f"Granted {granted} feature(s)." if granted else "No features at this prestige level.")
+        )
+        return redirect("characters:character_detail", pk=pk)
+    cls_level_for_validate = _class_level_after_pick(character, posted_cls)
 
 
     # 2) Initialize the grant ONCE (safe even if None) + derived flags
     skill_grant = (
         ClassSkillFeatGrant.objects
-        .filter(character_class=effective_cls, at_level=cls_level_for_validate)
+        .filter(character_class=posted_cls, at_level=cls_level_for_validate)
         .first()
     )
     num_skill_picks = int(getattr(skill_grant, "num_picks", 0) or 0)
@@ -10025,16 +11087,117 @@ def character_level_up(request, pk):
     # Use the normalized payload to bind the form later
     request.POST = post
 
-    # ── (D) Build LevelUpForm with the exact same options/fields ────────────
+    next_level = character.level + 1
+    uni = UniversalLevelFeature.objects.filter(level=next_level).first()
+
     level_form = LevelUpForm(
-        request.POST,
+        post,  # ← the normalized POST you constructed above
         character=character,
         to_choose=to_choose,
-        uni=uni,
-        preview_cls=posted_cls,              # ok to pass posted class here
-        grants_class_feat=_grants_class_feat_at
+        preview_cls=preview_cls,
+        grants_class_feat=_grants_class_feat_at,
+        uni=uni,  # ensures general_feat / ASI fields are present
     )
-    # Handle Level-Up submit (save picks)
+
+
+
+    CharacterClassModel = apps.get_model("characters", "CharacterClass")  # ← alias to avoid shadowing
+    PrestigeEnrollment = apps.get_model("characters", "CharacterPrestigeEnrollment")
+    PrestigeChoice = apps.get_model("characters", "CharacterPrestigeLevelChoice")
+    PrestigeLevel = apps.get_model("characters", "PrestigeLevel")
+
+    # Default class for initial selection
+    first_prog = character.class_progress.select_related('character_class').first()
+    default_cls = first_prog.character_class if first_prog else CharacterClassModel.objects.order_by("name").first()
+
+    # Ensure the dropdown always exists for the left preview
+    if "base_class" not in level_form.fields:
+        level_form.fields["base_class"] = forms.ModelChoiceField(
+            queryset=CharacterClassModel.objects.order_by("name"),
+            required=True,
+            label="Class",
+            initial=getattr(default_cls, "pk", None),
+            widget=forms.Select,
+        )
+
+
+    # Offer prestige fields when allowed (level 7+, GM-approved). Use POST for binding.
+    next_level = character.level + 1
+    eligible = PrestigeEnrollment.objects.filter(character=character, gm_approved=True)
+
+    first_choice = (
+        PrestigeChoice.objects
+        .select_related("enrollment")
+        .filter(enrollment__character=character)
+        .order_by("id").first()
+    )
+    if first_choice:
+        eligible = eligible.filter(pk=first_choice.enrollment_id)
+
+    can_offer_prestige = (next_level >= 7 and eligible.exists())
+    if can_offer_prestige:
+        # Initial radio selection prefers POST; falls back to GET (preview) then "base"
+        track_initial = (request.POST.get("advance_track")
+                        or request.GET.get("advance_track")
+                        or "base")
+        level_form.fields["advance_track"] = forms.ChoiceField(
+            choices=[("base", f"Advance base class ({default_cls.name})"),
+                    ("prestige", "Advance prestige class")],
+            widget=forms.RadioSelect,
+            required=True,
+            initial=track_initial,
+            label="Advance in…",
+        )
+        level_form.fields["prestige_enrollment"] = forms.ModelChoiceField(
+            queryset=eligible.order_by("id"),
+            required=False,
+            label="Prestige",
+            help_text="GM-approved only",
+        )
+
+        def _counts_as_qs(enroll):
+            """
+            For the NEXT prestige level, return allowed counts-as classes using PrestigeLevel.
+            If mode == FIXED, return that one class as a 1-row queryset.
+            If mode == CHOOSE, return PrestigeLevel.allowed_counts_as for that level.
+            """
+            if not enroll:
+                return CharacterClassModel.objects.none()
+
+            # next prestige level number for this enrollment
+            p_level = PrestigeChoice.objects.filter(enrollment=enroll).count() + 1
+            try:
+                pl = PrestigeLevel.objects.get(prestige_class=enroll.prestige_class, level=p_level)
+            except PrestigeLevel.DoesNotExist:
+                return CharacterClassModel.objects.none()
+
+            if pl.counts_as_mode == PrestigeLevel.MODE_FIXED and pl.fixed_counts_as:
+                return CharacterClassModel.objects.filter(pk=pl.fixed_counts_as_id)
+
+            return pl.allowed_counts_as.all()
+
+
+        chosen_enroll = None
+        raw = (request.POST.get("prestige_enrollment")
+            or request.GET.get("prestige_enrollment")
+            or "").strip()
+        if raw.isdigit():
+            chosen_enroll = eligible.filter(pk=int(raw)).first()
+        if not chosen_enroll and eligible.count() == 1:
+            chosen_enroll = eligible.first()
+
+        counts_qs = _counts_as_qs(chosen_enroll) if chosen_enroll else CharacterClassModel.objects.none()
+        level_form.fields["prestige_counts_as"] = forms.ModelChoiceField(
+            queryset=counts_qs.order_by("name"),
+            required=False,
+            label="Counts-as (this prestige level)",
+        )
+        if chosen_enroll and counts_qs.count() == 1:
+            level_form.fields["prestige_counts_as"].initial = counts_qs.first().pk
+            level_form.fields["prestige_counts_as"].widget = forms.HiddenInput()
+    
+
+
 
 
     # invalid form -> fall through so template can show errors
@@ -10516,16 +11679,18 @@ def character_level_up(request, pk):
 
         # C) (re)compute and grant auto feats for the actually picked class
         try:
-            cl_next = (ClassLevel.objects
-        .prefetch_related('features')
-        .get(character_class=picked_cls, level=cls_level_after_post)
-)
-
-
+            cl_next = (
+                ClassLevel.objects
+                    .prefetch_related('features')
+                    .get(character_class=picked_cls, level=cls_level_after_post)
+            )
             auto_feats_post = [
                 f for f in cl_next.features.all()
                 if (getattr(f, "scope", "") == "class_feat" or getattr(f, "kind", "") == "spell_table")
             ]
+        except ClassLevel.DoesNotExist:
+            auto_feats_post = []
+
 
         except ClassLevel.DoesNotExist:
             auto_feats_post = []
@@ -10539,8 +11704,7 @@ def character_level_up(request, pk):
             chosen = [picks]
 
         # write CharacterFeat rows at the NEW level you’re granting
-        new_level = character.level + 1  # adjust if you bump level earlier/later in this function
-
+        new_level = next_level
         for feat in chosen:
             # guard: only Skill feats
             if ((feat.feat_type or "").strip().lower() != "skill"):
@@ -10774,13 +11938,6 @@ def character_level_up(request, pk):
             )
 
         # 2) Skill Feat(s) – honor ClassSkillFeatGrant.num_picks at this new class level
-        # Recompute the grant for the ACTUAL class/level we just advanced in
-        skill_grant_post = (
-            ClassSkillFeatGrant.objects
-            .filter(character_class=picked_cls, at_level=cls_level_after_post)
-            .first()
-        )
-
         # 2) Skill Feat(s) – honor ClassSkillFeatGrant at this new class level
         skill_grant_post = (
             ClassSkillFeatGrant.objects
@@ -10955,7 +12112,6 @@ from .models import (
     Character, CharacterClassProgress, ClassLevel, UniversalLevelFeature,
     CharacterFeature, ClassFeature, ClassSubclass, FeatureOption
 )
-from .forms import LevelUpForm
 class ClassFeatAutocomplete(AutoResponseView):
      model = ClassFeat
      search_fields = ['name__icontains']

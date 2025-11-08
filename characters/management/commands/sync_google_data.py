@@ -52,6 +52,54 @@ def canonical_name(s: str) -> str:
     if s is None:
         return ''
     return " ".join(str(s).split()).strip()
+from django.db import connection, transaction
+from django.db.models.deletion import ProtectedError   # ← ADD
+from collections import defaultdict
+def get_feat_name_from_row(row: dict) -> str:
+    """
+    Return the feat name exactly as in the sheet (trim edges only).
+    Works even if the first column header (A1) is blank.
+    """
+    # include '' for a blank A1 header; gspread uses '' as the key
+    candidates = ('Feat', 'Feat Name', 'Name', 'Feature', 'Class Feat', '', 'Unnamed: 0')
+    for key in candidates:
+        if key in row:
+            v = row.get(key)
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+
+    # if any header contains "feat", use that
+    for k, v in row.items():
+        if 'feat' in str(k).lower() and isinstance(v, str) and v.strip():
+            return v.strip()
+
+    # final fallback: pick the first non-empty string value in row order
+    for _, v in row.items():
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+
+    return ''
+
+
+def first_nonempty(row: dict, *candidates: str) -> str:
+    for k in candidates:
+        v = row.get(k)
+        if isinstance(v, str) and v.strip():
+            return v
+        if v not in (None, "") and not (isinstance(v, str) and not v.strip()):
+            return str(v)
+    return ""
+
+def canonical_name(s: str) -> str:
+    """
+    Normalize for matching & de-duping:
+    - collapse internal whitespace runs to single space
+    - strip edges
+    - preserve original casing for storage; we lower() only for keys
+    """
+    if s is None:
+        return ''
+    return " ".join(str(s).split()).strip()
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 LEVEL_MAP = {
@@ -78,6 +126,42 @@ def safe_str(value):
 
 class Command(BaseCommand):
     help = "Sync spells and feats from Google Sheets, preserving line-breaks."
+
+    def add_arguments(self, parser):
+        # Feats deletion controls (existing behavior)
+        parser.add_argument(
+            '--delete-missing',
+            action='store_true',
+            help='Delete ClassFeat rows not present in the sheet (case/space-insensitive).'
+        )
+        parser.add_argument(
+            '--min-sheet-rows',
+            type=int,
+            default=400,
+            help='Safety: require at least this many feat rows from the sheet before allowing deletion.'
+        )
+
+        # Shared flag
+        parser.add_argument(
+            '--dry-run',
+            action='store_true',
+            help='Log intended changes/deletions without modifying the database.'
+        )
+
+        # NEW: Spells deletion controls (separate from feats)
+        parser.add_argument(
+            '--delete-missing-spells',
+            action='store_true',
+            help='Delete Spell rows not present in the sheet (case/space-insensitive).'
+        )
+        parser.add_argument(
+            '--min-spell-rows',
+            type=int,
+            default=150,
+            help='Safety: require at least this many spell rows from the sheet before allowing deletion.'
+        )
+
+
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -121,24 +205,89 @@ class Command(BaseCommand):
 
         try:
             # ─── SPELLS ─────────────────────────────────────────────────────
-            spell_book = client.open_by_key(
-                "1tUP5rXleImOKnrOVGBnmxNHHDAyU0HHxeuODgLDX8SM"
-            )
-            for sheet in spell_book.worksheets():
-                title = sheet.title.strip()
-                level = LEVEL_MAP.get(title, 0)
-                print(f"📘 Processing sheet: {title}", flush=True)
+            # ─── SPELLS (robust sync + guarded deletion) ─────────────────────
+            # Local helpers for canonical matching and header drift
+            def _clean_invisible_spaces(s: str) -> str:
+                return (
+                    str(s)
+                    .replace('\u00A0', ' ')  # NBSP
+                    .replace('\u200B', '')   # ZW space
+                    .replace('\u200C', '')   # ZWNJ
+                    .replace('\u200D', '')   # ZWJ
+                )
 
-                raw_rows = sheet.get_all_records()
+            def canonical_spell_name(s: str) -> str:
+                if s is None:
+                    return ''
+                s2 = _clean_invisible_spaces(s)
+                return " ".join(s2.split()).strip()
+
+            def get_spell_name_from_row(row: dict) -> str:
+                for k in ('Spell Name', 'Spell', 'Name', 'Spellname', '', 'Unnamed: 0'):
+                    if k in row:
+                        v = row.get(k)
+                        if isinstance(v, str) and v.strip():
+                            return v.strip()
+                for _, v in row.items():
+                    if isinstance(v, str) and v.strip():
+                        return v.strip()
+                return ''
+
+            def rget(row, *names):
+                return safe_str(first_nonempty(row, *names))
+
+            # Allow per-tab level inference; fall back to mapping
+            _LEVEL_MAP = {
+                'cantrip': 0, 'cantrips': 0,
+                '1st level': 1, '2nd level': 2, '3rd level': 3,
+                '4th level': 4, '5th level': 5, '6th level': 6,
+                '7th level': 7, '8th level': 8, '9th level': 9,
+                '10th level': 10,
+            }
+            def parse_level(val, fallback):
+                if val is None or (isinstance(val, str) and not val.strip()):
+                    return fallback
+                if isinstance(val, (int, float)):
+                    try:
+                        iv = int(val)
+                        return max(0, min(10, iv))
+                    except Exception:
+                        return fallback
+                s = str(val).strip().lower()
+                if s.isdigit():
+                    return max(0, min(10, int(s)))
+                s = " ".join(s.split())
+                return _LEVEL_MAP.get(s, fallback)
+
+            # Index existing spells by canonical key
+            from collections import defaultdict as _dd
+            spell_by_key = _dd(list)
+            for r in Spell.objects.all().values('id', 'name'):
+                key = canonical_spell_name(r['name']).lower()
+                if key:
+                    spell_by_key[key].append(r['id'])
+
+            spell_keys = set()            # seen in sheet
+            spell_display_by_key = {}     # canonical key -> exact sheet display name
+            created, updated = 0, 0
+            sample = []
+
+            spell_book = client.open_by_key("1tUP5rXleImOKnrOVGBnmxNHHDAyU0HHxeuODgLDX8SM")
+            for sheet in spell_book.worksheets():
+                title = (sheet.title or '').strip().lower()
+                tab_level = _LEVEL_MAP.get(title, 0)
+
+                print(f"📘 Processing sheet: {sheet.title!r} → level={tab_level}", flush=True)
+                raw_rows = sheet.get_all_records(default_blank="", head=1)
                 print(f"🔢 Found {len(raw_rows)} rows", flush=True)
+                if raw_rows:
+                    headers = [h.strip() for h in raw_rows[0].keys()]
+                    print(f"🧾 Sheet headers: {headers}", flush=True)
 
                 for raw in raw_rows:
-                    # Strip only the keys; keep values intact
-                    row = {k.strip(): v for k, v in raw.items()}
-                    name_raw = row.get('Spell Name', '')
-                    # Skip if name is blank or whitespace-only
-                    if not (isinstance(name_raw, str) and name_raw.strip()):
-                        print("⚠️ Skipping row with no Spell Name", flush=True)
+                    row = {(k.strip() if isinstance(k, str) else k): v for k, v in raw.items()}
+                    name_sheet = get_spell_name_from_row(row)
+                    if not name_sheet:
                         continue
 
                     spell_name = name_raw.strip()  # still strip for lookup
@@ -162,6 +311,157 @@ class Command(BaseCommand):
 
                         }
                     )
+                    key = canonical_spell_name(name_sheet).lower()
+                    spell_keys.add(key)
+                    spell_display_by_key[key] = name_sheet
+
+                    # Row-level level override if present
+                    row_level = parse_level(first_nonempty(row, 'Level', 'Spell Level', 'Rank'), tab_level)
+
+                    fields = dict(
+                        level         = row_level,
+                        description   = rget(row, 'Description', 'Desc', 'Text'),
+                        effect        = rget(row, 'Effect', 'Effects'),
+                        upcast_effect = rget(row, 'Upcasted Effect', 'Upcast Effect', 'Heightened', 'Heightened Effect', 'Heighten'),
+                        saving_throw  = rget(row, 'Saving Throw', 'Save', 'Save (Type)', 'SavingThrow'),
+                        casting_time  = rget(row, 'Casting Time', 'Cast Time', 'Casting'),
+                        duration      = rget(row, 'Duration', 'Dur'),
+                        components    = rget(row, 'Components', 'Comp'),
+                        range         = rget(row, 'Range'),
+                        target        = rget(row, 'Target', 'Targets'),
+                        origin        = rget(row, 'Origin', 'School', 'Tradition'),
+                        sub_origin    = rget(row, 'Sub Origin', 'Sub-Origin', 'Subschool'),
+                        mastery_req   = rget(row, 'Mastery Req', 'Mastery Requirement'),
+                        tags          = rget(row, 'Other Tags', 'Tags'),
+                    )
+
+                    ids = spell_by_key.get(key, [])
+                    if not ids:
+                        obj = Spell.objects.create(name=name_sheet, **fields)
+                        spell_by_key[key] = [obj.id]
+                        created += 1
+                        if len(sample) < 5:
+                            sample.append(('created', obj.id, name_sheet, row_level))
+                    else:
+                        for sid in ids:
+                            Spell.objects.filter(id=sid).update(name=name_sheet, **fields)
+                            updated += 1
+                        if len(sample) < 5:
+                            sample.append(('updated', ids[0], name_sheet, row_level))
+
+            print(f"📦 Spells → created: {created}, updated rows: {updated}", flush=True)
+            if sample:
+                for tag, sid, nm, lv in sample:
+                    print(f"   • {tag:<7} id={sid} name={nm!r} level={lv}", flush=True)
+
+            # De-dup (case/space/nbps-insensitive): keep the exact sheet display name
+            post = list(Spell.objects.all().values('id', 'name'))
+            dedupe_groups = _dd(list)
+            for r in post:
+                k = canonical_spell_name(r['name']).lower()
+                if k:
+                    dedupe_groups[k].append(r['id'])
+
+            kept = deleted_dups = protected_dups = 0
+            # add flag once in add_arguments:
+            # parser.add_argument('--dedupe-spells', action='store_true',
+            #     help='Delete duplicate Spell rows, keeping the sheet display name.')
+
+            do_dedupe = bool(options.get('dedupe_spells'))
+            dry_run   = bool(options.get('dry_run'))
+
+            if not do_dedupe:
+                print("ℹ️  Skipping spell de-dupe (use --dedupe-spells to enable).", flush=True)
+            else:
+                kept = deleted_dups = protected_dups = 0
+                planned = []
+                for k, ids in dedupe_groups.items():
+                    if len(ids) <= 1:
+                        continue
+                    rows = list(Spell.objects.filter(id__in=ids).values('id', 'name'))
+                    keep_id = None
+                    want_name = spell_display_by_key.get(k)
+                    if want_name:
+                        for r in rows:
+                            if r['name'] == want_name:
+                                keep_id = r['id']; break
+                    if keep_id is None:
+                        keep_id = min(ids)
+                    drop = [i for i in ids if i != keep_id]
+                    kept += 1
+                    if dry_run:
+                        planned.extend(drop)
+                    else:
+                        for sid in drop:
+                            try:
+                                Spell.objects.filter(id=sid).delete()
+                                deleted_dups += 1
+                            except ProtectedError:
+                                protected_dups += 1
+
+                if dry_run and planned:
+                    print(f"🧪 DRY RUN: would delete duplicate spell ids={planned[:50]}{' ...' if len(planned)>50 else ''}", flush=True)
+                elif kept or deleted_dups or protected_dups:
+                    print(f"🧹 Spell de-dupe: kept {kept}, deleted {deleted_dups}, protected {protected_dups}", flush=True)
+                else:
+                    print("👍 No spell duplicates after de-dupe.", flush=True)
+
+
+            # ── Deletion pass (SAFE): remove spells NOT present in the sheet ──
+            del_missing_spells = bool(options.get('delete_missing_spells'))
+            dry_run            = bool(options.get('dry_run'))
+            min_spell_rows     = int(options.get('min_spell_rows', 150))
+
+            if not del_missing_spells:
+                print("ℹ️  Skipping deletion of missing spells (use --delete-missing-spells to enable).", flush=True)
+            else:
+                print("🧮 Building deletion set (spells missing from sheet)...", flush=True)
+                total_db_spells = Spell.objects.count()
+                print(f"   • sheet spell keys: {len(spell_keys)}", flush=True)
+                print(f"   • current DB spells: {total_db_spells}", flush=True)
+
+                if len(spell_keys) == 0:
+                    print("⛔ Abort: sheet yielded 0 spell rows (wrong tab/header/permissions?). No deletions performed.", flush=True)
+                elif len(spell_keys) < min_spell_rows:
+                    print(f"⛔ Abort: only {len(spell_keys)} spell rows < min-spell-rows={min_spell_rows}. Raise --min-spell-rows if intentional.", flush=True)
+                else:
+                    all_db = list(Spell.objects.all().values('id', 'name'))
+                    db_keys = [canonical_spell_name(r['name']).lower() for r in all_db if r['name']]
+                    db_total = len(db_keys)
+                    overlap = sum(1 for k in db_keys if k in spell_keys)
+                    overlap_ratio = (overlap / db_total) if db_total else 1.0
+                    print(f"   • overlap with DB: {overlap}/{db_total} ({overlap_ratio:.1%})", flush=True)
+
+                    if overlap_ratio < 0.80:
+                        print("⛔ Abort: overlap < 80%. Refusing to delete (sheet likely misread or headers wrong).", flush=True)
+                    else:
+                        if os.environ.get("SYNC_CONFIRM_DELETE", "").lower() != "yes":
+                            print("⛔ Abort: set SYNC_CONFIRM_DELETE=YES to allow deletions.", flush=True)
+                        elif (created + updated) == 0:
+                            print("⛔ Abort: 0 spells created/updated in this run; refusing to delete.", flush=True)
+                        else:
+                            to_delete = []
+                            for r in all_db:
+                                k = canonical_spell_name(r['name']).lower()
+                                if k and k not in spell_keys:
+                                    to_delete.append((r['id'], r['name']))
+                            print(f"🗑️  Spells to delete: {len(to_delete)}", flush=True)
+                            if to_delete:
+                                if dry_run:
+                                    print(f"🧪 DRY RUN: would delete ids={[sid for sid, _ in to_delete[:50]]}{' ...' if len(to_delete) > 50 else ''}", flush=True)
+                                else:
+                                    ok = prot = 0
+                                    for sid, sname in to_delete:
+                                        try:
+                                            Spell.objects.filter(id=sid).delete()
+                                            ok += 1
+                                        except ProtectedError:
+                                            prot += 1
+                                            print(f"   ⛔ Protected (kept) id={sid} name='{sname}'", flush=True)
+                                    print(f"✅ Deletion done. Removed {ok}; kept (protected) {prot}.", flush=True)
+                            else:
+                                print("👍 No spells to delete; DB matches sheet (by canonical name).", flush=True)
+
 
             # ─── FEATS ──────────────────────────────────────────────────────
             feat_book = client.open_by_key("1-WHN5KXt7O7kRmgyOZ0rXKLA6s6CbaOWFmvPflzD5bQ")
