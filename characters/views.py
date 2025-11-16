@@ -4782,6 +4782,7 @@ def build_martial_mastery_context(character, class_progress) -> Dict[str, Any]:
     class_levels = {getattr(c, "slug", ""): eff_levels.get(cid, 0)
                     for cid, c in classes_by_id.items() if getattr(c, "slug", None)}
 
+    # ========== Martial Mastery feature collection (gated by actually gained features) ==========
     by_feature = []
 
     # We’ll group per class, then apply: Highest class full; others max(0, formula − 5)
@@ -4790,51 +4791,91 @@ def build_martial_mastery_context(character, class_progress) -> Dict[str, Any]:
     global_points    = 0    # features not tied to a specific class
     global_known     = 0
 
-    # Any feature with kind == 'martial_mastery' contributes points/known slots
-    char_classes = [cp.character_class for cp in class_progress]
+    # Count how many Martial Mastery features this specific character actually has.
+    active_mm_features = 0
+
+    # OPTIONAL HOOK: wire this to your *real* per-character feature table.
+    # Right now this returns True for everything (old behaviour) so it won't crash.
+    # You will plug your own check here, see comment below.
+    def _character_has_mm_feature(cf: ClassFeature) -> bool:
+        """
+        Return True only if this character has actually gained this ClassFeature
+        (via CharacterFeature). This is the canonical 'has this feature' check.
+        """
+        return CharacterFeature.objects.filter(
+            character=character,
+            feature=cf,
+        ).exists()
+    # Any feature with kind == 'martial_mastery' contributes points/known slots,
+    # but only if the character has actually gained that feature.
+    from characters.models import ClassFeature, CharacterFeature
+
+    # CORRECT: only Martial Mastery features this CHARACTER has actually gained
     feats_qs = (
         ClassFeature.objects
         .filter(kind="martial_mastery")
-        .filter(Q(character_class__in=char_classes) | Q(character_class__isnull=True))
+        .filter(character_features__character=character)
         .distinct()
     )
+
     for f in feats_qs:
+        # HARD GATE: skip features the character has not actually gained yet
+        if not _character_has_mm_feature(f):
+            continue
+
+        active_mm_features += 1
+
         # Build eval context with EFFECTIVE levels instead of raw class_progress
-        def _abil(score: int) -> int: return (score - 10) // 2
+        def _abil(score: int) -> int:
+            return (score - 10) // 2
+
         ctx = {}
         for cid, lvl in eff_levels.items():
             cls = classes_by_id.get(int(cid))
-            if not cls: 
+            if not cls:
                 continue
-            token = re.sub(r'[^a-z0-9_]', '', (cls.name or '').strip().lower().replace(' ', '_'))
+            token = re.sub(
+                r"[^a-z0-9_]",
+                "",
+                (cls.name or "").strip().lower().replace(" ", "_"),
+            )
             if token:
                 ctx[f"{token}_level"] = int(lvl)
 
         ctx["level"] = int(total_level or 0)
         ctx["total_level"] = ctx["level"]
-        ctx.update({
-            "strength_score":     int(character.strength),
-            "dexterity_score":    int(character.dexterity),
-            "constitution_score": int(character.constitution),
-            "intelligence_score": int(character.intelligence),
-            "wisdom_score":       int(character.wisdom),
-            "charisma_score":     int(character.charisma),
-            "strength": _abil(character.strength),
-            "dexterity": _abil(character.dexterity),
-            "constitution": _abil(character.constitution),
-            "intelligence": _abil(character.intelligence),
-            "wisdom": _abil(character.wisdom),
-            "charisma": _abil(character.charisma),
-            "str_mod": _abil(character.strength),
-            "dex_mod": _abil(character.dexterity),
-            "con_mod": _abil(character.constitution),
-            "int_mod": _abil(character.intelligence),
-            "wis_mod": _abil(character.wisdom),
-            "cha_mod": _abil(character.charisma),
-            "floor": math.floor, "ceil": math.ceil, "min": min, "max": max,
-            "int": int, "round": round,
-            "round_up": math.ceil, "roundup": math.ceil, "ceiling": math.ceil,
-        })
+        ctx.update(
+            {
+                "strength_score": int(character.strength),
+                "dexterity_score": int(character.dexterity),
+                "constitution_score": int(character.constitution),
+                "intelligence_score": int(character.intelligence),
+                "wisdom_score": int(character.wisdom),
+                "charisma_score": int(character.charisma),
+                "strength": _abil(character.strength),
+                "dexterity": _abil(character.dexterity),
+                "constitution": _abil(character.constitution),
+                "intelligence": _abil(character.intelligence),
+                "wisdom": _abil(character.wisdom),
+                "charisma": _abil(character.charisma),
+                "str_mod": _abil(character.strength),
+                "dex_mod": _abil(character.dexterity),
+                "con_mod": _abil(character.constitution),
+                "int_mod": _abil(character.intelligence),
+                "wis_mod": _abil(character.wisdom),
+                "cha_mod": _abil(character.charisma),
+                "floor": math.floor,
+                "ceil": math.ceil,
+                "min": min,
+                "max": max,
+                "int": int,
+                "round": round,
+                "round_up": math.ceil,
+                "roundup": math.ceil,
+                "ceiling": math.ceil,
+            }
+        )
+
         def _normalize_formula(expr: str) -> str:
             if not expr:
                 return ""
@@ -4847,6 +4888,7 @@ def build_martial_mastery_context(character, class_progress) -> Dict[str, Any]:
             e = re.sub(r"(.+?)\s*/\s*([0-9]+)\s+ceil\b", r"ceil((\1)/\2)", e)
             e = re.sub(r"(.+?)\s*/\s*([0-9]+)\s+floor\b", r"floor((\1)/\2)", e)
             return e
+
         def _eval(expr: str):
             if not expr:
                 return 0
@@ -4859,39 +4901,59 @@ def build_martial_mastery_context(character, class_progress) -> Dict[str, Any]:
         pf = (getattr(f, "martial_points_formula", "") or "").strip()
         kf = (getattr(f, "available_masteries_formula", "") or "").strip()
         points = _eval(pf)
-        known  = _eval(kf)
+        known = _eval(kf)
 
         # Per-feature overrides (your existing override logic kept)
         try:
             from .models import CharacterOverride
-            slug = re.sub(r'[^a-z0-9_]+', '-', f.name.strip().lower())
-            ovp = CharacterOverride.objects.filter(character=character, key=f"mm:feature:{slug}:points").values_list("final", flat=True).first()
-            ovk = CharacterOverride.objects.filter(character=character, key=f"mm:feature:{slug}:known").values_list("final", flat=True).first()
-            if ovp is not None: points = int(ovp)
-            if ovk is not None: known  = int(ovk)
+
+            slug = re.sub(r"[^a-z0-9_]+", "-", f.name.strip().lower())
+            ovp = (
+                CharacterOverride.objects.filter(
+                    character=character, key=f"mm:feature:{slug}:points"
+                )
+                .values_list("final", flat=True)
+                .first()
+            )
+            ovk = (
+                CharacterOverride.objects.filter(
+                    character=character, key=f"mm:feature:{slug}:known"
+                )
+                .values_list("final", flat=True)
+                .first()
+            )
+            if ovp is not None:
+                points = int(ovp)
+            if ovk is not None:
+                known = int(ovk)
         except Exception:
             pass
 
         # Attribute to class (if any); otherwise treat as global (no −5 reduction)
         owner_cls = getattr(f, "character_class", None)
-        owner_id  = int(getattr(owner_cls, "id", 0) or 0) if owner_cls else 0
+        owner_id = int(getattr(owner_cls, "id", 0) or 0) if owner_cls else 0
         if owner_id:
             per_class_points[owner_id] = per_class_points.get(owner_id, 0) + int(points)
-            per_class_known[owner_id]  = per_class_known.get(owner_id, 0)  + int(known)
+            per_class_known[owner_id] = per_class_known.get(owner_id, 0) + int(known)
         else:
             global_points += int(points)
-            global_known  += int(known)
+            global_known += int(known)
 
-        by_feature.append({
-            "feature_name": f.name,
-            "class_name": owner_cls.name if owner_cls else "",
-            "points": points,
-            "known_cap": known,
-            "points_formula": pf or "",
-            "known_formula":  kf or "",
-            "points_values":  str(points) if pf else "",
-            "known_values":   str(known)  if kf else "",
-        })
+        by_feature.append(
+            {
+                "feature_name": f.name,
+                "class_name": owner_cls.name if owner_cls else "",
+                "points": points,
+                "known_cap": known,
+                "points_formula": pf or "",
+                "known_formula": kf or "",
+                "points_values": str(points) if pf else "",
+                "known_values": str(known) if kf else "",
+            }
+        )
+
+    # Identify Martial classes (by tag) and apply LOR combine rule
+
 
     # Identify Martial classes (by tag) and apply LOR combine rule
     martial_class_ids = set()
@@ -4927,8 +4989,7 @@ def build_martial_mastery_context(character, class_progress) -> Dict[str, Any]:
     tot_known  = int(global_known)  + int(highest_known)  + int(reduced_known)
 
 
-    show_tab = (tot_points > 0 or tot_known > 0 or feats_qs.exists())
-
+    show_tab = (active_mm_features > 0 and (tot_points > 0 or tot_known > 0))
     # 2) What is already known?
     # Always resolve to MartialMastery rows
     known_qs = MartialMastery.objects.filter(

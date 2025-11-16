@@ -389,7 +389,6 @@
     </aside>
 
     <!-- RIGHT: tabs + panes -->
-    <main class="col-lg-9">
 <main class="col-lg-9">
 
   <!-- RESOURCES ROW (above tabs) -->
@@ -1316,24 +1315,26 @@ function deriveFromCombat(){
     // Clear log
     el('clear-log').addEventListener('click', ()=>{ state.log = []; save(); renderLog(); });
 
+    // Re-sync shortly after weapon selects change (covers AJAX rerenders)
+    document.querySelectorAll('.wep-select').forEach(sel=>{
+      sel.addEventListener('change', ()=> setTimeout(syncFromCombat, 80));
+    });
+
+    // Also re-sync when switching to Combat or Rolls tabs (in case DOM updates while hidden)
+    document.addEventListener('shown.bs.tab', (e)=>{
+      const t = e.target?.getAttribute('data-bs-target');
+      if (t === '#tab-combat' || t === '#tab-rolls') {
+        setTimeout(syncFromCombat, 80);
+      }
+    });
+
     // Final safety: if base looks zero but combat has a value, sync on first render
-    if ((Number(state.base.atk||0) === 0)) syncFromCombat();
+    if (Number(state.base.atk || 0) === 0) {
+      setTimeout(syncFromCombat, 0);
+    }
   })();
-  // Re-sync shortly after weapon selects change (covers AJAX rerenders)
-document.querySelectorAll('.wep-select').forEach(sel=>{
-  sel.addEventListener('change', ()=> setTimeout(syncFromCombat, 80));
-});
-
-// Also re-sync when switching to Combat or Rolls tabs (in case DOM updates while hidden)
-document.addEventListener('shown.bs.tab', (e)=>{
-  const t = e.target?.getAttribute('data-bs-target');
-  if (t === '#tab-combat' || t === '#tab-rolls') setTimeout(syncFromCombat, 80);
-});
-
-// Safety: if base is 0 on load but Combat already has data, do an initial sync
-if (Number(state.base.atk||0) === 0) setTimeout(syncFromCombat, 0);
-
   </script>
+
 </div>
 <!-- /ROLLS TAB -->
 
