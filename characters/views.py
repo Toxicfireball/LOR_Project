@@ -52,6 +52,15 @@ from django.views.decorators.http import require_GET
 # ── helpers that read the LEVEL TRIGGER instead of JSON ───────────────────
 import json as _json
 import uuid
+
+# characters/views.py
+import json
+
+from django.utils.safestring import mark_safe
+from django.shortcuts import redirect   # if not already imported
+
+from .models import RollModifier        # ADD this with your other model imports
+
 from .utils import parse_formula
 def _mm_cost(m) -> int:
     """Return the point cost for a mastery."""
@@ -5348,6 +5357,48 @@ def character_detail(request, pk):
                 messages.success(request, "Removed feat.")
 
             return redirect(reverse("characters:character_detail", args=[character.pk]) + "#tab-feats")
+    # --- Dice Roller: add standard / toggle / AP modifiers -----------------------
+    if request.method == "POST" and request.POST.get("roll_mod_form") and can_edit:
+
+        code    = (request.POST.get("roll_code") or "").strip()      # e.g. "attack" or "generic"
+        kind    = (request.POST.get("kind") or "").strip()           # standard / toggle / ap_standard / ap_toggle
+        name    = (request.POST.get("name") or "").strip()
+        val_raw = (request.POST.get("value") or "").strip()
+
+        if not code or not name:
+            messages.error(request, "Name and roll code are required.")
+            return redirect(
+                reverse("characters:character_detail", args=[character.pk]) + "#tab-rolls"
+            )
+
+        try:
+            value = int(val_raw)
+        except ValueError:
+            messages.error(request, "Modifier value must be a number.")
+            return redirect(
+                reverse("characters:character_detail", args=[character.pk]) + "#tab-rolls"
+            )
+
+        # Validate kind
+        if kind not in {"standard", "toggle", "ap_standard", "ap_toggle"}:
+            messages.error(request, "Invalid modifier kind.")
+            return redirect(
+                reverse("characters:character_detail", args=[character.pk]) + "#tab-rolls"
+            )
+
+        RollModifier.objects.create(
+            character=character,
+            roll_code=code,
+            kind=kind,
+            name=name,
+            value=value,
+        )
+
+        messages.success(request, "Roll modifier added.")
+        return redirect(
+            reverse("characters:character_detail", args=[character.pk]) + "#tab-rolls"
+        )
+
 
     # Sharing UI data for template
     active_invites = character.share_invites.filter(
@@ -6041,8 +6092,72 @@ def character_detail(request, pk):
         base_feats_preview = list(cl_preview.features.all())
     except ClassLevel.DoesNotExist:
         base_feats_preview = []
+    # ── rest of your character_detail view (manual_feats, feats, spells, etc.) ──
+    # Build rows for “Manually Added Feats”
+    feat_ct = ContentType.objects.get_for_model(ClassFeat)
+    mg_qs   = character.manual_grants.filter(content_type=feat_ct).only("id", "object_id")
+    feat_ids = list(mg_qs.values_list("object_id", flat=True))
+    feats_by_id = {f.id: f for f in ClassFeat._base_manager.filter(id__in=feat_ids).only("id", "name")}
+    manual_feats = [
+        SimpleNamespace(id=mg.id, feat=feats_by_id.get(mg.object_id))
+        for mg in mg_qs if feats_by_id.get(mg.object_id)
+    ]
 
+    roll_choices = [
+        {"code": "attack",          "label": "Attack Roll",          "kind": "attack"},
+        {"code": "save_fort",       "label": "Save – Fortitude",     "kind": "save"},
+        {"code": "save_reflex",     "label": "Save – Reflex",        "kind": "save"},
+        {"code": "save_will",       "label": "Save – Will",          "kind": "save"},
+        {"code": "skill_athletics", "label": "Skill – Athletics",    "kind": "skill"},
+        {"code": "skill_acrobatics","label": "Skill – Acrobatics",   "kind": "skill"},
+        {"code": "skill_perception","label": "Skill – Perception",   "kind": "skill"},
+        {"code": "skill_stealth",   "label": "Skill – Stealth",      "kind": "skill"},
+    ]
 
+    # Initialise structure for each roll
+    roll_map = {
+        r["code"]: {
+            "code": r["code"],
+            "label": r["label"],
+            "kind": r["kind"],
+            "std_mods": [],
+            "toggle_mods": [],
+            "ap_std_mods": [],
+            "ap_toggle_mods": [],
+        }
+        for r in roll_choices
+    }
+    # --- Dice Roller: attack base bonus taken from Combat tab --------------------
+    try:
+        # Use the best "to hit" across all equipped weapons; fall back to 0
+        attack_base_bonus = max(
+            int(a.get("hit_best") or 0) for a in attacks_detailed
+        ) if attacks_detailed else 0
+    except Exception:
+        attack_base_bonus = 0
+
+    # Attach modifiers from DB
+    for m in RollModifier.objects.filter(character=character):
+        bucket = roll_map.get(m.roll_code)
+        if not bucket:
+            continue
+        mod_dict = {"id": m.id, "name": m.name, "value": m.value}
+        if m.kind == "standard":
+            bucket["std_mods"].append(mod_dict)
+        elif m.kind == "toggle":
+            bucket["toggle_mods"].append(mod_dict)
+        elif m.kind == "ap_standard":
+            bucket["ap_std_mods"].append(mod_dict)
+        elif m.kind == "ap_toggle":
+            bucket["ap_toggle_mods"].append(mod_dict)
+
+    roll_mod_data = {"rolls": list(roll_map.values())}
+    roll_mod_data = {
+        "rolls": list(roll_map.values()),
+        "attack_base_bonus": int(attack_base_bonus or 0),
+    }
+    roll_mod_data_json = mark_safe(json.dumps(roll_mod_data))
+    # — Martial Mastery —
 
     if request.method == "POST":
 
@@ -6080,6 +6195,7 @@ def character_detail(request, pk):
         # GET/preview
         cls_level_for_validate = _class_level_after_pick(character, preview_cls)
         base_feats = base_feats_preview
+
 
     # only real ClassFeature instances go here
     # --- Normalize Skill Feat grant for this class/level (one canonical place) ---
@@ -7006,21 +7122,28 @@ def character_detail(request, pk):
 
     # === INIT LEVEL FORM (use LevelUpForm so general_feat/ASI appear) ===
     # Ensure base_class is present in GET so binding matches the left preview.
-    if request.method == "GET":
-        bound = data.copy() if hasattr(data, "copy") else QueryDict("", mutable=True)
-        if "base_class" not in bound and preview_cls:
-            bound["base_class"] = str(preview_cls.pk)
+    # === INIT LEVEL FORM (use LevelUpForm so general_feat/ASI appear) ===
+
+    if request.method == "POST":
+        # use the (possibly normalised) POST data for a real submission
+        form_data = data          # this is request.POST from above
+        initial = None
     else:
-        bound = data  # POST
+        # plain GET → unbound form (no modal auto-open)
+        form_data = None
+        # still tell the form which class we're previewing with initial data
+        initial = {"base_class": preview_cls.pk} if preview_cls else None
 
     level_form = LevelUpForm(
-        bound if (request.method == "POST" or bound) else None,
+        form_data,                # None on GET => unbound form
         character=character,
-        to_choose=to_choose,                 # you already computed this from base_feats
-        preview_cls=preview_cls,             # your selected class for this level
+        to_choose=to_choose,
+        preview_cls=preview_cls,
         grants_class_feat=_grants_class_feat_at,
-        uni=uni,                             # UniversalLevelFeature for next_level
+        uni=uni,
+        initial=initial,          # only used on GET
     )
+
 
     # Optional: expose the preview toggle (does not bypass approval/min-level because counting is gated)
     if "level_kind" not in level_form.fields:
@@ -7045,7 +7168,43 @@ def character_detail(request, pk):
                 widget=forms.CheckboxSelectMultiple,
             )
 
+    # --- Dice Roller: DELETE a modifier ---------------------------------------
+    if request.method == "POST" and request.POST.get("roll_mod_delete") and can_edit:
+        try:
+            mid = int(request.POST.get("mod_id") or "0")
+        except ValueError:
+            mid = 0
 
+        if mid:
+            RollModifier.objects.filter(character=character, id=mid).delete()
+
+        return redirect(
+            reverse("characters:character_detail", args=[character.pk]) + "#tab-rolls"
+        )
+
+
+    # --- Dice Roller: EDIT a modifier -----------------------------------------
+    if request.method == "POST" and request.POST.get("roll_mod_edit") and can_edit:
+        try:
+            mid = int(request.POST.get("mod_id") or "0")
+        except ValueError:
+            mid = 0
+
+        name = (request.POST.get("name") or "").strip()
+        try:
+            value = int(request.POST.get("value") or "0")
+        except ValueError:
+            value = 0
+
+        if mid and name:
+            RollModifier.objects.filter(character=character, id=mid).update(
+                name=name,
+                value=value,
+            )
+
+        return redirect(
+            reverse("characters:character_detail", args=[character.pk]) + "#tab-rolls"
+        )
 
 
     if _grants_class_feat_at and "class_feat_pick" not in level_form.fields:
@@ -9531,6 +9690,22 @@ def character_detail(request, pk):
         f"→ hit_best={math_['hit_best']} dmg_best={math_['dmg_best']} rule={math_['rule']}")
 
 
+    # Only two roll types for the dice roller
+    roll_choices = [
+        {"code": "attack",  "label": "Attack roll",     "kind": "attack"},
+        {"code": "generic", "label": "Non-attack roll", "kind": "other"},
+    ]
+
+    # Load any saved roll modifiers from CharacterFieldOverride
+    roll_ov = CharacterFieldOverride.objects.filter(
+        character=character, key="roll_mods"
+    ).first()
+    try:
+        roll_blob = json.loads(roll_ov.value) if (roll_ov and roll_ov.value) else {}
+    except Exception:
+        roll_blob = {}
+
+
     # ----- LEFT CARD: finals only -----
     finals_left = [
         {"label": "Armor",       "value": derived["armor_total"]},
@@ -10555,16 +10730,36 @@ def character_detail(request, pk):
         manager = getattr(Model, "all_objects", None) or Model._base_manager or Model.objects
         return manager.only("id", "name").order_by("name")
     all_feats = list(_all_feats_qs())
-
-    # Build rows for “Manually Added Feats”
     feat_ct = ContentType.objects.get_for_model(ClassFeat)
     mg_qs   = character.manual_grants.filter(content_type=feat_ct).only("id", "object_id")
     feat_ids = list(mg_qs.values_list("object_id", flat=True))
     feats_by_id = {f.id: f for f in ClassFeat._base_manager.filter(id__in=feat_ids).only("id", "name")}
-    manual_feats = [
-        SimpleNamespace(id=mg.id, feat=feats_by_id.get(mg.object_id))
-        for mg in mg_qs if feats_by_id.get(mg.object_id)
-    ]
+    if request.method == "POST" and request.POST.get("roll_mod_form") and can_edit:
+        kind = request.POST.get("kind")  # "standard", "toggle", "ap_standard", "ap_toggle"
+        roll_code = (request.POST.get("roll_code") or "").strip()
+        name = (request.POST.get("name") or "").strip()
+        try:
+            value = int(request.POST.get("value") or "0")
+        except ValueError:
+            value = 0
+
+        if roll_code and name and kind in {"standard", "toggle", "ap_standard", "ap_toggle"}:
+            RollModifier.objects.create(
+                character=character,
+                roll_code=roll_code,
+                name=name,
+                value=value,
+                kind=kind,
+            )
+
+        return redirect(
+            reverse("characters:character_detail", args=[character.pk]) + "#tab-rolls"
+        )
+
+
+    # Build rows for “Manually Added Feats”
+
+
 
     return render(request, 'forge/character_detail.html', {
         # — Identity / permissions / sharing —
@@ -10689,12 +10884,15 @@ def character_detail(request, pk):
 
         # — Backgrounds —
         "backgrounds": backgrounds,
-
+        "roll_choices": roll_choices,
+        "roll_mod_data_json": roll_mod_data_json,
         # — Martial Mastery —
         "show_martial_mastery_tab": mm_ctx["show_martial_mastery_tab"],
         "martial_mastery_ctx": mm_ctx["martial_mastery_ctx"],
         "martial_mastery_known": mm_ctx["martial_mastery_known"],
         "martial_mastery_available": mm_ctx["martial_mastery_available"],
+                "roll_choices": roll_choices,
+        "roll_mod_data_json": roll_mod_data_json,
     })
 
 def _effective_spell_slots_by_rank(character, class_progress):

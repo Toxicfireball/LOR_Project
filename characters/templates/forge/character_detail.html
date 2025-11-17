@@ -21,9 +21,6 @@
 #martial-mastery .mm-head form{ display:inline-block; margin:0; }
 #martial-mastery .mm-head .btn{ white-space:nowrap; padding:.1rem .5rem; }
 
-  /* Modals on top of everything */
-  .modal { z-index: 2000 !important; }
-  .modal-backdrop { z-index: 1990 !important; }
 
   .edit-pill { border: 0; background: transparent; padding: 0 .25rem; font-size: .85rem; color: #6c757d; cursor: pointer; }
   .edit-pill:hover { color: #0d6efd; text-decoration: underline; }
@@ -431,7 +428,6 @@
   </div>
   {% endif %}
 
-  </ul>
       <ul class="nav nav-tabs" id="sheetTabs" role="tablist">
         <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-details" type="button">Details</button></li>
         <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-combat"  type="button">Combat</button></li>
@@ -887,20 +883,16 @@
 
 </div>
 
-
-<!-- ROLLS TAB (Attack → AP derived → Damage) -->
+<!-- ROLLS TAB (generic roll + AP for attacks) -->
 <div class="tab-pane fade" id="tab-rolls">
   <style>
-    /* Chips + horizontal layout */
-    .chip {display:inline-flex;align-items:center;gap:.4rem;border-radius:999px;padding:.15rem .55rem;font-weight:600;border:1px solid transparent;cursor:default;white-space:nowrap}
+    .chip{display:inline-flex;align-items:center;gap:.4rem;border-radius:999px;padding:.15rem .55rem;font-weight:600;border:1px solid transparent;cursor:default;white-space:nowrap}
     .chip-auto{background:#e8f5e9;border-color:#c8e6c9}
     .chip-cond{background:#e3f2fd;border-color:#bbdefb;cursor:pointer}
     .chip-cond.active{outline:2px solid rgba(25,118,210,.35)}
-    .chip .x{cursor:pointer;opacity:.6}
-    .chip .x:hover{opacity:1}
     .vr-bucket{display:flex;flex-wrap:wrap;gap:.35rem}
     .form-hint{opacity:.75}
-    .mono{font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
     #roll-log{max-height:220px;overflow:auto}
     .stack-h{display:flex;gap:1rem;flex-wrap:wrap}
     .stack-h>.panel{flex:1 1 320px}
@@ -910,138 +902,171 @@
   </style>
 
   <div class="d-flex align-items-center justify-content-between mb-2">
-    <h5 class="mb-0">Dice Roller — Attack → AP (derived) → Damage</h5>
-    <div class="text-muted small">All client-side • saved per character in your browser</div>
+    <h5 class="mb-0">Dice Roller</h5>
+    <div class="text-muted small">Type of roll • standard mods • toggle mods • AP for attacks</div>
   </div>
 
   <div class="stack-h">
-    <!-- ATTACK -->
+    <!-- MAIN ROLL PANEL -->
     <div class="panel">
-      <div class="d-flex align-items-center justify-content-between">
-        <h6>Attack</h6>
-        <div class="d-flex gap-2">
-          <button id="btn-sync-combat" class="btn btn-sm btn-outline-secondary">Sync from Combat</button>
-          <button id="btn-roll-attack" class="btn btn-sm btn-primary">Roll Attack (d20)</button>
+      <div class="d-flex align-items-center justify-content-between mb-1">
+        <h6 class="mb-0">Roll</h6>
+        <button id="btn-roll-main" class="btn btn-sm btn-primary" type="button">Roll d20</button>
+      </div>
+
+      <div class="row g-2 align-items-end mt-1">
+        <div class="col-md-5">
+          <label class="form-label form-label-sm mb-0">Type of roll</label>
+          <select id="roll-type" class="form-select form-select-sm">
+            {% for r in roll_choices %}
+              <option value="{{ r.code }}" data-kind="{{ r.kind }}">{{ r.label }}</option>
+            {% endfor %}
+          </select>
+          <div class="form-hint small">Attack rolls, saves, skills</div>
+        </div>
+
+        <div class="col-md-3">
+          <label class="form-label form-label-sm mb-0">Base modifier</label>
+          <input id="roll-base" type="number" class="form-control form-control-sm" value="0">
+          <div class="form-hint small">Type the total bonus for this roll</div>
+        </div>
+
+        <div class="col-md-4">
+          <label class="form-label form-label-sm mb-0">d20 / Total</label>
+          <div class="d-flex gap-1">
+            <input id="roll-d20" type="number" class="form-control form-control-sm" value="0" readonly>
+            <input id="roll-total" type="number" class="form-control form-control-sm" value="0" readonly>
+          </div>
         </div>
       </div>
 
-      <div class="row g-2 mt-1">
-        <div class="col-4">
-          <label class="form-label form-label-sm mb-0">Base (from Combat)</label>
-          <input id="atk-base" type="number" class="form-control form-control-sm" value="0" readonly>
-          <div class="form-hint small">Primary weapon’s <strong>Hit</strong></div>
+      <!-- STANDARD MODIFIERS -->
+      <div class="mt-3">
+        <div class="d-flex align-items-center justify-content-between mb-1">
+          <strong class="small mb-0">Standard modifiers (always on)</strong>
         </div>
+        <div id="roll-std-mods" class="vr-bucket"></div>
+
+        <form id="form-add-std-mod" class="row g-2 mt-1" method="post">
+          {% csrf_token %}
+          <input type="hidden" name="roll_mod_form" value="1">
+          <input type="hidden" name="kind" value="standard">
+          <input type="hidden" name="roll_code" id="std-roll-code-field" value="">
+          <div class="col-6">
+            <input class="form-control form-control-sm" name="name" placeholder="e.g. Proficiency" required>
+          </div>
+          <div class="col-3">
+            <input class="form-control form-control-sm" name="value" type="number" placeholder="+/-" required>
+          </div>
+          <div class="col-3 d-grid">
+            <button class="btn btn-sm btn-outline-primary">Add</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- TOGGLE MODIFIERS -->
+      <div class="mt-3">
+        <div class="d-flex align-items-center justify-content-between mb-1">
+          <strong class="small mb-0">Toggle modifiers</strong>
+          <span class="small text-muted">Click chip to toggle on/off</span>
+        </div>
+        <div id="roll-toggle-mods" class="vr-bucket"></div>
+
+        <form id="form-add-toggle-mod" class="row g-2 mt-1" method="post">
+          {% csrf_token %}
+          <input type="hidden" name="roll_mod_form" value="1">
+          <input type="hidden" name="kind" value="toggle">
+          <input type="hidden" name="roll_code" id="toggle-roll-code-field" value="">
+          <div class="col-6">
+            <input class="form-control form-control-sm" name="name" placeholder="e.g. Flanking" required>
+          </div>
+          <div class="col-3">
+            <input class="form-control form-control-sm" name="value" type="number" placeholder="+/-" required>
+          </div>
+          <div class="col-3 d-grid">
+            <button class="btn btn-sm btn-outline-primary">Add</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="mt-3 small text-muted">
+        Final result = d20 + base + standard modifiers + active toggles
+      </div>
+    </div>
+
+    <!-- ARMOR PIERCING PANEL (only for attack-type rolls) -->
+    <div class="panel" id="ap-panel">
+      <div class="d-flex align-items-center justify-content-between">
+        <h6 class="mb-0">Armor Piercing</h6>
+        <span class="badge text-bg-secondary">Derived from last attack roll</span>
+      </div>
+
+      <div class="row g-2 mt-1">
         <div class="col-4">
           <label class="form-label form-label-sm mb-0">Last attack total</label>
-          <input id="atk-last" type="number" class="form-control form-control-sm" value="0" readonly>
-          <div class="form-hint small">Feeds AP automatically</div>
+          <input id="ap-attack-total" type="number" class="form-control form-control-sm" value="0" readonly>
         </div>
         <div class="col-4">
-          <label class="form-label form-label-sm mb-0">d20 preview</label>
-          <input id="atk-d20" type="number" class="form-control form-control-sm" value="0" readonly>
-          <div class="form-hint small">Last die result</div>
+          <label class="form-label form-label-sm mb-0">Base AP = ⌊hit / 2⌋</label>
+          <input id="ap-base" type="number" class="form-control form-control-sm" value="0" readonly>
         </div>
-      </div>
-
-      <div class="mt-2">
-        <div class="d-flex align-items-center justify-content-between mb-1">
-          <strong class="small mb-0">Variables</strong>
-          <span class="small text-muted">Autos always on • Toggle conditionals</span>
-        </div>
-        <div id="v-attack" class="vr-bucket"></div>
-
-        <form id="add-attack" class="row g-2 mt-2">
-          <div class="col-5"><input class="form-control form-control-sm" name="name" placeholder="e.g. High ground" required></div>
-          <div class="col-3"><input class="form-control form-control-sm" name="value" type="number" placeholder="+/-" required></div>
-          <div class="col-4">
-            <select class="form-select form-select-sm" name="kind">
-              <option value="auto">Automatic</option>
-              <option value="cond">Conditional</option>
-            </select>
-          </div>
-          <div class="col-12 d-grid"><button class="btn btn-sm btn-outline-primary">Add Attack Var</button></div>
-        </form>
-      </div>
-    </div>
-
-    <!-- AP (derived, no roll) -->
-    <div class="panel">
-      <div class="d-flex align-items-center justify-content-between">
-        <h6>Armor Piercing</h6>
-        <span class="badge text-bg-secondary">Derived</span>
-      </div>
-
-      <div class="row g-2 mt-1">
-        <div class="col-6">
-          <label class="form-label form-label-sm mb-0">From last Attack</label>
-          <input id="ap-source" type="number" class="form-control form-control-sm" value="0" readonly>
-          <div class="form-hint small">Kept in sync</div>
-        </div>
-        <div class="col-6">
-          <label class="form-label form-label-sm mb-0">AP Total</label>
+        <div class="col-4">
+          <label class="form-label form-label-sm mb-0">AP total</label>
           <input id="ap-total" type="number" class="form-control form-control-sm" value="0" readonly>
-          <div class="form-hint small">AP = ⌊Attack/2⌋ + AP mods</div>
         </div>
       </div>
 
-      <div class="mt-2">
+      <!-- AP standard modifiers -->
+      <div class="mt-3">
         <div class="d-flex align-items-center justify-content-between mb-1">
-          <strong class="small mb-0">AP Variables</strong>
-          <span class="small text-muted">Autos always on • Toggle conditionals</span>
+          <strong class="small mb-0">Armor Piercing modifiers (always on)</strong>
         </div>
-        <div id="v-ap" class="vr-bucket"></div>
+        <div id="ap-std-mods" class="vr-bucket"></div>
 
-        <form id="add-ap" class="row g-2 mt-2">
-          <div class="col-5"><input class="form-control form-control-sm" name="name" placeholder="e.g. AP Talent" required></div>
-          <div class="col-3"><input class="form-control form-control-sm" name="value" type="number" placeholder="+/-" required></div>
-          <div class="col-4">
-            <select class="form-select form-select-sm" name="kind">
-              <option value="auto">Automatic</option>
-              <option value="cond">Conditional</option>
-            </select>
+        <form id="form-add-ap-std" class="row g-2 mt-1" method="post">
+          {% csrf_token %}
+          <input type="hidden" name="roll_mod_form" value="1">
+          <input type="hidden" name="kind" value="ap_standard">
+          <input type="hidden" name="roll_code" id="ap-std-roll-code-field" value="">
+          <div class="col-6">
+            <input class="form-control form-control-sm" name="name" placeholder="e.g. Weapon AP" required>
           </div>
-          <div class="col-12 d-grid"><button class="btn btn-sm btn-outline-primary">Add AP Var</button></div>
+          <div class="col-3">
+            <input class="form-control form-control-sm" name="value" type="number" placeholder="+/-" required>
+          </div>
+          <div class="col-3 d-grid">
+            <button class="btn btn-sm btn-outline-primary">Add</button>
+          </div>
         </form>
       </div>
-    </div>
 
-    <!-- DAMAGE -->
-    <div class="panel">
-      <div class="d-flex align-items-center justify-content-between">
-        <h6>Damage</h6>
-        <button id="btn-roll-dmg" class="btn btn-sm btn-primary">Roll Damage</button>
-      </div>
-
-      <div class="row g-2 mt-1">
-        <div class="col-6">
-          <label class="form-label form-label-sm mb-0">Damage dice</label>
-          <input id="dmg-dice" class="form-control form-control-sm" placeholder="e.g. 1d8 or 2d6+1" value="1d6">
-          <div class="form-hint small">Defaults from Primary weapon</div>
-        </div>
-        <div class="col-6">
-          <label class="form-label form-label-sm mb-0">Flat base (optional)</label>
-          <input id="dmg-base" type="number" class="form-control form-control-sm" value="0">
-        </div>
-      </div>
-
-      <div class="mt-2">
+      <!-- AP toggle modifiers -->
+      <div class="mt-3">
         <div class="d-flex align-items-center justify-content-between mb-1">
-          <strong class="small mb-0">Damage Variables</strong>
-          <span class="small text-muted">Autos always on • Toggle conditionals</span>
+          <strong class="small mb-0">AP toggle modifiers</strong>
+          <span class="small text-muted">Click to toggle for this attack</span>
         </div>
-        <div id="v-damage" class="vr-bucket"></div>
+        <div id="ap-toggle-mods" class="vr-bucket"></div>
 
-        <form id="add-damage" class="row g-2 mt-2">
-          <div class="col-5"><input class="form-control form-control-sm" name="name" placeholder="e.g. Rage" required></div>
-          <div class="col-3"><input class="form-control form-control-sm" name="value" type="number" placeholder="+/-" required></div>
-          <div class="col-4">
-            <select class="form-select form-select-sm" name="kind">
-              <option value="auto">Automatic</option>
-              <option value="cond">Conditional</option>
-            </select>
+        <form id="form-add-ap-toggle" class="row g-2 mt-1" method="post">
+          {% csrf_token %}
+          <input type="hidden" name="roll_mod_form" value="1">
+          <input type="hidden" name="kind" value="ap_toggle">
+          <input type="hidden" name="roll_code" id="ap-toggle-roll-code-field" value="">
+          <div class="col-6">
+            <input class="form-control form-control-sm" name="name" placeholder="e.g. Talent" required>
           </div>
-          <div class="col-12 d-grid"><button class="btn btn-sm btn-outline-primary">Add Damage Var</button></div>
+          <div class="col-3">
+            <input class="form-control form-control-sm" name="value" type="number" placeholder="+/-" required>
+          </div>
+          <div class="col-3 d-grid">
+            <button class="btn btn-sm btn-outline-primary">Add</button>
+          </div>
         </form>
+      </div>
+
+      <div class="mt-3 small text-muted">
+        Armor piercing for this attack = ⌊hit roll / 2⌋ + AP standard modifiers + AP toggle modifiers
       </div>
     </div>
   </div>
@@ -1050,293 +1075,277 @@
   <div class="d-flex align-items-center justify-content-between">
     <h6 class="mb-0">Roll Log</h6>
     <div class="d-flex gap-2">
-      <button id="clear-log" class="btn btn-sm btn-outline-danger">Clear Log</button>
+      <button id="clear-log" class="btn btn-sm btn-outline-danger" type="button">Clear Log</button>
     </div>
   </div>
   <pre id="roll-log" class="mono mt-2 mb-0"></pre>
 
+    <!-- JSON payload from view -->
+  <script id="roll-mod-data" type="application/json">
+    {{ roll_mod_data_json|default:"{}"|safe }}
+  </script>
+
   <script>
   (() => {
-    // ====== Storage & state ======
-    const CHAR_ID = {{ character.pk|default:0 }};
-    const STORE_KEY = `lor:rollmods:${CHAR_ID}`;
-    const state = loadState();
+  const csrf_token = `{% csrf_token %}`;
 
-    function loadState(){
-      try{
-        const raw = localStorage.getItem(STORE_KEY);
-        if (!raw) return fresh();
-        const parsed = JSON.parse(raw);
-        return Object.assign(fresh(), parsed);
-      } catch(e){ return fresh(); }
-    }
-    function fresh(){
-      return {
-        atk: { auto:[], cond:[] },
-        ap:  { auto:[], cond:[] },
-        dmg: { auto:[], cond:[] },
-        base: { atk: 0, dmgDice: "1d6", dmgBase: 0 },
-        last: { attackTotal: 0, d20: 0 },
-        log: []
-      };
-    }
-    function save(){ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
     const el = id => document.getElementById(id);
 
-    // ====== Combat bridge (primary weapon) ======
-function parseHitFromRow(row){
-  // Prefer data-hit if present (works with your ghost rows)
-  if (row && typeof row.dataset?.hit !== 'undefined') {
-    const n = Number(row.dataset.hit);
-    if (!Number.isNaN(n)) return n;
-  }
-  // Fallback: 4th cell = "Hit" (e.g. "+9 (STR +7)")
-  const cell = row?.querySelector('td:nth-child(4)');
-  if (cell){
-    const m = cell.textContent.match(/[+-]?\d+/);
-    if (m) return Number(m[0]);
-  }
-  return 0;
-}
-function parseDiceFromRow(row){
-  // Prefer data-dmg-die if present
-  if (row?.dataset?.dmgDie) return String(row.dataset.dmgDie);
+    const rollTypeSelect = el("roll-type");
+    const rollBaseInput  = el("roll-base");
+    const rollD20Input   = el("roll-d20");
+    const rollTotalInput = el("roll-total");
 
-  // Fallback A: weapon cell's <small> (2nd column)
-  const small = row?.querySelector('td:nth-child(2) small');
-  if (small){
-    const txt = small.textContent.trim();
-    const m = txt.match(/\d+d\d+/);
-    if (m) return m[0];
-  }
+    const apPanel        = el("ap-panel");
+    const apAttackTotal  = el("ap-attack-total");
+    const apBaseInput    = el("ap-base");
+    const apTotalInput   = el("ap-total");
 
-  // Fallback B: damage cell (5th column)
-  const dmg = row?.querySelector('td:nth-child(5)');
-  if (dmg){
-    const m = dmg.textContent.match(/\d+d\d+/);
-    if (m) return m[0];
-  }
-  return '1d6';
-}
+    const stdRoot        = el("roll-std-mods");
+    const togRoot        = el("roll-toggle-mods");
+    const apStdRoot      = el("ap-std-mods");
+    const apTogRoot      = el("ap-toggle-mods");
 
-function deriveFromCombat(){
-  // Best: explicit ghost row for primary, then any ghost row
-  let row =
-    document.querySelector('#tab-combat tr.attack-row[data-slot="1"]') ||
-    document.querySelector('#tab-combat tr.attack-row');
+    const logEl          = el("roll-log");
 
-  // Fallback: first visible row in the Attacks table (identified by headers)
-  if (!row){
-    const tables = document.querySelectorAll('#tab-combat table');
-    for (const t of tables){
-      const heads = Array.from(t.querySelectorAll('thead th')).map(th => th.textContent.trim().toLowerCase());
-      if (heads.includes('slot') && heads.includes('weapon') && heads.includes('hit') && heads.includes('damage')){
-        row = t.querySelector('tbody tr');
-        if (row) break;
+    let raw = el("roll-mod-data")?.textContent?.trim();
+    let data = { rolls: [] };
+    if (raw) {
+      try { data = JSON.parse(raw); } catch (e) { data = { rolls: [] }; }
+    }
+
+    // Comes from view: best attack bonus from Combat tab
+    const ATTACK_BASE_BONUS = Number(data.attack_base_bonus || 0);
+
+    const rollsByCode = {};
+    (data.rolls || []).forEach(r => { rollsByCode[r.code] = r; });
+
+    function currentRoll() {
+      const code = rollTypeSelect.value;
+      if (rollsByCode[code]) return rollsByCode[code];
+
+      // Fallback when there is no saved JSON entry yet:
+      // use the <option>'s data-kind and label
+      let kind  = "other";
+      let label = code;
+      if (rollTypeSelect && rollTypeSelect.selectedIndex >= 0) {
+        const opt = rollTypeSelect.options[rollTypeSelect.selectedIndex];
+        if (opt) {
+          kind  = opt.dataset.kind || kind;
+          label = (opt.textContent || "").trim() || label;
+        }
       }
-    }
-  }
 
-  const hit  = parseHitFromRow(row);
-  const dice = parseDiceFromRow(row);
-  return { hit, dice };
-}
-
-    // Prime from Combat on load
-    (function prime(){
-      const d = deriveFromCombat();
-      state.base.atk = d.hit;
-      if (!state.base.dmgDice || state.base.dmgDice === '1d6') state.base.dmgDice = d.dice;
-      save();
-    })();
-
-    // ====== Helpers ======
-    function sumAuto(bucket){ return (bucket.auto||[]).reduce((a,b)=>a+Number(b.value||0),0); }
-    function sumActive(bucket){ return (bucket.cond||[]).filter(v=>v.active).reduce((a,b)=>a+Number(b.value||0),0); }
-    function fmt(n){ n=Number(n||0); return (n>=0?'+':'')+n; }
-    function rollDie(n){ return Math.floor(Math.random()*n)+1; }
-    function rollDiceExpr(expr){
-      const m = String(expr||'').replace(/\s+/g,'').match(/^(\d*)d(\d+)([+-]\d+)?$/i);
-      if(!m) return { ok:false, err:'Bad dice expression' };
-      const N = Math.max(1, parseInt(m[1]||'1',10));
-      const M = parseInt(m[2],10);
-      const K = m[3] ? parseInt(m[3],10) : 0;
-      const rolls = Array.from({length:N}, ()=>rollDie(M));
-      const total = rolls.reduce((a,b)=>a+b,0) + K;
-      return { ok:true, N, M, K, rolls, total, sumDice: rolls.reduce((a,b)=>a+b,0) };
+      return {
+        code,
+        label,
+        kind,
+        std_mods: [],
+        toggle_mods: [],
+        ap_std_mods: [],
+        ap_toggle_mods: [],
+      };
     }
-    function logLine(txt){ state.log.unshift(txt); state.log = state.log.slice(0,200); save(); renderLog(); }
-    function renderLog(){ el('roll-log').textContent = state.log.join('\n'); }
 
-    // ====== Chips UI ======
-    function makeChip(v, kind, bucketKey){
-      const chip = document.createElement('span');
-      chip.className = `chip ${kind==='auto'?'chip-auto':'chip-cond'} ${v.active?'active':''}`;
-      chip.innerHTML = `
-        <span class="name">${v.name}</span>
-        <span class="mono">${v.value>=0?'+':''}${Number(v.value)}</span>
-        <span class="x" title="Remove">×</span>
-      `;
-      // toggle active for conditionals
-      if (kind === 'cond') {
-        chip.addEventListener('click', (e)=>{
-          if (e.target.classList.contains('x')) return; // delete handled below
-          v.active = !v.active;
-          save(); renderBucket(bucketKey);
-          if (bucketKey === 'ap') updateAP(); // reflect immediately
-        });
-      }
-      // delete
-      chip.querySelector('.x').addEventListener('click', (e)=>{
-        e.stopPropagation();
-        const list = state[bucketKey][kind];
-        const idx = list.findIndex(x=>x.id===v.id);
-        if (idx>=0){ list.splice(idx,1); save(); renderBucket(bucketKey); if(bucketKey==='ap') updateAP(); }
-      });
-      return chip;
-    }
-    function renderBucket(bucketKey){
-      const root = el(`v-${bucketKey}`);
-      const b = state[bucketKey];
-      root.innerHTML = '';
-      if(!(b.auto?.length || b.cond?.length)){
-        root.innerHTML = '<div class="small text-muted soft">No variables yet.</div>';
-        return;
-      }
-      // Auto first
-      b.auto.forEach(v=>root.appendChild(makeChip(v,'auto',bucketKey)));
-      // Then conditionals
-      b.cond.forEach(v=>root.appendChild(makeChip(v,'cond',bucketKey)));
-      // Tiny totals preview
-      const total = sumAuto(b) + sumActive(b);
-      const sumEl = document.createElement('div');
-      sumEl.className = 'small text-muted mt-1';
-      sumEl.textContent = `Sum (auto + active cond): ${total>=0?'+':''}${total}`;
-      root.appendChild(sumEl);
-    }
-    function addVarForm(formId, bucketKey){
-      const form = el(formId);
-      form.addEventListener('submit', (e)=>{
-        e.preventDefault();
-        const fd = new FormData(form);
-        const name = String(fd.get('name')||'').trim();
-        const value = Number(fd.get('value')||0);
-        const kind = String(fd.get('kind')||'auto');
-        if(!name) return;
-        const v = { id: 'v_'+Math.random().toString(36).slice(2,9), name, value };
-        if(kind==='auto') state[bucketKey].auto.push(v);
-        else state[bucketKey].cond.push(Object.assign(v,{active:true}));
-        save(); form.reset(); renderBucket(bucketKey);
-        if(bucketKey==='ap') updateAP();
+
+    function setHiddenRollCodes(code) {
+      [
+        "std-roll-code-field",
+        "toggle-roll-code-field",
+        "ap-std-roll-code-field",
+        "ap-toggle-roll-code-field",
+      ].forEach(id => {
+        const f = el(id);
+        if (f) f.value = code;
       });
     }
 
-    // ====== Attack roll ======
-    function syncFromCombat(){
-      const d = deriveFromCombat();
-      state.base.atk = Number(d.hit||0);
-      if (!state.base.dmgDice || state.base.dmgDice === '1d6') state.base.dmgDice = d.dice || '1d6';
-      save();
-      el('atk-base').value = state.base.atk;
-      el('dmg-dice').value = state.base.dmgDice || '1d6';
-      logLine(`[SYNC] Combat → base=${fmt(state.base.atk)}; dmg dice=${state.base.dmgDice}`);
-      updateAP();
+function renderStdMods(list, container) {
+  container.innerHTML = "";
+  if (!list || !list.length) {
+    container.innerHTML =
+      '<div class="small text-muted soft">No standard modifiers saved for this roll.</div>';
+    return;
+  }
+  list.forEach(m => {
+    const row = document.createElement("div");
+    row.className = "d-flex justify-content-between align-items-center mb-1";
+
+    row.innerHTML = `
+      <span>${m.name}</span>
+      <span class="d-flex align-items-center gap-2">
+        <span class="mono">${m.value >= 0 ? "+" : ""}${m.value}</span>
+
+        <!-- Edit button -->
+        <form method="post" class="d-inline">
+          ${csrf_token}
+          <input type="hidden" name="roll_mod_edit" value="1">
+          <input type="hidden" name="mod_id" value="${m.id}">
+          <input type="hidden" name="roll_code" value="${currentRoll().code}">
+          <input type="hidden" name="kind" value="standard">
+          <input type="hidden" name="name" value="${m.name}">
+          <input type="hidden" name="value" value="${m.value}">
+          <button class="btn btn-sm btn-outline-secondary py-0 px-1">✎</button>
+        </form>
+
+        <!-- Delete button -->
+        <form method="post" class="d-inline">
+          ${csrf_token}
+          <input type="hidden" name="roll_mod_delete" value="1">
+          <input type="hidden" name="mod_id" value="${m.id}">
+          <button class="btn btn-sm btn-outline-danger py-0 px-1">×</button>
+        </form>
+      </span>
+    `;
+
+    container.appendChild(row);
+  });
+}
+
+
+function renderToggleMods(list, container, checkboxClass) {
+  container.innerHTML = "";
+  if (!list || !list.length) {
+    container.innerHTML =
+      '<div class="small text-muted soft">No toggle modifiers saved for this roll.</div>';
+    return;
+  }
+
+  list.forEach(m => {
+    const row = document.createElement("div");
+    row.className = "d-flex justify-content-between align-items-center mb-1";
+
+    row.innerHTML = `
+      <span>${m.name}</span>
+
+      <span class="d-flex align-items-center gap-2">
+        <span class="mono">${m.value >= 0 ? "+" : ""}${m.value}</span>
+        <input type="checkbox" class="form-check-input ${checkboxClass}"
+               data-value="${m.value}">
+
+        <!-- Edit button -->
+        <form method="post" class="d-inline">
+          ${csrf_token}
+          <input type="hidden" name="roll_mod_edit" value="1">
+          <input type="hidden" name="mod_id" value="${m.id}">
+          <input type="hidden" name="roll_code" value="${currentRoll().code}">
+          <input type="hidden" name="kind" value="toggle">
+          <input type="hidden" name="name" value="${m.name}">
+          <input type="hidden" name="value" value="${m.value}">
+          <button class="btn btn-sm btn-outline-secondary py-0 px-1">✎</button>
+        </form>
+
+        <!-- Delete button -->
+        <form method="post" class="d-inline">
+          ${csrf_token}
+          <input type="hidden" name="roll_mod_delete" value="1">
+          <input type="hidden" name="mod_id" value="${m.id}">
+          <button class="btn btn-sm btn-outline-danger py-0 px-1">×</button>
+        </form>
+      </span>
+    `;
+
+    container.appendChild(row);
+  });
+}
+
+
+    function sumStd(list) {
+      return (list || []).reduce((acc, m) => acc + Number(m.value || 0), 0);
     }
-    el('btn-sync-combat').addEventListener('click', syncFromCombat);
 
-    el('btn-roll-attack').addEventListener('click', ()=>{
-      const d20 = rollDie(20);
-      const base = Number(state.base.atk||0);
-      const auto = sumAuto(state.atk);
-      const cond = sumActive(state.atk);
-      const total = d20 + base + auto + cond;
-
-      state.last.d20 = d20;
-      state.last.attackTotal = total;
-      save();
-
-      el('atk-d20').value = d20;
-      el('atk-last').value = total;
-      el('ap-source').value = total;
-
-      updateAP();
-
-      logLine(`[ATTACK] d20=${d20}  base=${fmt(base)}  auto=${fmt(auto)}  cond=${fmt(cond)}  => total=${total}`);
-    });
-
-    // ====== AP (derived) ======
-    function updateAP(){
-      const src = Number(state.last.attackTotal||0);
-      el('ap-source').value = src;
-      const baseAP = Math.floor(src/2);
-      const auto = sumAuto(state.ap);
-      const cond = sumActive(state.ap);
-      const total = baseAP + auto + cond;
-      el('ap-total').value = total;
+    function sumFromCheckboxes(selector) {
+      let total = 0;
+      document.querySelectorAll(selector + ":checked").forEach(chk => {
+        total += Number(chk.dataset.value || 0);
+      });
+      return total;
     }
 
-    // ====== Damage roll ======
-    el('btn-roll-dmg').addEventListener('click', ()=>{
-      const expr = (el('dmg-dice').value||'1d6').trim();
-      const base = Number(el('dmg-base').value||0);
-      state.base.dmgDice = expr;
-      state.base.dmgBase = base;
-      save();
+    function renderAll() {
+      const r = currentRoll();
+      setHiddenRollCodes(r.code);
 
-      const r = rollDiceExpr(expr);
-      if(!r.ok){ logLine(`[DMG] ⚠ Bad dice expression: "${expr}"`); return; }
-
-      const auto = sumAuto(state.dmg);
-      const cond = sumActive(state.dmg);
-      const total = r.total + base + auto + cond;
-
-      logLine(`[DMG] ${r.N}d${r.M}${r.K? (r.K>=0?`+${r.K}`:r.K):''} rolls=${JSON.stringify(r.rolls)} sum=${r.sumDice}${r.K? (r.K>=0?`+${r.K}`:r.K):''}  base=${fmt(base)}  auto=${fmt(auto)}  cond=${fmt(cond)}  => total=${total}`);
-    });
-
-    // ====== Init render ======
-    // Load primitives
-    el('atk-base').value = state.base.atk || 0;
-    el('atk-last').value = state.last.attackTotal || 0;
-    el('atk-d20').value  = state.last.d20 || 0;
-    el('ap-source').value = state.last.attackTotal || 0;
-    el('dmg-dice').value = state.base.dmgDice || '1d6';
-    el('dmg-base').value = state.base.dmgBase || 0;
-
-    addVarForm('add-attack', 'atk');
-    addVarForm('add-ap', 'ap');
-    addVarForm('add-damage', 'dmg');
-
-    renderBucket('atk');
-    renderBucket('ap');
-    renderBucket('dmg');
-    updateAP();
-    renderLog();
-
-    // Clear log
-    el('clear-log').addEventListener('click', ()=>{ state.log = []; save(); renderLog(); });
-
-    // Re-sync shortly after weapon selects change (covers AJAX rerenders)
-    document.querySelectorAll('.wep-select').forEach(sel=>{
-      sel.addEventListener('change', ()=> setTimeout(syncFromCombat, 80));
-    });
-
-    // Also re-sync when switching to Combat or Rolls tabs (in case DOM updates while hidden)
-    document.addEventListener('shown.bs.tab', (e)=>{
-      const t = e.target?.getAttribute('data-bs-target');
-      if (t === '#tab-combat' || t === '#tab-rolls') {
-        setTimeout(syncFromCombat, 80);
+      // For the Attack roll, sync base modifier from Combat tab
+      if (r.kind === "attack") {
+        rollBaseInput.value = ATTACK_BASE_BONUS;
       }
+
+      // Standard / toggle for main roll
+      renderStdMods(r.std_mods, stdRoot);
+      renderToggleMods(r.toggle_mods, togRoot, "mod-toggle");
+
+      // AP block only for attacks
+      if (r.kind === "attack") {
+        apPanel.style.display = "";
+        renderStdMods(r.ap_std_mods, apStdRoot);
+        renderToggleMods(r.ap_toggle_mods, apTogRoot, "ap-mod-toggle");
+      } else {
+        apPanel.style.display = "none";
+        apStdRoot.innerHTML = "";
+        apTogRoot.innerHTML = "";
+      }
+    }
+
+
+    function logLine(msg) {
+      if (!logEl) return;
+      logEl.textContent = msg + "\n" + logEl.textContent;
+    }
+
+    // ---- Events ----
+    rollTypeSelect.addEventListener("change", () => {
+      // Clear current roll/result when changing type
+      rollD20Input.value   = 0;
+      rollTotalInput.value = 0;
+      apAttackTotal.value  = 0;
+      apBaseInput.value    = 0;
+      apTotalInput.value   = 0;
+      renderAll();
     });
 
-    // Final safety: if base looks zero but combat has a value, sync on first render
-    if (Number(state.base.atk || 0) === 0) {
-      setTimeout(syncFromCombat, 0);
+    el("btn-roll-main").addEventListener("click", () => {
+      const r    = currentRoll();
+      const d20  = Math.floor(Math.random() * 20) + 1;
+      const base = Number(rollBaseInput.value || 0);
+
+      rollD20Input.value = d20;
+
+      const stdSum   = sumStd(r.std_mods);
+      const toggSum  = sumFromCheckboxes(".mod-toggle");
+      const total    = d20 + base + stdSum + toggSum;
+      rollTotalInput.value = total;
+
+      let msg = `[ROLL] ${r.label || r.code}  d20=${d20}  base=${base >= 0 ? "+" + base : base}  std=${stdSum >= 0 ? "+" + stdSum : stdSum}  toggles=${toggSum >= 0 ? "+" + toggSum : toggSum}  => total=${total}`;
+
+      if (r.kind === "attack") {
+        apAttackTotal.value = total;
+        const apBase = Math.floor(total / 2);
+        apBaseInput.value = apBase;
+        const apStdSum  = sumStd(r.ap_std_mods);
+        const apTogSum  = sumFromCheckboxes(".ap-mod-toggle");
+        const apTotal   = apBase + apStdSum + apTogSum;
+        apTotalInput.value = apTotal;
+        msg += ` | AP = floor(${total}/2) + ${apStdSum >= 0 ? "+" + apStdSum : apStdSum} + ${apTogSum >= 0 ? "+" + apTogSum : apTogSum} = ${apTotal}`;
+      }
+
+      logLine(msg);
+    });
+
+    el("clear-log").addEventListener("click", () => {
+      if (logEl) logEl.textContent = "";
+    });
+
+    // ---- Initial render ----
+    if (rollTypeSelect && rollTypeSelect.options.length) {
+      renderAll();
     }
   })();
   </script>
-
 </div>
+
 <!-- /ROLLS TAB -->
+
 
         <!-- SKILLS TAB -->
 {# --- SKILLS TAB (minimal) --- #}

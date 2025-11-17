@@ -2427,7 +2427,7 @@ class CharacterManualGrant(models.Model):
 class CharacterFieldOverride(models.Model):
     character = models.ForeignKey('Character', on_delete=models.CASCADE, related_name='field_overrides')
     key       = models.CharField(max_length=100)   # e.g., "HP", "temp_HP", "level", "strength"
-    value     = models.CharField(max_length=50)    # store as text; cast in view if needed
+    value     = models.CharField(max_length=999)    # store as text; cast in view if needed
     class Meta:
         unique_together = ('character','key')
 
@@ -2783,6 +2783,40 @@ class CharacterManualFeat(models.Model):
     def __str__(self) -> str:
         return f"{self.character} ↦ {self.feat}"
 
+# characters/models.py
+
+class RollModifier(models.Model):
+    """
+    Per-character saved modifiers for the dice roller.
+
+    roll_code: identifies which roll this belongs to, e.g.
+      "attack", "save_fort", "skill_athletics"
+    kind:
+      - "standard"   -> always-on for that roll
+      - "toggle"     -> toggleable per roll
+      - "ap_standard" -> always-on for AP for attack rolls
+      - "ap_toggle"   -> toggleable for AP for attack rolls
+    """
+    character = models.ForeignKey("characters.Character", on_delete=models.CASCADE)
+    roll_code = models.CharField(max_length=64)
+    name      = models.CharField(max_length=100)
+    value     = models.IntegerField()
+    kind      = models.CharField(
+        max_length=20,
+        choices=[
+            ("standard", "Standard"),
+            ("toggle", "Toggle"),
+            ("ap_standard", "AP Standard"),
+            ("ap_toggle", "AP Toggle"),
+        ],
+    )
+
+    class Meta:
+        ordering = ["roll_code", "id"]
+
+    def __str__(self):
+        sign = "+" if self.value >= 0 else ""
+        return f"{self.character} [{self.roll_code}] {self.name} {sign}{self.value}"
 
 class PrestigeClass(models.Model):
     code = models.SlugField(max_length=40, unique=True)
