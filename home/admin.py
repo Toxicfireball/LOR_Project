@@ -16,7 +16,7 @@ from characters.models import (
     SpellSlotRow , 
     ResourceType, ClassResource, CharacterResource, Spell, SubclassMasteryUnlock, ARMOR_GROUPS, WEAPON_GROUPS
 )
-from characters.models import CharacterPrestigeEnrollment, CharacterPrestigeLevelChoice
+from characters.models import  CharacterPrestigeLevelChoice
 
 from characters.models import (
     PrestigeClass, PrestigeLevel, PrestigePrerequisite, PrestigeFeature
@@ -2943,19 +2943,15 @@ class PrestigeLevelChoiceInline(admin.TabularInline):
     ordering = ("prestige_level",)
 
 
-@admin.register(CharacterPrestigeEnrollment)
-class CharacterPrestigeEnrollmentAdmin(admin.ModelAdmin):
-    list_display = ("character", "prestige_class", "entered_at_character_level", "gm_approved")
-    list_filter = ("gm_approved", "prestige_class")
-    search_fields = ("character__name", "prestige_class__name")
-    inlines = [PrestigeLevelChoiceInline]
+
 
 
 @admin.register(CharacterPrestigeLevelChoice)
 class CharacterPrestigeLevelChoiceAdmin(admin.ModelAdmin):
-    list_display = ("enrollment", "prestige_level", "counts_as")
+    list_display = ("prestige_level", "counts_as")
     list_filter = ("prestige_level", "counts_as")
-    autocomplete_fields = ("enrollment", "counts_as")
+    autocomplete_fields = ["counts_as"]
+
 
 
 
@@ -2988,7 +2984,7 @@ class PrestigePrereqInline(admin.TabularInline):
 from django.contrib import admin
 from characters.models import (
     PrestigeClass, PrestigePrerequisite, PrestigeLevel, PrestigeFeature,
-    CharacterPrestigeEnrollment, CharacterPrestigeLevelChoice
+     CharacterPrestigeLevelChoice
 )
 
 class PrestigePrerequisiteInline(admin.StackedInline):

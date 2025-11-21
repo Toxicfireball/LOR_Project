@@ -5,7 +5,71 @@
 {% block content %}
 {# Header #}
 <h1 class="text-4xl font-bold mb-2">{{ cls.name }}</h1>
-<p class="text-gray-700 mb-6">{{ cls.description }}</p>
+<p class="text-gray-700 mb-4">{{ cls.description }}</p>
+
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+  <div class="space-y-2 text-sm">
+    <h2 class="text-lg font-semibold">Class Details</h2>
+    <dl class="space-y-1">
+      {% if cls.class_ID %}
+        <div class="flex justify-between gap-2">
+          <dt class="font-medium">Class ID</dt>
+          <dd><code>{{ cls.class_ID }}</code></dd>
+        </div>
+      {% endif %}
+      {% if cls.starting_skills_formula %}
+        <div class="flex justify-between gap-2">
+          <dt class="font-medium">Starting Skills</dt>
+          <dd><code>{{ cls.starting_skills_formula }}</code></dd>
+        </div>
+      {% endif %}
+      <div class="flex justify-between gap-2">
+        <dt class="font-medium">Skill Points / Level</dt>
+        <dd>{{ cls.skill_points_per_level }}</dd>
+      </div>
+      {% with keys=cls.key_abilities.all %}
+        {% if keys %}
+          <div class="flex justify-between gap-2">
+            <dt class="font-medium">Key Abilities</dt>
+            <dd>
+              {{ keys|join:", " }}
+            </dd>
+          </div>
+        {% endif %}
+      {% endwith %}
+      {% with tags=cls.tags.all %}
+        {% if tags %}
+          <div class="flex justify-between gap-2">
+            <dt class="font-medium">Tags</dt>
+            <dd>{{ tags|join:", " }}</dd>
+          </div>
+        {% endif %}
+      {% endwith %}
+    </dl>
+  </div>
+
+  <div class="space-y-2 text-sm">
+    {% if cls.primary_image_url %}
+      <h2 class="text-lg font-semibold">Primary Image</h2>
+      <img src="{{ cls.primary_image_url }}" alt="{{ cls.name }} primary image"
+           class="rounded shadow max-h-64 object-contain">
+    {% endif %}
+  </div>
+
+  <div class="space-y-2 text-sm">
+    {% if cls.secondary_image_url %}
+      <h2 class="text-lg font-semibold">Secondary Image</h2>
+      <img src="{{ cls.secondary_image_url }}" alt="{{ cls.name }} secondary image"
+           class="rounded shadow max-h-64 object-contain mb-2">
+    {% endif %}
+    {% if cls.tertiary_image_url %}
+      <h2 class="text-lg font-semibold mt-2">Tertiary Image</h2>
+      <img src="{{ cls.tertiary_image_url }}" alt="{{ cls.name }} tertiary image"
+           class="rounded shadow max-h-48 object-contain">
+    {% endif %}
+  </div>
+</div>
+
 
 {# Proficiency pivot table #}
 <h2 class="text-2xl font-semibold mb-2">Proficiencies & Hit Die</h2>
@@ -33,45 +97,228 @@
 </table>
 <p class="mb-8"><strong>Hit Die:</strong> d{{ hit_die }}</p>
 
+{# Spell slots per level, from SpellSlotTable model #}
+{% if spell_slot_groups %}
+  <h2 class="text-2xl font-semibold mb-2">Spellcasting Progression</h2>
+
+  {% for group in spell_slot_groups %}
+    <h3 class="text-lg font-semibold mt-3">
+      {{ group.feature.name }}
+      {% if group.feature.spell_list %}
+        ({{ group.feature.get_spell_list_display }})
+      {% endif %}
+    </h3>
+
+    <table class="table-auto w-full border border-gray-300 text-sm mb-4">
+      <thead>
+        <tr class="bg-gray-100">
+          <th class="border border-gray-300 px-2 py-1">Class Level</th>
+          <th class="border border-gray-300 px-2 py-1">1st</th>
+          <th class="border border-gray-300 px-2 py-1">2nd</th>
+          <th class="border border-gray-300 px-2 py-1">3rd</th>
+          <th class="border border-gray-300 px-2 py-1">4th</th>
+          <th class="border border-gray-300 px-2 py-1">5th</th>
+          <th class="border border-gray-300 px-2 py-1">6th</th>
+          <th class="border border-gray-300 px-2 py-1">7th</th>
+          <th class="border border-gray-300 px-2 py-1">8th</th>
+          <th class="border border-gray-300 px-2 py-1">9th</th>
+          <th class="border border-gray-300 px-2 py-1">10th</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in group.rows %}
+          <tr class="{% cycle 'bg-white' 'bg-gray-50' %}">
+            <td class="border border-gray-300 px-2 py-1">L{{ row.level }}</td>
+            <td class="border border-gray-300 px-2 py-1">{{ row.slot1 }}</td>
+            <td class="border border-gray-300 px-2 py-1">{{ row.slot2 }}</td>
+            <td class="border border-gray-300 px-2 py-1">{{ row.slot3 }}</td>
+            <td class="border border-gray-300 px-2 py-1">{{ row.slot4 }}</td>
+            <td class="border border-gray-300 px-2 py-1">{{ row.slot5 }}</td>
+            <td class="border border-gray-300 px-2 py-1">{{ row.slot6 }}</td>
+            <td class="border border-gray-300 px-2 py-1">{{ row.slot7 }}</td>
+            <td class="border border-gray-300 px-2 py-1">{{ row.slot8 }}</td>
+            <td class="border border-gray-300 px-2 py-1">{{ row.slot9 }}</td>
+            <td class="border border-gray-300 px-2 py-1">{{ row.slot10 }}</td>
+          </tr>
+        {% endfor %}
+
+      </tbody>
+    </table>
+  {% endfor %}
+{% endif %}
+
 {# Full-detail features by level #}
 <h2 class="text-2xl font-semibold mb-2">Class Features</h2>
 {% for lvl in levels %}
+
   {% with feats=lvl.filtered_features %}
 
     {% if feats %}
       <h3 class="text-xl font-medium mt-6">Level {{ lvl.level }}</h3>
 {% for f in feats %}
-  {% if f.scope in allowed_scopes %}
+  {# show all non-subclass features, including spell tables #}
+  {% if f.scope != 'subclass_feat' %}
     <div class="border rounded p-4 mb-4 bg-white shadow-sm">
       <h4 class="text-lg font-semibold">{{ f.name }} <small>({{ f.code }})</small></h4>
       <div class="mt-2 mb-3">{{ f.description|safe }}</div>
-      <dl class="grid grid-cols-2 gap-x-6 text-sm">
+      <dl class="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+        {% if f.kind %}
+          <dt class="font-medium">Kind</dt>
+          <dd>{{ f.get_kind_display }}</dd>
+        {% endif %}
+        {% if f.scope %}
+          <dt class="font-medium">Scope</dt>
+          <dd>{{ f.get_scope_display }}</dd>
+        {% endif %}
+        {% if f.min_level %}
+          <dt class="font-medium">Min Class Level</dt>
+          <dd>L{{ f.min_level }}</dd>
+        {% endif %}
+        {% if f.level_required %}
+          <dt class="font-medium">Req. Class Level</dt>
+          <dd>L{{ f.level_required }}</dd>
+        {% endif %}
+
         {% if f.action_type %}
-          <dt class="font-medium">Action</dt><dd>{{ f.get_action_type_display }}</dd>
+          <dt class="font-medium">Action</dt>
+          <dd>{{ f.get_action_type_display }}</dd>
         {% endif %}
         {% if f.activity_type %}
-          <dt class="font-medium">Usage</dt><dd>{{ f.get_activity_type_display }}</dd>
+          <dt class="font-medium">Usage</dt>
+          <dd>{{ f.get_activity_type_display }}</dd>
         {% endif %}
         {% if f.uses %}
-          <dt class="font-medium">Uses</dt><dd>{{ f.uses }}</dd>
+          <dt class="font-medium">Uses</dt>
+          <dd>{{ f.uses }}</dd>
+        {% endif %}
+
+        {% if f.formula_target %}
+          <dt class="font-medium">Formula Target</dt>
+          <dd>{{ f.get_formula_target_display }}</dd>
         {% endif %}
         {% if f.formula %}
-          <dt class="font-medium">Formula</dt><dd><code>{{ f.formula }}</code></dd>
+          <dt class="font-medium">Formula</dt>
+          <dd><code>{{ f.formula }}</code></dd>
         {% endif %}
+
         {% if f.modify_proficiency_target %}
           <dt class="font-medium">Proficiency Set</dt>
           <dd>
-            {{ f.modify_proficiency_target }} → {{ f.modify_proficiency_amount.name }}
+            {{ f.modify_proficiency_target }}
+            {% if f.modify_proficiency_amount %}
+              → {{ f.modify_proficiency_amount.name }}
+            {% endif %}
           </dd>
         {% endif %}
+
+        {% if f.spell_list %}
+          <dt class="font-medium">Spell List</dt>
+          <dd>{{ f.get_spell_list_display }}</dd>
+        {% endif %}
+        {% if f.cantrips_formula %}
+          <dt class="font-medium">Cantrips / Level</dt>
+          <dd><code>{{ f.cantrips_formula }}</code></dd>
+        {% endif %}
+        {% if f.spells_known_formula %}
+          <dt class="font-medium">Spells Known</dt>
+          <dd><code>{{ f.spells_known_formula }}</code></dd>
+        {% endif %}
+        {% if f.spells_prepared_formula %}
+          <dt class="font-medium">Spells Prepared</dt>
+          <dd><code>{{ f.spells_prepared_formula }}</code></dd>
+        {% endif %}
+
+        {% if f.martial_points_formula %}
+          <dt class="font-medium">Martial Points</dt>
+          <dd><code>{{ f.martial_points_formula }}</code></dd>
+        {% endif %}
+        {% if f.available_masteries_formula %}
+          <dt class="font-medium">Masteries Available</dt>
+          <dd><code>{{ f.available_masteries_formula }}</code></dd>
+        {% endif %}
+
+        {% if f.damage_type %}
+          <dt class="font-medium">Damage Type</dt>
+          <dd>{{ f.get_damage_type_display }}</dd>
+        {% endif %}
+
+        {% if f.gain_resistance_mode %}
+          <dt class="font-medium">Resistance Mode</dt>
+          <dd>{{ f.get_gain_resistance_mode_display }}</dd>
+        {% endif %}
+        {% if f.gain_resistance_amount %}
+          <dt class="font-medium">Resistance Amount</dt>
+          <dd>{{ f.gain_resistance_amount }}</dd>
+        {% endif %}
+        {% if f.gain_resistance_types %}
+          <dt class="font-medium">Resistance Types</dt>
+          <dd><code>{{ f.gain_resistance_types|join:", " }}</code></dd>
+        {% endif %}
+
         {% if f.saving_throw_required %}
-          <dt class="font-medium">Save ({{ f.get_saving_throw_type_display }})</dt>
-          <dd class="text-sm">…</dd>
+          <dt class="font-medium">
+            Save ({{ f.get_saving_throw_type_display }})
+          </dt>
+          <dd class="text-sm">
+            {% if f.saving_throw_granularity == 'basic' %}
+              Success: {{ f.saving_throw_basic_success }}<br>
+              Failure: {{ f.saving_throw_basic_failure }}
+            {% else %}
+              Crit Success: {{ f.saving_throw_critical_success }}<br>
+              Success: {{ f.saving_throw_success }}<br>
+              Failure: {{ f.saving_throw_failure }}<br>
+              Crit Failure: {{ f.saving_throw_critical_failure }}
+            {% endif %}
+          </dd>
         {% endif %}
       </dl>
+      {# Spell slots table (inline rows on this ClassFeature) #}
+      {% with rows=f.spell_slot_rows.all %}
+        {% if rows %}
+          <div class="mt-4">
+            <h5 class="font-semibold mb-2">Spell Slots Table</h5>
+            <table class="table-auto w-full border border-gray-300 text-sm">
+              <thead>
+                <tr class="bg-gray-100">
+                  <th class="border border-gray-300 px-2 py-1">Class Level</th>
+                  <th class="border border-gray-300 px-2 py-1">1st</th>
+                  <th class="border border-gray-300 px-2 py-1">2nd</th>
+                  <th class="border border-gray-300 px-2 py-1">3rd</th>
+                  <th class="border border-gray-300 px-2 py-1">4th</th>
+                  <th class="border border-gray-300 px-2 py-1">5th</th>
+                  <th class="border border-gray-300 px-2 py-1">6th</th>
+                  <th class="border border-gray-300 px-2 py-1">7th</th>
+                  <th class="border border-gray-300 px-2 py-1">8th</th>
+                  <th class="border border-gray-300 px-2 py-1">9th</th>
+                  <th class="border border-gray-300 px-2 py-1">10th</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in rows %}
+                  <tr class="{% cycle 'bg-white' 'bg-gray-50' %}">
+                    <td class="border border-gray-300 px-2 py-1">L{{ row.level }}</td>
+                    <td class="border border-gray-300 px-2 py-1">{{ row.slot1 }}</td>
+                    <td class="border border-gray-300 px-2 py-1">{{ row.slot2 }}</td>
+                    <td class="border border-gray-300 px-2 py-1">{{ row.slot3 }}</td>
+                    <td class="border border-gray-300 px-2 py-1">{{ row.slot4 }}</td>
+                    <td class="border border-gray-300 px-2 py-1">{{ row.slot5 }}</td>
+                    <td class="border border-gray-300 px-2 py-1">{{ row.slot6 }}</td>
+                    <td class="border border-gray-300 px-2 py-1">{{ row.slot7 }}</td>
+                    <td class="border border-gray-300 px-2 py-1">{{ row.slot8 }}</td>
+                    <td class="border border-gray-300 px-2 py-1">{{ row.slot9 }}</td>
+                    <td class="border border-gray-300 px-2 py-1">{{ row.slot10 }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% endif %}
+      {% endwith %}
 
-      {# — Options (base-class feature) — INSERTED HERE — #}
+
+      {# — Options (base-class feature) — #}
       {% with opts=f.options.all %}
+
         {% if opts %}
           <div class="mt-4 border-t pt-3">
             <h5 class="font-semibold mb-2">Options</h5>
@@ -251,49 +498,89 @@
                           {{ opt.grants_feature.description|safe }}
                         </div>
 
-                        <dl class="grid grid-cols-2 gap-x-6 text-sm mt-2">
-                          {% if opt.grants_feature.action_type %}
-                            <dt class="font-medium">Action</dt>
-                            <dd>{{ opt.grants_feature.get_action_type_display }}</dd>
-                          {% endif %}
-                          {% if opt.grants_feature.activity_type %}
-                            <dt class="font-medium">Usage</dt>
-                            <dd>{{ opt.grants_feature.get_activity_type_display }}</dd>
-                          {% endif %}
-                          {% if opt.grants_feature.uses %}
-                            <dt class="font-medium">Uses</dt>
-                            <dd>{{ opt.grants_feature.uses }}</dd>
-                          {% endif %}
-                          {% if opt.grants_feature.formula %}
-                            <dt class="font-medium">Formula</dt>
-                            <dd><code>{{ opt.grants_feature.formula }}</code></dd>
-                          {% endif %}
-                          {% if opt.grants_feature.modify_proficiency_target %}
-                            <dt class="font-medium">Proficiency Set</dt>
-                            <dd>
-                              {{ opt.grants_feature.modify_proficiency_target }}
-                              {% if opt.grants_feature.modify_proficiency_amount %}
-                                → {{ opt.grants_feature.modify_proficiency_amount.name }}
-                              {% endif %}
-                            </dd>
-                          {% endif %}
-                          {% if opt.grants_feature.saving_throw_required %}
-                            <dt class="font-medium">
-                              Save ({{ opt.grants_feature.get_saving_throw_type_display }})
-                            </dt>
-                            <dd class="text-sm">
-                              {% if opt.grants_feature.saving_throw_granularity == 'basic' %}
-                                Success: {{ opt.grants_feature.saving_throw_basic_success }}<br>
-                                Failure: {{ opt.grants_feature.saving_throw_basic_failure }}
-                              {% else %}
-                                Crit Success: {{ opt.grants_feature.saving_throw_critical_success }}<br>
-                                Success: {{ opt.grants_feature.saving_throw_success }}<br>
-                                Failure: {{ opt.grants_feature.saving_throw_failure }}<br>
-                                Crit Failure: {{ opt.grants_feature.saving_throw_critical_failure }}
-                              {% endif %}
-                            </dd>
-                          {% endif %}
-                        </dl>
+        <dl class="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+          {% if sf.kind %}
+            <dt class="font-medium">Kind</dt>
+            <dd>{{ sf.get_kind_display }}</dd>
+          {% endif %}
+          {% if sf.scope %}
+            <dt class="font-medium">Scope</dt>
+            <dd>{{ sf.get_scope_display }}</dd>
+          {% endif %}
+          {% if sf.min_level %}
+            <dt class="font-medium">Min Class Level</dt>
+            <dd>L{{ sf.min_level }}</dd>
+          {% endif %}
+          {% if sf.level_required %}
+            <dt class="font-medium">Req. Class Level</dt>
+            <dd>L{{ sf.level_required }}</dd>
+          {% endif %}
+          {% if sf.mastery_rank is not None %}
+            <dt class="font-medium">Mastery Rank</dt>
+            <dd>{{ sf.mastery_rank }}</dd>
+          {% endif %}
+
+          {% if sf.action_type %}
+            <dt class="font-medium">Action</dt>
+            <dd>{{ sf.get_action_type_display }}</dd>
+          {% endif %}
+          {% if sf.activity_type %}
+            <dt class="font-medium">Usage</dt>
+            <dd>{{ sf.get_activity_type_display }}</dd>
+          {% endif %}
+          {% if sf.uses %}
+            <dt class="font-medium">Uses</dt>
+            <dd>{{ sf.uses }}</dd>
+          {% endif %}
+
+          {% if sf.formula_target %}
+            <dt class="font-medium">Formula Target</dt>
+            <dd>{{ sf.get_formula_target_display }}</dd>
+          {% endif %}
+          {% if sf.formula %}
+            <dt class="font-medium">Formula</dt>
+            <dd><code>{{ sf.formula }}</code></dd>
+          {% endif %}
+
+          {% if sf.modify_proficiency_target %}
+            <dt class="font-medium">Proficiency Set</dt>
+            <dd>
+              {{ sf.modify_proficiency_target }}
+              {% if sf.modify_proficiency_amount %}
+                → {{ sf.modify_proficiency_amount.name }}
+              {% endif %}
+            </dd>
+          {% endif %}
+
+          {% if sf.spell_list %}
+            <dt class="font-medium">Spell List</dt>
+            <dd>{{ sf.get_spell_list_display }}</dd>
+          {% endif %}
+          {% if sf.cantrips_formula %}
+            <dt class="font-medium">Cantrips / Level</dt>
+            <dd><code>{{ sf.cantrips_formula }}</code></dd>
+          {% endif %}
+          {% if sf.spells_known_formula %}
+            <dt class="font-medium">Spells Known</dt>
+            <dd><code>{{ sf.spells_known_formula }}</code></dd>
+          {% endif %}
+          {% if sf.spells_prepared_formula %}
+            <dt class="font-medium">Spells Prepared</dt>
+            <dd><code>{{ sf.spells_prepared_formula }}</code></dd>
+          {% endif %}
+
+          {% if sf.martial_points_formula %}
+            <dt class="font-medium">Martial Points</dt>
+            <dd><code>{{ sf.martial_points_formula }}</code></dd>
+          {% endif %}
+          {% if sf.available_masteries_formula %}
+            <dt class="font-medium">Masteries Available</dt>
+            <dd><code>{{ sf.available_masteries_formula }}</code></dd>
+          {% endif %}
+
+
+        </dl>
+
                       </div>
                     {% endif %}
                   </div>

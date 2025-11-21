@@ -2752,21 +2752,49 @@ class CharacterActivation(models.Model):
 # ──────────────────────────────────────────────────────────────────────────────
 from django.core.exceptions import ValidationError
 # characters/models.py
+# NEW: stores the player's choice for each prestige level when mode is "choose"
 class CharacterPrestigeLevelChoice(models.Model):
-    enrollment = models.ForeignKey(
-        "characters.CharacterPrestigeEnrollment",
+    """
+    Stores, for each character, which base class a prestige level
+    "counts as" for a given PrestigeClass and prestige_level.
+    """
+    character = models.ForeignKey(
+        "characters.Character",
         on_delete=models.CASCADE,
-        related_name="level_choices",
+        related_name="prestige_choices",
+        null=True,
     )
-    prestige_level = models.PositiveSmallIntegerField(help_text="1, 2, 3, … within this prestige class")
-    counts_as = models.ForeignKey("characters.CharacterClass", on_delete=models.PROTECT)
+    prestige_class = models.ForeignKey(
+        "characters.PrestigeClass",
+        on_delete=models.CASCADE,
+        related_name="prestige_choices",
+        null=True,
+    )
+    prestige_level = models.PositiveSmallIntegerField()
+
+    # NEW: record which *character level* this prestige level was taken at
+    char_level_at_gain = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Character level at which this prestige level was taken.",
+    )
+
+    counts_as = models.ForeignKey(
+        "characters.CharacterClass",
+        on_delete=models.PROTECT,
+        related_name="prestige_counts_as",
+        null=True,
+        blank=True,
+    )
 
     class Meta:
-        unique_together = (("enrollment", "prestige_level"),)
-        ordering = ["enrollment", "prestige_level"]
+        ordering = ["character", "prestige_class", "prestige_level"]
+        unique_together = (("character", "prestige_class", "prestige_level"),)
 
     def __str__(self):
-        return f"{self.enrollment.character} – P{self.prestige_level} counts as {self.counts_as}"
+        return f"{self.character} – {self.prestige_class} L{self.prestige_level}"
+
+
 class CharacterManualFeat(models.Model):
     character = models.ForeignKey("characters.Character",
                                   on_delete=models.CASCADE,
@@ -2969,19 +2997,3 @@ class PrestigeFeature(models.Model):
             raise ValidationError({"at_prestige_level": "Prestige 1 is a dead level; do not add features here."})
 
 
-class CharacterPrestigeEnrollment(models.Model):
-    character = models.ForeignKey("characters.Character", on_delete=models.CASCADE, related_name="prestige_enrollment")
-    prestige_class = models.ForeignKey("characters.PrestigeClass", on_delete=models.CASCADE, related_name="enrollments")
-    gm_approved = models.BooleanField(default=False)
-    entered_at_character_level = models.PositiveSmallIntegerField(default=7)
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["character"], name="uniq_one_prestige_per_character"),
-        ]
-
-    def clean(self):
-        super().clean()
-        if self.entered_at_character_level < 7:
-            raise ValidationError({"entered_at_character_level": "Minimum character level to enter is 7."})
-# NEW: stores the player's choice for each prestige level when mode is "choose"

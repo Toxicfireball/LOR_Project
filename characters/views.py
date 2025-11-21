@@ -87,7 +87,22 @@ _ALLOWED_FUNCS = {
     "round_up": math.ceil, "roundup": math.ceil, "ceiling": math.ceil,
     "round_down": math.floor, "rounddown": math.floor,
 }
+def eligible_prestige_qs(character, class_progress=None):
+    """
+    Return ALL prestige classes the character is allowed to see in the UI
+    for the *next* level. This DOES NOT depend on CharacterPrestigeEnrollment
+    at all – it's purely based on PrestigeClass.min_entry_level.
+    """
+    PrestigeClass = apps.get_model("characters", "PrestigeClass")
 
+    next_level = (getattr(character, "level", 0) or 0) + 1
+
+    # Show every prestige class whose min_entry_level is <= the next level.
+    # (You still enforce “one prestige class per character” and prereqs
+    #  in character_level_up; this is just “what appears in the dropdown”.)
+    return PrestigeClass.objects.filter(
+        min_entry_level__lte=next_level
+    ).order_by("name")
 def _normalize_formula(expr: str) -> str:
     """Make stored formulas Pythonic: 'round up(x)' -> 'ceil(x)', '^' -> '**', etc."""
     if not expr:
@@ -1547,35 +1562,6 @@ def meets_prestige_prereqs(character, pc, class_progress_qs):
             return False
     return True
 
-def eligible_prestige_qs(character, class_progress_qs):
-    PrestigeClass = apps.get_model("characters", "PrestigeClass")
-    # Min level: entry happens at the *next* level
-    next_level = int(getattr(character, "level", 0) or 0) + 1
-    if next_level < 7:
-        return PrestigeClass.objects.none()
-
-    # One prestige class max
-    if character.prestige_enrollment.exists():
-        # Already enrolled -> only that class continues
-        pc = character.prestige_enrollment.first().prestige_class
-        return PrestigeClass.objects.filter(pk=pc.pk)
-
-    # Otherwise: filter by prereqs now
-    all_pc = list(PrestigeClass.objects.all().order_by("name"))
-    allowed_ids = [
-        pc.id for pc in all_pc
-        if meets_prestige_prereqs(character, pc, class_progress_qs)
-    ]
-    return PrestigeClass.objects.filter(id__in=allowed_ids).order_by("name")
-
-def prestige_next_level(character, pc):
-    """Return the next prestige level (1..n) if this character advances in pc."""
-    enr = character.prestige_enrollment.filter(prestige_class=pc).first()
-    if not enr:
-        return 1
-    # count recorded choices to infer current level; fall back to max(CharacterPrestigeLevelChoice)
-    cur = enr.level_choices.aggregate(m=models.Max("prestige_level"))["m"] or 0
-    return int(cur) + 1
 
 def counts_as_field_for(pc, next_pl):
     """If the next prestige level is CHOOSE, return a Django Field configured for the allowed classes; else None."""
@@ -1736,6 +1722,49 @@ def _weapon_prof_group(weapon) -> str:
 
     print(f"[DBG] _weapon_prof_group: id={getattr(weapon,'id',None)} name={getattr(weapon,'name','?')} raw='{raw}' → '{s or 'simple'}'")
     return s or "simple"
+
+
+def _effective_class_levels(character, class_progress):
+        """
+        Returns (levels_by_class_id, classes_by_id) where levels include:
+        • base class levels from `class_progress`
+        • +1 per prestige level that “counts as” a base class (NO approval gate)
+        Set COUNTS_AS_START_LEVEL to 1 if P1 should count-as (default),
+        or 2 if P1 is a dead level for counts-as.
+        """
+        from collections import defaultdict
+        PrestigeChoice = apps.get_model("characters", "CharacterPrestigeLevelChoice")
+
+        # Adjust this to 2 only if you want P1 NOT to count-as.
+        COUNTS_AS_START_LEVEL = 1
+
+        levels = defaultdict(int)   # class_id -> total effective levels
+        classes_by_id = {}          # class_id -> CharacterClass
+
+        # 1) Base classes already on the character
+        for cp in class_progress:
+            try:
+                cid = int(cp.character_class_id)
+            except Exception:
+                cid = cp.character_class.id
+            levels[cid] += int(cp.levels or 0)
+            classes_by_id[cid] = cp.character_class
+
+        # 2) Prestige counted-as (no approval)
+        # 2) Prestige counted-as (no approval)
+        # Now uses direct character mapping, no enrollment.
+        for ch in (
+            PrestigeChoice.objects
+                .select_related("counts_as", "prestige_class", "character")
+                .filter(character=character)
+        ):
+            lvl = int(ch.prestige_level or 0)
+            if lvl >= COUNTS_AS_START_LEVEL and ch.counts_as_id:
+                levels[ch.counts_as_id] += 1
+                classes_by_id[ch.counts_as_id] = ch.counts_as
+
+        return dict(levels), classes_by_id
+
 def _prof_from_group(prof_by_code, group):
     g = (group or "").strip().lower().replace(" ", "_").replace("-", "_")
     key = g if g.startswith("weapon:") else f"weapon:{g}"
@@ -2700,7 +2729,6 @@ def class_detail(request, pk):
     # ── 2) Hit die ─────────────────────────────────────────────────────────────
     hit_die = cls.hit_die
 
-    # ── 3) Base‐class features by level ────────────────────────────────────────
     levels = (
         ClassLevel.objects
           .filter(character_class=cls)
@@ -2712,23 +2740,24 @@ def class_detail(request, pk):
                     .select_related('modify_proficiency_amount')
                     .prefetch_related(
                         'subclasses',
-                        'options__grants_feature',   
+                        'options__grants_feature',
+                        'spell_slot_rows',   # ⬅️ this matches related_name on SpellSlotRow
                     ),
               )
           )
     )
 
+
+
     # Build a per-level list that EXCLUDES features granted by options on the same level.
     for cl in levels:
         feats = list(cl.features.all())
-        # All grant targets reachable from features at THIS level:
         granted_ids = {
             opt.grants_feature_id
             for f in feats
             for opt in getattr(f, "options", []).all()
             if opt.grants_feature_id
         }
-        # Store both for the template:
         cl._granted_feature_ids = granted_ids
         cl.filtered_features = [f for f in feats if f.id not in granted_ids]
 
@@ -2738,6 +2767,28 @@ def class_detail(request, pk):
            .order_by('name')
            .prefetch_related('subclasses')
     )
+
+    # ── 4) Spell-slot tables for this class (grouped by feature) ─────────────
+    spell_slot_groups = []
+
+    spell_table_features = (
+        ClassFeature.objects
+        .filter(character_class=cls, kind="spell_table")
+        .prefetch_related("spell_slot_rows")   # matches related_name on SpellSlotRow
+        .order_by("name")
+    )
+
+    for feat in spell_table_features:
+        # SpellSlotRow.Meta already orders by level, but explicit is fine
+        rows = list(feat.spell_slot_rows.all().order_by("level"))
+        if rows:
+            spell_slot_groups.append({
+                "feature": feat,
+                "rows": rows,
+            })
+
+
+
 
     # For each individual subclass, build its own level→features map
     # For each individual subclass, build its own level→features map
@@ -2816,28 +2867,13 @@ def class_detail(request, pk):
                     gname = getattr(getattr(sub, "group", None), "name", None)
                     names.append((gname or sub.name or "").strip())
                 names = [n for n in names if n]
-                labels.append(names[0] if names else (f.name or f.code or "Subclass Feature"))
+                labels.append(
+                    names[0] if names else (f.name or f.code or "Subclass Feature")
+                )
             else:
                 labels.append("–".join(p for p in [f.code, f.name] if p))
 
         unique = list(dict.fromkeys(labels))  # dedupe, preserve order
-        summary.append({'level': lvl, 'features': unique})
-
-
-    labels = []
-    for f in feats:
-        if f.scope == 'subclass_feat':
-            names = []
-            for sub in f.subclasses.all().select_related('group'):
-                gname = getattr(getattr(sub, "group", None), "name", None)
-                names.append((gname or sub.name or "").strip())
-            names = [n for n in names if n]
-            labels.append(names[0] if names else (f.name or f.code or "Subclass Feature"))
-        else:
-            labels.append("–".join(p for p in [f.code, f.name] if p))
-
-        # dedupe, preserve order
-        unique = list(dict.fromkeys(labels))
         summary.append({'level': lvl, 'features': unique})
 
     return render(request, 'codex/class_detail.html', {
@@ -2846,10 +2882,12 @@ def class_detail(request, pk):
         'prof_rows': prof_rows,
         'hit_die': hit_die,
         'levels': levels,
-        'allowed_scopes': ['class_feat', 'subclass_choice'],
         'subclass_groups': subclass_groups,
         'summary': summary,
+        'spell_slot_groups': spell_slot_groups,
     })
+
+
 
 # characters/views.py
 
@@ -3090,33 +3128,53 @@ def level_down(request, pk):
     lvl = character.level
 
     with transaction.atomic():
+        # --- Detect if this character level was a prestige level -------------
+        from django.apps import apps
+        PrestigeChoice = apps.get_model("characters", "CharacterPrestigeLevelChoice")
+
+        last_prestige = (
+            PrestigeChoice.objects
+            .filter(character=character, char_level_at_gain=lvl)
+            .order_by("-prestige_level", "-id")
+            .first()
+        )
+        is_prestige_level = last_prestige is not None
+
         # (A) Snapshot rows for this level BEFORE deleting
         cf_qs = (CharacterFeature.objects
                  .filter(character=character, level=lvl)
                  .select_related('feature', 'feature__character_class'))
         feat_qs = CharacterFeat.objects.filter(character=character, level=lvl)
 
-        # Which class was actually leveled at this character level?
-        last_cls_id = (cf_qs.filter(feature__character_class__isnull=False)
-                           .order_by('-id')
-                           .values_list('feature__character_class_id', flat=True)
-                           .first())
 
-        if last_cls_id:
-            cp = CharacterClassProgress.objects.filter(
-                character=character,
-                character_class_id=last_cls_id
-            ).first()
-        else:
-            # Fallback if we have no evidence (dirty data / L1 hiccups)
-            cp = character.class_progress.order_by('-levels', '-id').first()
+        # Which class was actually leveled at this character level?
+        cp = None
+        if not is_prestige_level:
+            last_cls_id = (
+                cf_qs.filter(feature__character_class__isnull=False)
+                     .order_by('-id')
+                     .values_list('feature__character_class_id', flat=True)
+                     .first()
+            )
+
+            if last_cls_id:
+                cp = CharacterClassProgress.objects.filter(
+                    character=character,
+                    character_class_id=last_cls_id
+                ).first()
+            else:
+                # Fallback if we have no evidence (dirty data / L1 hiccups)
+                cp = character.class_progress.order_by('-levels', '-id').first()
 
         # (B) Now delete everything granted at this character level
         cf_qs.delete()
         feat_qs.delete()
 
-        # (C) Decrement per-class progress
-        if cp:
+        # (C) Decrement either prestige progression OR base-class progress
+        if is_prestige_level:
+            # Remove the prestige level record instead of touching base classes
+            last_prestige.delete()
+        elif cp:
             cp.levels = models.F('levels') - 1
             cp.save(update_fields=['levels'])
             cp.refresh_from_db()
@@ -5226,6 +5284,21 @@ def set_shield_choice(request, pk):
 
     messages.success(request, f"Equipped shield: {shield.name}.")
     return redirect("characters:character_detail", pk=pk)
+from django.apps import apps
+
+def prestige_next_level(character, prestige_cls):
+    """
+    Return the next prestige level (1-based) this character will take
+    in the given prestige class.
+    """
+    PrestigeChoice = apps.get_model("characters", "CharacterPrestigeLevelChoice")
+
+    taken = PrestigeChoice.objects.filter(
+        character=character,
+        prestige_class=prestige_cls,
+    ).count()
+
+    return taken + 1
 
 def _looks_like_shield(armor_obj):
     # Works with your model (type choices) and future variants
@@ -5294,6 +5367,10 @@ def character_detail(request, pk):
         return HttpResponseForbidden("You don’t have permission to view this character.")
 
     can_edit = (request.user.id == character.user_id) or is_gm_for_campaign
+    # Handle level-up POSTs by delegating to the dedicated view
+    if request.method == "POST" and "level_up_submit" in request.POST:
+        from .views import character_level_up  # only needed if views split; usually same file
+        return character_level_up(request, pk)
 
     # NEW: users you can add (site-registered)
     U = get_user_model()
@@ -5476,44 +5553,7 @@ def character_detail(request, pk):
         return dict(totals)
 
 
-    def _effective_class_levels(character, class_progress):
-        """
-        Returns (levels_by_class_id, classes_by_id) where levels include:
-        • base class levels from `class_progress`
-        • +1 per prestige level that “counts as” a base class (NO approval gate)
-        Set COUNTS_AS_START_LEVEL to 1 if P1 should count-as (default),
-        or 2 if P1 is a dead level for counts-as.
-        """
-        from collections import defaultdict
-        PrestigeChoice = apps.get_model("characters", "CharacterPrestigeLevelChoice")
 
-        # Adjust this to 2 only if you want P1 NOT to count-as.
-        COUNTS_AS_START_LEVEL = 1
-
-        levels = defaultdict(int)   # class_id -> total effective levels
-        classes_by_id = {}          # class_id -> CharacterClass
-
-        # 1) Base classes already on the character
-        for cp in class_progress:
-            try:
-                cid = int(cp.character_class_id)
-            except Exception:
-                cid = cp.character_class.id
-            levels[cid] += int(cp.levels or 0)
-            classes_by_id[cid] = cp.character_class
-
-        # 2) Prestige counted-as (no approval)
-        for ch in (
-            PrestigeChoice.objects
-                .select_related("counts_as", "enrollment")
-                .filter(enrollment__character=character)
-        ):
-            lvl = int(ch.prestige_level or 0)
-            if lvl >= COUNTS_AS_START_LEVEL:
-                levels[ch.counts_as_id] += 1
-                classes_by_id[ch.counts_as_id] = ch.counts_as
-
-        return dict(levels), classes_by_id
 
 
     def _traits_list(obj):
@@ -7124,25 +7164,28 @@ def character_detail(request, pk):
     # Ensure base_class is present in GET so binding matches the left preview.
     # === INIT LEVEL FORM (use LevelUpForm so general_feat/ASI appear) ===
 
-    if request.method == "POST":
-        # use the (possibly normalised) POST data for a real submission
-        form_data = data          # this is request.POST from above
-        initial = None
-    else:
-        # plain GET → unbound form (no modal auto-open)
-        form_data = None
-        # still tell the form which class we're previewing with initial data
-        initial = {"base_class": preview_cls.pk} if preview_cls else None
+    # === INIT LEVEL FORM (use LevelUpForm so general_feat/ASI appear) ===
+    # In this view we ONLY preview level-up; the actual submit is handled in
+    # `character_level_up()`, which we early-return to above.
+    # If we bind the form on every POST here, `level_form.is_bound` will be
+    # true after *any* POST (HP edits, inventory, etc.), and your template
+    # JS will always open the level-up modal.
+
+    # Keep the form UNBOUND in character_detail()
+    form_data = None
+    # Still tell the form which class we are previewing
+    initial = {"base_class": preview_cls.pk} if preview_cls else None
 
     level_form = LevelUpForm(
-        form_data,                # None on GET => unbound form
+        form_data,                # always None here → unbound form
         character=character,
         to_choose=to_choose,
         preview_cls=preview_cls,
         grants_class_feat=_grants_class_feat_at,
         uni=uni,
-        initial=initial,          # only used on GET
+        initial=initial,
     )
+
 
 
     # Optional: expose the preview toggle (does not bypass approval/min-level because counting is gated)
@@ -10583,101 +10626,91 @@ def character_detail(request, pk):
         )
     else:
         base_class_choices = [cp.character_class for cp in class_progress]
+    # ── Prestige models used in both POST and preview ──────────────────────
+    PrestigeClass = apps.get_model("characters", "PrestigeClass")
+    CharacterPrestigeLevelChoice = apps.get_model("characters", "CharacterPrestigeLevelChoice")
 
-    # Build the Advance form
-    AdvanceFormClass = AdvanceForm
-    advance_form = AdvanceFormClass(
-        request.POST or None,
-        character=character,
-        class_progress_qs=class_progress,
-        base_choices=app_models.CharacterClass.objects.filter(id__in=[c.id for c in base_class_choices]).order_by("name"),
-        initial={"advance_mode": "base"},
+    # ---- Prestige choices for the level-up modal (left-hand dropdown) ----
+    # If you still use eligible_prestige_qs(), keep it:
+    prestige_choices = list(eligible_prestige_qs(character, class_progress))
+
+    # --- Prestige preview: selected prestige class + its NEXT prestige-level features ---
+    prestige_cls = None
+    prestige_feats = []
+
+    try:
+        PrestigeFeature = apps.get_model("characters", "PrestigeFeature")
+    except LookupError:
+        PrestigeFeature = None
+
+    # Which prestige class is selected in the LEFT preview form?
+    # The HTML uses "prestige_class" (not prestige_enrollment).
+    raw_pc_id = (
+        (request.GET.get("prestige_class")
+        or request.POST.get("prestige_class")
+        or "")
+        .strip()
     )
 
-    prestige_preview = getattr(advance_form, "_prestige_preview", None)
+    if raw_pc_id.isdigit():
+        prestige_cls = PrestigeClass.objects.filter(pk=int(raw_pc_id)).first()
+
+    if prestige_cls and PrestigeFeature:
+        # How many levels of THIS prestige class the character already has
+        current_p_levels = (
+            CharacterPrestigeLevelChoice.objects
+            .filter(character=character, prestige_class=prestige_cls)
+            .count()
+        )
+
+        # This is the prestige level the modal is previewing (same as the POST)
+        p_level = current_p_levels + 1
+
+        # Next character level (L9, L10, ...) for spell-table rows
+        next_char_level = character.level + 1
+
+        prestige_feats = []
+        for pf in (
+            PrestigeFeature.objects
+            .select_related("grants_class_feature")
+            .filter(prestige_class=prestige_cls, at_prestige_level=p_level)
+            .exclude(grants_class_feature__isnull=True)
+        ):
+            cf = pf.grants_class_feature   # ClassFeature instance
+
+            # Make spell tables behave like base classes in preview
+            if getattr(cf, "kind", "") == "spell_table":
+                cf.spell_row_next = cf.spell_slot_rows.filter(level=next_char_level).first()
+
+            prestige_feats.append(cf)
+
+        # Optional debug – remove when you’re happy
+        print("DEBUG prestige preview", {
+            "char_id": character.id,
+            "prestige_cls_id": prestige_cls.id,
+            "p_level": p_level,
+            "feat_ids": [f.id for f in prestige_feats],
+        })
 
 
-    # Reuse the form's queryset (so eligibility rules stay consistent) if present
-    if level_form is not None and hasattr(level_form, 'prestige_enrollment'):
-        prestige_choices = list(getattr(level_form.prestige_enrollment.field, 'queryset', []))
-    else:
-        prestige_choices = []
-
-    if request.method == "POST" and can_edit and request.POST.get("advance_submit") == "1":
-        if not advance_form.is_valid():
-            messages.error(request, "Please fix the errors below.")
-            return redirect("characters:character_detail", pk=pk)
-
-        mode = advance_form.cleaned_data["advance_mode"]
-        if mode == "base":
-            # keep your existing base-class level-up flow as-is
-            pass
-
-        else:  # prestige
-            PrestigeClass = apps.get_model("characters", "PrestigeClass")
-            CharacterPrestigeEnrollment = apps.get_model("characters", "CharacterPrestigeEnrollment")
-            CharacterPrestigeLevelChoice = apps.get_model("characters", "CharacterPrestigeLevelChoice")
-
-            pc = advance_form.cleaned_data.get("prestige_class")
-            if not pc:
-                messages.error(request, "Choose a prestige class.")
-                return redirect("characters:character_detail", pk=pk)
-
-            # enforce “min level 7; at most one prestige class; prereqs”
-            next_level = int(getattr(character, "level", 0) or 0) + 1
-            if next_level < 7:
-                messages.error(request, "You can’t enter prestige before level 7.")
-                return redirect("characters:character_detail", pk=pk)
-            if character.prestige_enrollment.exists() and not character.prestige_enrollment.filter(prestige_class=pc).exists():
-                messages.error(request, "You may only have one prestige class.")
-                return redirect("characters:character_detail", pk=pk)
-            if not meets_prestige_prereqs(character, pc, class_progress):
-                messages.error(request, "Prerequisites not met for that prestige class.")
-                return redirect("characters:character_detail", pk=pk)
-
-            # create or reuse the enrollment
-            enr, _ = CharacterPrestigeEnrollment.objects.get_or_create(
-                character=character, defaults={"prestige_class": pc, "entered_at_character_level": next_level}
-            )
-            if enr.prestige_class_id != pc.id:
-                messages.error(request, "You are already enrolled in a different prestige class.")
-                return redirect("characters:character_detail", pk=pk)
-
-            # determine the prestige level we are gaining
-            pl = prestige_next_level(character, pc)
-
-            # counts-as decision for this level
-            lvl_row = pc.levels.filter(level=pl).select_related("fixed_counts_as").prefetch_related("allowed_counts_as").first()
-            counts_as = None
-            if lvl_row:
-                if lvl_row.counts_as_mode == lvl_row.MODE_FIXED:
-                    counts_as = lvl_row.fixed_counts_as
-                else:
-                    counts_as = advance_form.cleaned_data.get("counts_as")
-                    if not counts_as:
-                        messages.error(request, "Pick which class this prestige level counts as.")
-                        return redirect("characters:character_detail", pk=pk)
-
-            # persist the choice row (only if this level hasn’t been stored yet)
-            if not enr.level_choices.filter(prestige_level=pl).exists():
-                CharacterPrestigeLevelChoice.objects.create(
-                    enrollment=enr, prestige_level=pl, counts_as=counts_as
-                )
-
-            messages.success(request, f"Advanced prestige: {pc.name} (P{pl}).")
-            return redirect("characters:character_detail", pk=pk)
+            
+        
     available_feats = list(chain(
         general_feats or [],
         class_feats or [],
         skill_feats or [],
         other_feats or [],
+        prestige_feats or [],          # ← NEW
     ))
+
     feat_groups = {
-        "General": general_feats,
-        "Class":   class_feats,
-        "Skill":   skill_feats,
-        "Other":   other_feats,
+        "General":  general_feats,
+        "Class":    class_feats,
+        "Skill":    skill_feats,
+        "Other":    other_feats,
+        "Prestige": prestige_feats,    # ← NEW group
     }
+
 
     # All feats for the dropdown (works even if the default manager is filtered)
     def _all_feats_qs():
@@ -10759,7 +10792,61 @@ def character_detail(request, pk):
 
     # Build rows for “Manually Added Feats”
 
+    raw_track = (
+        request.GET.get("advance_track")
+        or request.POST.get("advance_track")
+        or request.POST.get("advance_mode")
+        or request.GET.get("advance_mode")
+        or ""
+    ).strip()
 
+    # If no explicit track but a prestige class is selected, treat as prestige
+    # If no explicit track but a prestige class is selected, treat as prestige
+    if not raw_track and (request.GET.get("prestige_class") or request.POST.get("prestige_class")):
+        raw_track = "prestige"
+
+
+    track = "prestige" if raw_track == "prestige" else "base"
+    # --- Class & prestige summary for header display -----------------------
+    # Re-use class_progress; if not in scope here, re-fetch it:
+    class_progress = character.class_progress.select_related("character_class")
+
+    # Base levels (only from CharacterClassProgress)
+    base_levels = _char_base_class_levels(character, class_progress)
+
+    # Effective levels (includes prestige counts-as via CharacterPrestigeLevelChoice)
+    effective_levels, classes_by_id = _effective_class_levels(character, class_progress)
+
+    # Build a simple list for the template
+    class_summary = [
+        {
+            "class": cls,
+            "base_levels": base_levels.get(cid, 0),
+            "effective_levels": effective_levels.get(cid, 0),
+        }
+        for cid, cls in classes_by_id.items()
+    ]
+
+    # Prestige summary: how many prestige levels in each prestige class
+    PrestigeChoice = apps.get_model("characters", "CharacterPrestigeLevelChoice")
+    prestige_rows = (
+        PrestigeChoice.objects
+        .select_related("prestige_class")
+        .filter(character=character)
+        .order_by("prestige_class__name", "prestige_level")
+    )
+
+    prestige_levels_by_class = {}
+    prestige_class_by_id = {}
+    for row in prestige_rows:
+        pid = row.prestige_class_id
+        prestige_levels_by_class[pid] = prestige_levels_by_class.get(pid, 0) + 1
+        prestige_class_by_id[pid] = row.prestige_class
+
+    prestige_summary = [
+        {"prestige_class": prestige_class_by_id[pid], "levels": lvl}
+        for pid, lvl in prestige_levels_by_class.items()
+    ]
 
     return render(request, 'forge/character_detail.html', {
         # — Identity / permissions / sharing —
@@ -10770,7 +10857,9 @@ def character_detail(request, pk):
         'available_users': available_users,
         'share_invites': active_invites,
         'shared_viewers': shared_viewers,
-
+        'track': track,
+        'class_summary': class_summary,
+        'prestige_summary': prestige_summary,
         # — Notes —
         "note_categories": note_categories,
         "notes_by_category": notes_by_category,
@@ -10876,7 +10965,9 @@ def character_detail(request, pk):
         "starting_skill_max": starting_skill_max,
         "starting_skill_flat": starting_skill_flat,
         "skill_points_balance": skill_points_balance,
-
+        'preview_class': preview_cls,          # base-class preview
+        'prestige_preview_class': prestige_cls,  # NEW: prestige class for left pane
+                'prestige_feats': prestige_feats,      # NEW: feats granted at next prestige level
         # — Activity logs —
         "active_rows": active_rows,
         "passive_rows": passive_rows,
@@ -10928,28 +11019,7 @@ def _effective_spell_slots_by_rank(character, class_progress):
 
     return dict(totals)
 
-def _effective_class_levels(character, class_progress):
-        """
-        Returns (levels_by_class_id, classes_by_id) where levels include prestige
-        'Counts-As' levels for this character.
-        """
-        levels = {int(cp.character_class_id): int(cp.levels or 0) for cp in class_progress}
-        classes_by_id = {int(cp.character_class_id): cp.character_class for cp in class_progress}
-        try:
-            PrestigeChoice = apps.get_model("characters", "CharacterPrestigeLevelChoice")
-            qs = (PrestigeChoice.objects
-                .select_related("enrollment", "counts_as", "enrollment__counts_as")
-                .filter(enrollment__character=character))
-            for ch in qs:
-                cls = ch.counts_as or getattr(ch.enrollment, "counts_as", None)
-                if cls:
-                    cid = int(cls.id)
-                    levels[cid] = int(levels.get(cid, 0)) + 1
-                    classes_by_id.setdefault(cid, cls)
-        except Exception:
-            # If models not available, fall back to raw levels
-            pass
-        return (levels, classes_by_id)
+
 # NEW — dedicated view for applying a level-up
 
 def _grant_prestige_features(character, prestige_class, prestige_level):
@@ -10984,9 +11054,14 @@ def character_level_up(request, pk):
     HTML stays the same: forms still post to 'characters:character_detail';
     character_detail() will delegate here when it sees 'level_up_submit' in POST.
     """
+    CharacterClassModel    = apps.get_model("characters", "CharacterClass")
+    CharacterFeature       = apps.get_model("characters", "CharacterFeature")
+
     if request.method != "POST" or "level_up_submit" not in request.POST:
         return redirect('characters:character_detail', pk=pk)
 
+    # DEBUG: see what actually arrived
+    print("DEBUG: character_level_up POST:", dict(request.POST))
     # ── (A) Copy the SAME permission logic from character_detail ─────────────
     # PASTE: from character_detail — the block that loads `character`, computes
     # is_gm_for_campaign, enforces permission, and sets `can_edit`.
@@ -11207,69 +11282,94 @@ def character_level_up(request, pk):
     post = request.POST.copy()
     # Mirror the selected class from GET/preview into POST so the bound form sees it
     if not post.get("base_class"):
-        sel = (request.GET.get("base_class") or getattr(posted_cls, "pk", None) or getattr(default_cls, "pk", None))
+        sel = (
+            request.GET.get("base_class")
+            or getattr(posted_cls, "pk", None)
+            or getattr(default_cls, "pk", None)
+        )
         if sel:
             post["base_class"] = str(sel)
 
-    # keep advance_track as-is (radio lives on the POST form)
-    advance_track = (post.get("advance_track") or "base").strip()
+    # Decide which track this POST is using
+    advance_track = (
+        (post.get("advance_track") or "").strip()   # hidden field in the right-hand form
+        or (post.get("advance_mode") or "").strip() # legacy name if you ever used it
+    )
 
-    # make POST the canonical bound data from here on
+    # If no explicit track but a prestige class was posted, treat it as prestige
+    if not advance_track and post.get("prestige_class"):
+        advance_track = "prestige"
+
+    # Normalise to the two modes we actually support
+    if advance_track not in {"base", "prestige"}:
+        advance_track = "base"
+
+      # make POST the canonical bound data from here on
     request.POST = post
 
     if advance_track == "prestige":
-        PrestigeEnrollment = apps.get_model("characters", "CharacterPrestigeEnrollment")
+        print("DEBUG: ENTERING PRESTIGE BRANCH")
+        PrestigeClassModel = apps.get_model("characters", "PrestigeClass")
         PrestigeChoice     = apps.get_model("characters", "CharacterPrestigeLevelChoice")
-        CharacterClassModel = apps.get_model("characters", "CharacterClass")  # ← alias to avoid shadowing
-        CharacterFeature   = apps.get_model("characters", "CharacterFeature")
+        PrestigeLevel      = apps.get_model("characters", "PrestigeLevel")
+        PrestigeFeature    = apps.get_model("characters", "PrestigeFeature")
 
-        # 1) Rule: minimum level 7+
+        # 1) Next character level must meet prestige entry
         next_level = character.level + 1
         if next_level < 7:
             messages.error(request, "You must be level 7+ to take a prestige level.")
             return redirect("characters:character_detail", pk=pk)
 
-        # 2) Which enrollment (GM-approved)
-        enr_id = (request.POST.get("prestige_enrollment") or "").strip()
-        if not enr_id.isdigit():
-            # If only one eligible enrollment exists, accept it automatically
-            elig = PrestigeEnrollment.objects.filter(character=character, gm_approved=True)
-            # Lock to the one already chosen before (one prestige only)
-            first_choice = (PrestigeChoice.objects
-                .select_related("enrollment")
-                .filter(enrollment__character=character)
-                .order_by("id").first())
-            if first_choice:
-                elig = elig.filter(pk=first_choice.enrollment_id)
-            if elig.count() != 1:
-                messages.error(request, "Pick a prestige class (GM-approved).")
-                return redirect("characters:character_detail", pk=pk)
-            enrollment = elig.first()
-        else:
-            enrollment = PrestigeEnrollment.objects.filter(
-                pk=int(enr_id), character=character, gm_approved=True
-            ).first()
-            if not enrollment:
-                messages.error(request, "Invalid or unapproved prestige selection.")
-                return redirect("characters:character_detail", pk=pk)
 
-        # 3) Rule: one prestige only (disallow switching)
-        prev = (PrestigeChoice.objects
-            .select_related("enrollment")
-            .filter(enrollment__character=character)
-            .order_by("id").first())
-        if prev and prev.enrollment_id != enrollment.pk:
-            messages.error(request, "You already chose a different prestige class.")
+        # 2) Which prestige CLASS?
+        # 2) Which prestige CLASS?
+        # Accept either "prestige_enrollment" or "prestige_class" from POST/GET.
+        raw_pc_id = (
+            (request.POST.get("prestige_enrollment")
+            or request.POST.get("prestige_class")
+            or request.GET.get("prestige_enrollment")
+            or request.GET.get("prestige_class")
+            or "")
+            .strip()
+        )
+
+        if not raw_pc_id.isdigit():
+            messages.error(request, "Pick a prestige class.")
             return redirect("characters:character_detail", pk=pk)
 
-        # 4) Determine counts-as for THIS prestige level from PrestigeLevel
-        p_level = PrestigeChoice.objects.filter(enrollment=enrollment).count() + 1
+        prestige_cls = PrestigeClassModel.objects.filter(pk=int(raw_pc_id)).first()
+        if not prestige_cls:
+            messages.error(request, "Invalid prestige class selection.")
+            return redirect("characters:character_detail", pk=pk)
+
+
+        # 3) Enforce "single prestige class per character"
+        prev_choice = (
+            PrestigeChoice.objects
+            .select_related("prestige_class")
+            .filter(character=character)
+            .order_by("id")
+            .first()
+        )
+        if prev_choice and prev_choice.prestige_class_id != prestige_cls.pk:
+            messages.error(request, "You already chose a different prestige class for this character.")
+            return redirect("characters:character_detail", pk=pk)
+
+        # 4) Determine the prestige *level number* we’re taking now
+        current_p_levels = (
+            PrestigeChoice.objects
+            .filter(character=character, prestige_class=prestige_cls)
+            .count()
+        )
+        p_level = current_p_levels + 1
+
         try:
-            pl = PrestigeLevel.objects.get(prestige_class=enrollment.prestige_class, level=p_level)
+            pl = PrestigeLevel.objects.get(prestige_class=prestige_cls, level=p_level)
         except PrestigeLevel.DoesNotExist:
             messages.error(request, "PrestigeLevel row not configured for this prestige level.")
             return redirect("characters:character_detail", pk=pk)
 
+        # 5) Resolve counts-as class
         counts_as = None
         if pl.counts_as_mode == PrestigeLevel.MODE_FIXED:
             counts_as = pl.fixed_counts_as
@@ -11283,28 +11383,18 @@ def character_level_up(request, pk):
                 messages.error(request, "Pick a valid counts-as class for this prestige level.")
                 return redirect("characters:character_detail", pk=pk)
 
-        # 6) Record the prestige level choice
+
         PrestigeChoice.objects.create(
-            enrollment=enrollment,
-            prestige_level=p_level,
-            counts_as=counts_as,  # FK to CharacterClass; can be null if not applicable
+            character=character,
+            prestige_class=prestige_cls,
+            prestige_level=p_level,    # numeric prestige level (1, 2, 3, …)
+            char_level_at_gain=next_level,  # NEW: which character level this was
+            counts_as=counts_as,
         )
 
-        # 7) Apply “Dead Level on Entry” — P1 grants no features
-        if p_level == 1:
-            # You STILL get all Counts-As effects via your other code paths
-            # (HP die, spellcasting advancement, core profs, martial mastery math).
-            messages.success(request, f"Took {enrollment} (Prestige 1). Dead level—no features gained.")
-            # Bump character to the next level and finish
-            character.level = next_level
-            character.save(update_fields=["level"])
-            return redirect("characters:character_detail", pk=pk)
-
-        # 8) P2+ — grant prestige features that are attached to this prestige/level
-        # Adjust this query to match your schema.
-        PrestigeFeature = apps.get_model("characters", "PrestigeFeature")
+        # 7) Grant prestige features attached to this prestige level
         feats = PrestigeFeature.objects.filter(
-            prestige_class=enrollment.prestige_class,
+            prestige_class=prestige_cls,
             at_prestige_level=p_level,
         )
 
@@ -11319,17 +11409,21 @@ def character_level_up(request, pk):
                 )
                 granted += 1
 
-
-        # Finally bump the character level
+        # 8) Bump character level
         character.level = next_level
         character.save(update_fields=["level"])
 
         messages.success(
             request,
-            f"Advanced in {enrollment} (Prestige {p_level}). "
-            + (f"Granted {granted} feature(s)." if granted else "No features at this prestige level.")
+            f"Advanced in {prestige_cls.name} (Prestige {p_level}). "
+            + (f"Granted {granted} feature(s)." if granted else "No mapped features configured for this prestige level.")
         )
         return redirect("characters:character_detail", pk=pk)
+
+
+
+
+
     cls_level_for_validate = _class_level_after_pick(character, posted_cls)
 
 
@@ -11360,10 +11454,10 @@ def character_level_up(request, pk):
 
 
 
-    CharacterClassModel = apps.get_model("characters", "CharacterClass")  # ← alias to avoid shadowing
-    PrestigeEnrollment = apps.get_model("characters", "CharacterPrestigeEnrollment")
-    PrestigeChoice = apps.get_model("characters", "CharacterPrestigeLevelChoice")
-    PrestigeLevel = apps.get_model("characters", "PrestigeLevel")
+    CharacterClassModel  = apps.get_model("characters", "CharacterClass")   # ← alias to avoid shadowing
+    PrestigeClassModel   = apps.get_model("characters", "PrestigeClass")
+    PrestigeChoice       = apps.get_model("characters", "CharacterPrestigeLevelChoice")
+    PrestigeLevel        = apps.get_model("characters", "PrestigeLevel")
 
     # Default class for initial selection
     first_prog = character.class_progress.select_related('character_class').first()
@@ -11379,54 +11473,69 @@ def character_level_up(request, pk):
             widget=forms.Select,
         )
 
+    # --- NEW: prestige directly from PrestigeClass, NO gm_approved enrollments ---
 
-    # Offer prestige fields when allowed (level 7+, GM-approved). Use POST for binding.
     next_level = character.level + 1
-    eligible = PrestigeEnrollment.objects.filter(character=character, gm_approved=True)
 
-    first_choice = (
+    # Start from all prestige classes with min_entry_level ≤ next_level
+    eligible = PrestigeClassModel.objects.filter(min_entry_level__lte=next_level)
+
+    # If the character already has prestige levels, lock to that class only
+    prev_choice = (
         PrestigeChoice.objects
-        .select_related("enrollment")
-        .filter(enrollment__character=character)
-        .order_by("id").first()
+        .select_related("prestige_class")
+        .filter(character=character)
+        .order_by("id")
+        .first()
     )
-    if first_choice:
-        eligible = eligible.filter(pk=first_choice.enrollment_id)
+    if prev_choice:
+        eligible = eligible.filter(pk=prev_choice.prestige_class_id)
+
 
     can_offer_prestige = (next_level >= 7 and eligible.exists())
     if can_offer_prestige:
         # Initial radio selection prefers POST; falls back to GET (preview) then "base"
-        track_initial = (request.POST.get("advance_track")
-                        or request.GET.get("advance_track")
-                        or "base")
+        track_initial = (
+            request.POST.get("advance_track")
+            or request.GET.get("advance_track")
+            or "base"
+        )
+
         level_form.fields["advance_track"] = forms.ChoiceField(
-            choices=[("base", f"Advance base class ({default_cls.name})"),
-                    ("prestige", "Advance prestige class")],
+            choices=[
+                ("base",     f"Advance base class ({default_cls.name})"),
+                ("prestige", "Advance prestige class"),
+            ],
             widget=forms.RadioSelect,
             required=True,
             initial=track_initial,
             label="Advance in…",
         )
-        level_form.fields["prestige_enrollment"] = forms.ModelChoiceField(
-            queryset=eligible.order_by("id"),
+
+        # This field now points directly at PrestigeClass, not enrollments
+        level_form.fields["prestige_class"] = forms.ModelChoiceField(
+            queryset=eligible.order_by("name"),
             required=False,
             label="Prestige",
-            help_text="GM-approved only",
+            help_text="Available prestige classes (no GM enrolment required).",
         )
 
-        def _counts_as_qs(enroll):
+        def _counts_as_qs(pclass):
             """
-            For the NEXT prestige level, return allowed counts-as classes using PrestigeLevel.
+            For THIS character and the given PrestigeClass, return the allowed
+            counts-as classes for the *next* prestige level using PrestigeLevel.
+
             If mode == FIXED, return that one class as a 1-row queryset.
             If mode == CHOOSE, return PrestigeLevel.allowed_counts_as for that level.
             """
-            if not enroll:
+            if not pclass:
                 return CharacterClassModel.objects.none()
 
-            # next prestige level number for this enrollment
-            p_level = PrestigeChoice.objects.filter(enrollment=enroll).count() + 1
+            # Next prestige level number for THIS character in THIS prestige class
+            p_level = prestige_next_level(character, pclass)
+
             try:
-                pl = PrestigeLevel.objects.get(prestige_class=enroll.prestige_class, level=p_level)
+                pl = PrestigeLevel.objects.get(prestige_class=pclass, level=p_level)
             except PrestigeLevel.DoesNotExist:
                 return CharacterClassModel.objects.none()
 
@@ -11436,24 +11545,27 @@ def character_level_up(request, pk):
             return pl.allowed_counts_as.all()
 
 
-        chosen_enroll = None
-        raw = (request.POST.get("prestige_enrollment")
-            or request.GET.get("prestige_enrollment")
-            or "").strip()
+        chosen_prestige = None
+        raw = (
+            request.POST.get("prestige_class")
+            or request.GET.get("prestige_class")
+            or ""
+        ).strip()
         if raw.isdigit():
-            chosen_enroll = eligible.filter(pk=int(raw)).first()
-        if not chosen_enroll and eligible.count() == 1:
-            chosen_enroll = eligible.first()
+            chosen_prestige = eligible.filter(pk=int(raw)).first()
+        if not chosen_prestige and eligible.count() == 1:
+            chosen_prestige = eligible.first()
 
-        counts_qs = _counts_as_qs(chosen_enroll) if chosen_enroll else CharacterClassModel.objects.none()
+        counts_qs = _counts_as_qs(chosen_prestige) if chosen_prestige else CharacterClassModel.objects.none()
         level_form.fields["prestige_counts_as"] = forms.ModelChoiceField(
             queryset=counts_qs.order_by("name"),
             required=False,
             label="Counts-as (this prestige level)",
         )
-        if chosen_enroll and counts_qs.count() == 1:
+        if chosen_prestige and counts_qs.count() == 1:
             level_form.fields["prestige_counts_as"].initial = counts_qs.first().pk
             level_form.fields["prestige_counts_as"].widget = forms.HiddenInput()
+
     
 
 
@@ -11877,22 +11989,16 @@ def character_level_up(request, pk):
 
 
     #
-    # (Paste your current code for those three sections here, replacing
-    #  target_cls/preview_cls with posted_cls where appropriate.)
-
-    # ── (G) Validate; on failure mirror your old error path ──────────────────
     if not level_form.is_valid():
-        # Build a friendly, specific error list and keep the modal open
+        # Build a friendly, specific error list for the messages framework
         label_by_name = {}
 
-        # Labels for “normal” fields on the form
         for b in level_form:  # bound fields
             try:
                 label_by_name[b.name] = b.label or b.name
             except Exception:
                 pass
 
-        # Labels for dynamically-added subclass fields
         for item in feature_fields:
             if item.get("field"):
                 try:
@@ -11910,8 +12016,8 @@ def character_level_up(request, pk):
         else:
             messages.error(request, "Level up couldn’t be applied. Please fix the highlighted fields.")
 
-        url = reverse('characters:character_detail', kwargs={"pk": pk}) + "#levelUpModal"
-        return redirect(url)
+        # Don’t force the #levelUpModal hash in the URL
+        return redirect('characters:character_detail', pk=pk)
 
 
     # ── (H) APPLY the level-up (copy the original body verbatim) ────────────
