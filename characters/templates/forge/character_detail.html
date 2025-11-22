@@ -1725,7 +1725,138 @@ function renderToggleMods(list, container, checkboxClass) {
         </td>
         <td class="text-muted">{{ it.kind|default:"—" }}</td>
         <td class="text-muted">{{ it.rarity|default:"—" }}</td>
-        <td class="text-muted">{{ it.description }}</td>
+<td class="text-muted">
+  {% if it.special_item %}
+    <!-- Special / magic item: header -->
+    <div class="fw-semibold">
+      {{ it.special_item.name }}
+      {% if it.special_item.attunement %}
+        <span class="badge text-bg-warning ms-1">Attunement</span>
+      {% endif %}
+    </div>
+
+    {% if it.special_item.slot %}
+      <div><small>Slot: {{ it.special_item.slot }}</small></div>
+    {% endif %}
+
+    {% if it.description or it.special_item.description %}
+      <div class="mt-1">
+        {{ it.description|default:it.special_item.description|linebreaksbr }}
+      </div>
+    {% endif %}
+
+    {% if it.special_traits %}
+      <div class="mt-2">
+        <strong>Traits</strong>
+        <ul class="mb-0 ps-3">
+          {% for tv in it.special_traits %}
+            <li class="mb-2">
+              <!-- Trait name -->
+              <div><strong>{{ tv.name }}</strong></div>
+
+              <!-- Trait description -->
+              {% if tv.description %}
+                <div>{{ tv.description|linebreaksbr }}</div>
+              {% endif %}
+
+              <!-- Core active config: actions / uses / formula / damage -->
+              {% if tv.uses or tv.action_type or tv.damage_type or tv.formula or tv.formula_target %}
+                <div><small>
+                  {% if tv.action_type %}Action: {{ tv.action_type }}{% endif %}
+                  {% if tv.uses %}
+                    {% if tv.action_type %} • {% endif %}
+                    Uses: {{ tv.uses }}
+                  {% endif %}
+                  {% if tv.formula_target or tv.formula %}
+                    {% if tv.action_type or tv.uses %} • {% endif %}
+                    Effect:
+                    {% if tv.formula_target %}{{ tv.formula_target }}{% endif %}
+                    {% if tv.formula %} ({{ tv.formula }}){% endif %}
+                  {% endif %}
+                  {% if tv.damage_type %}
+                    {% if tv.action_type or tv.uses or tv.formula or tv.formula_target %} • {% endif %}
+                    Damage type: {{ tv.damage_type }}
+                  {% endif %}
+                </small></div>
+              {% endif %}
+
+              <!-- Saving throw block -->
+              {% if tv.saving_throw_required %}
+                <div><small>
+                  Save:
+                  {% if tv.get_saving_throw_type_display %}
+                    {{ tv.get_saving_throw_type_display }}
+                  {% else %}
+                    {{ tv.saving_throw_type }}
+                  {% endif %}
+                  {% if tv.get_saving_throw_granularity_display %}
+                    ({{ tv.get_saving_throw_granularity_display }})
+                  {% endif %}
+                </small></div>
+
+                {% if tv.saving_throw_basic_success or tv.saving_throw_basic_failure %}
+                  <div><small>
+                    {% if tv.saving_throw_basic_success %}
+                      On success: {{ tv.saving_throw_basic_success }}<br>
+                    {% endif %}
+                    {% if tv.saving_throw_basic_failure %}
+                      On failure: {{ tv.saving_throw_basic_failure }}
+                    {% endif %}
+                  </small></div>
+                {% endif %}
+
+                {% if tv.saving_throw_critical_success or tv.saving_throw_success or tv.saving_throw_failure or tv.saving_throw_critical_failure %}
+                  <div><small>
+                    {% if tv.saving_throw_critical_success %}
+                      <strong>Crit success:</strong> {{ tv.saving_throw_critical_success }}<br>
+                    {% endif %}
+                    {% if tv.saving_throw_success %}
+                      <strong>Success:</strong> {{ tv.saving_throw_success }}<br>
+                    {% endif %}
+                    {% if tv.saving_throw_failure %}
+                      <strong>Failure:</strong> {{ tv.saving_throw_failure }}<br>
+                    {% endif %}
+                    {% if tv.saving_throw_critical_failure %}
+                      <strong>Crit failure:</strong> {{ tv.saving_throw_critical_failure }}
+                    {% endif %}
+                  </small></div>
+                {% endif %}
+              {% endif %}
+
+              <!-- Resistance / reduction block -->
+              {% if tv.gain_resistance_mode or tv.gain_resistance_types or tv.gain_resistance_amount %}
+                <div><small>
+                  Resistance:
+                  {% if tv.gain_resistance_mode %}
+                    {{ tv.get_gain_resistance_mode_display }}
+                  {% endif %}
+                  {% if tv.gain_resistance_types %}
+                    to {{ tv.gain_resistance_types|join:", " }}
+                  {% endif %}
+                  {% if tv.gain_resistance_amount %}
+                    ({{ tv.gain_resistance_amount }})
+                  {% endif %}
+                </small></div>
+              {% endif %}
+
+              <!-- Passive proficiency mods -->
+              {% if tv.modify_proficiency_target or tv.modify_proficiency_amount %}
+                <div><small>
+                  Proficiency:
+                  {% if tv.modify_proficiency_target %}{{ tv.modify_proficiency_target }}{% endif %}
+                  {% if tv.modify_proficiency_amount %} {{ tv.modify_proficiency_amount }}{% endif %}
+                </small></div>
+              {% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+  {% else %}
+    <!-- Non-magic item -->
+    {{ it.description|linebreaksbr }}
+  {% endif %}
+</td>
         <td class="text-end">{{ it.quantity }}</td>
         <td class="text-end">
           <form method="post" class="d-inline">

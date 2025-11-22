@@ -4723,45 +4723,109 @@ def _inventory_context(character):
             party_pool = []
 
 
-    # Catalogs for pickers
-    # Catalogs for pickers
+    # Catalogs for pickers / item type detection
     try:
-        Weapon = apps.get_model("characters", "Weapon")
-        Armor  = apps.get_model("characters", "Armor")
-        weapons_all = list(Weapon.objects.order_by("name"))
-        armors_all  = list(Armor.objects.order_by("name"))
+        Weapon      = apps.get_model("characters", "Weapon")
+        Armor       = apps.get_model("characters", "Armor")
+        SpecialItem = apps.get_model("characters", "SpecialItem")
+
+        weapons_all  = list(Weapon.objects.order_by("name"))
+        armors_all   = list(Armor.objects.order_by("name"))
+        specials_all = list(SpecialItem.objects.order_by("name"))
     except LookupError:
-        weapons_all, armors_all = [], []
+        Weapon = Armor = SpecialItem = None
+        weapons_all, armors_all, specials_all = [], [], []
 
     # Enrich CharacterItem rows with kind/rarity flags for the table
     for it in my_items:
         obj = getattr(it, "item", None)
-        # correct isinstance checks; if the model isn't loaded, leave False
+        # quick defensive flags (overwritten below)
         it.weapon = bool(obj and 'Weapon' in str(type(obj))) if weapons_all else False
         it.armor  = bool(obj and 'Armor'  in str(type(obj))) if armors_all  else False
 
     # ^ the two lines above are just defensive; we’ll overwrite properly below
     try:
         from django.contrib.contenttypes.models import ContentType
-        w_ct = ContentType.objects.get_for_model(Weapon) if weapons_all else None
-        a_ct = ContentType.objects.get_for_model(Armor)  if armors_all  else None
+        w_ct = ContentType.objects.get_for_model(Weapon)      if Weapon      else None
+        a_ct = ContentType.objects.get_for_model(Armor)       if Armor       else None
+        s_ct = ContentType.objects.get_for_model(SpecialItem) if SpecialItem else None
     except Exception:
-        w_ct = a_ct = None
+        w_ct = a_ct = s_ct = None
+
+    # Enrich CharacterItem rows with kind/rarity flags for the table
+    try:
+        from django.contrib.contenttypes.models import ContentType
+    except Exception:
+        ContentType = None
 
     for it in my_items:
         obj = getattr(it, "item", None)
-        it.kind   = None
-        it.rarity = None
-        it.weapon = False
-        it.armor  = False
-        if w_ct and it.item_content_type_id == w_ct.id:
+
+        # defaults
+        it.kind           = None
+        it.rarity         = None
+        it.weapon         = False
+        it.armor          = False
+        it.special_item   = None    # SpecialItem instance, if any
+        it.special_traits = []      # list[SpecialItemTraitValue]
+
+        # Nothing resolved via GenericFK — skip
+        if obj is None:
+            continue
+
+        # --- Weapon ---
+        if Weapon and isinstance(obj, Weapon):
             it.kind   = "Weapon"
             it.weapon = True
             it.rarity = getattr(obj, "rarity", None)
-        elif a_ct and it.item_content_type_id == a_ct.id:
+            continue
+
+        # --- Armor ---
+        if Armor and isinstance(obj, Armor):
             it.kind   = "Armor"
             it.armor  = True
             it.rarity = getattr(obj, "rarity", None)
+            continue
+
+        # --- Special / magic item ---
+        if SpecialItem and isinstance(obj, SpecialItem):
+            # Type label (Weapon / Armor / Wearable / Artifact / Consumable)
+            kind_display = getattr(obj, "get_item_type_display", None)
+            if callable(kind_display):
+                it.kind = kind_display()
+            else:
+                it.kind = getattr(obj, "item_type", None) or "Magic Item"
+
+            # Rarity label from choices if available
+            rarity_display = getattr(obj, "get_rarity_display", None)
+            if callable(rarity_display):
+                it.rarity = rarity_display()
+            else:
+                it.rarity = getattr(obj, "rarity", None)
+
+            it.special_item = obj
+
+            # Get ALL traits (not just active), ordered by name
+            traits_qs = (
+                getattr(obj, "specialitemtraitvalue_set", None)
+                or getattr(obj, "traits", None)  # just in case you later add related_name="traits"
+            )
+            if hasattr(traits_qs, "all"):
+                it.special_traits = list(traits_qs.all().order_by("name"))
+
+            # Merge CharacterItem.description with SpecialItem.description
+            base_desc  = (it.description or "").strip()
+            extra_desc = (getattr(obj, "description", "") or "").strip()
+            if extra_desc:
+                if base_desc and extra_desc not in base_desc:
+                    it.description = f"{base_desc}\n\n{extra_desc}"
+                elif not base_desc:
+                    it.description = extra_desc
+
+            continue
+
+        # Fallback: non-weapon/armor/special; leave defaults
+
 
     return {
         "show_inventory_tab": True,
