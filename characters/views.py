@@ -6060,8 +6060,12 @@ def character_detail(request, pk):
     skill_proficiencies = list(character.skill_proficiencies.all())
     skill_proficiencies.sort(key=lambda sp: (getattr(sp.selected_skill, "name", "") or "").lower())
 
+    # Ensure CharacterClass is bound in this function *before* first use
+    CharacterClass = apps.get_model("characters", "CharacterClass")
+
     class_progress  = character.class_progress.select_related('character_class')
     racial_features = character.race.features.all() if character.race else []
+
     universal_feats = UniversalLevelFeature.objects.filter(level=character.level)
     total_level     = character.level
     subrace_name    = (character.subrace.name 
