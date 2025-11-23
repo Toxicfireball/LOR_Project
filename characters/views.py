@@ -10686,14 +10686,22 @@ def character_detail(request, pk):
         notes_by_category.setdefault(n.category_id, []).append(n)
 
 
-    is_lvl6_plus = (total_level or 0) >= 6
-    if is_lvl6_plus:
+    current_level = total_level or 0
+    is_lvl6_plus = current_level >= 6
+
+    if current_level == 0 or is_lvl6_plus:
+        # Level 0: no classes yet → show all valid starting classes
+        # Level 6+: multiclassing allowed → also show all valid starting classes
         base_class_choices = list(
             app_models.CharacterClass.objects
-            .filter(levels__level=1).distinct().order_by('name')
+            .filter(levels__level=1)
+            .distinct()
+            .order_by("name")
         )
     else:
+        # Levels 1–5: only advance in classes you already have
         base_class_choices = [cp.character_class for cp in class_progress]
+
     # ── Prestige models used in both POST and preview ──────────────────────
     PrestigeClass = apps.get_model("characters", "PrestigeClass")
     CharacterPrestigeLevelChoice = apps.get_model("characters", "CharacterPrestigeLevelChoice")
@@ -11531,8 +11539,14 @@ def character_level_up(request, pk):
     first_prog = character.class_progress.select_related('character_class').first()
     default_cls = first_prog.character_class if first_prog else CharacterClassModel.objects.order_by("name").first()
 
-    # Ensure the dropdown always exists for the left preview
-    if "base_class" not in level_form.fields:
+    # Ensure the dropdown exists AND has a non-empty queryset
+    if "base_class" in level_form.fields:
+        fld = level_form.fields["base_class"]
+        fld.queryset = CharacterClassModel.objects.order_by("name")
+        # Set an initial if none is set yet
+        if getattr(default_cls, "pk", None) is not None and not fld.initial:
+            fld.initial = default_cls.pk
+    else:
         level_form.fields["base_class"] = forms.ModelChoiceField(
             queryset=CharacterClassModel.objects.order_by("name"),
             required=True,
@@ -11540,6 +11554,7 @@ def character_level_up(request, pk):
             initial=getattr(default_cls, "pk", None),
             widget=forms.Select,
         )
+
 
     # --- NEW: prestige directly from PrestigeClass, NO gm_approved enrollments ---
 

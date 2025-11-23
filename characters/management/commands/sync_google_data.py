@@ -163,23 +163,7 @@ class Command(BaseCommand):
 
 
 
-    def add_arguments(self, parser):
-        parser.add_argument(
-            '--delete-missing',
-            action='store_true',
-            help='Delete ClassFeat rows not present in the sheet (case/space-insensitive).'
-        )
-        parser.add_argument(
-            '--dry-run',
-            action='store_true',
-            help='Log intended changes/deletions without modifying the database.'
-        )
-        parser.add_argument(
-            '--min-sheet-rows',
-            type=int,
-            default=400,
-            help='Safety: require at least this many feat rows from the sheet before allowing deletion.'
-        )
+
 
 
     def handle(self, *args, **options):
@@ -285,44 +269,32 @@ class Command(BaseCommand):
                     print(f"🧾 Sheet headers: {headers}", flush=True)
 
                 for raw in raw_rows:
+                    # normalize header keys
                     row = {(k.strip() if isinstance(k, str) else k): v for k, v in raw.items()}
+
+                    # 1) get the spell name from the row
                     name_sheet = get_spell_name_from_row(row)
                     if not name_sheet:
-                        continue
+                        continue  # skip nameless rows
 
-                    spell_name = name_raw.strip()  # still strip for lookup
-                    Spell.objects.update_or_create(
-                        name=spell_name,
-                        defaults={
-                            'level': level,
-                            'description':    safe_str(first_nonempty(row, 'Description', 'Desc')),
-                            'effect':         safe_str(first_nonempty(row, 'Effect', 'Effects')),
-                            'upcast_effect':  safe_str(first_nonempty(row, 'Upcasted Effect', 'Upcast Effect')),
-                            'saving_throw':   safe_str(first_nonempty(row, 'Saving Throw', 'Save', 'Save (Type)')),
-                            'casting_time':   safe_str(first_nonempty(row, 'Casting Time', 'Cast Time')),
-                            'duration':       safe_str(first_nonempty(row, 'Duration', 'Dur')),
-                            'components':     safe_str(first_nonempty(row, 'Components', 'Comp')),
-                            'range':          safe_str(first_nonempty(row, 'Range')),
-                            'target':         safe_str(first_nonempty(row, 'Target', 'Targets')),
-                            'origin':         safe_str(first_nonempty(row, 'Origin', 'School', 'Tradition')),
-                            'sub_origin':     safe_str(first_nonempty(row, 'Sub Origin', 'Sub-Origin')),
-                            'mastery_req':    safe_str(first_nonempty(row, 'Mastery Req', 'Mastery Requirement')),
-                            'tags':           safe_str(first_nonempty(row, 'Other Tags', 'Tags')),
-
-                        }
-                    )
+                    # 2) canonical key for matching against DB
                     key = canonical_spell_name(name_sheet).lower()
                     spell_keys.add(key)
                     spell_display_by_key[key] = name_sheet
 
-                    # Row-level level override if present
-                    row_level = parse_level(first_nonempty(row, 'Level', 'Spell Level', 'Rank'), tab_level)
+                    # 3) determine spell level: row override > tab level
+                    row_level = parse_level(
+                        first_nonempty(row, 'Level', 'Spell Level', 'Rank'),
+                        tab_level,
+                    )
 
+                    # 4) build all sync fields from the sheet
                     fields = dict(
                         level         = row_level,
                         description   = rget(row, 'Description', 'Desc', 'Text'),
                         effect        = rget(row, 'Effect', 'Effects'),
-                        upcast_effect = rget(row, 'Upcasted Effect', 'Upcast Effect', 'Heightened', 'Heightened Effect', 'Heighten'),
+                        upcast_effect = rget(row, 'Upcasted Effect', 'Upcast Effect',
+                                            'Heightened', 'Heightened Effect', 'Heighten'),
                         saving_throw  = rget(row, 'Saving Throw', 'Save', 'Save (Type)', 'SavingThrow'),
                         casting_time  = rget(row, 'Casting Time', 'Cast Time', 'Casting'),
                         duration      = rget(row, 'Duration', 'Dur'),
@@ -335,7 +307,21 @@ class Command(BaseCommand):
                         tags          = rget(row, 'Other Tags', 'Tags'),
                     )
 
+                    # 5) create or update by canonical name key
                     ids = spell_by_key.get(key, [])
+                    if not ids:
+                        obj = Spell.objects.create(name=name_sheet, **fields)
+                        spell_by_key[key] = [obj.id]
+                        created += 1
+                        if len(sample) < 5:
+                            sample.append(('created', obj.id, name_sheet, row_level))
+                    else:
+                        for sid in ids:
+                            Spell.objects.filter(id=sid).update(name=name_sheet, **fields)
+                            updated += 1
+                        if len(sample) < 5:
+                            sample.append(('updated', ids[0], name_sheet, row_level))
+
                     if not ids:
                         obj = Spell.objects.create(name=name_sheet, **fields)
                         spell_by_key[key] = [obj.id]

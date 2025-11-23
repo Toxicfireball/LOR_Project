@@ -3635,7 +3635,6 @@ tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
                 </table>
               </div>
             </div>
-
 <div class="mb-3">
   <h6 class="mb-2">Features at L{{ total_level|add:"1" }}</h6>
   <ul class="mb-0 ps-3">
@@ -3676,55 +3675,54 @@ tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
       {% empty %}
         <li><em>None</em></li>
       {% endfor %}
-{% else %}
-  {% for f in auto_feats %}
-    {# Skip pure feat-pick placeholders like “Class Feat” / “Skill Feat” #}
-    {% if f.scope != "class_feat_pick"
-          and f.scope != "class_feat_choice"
-          and f.kind  != "class_feat_pick"
-          and f.kind  != "class_feat_choice"
-          and f.kind  != "grant_class_feat" %}
-      <li class="mb-2">
-        {% if f.kind == "spell_table" and f.spell_row_next %}
-          <div class="table-responsive mt-2">
-            <table class="table table-sm table-bordered w-auto">
-              <thead>
-                <tr>
-                  <th class="text-nowrap">Level</th>
-                  {% for _ in "0123456789"|make_list %}<th>{{ forloop.counter }}</th>{% endfor %}
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td class="text-nowrap">Slots</td>
-                  <td>{{ f.spell_row_next.slot1 }}</td>
-                  <td>{{ f.spell_row_next.slot2 }}</td>
-                  <td>{{ f.spell_row_next.slot3 }}</td>
-                  <td>{{ f.spell_row_next.slot4 }}</td>
-                  <td>{{ f.spell_row_next.slot5 }}</td>
-                  <td>{{ f.spell_row_next.slot6 }}</td>
-                  <td>{{ f.spell_row_next.slot7 }}</td>
-                  <td>{{ f.spell_row_next.slot8 }}</td>
-                  <td>{{ f.spell_row_next.slot9 }}</td>
-                  <td>{{ f.spell_row_next.slot10 }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        {% endif %}
-        <div class="mt-2">
-          {% include "partials/_feature_detail.html" with f=f %}
-        </div>
-      </li>
-  {% empty %}
-    <li><em>None</em></li>
-  {% endfor %}
-{% endif %}
-
-
-
+    {% else %}
+      {% if auto_feats %}
+        {% for f in auto_feats %}
+          {# Skip pure feat-pick placeholders like “Class Feat” / “Skill Feat” #}
+          {% if f.scope == "class_feat_pick" or f.scope == "class_feat_choice" or f.kind == "class_feat_pick" or f.kind == "class_feat_choice" or f.kind == "grant_class_feat" %}
+            {# skip this placeholder entirely #}
+          {% else %}
+            <li class="mb-2">
+              {% if f.kind == "spell_table" and f.spell_row_next %}
+                <div class="table-responsive mt-2">
+                  <table class="table table-sm table-bordered w-auto">
+                    <thead>
+                      <tr>
+                        <th class="text-nowrap">Level</th>
+                        {% for _ in "0123456789"|make_list %}<th>{{ forloop.counter }}</th>{% endfor %}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td class="text-nowrap">Slots</td>
+                        <td>{{ f.spell_row_next.slot1 }}</td>
+                        <td>{{ f.spell_row_next.slot2 }}</td>
+                        <td>{{ f.spell_row_next.slot3 }}</td>
+                        <td>{{ f.spell_row_next.slot4 }}</td>
+                        <td>{{ f.spell_row_next.slot5 }}</td>
+                        <td>{{ f.spell_row_next.slot6 }}</td>
+                        <td>{{ f.spell_row_next.slot7 }}</td>
+                        <td>{{ f.spell_row_next.slot8 }}</td>
+                        <td>{{ f.spell_row_next.slot9 }}</td>
+                        <td>{{ f.spell_row_next.slot10 }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              {% endif %}
+              <div class="mt-2">
+                {% include "partials/_feature_detail.html" with f=f %}
+              </div>
+            </li>
+          {% endif %}
+        {% endfor %}
+      {% else %}
+        <li><em>None</em></li>
+      {% endif %}
+    {% endif %}
   </ul>
 </div>
+
 
         </div> <!-- /LEFT column col-12 col-xl-5 -->
 
