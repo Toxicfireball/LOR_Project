@@ -2705,25 +2705,49 @@ def class_detail(request, pk):
     profs = list(
         cls.prof_progress
            .select_related('tier')
-           .order_by('proficiency_type', 'tier__bonus')
+           .order_by('proficiency_type', 'armor_group', 'weapon_group', 'tier__bonus')
     )
+
     tiers = sorted({p.tier for p in profs}, key=lambda t: t.bonus)
     tier_names = [t.name for t in tiers]
 
-    prof_types = []
-    for p in profs:
-        lbl = p.get_proficiency_type_display()
-        if lbl not in prof_types:
-            prof_types.append(lbl)
+    # Build rows keyed by a *detailed* label:
+    # e.g. "Armor – Light", "Armor – Heavy", "Weapon – Simple", "Weapon – Martial", etc.
+    row_map = {}  # label -> {tier_name -> at_level}
 
-    # build matrix[proficiency_name][tier_name] = at_level
-    matrix = {pt: {tn: None for tn in tier_names} for pt in prof_types}
     for p in profs:
-        matrix[p.get_proficiency_type_display()][p.tier.name] = p.at_level
+        base = p.get_proficiency_type_display()
 
+        # Attach armor/weapon group names when present
+        if p.proficiency_type == "armor":
+            if p.armor_group:
+                label = f"{base} – {p.get_armor_group_display()}"
+            elif p.armor_item:
+                label = f"{base} – {p.armor_item.name}"
+            else:
+                label = base
+        elif p.proficiency_type == "weapon":
+            if p.weapon_group:
+                label = f"{base} – {p.get_weapon_group_display()}"
+            elif p.weapon_item:
+                label = f"{base} – {p.weapon_item.name}"
+            else:
+                label = base
+        else:
+            label = base
+
+        if label not in row_map:
+            row_map[label] = {tn: None for tn in tier_names}
+
+        row_map[label][p.tier.name] = p.at_level
+
+    # Convert to list for the template
     prof_rows = [
-        {'type': pt, 'levels': [matrix[pt][tn] for tn in tier_names]}
-        for pt in prof_types
+        {
+            "type": label,
+            "levels": [row_map[label][tn] for tn in tier_names],
+        }
+        for label in sorted(row_map.keys())
     ]
 
     # ── 2) Hit die ─────────────────────────────────────────────────────────────
@@ -2769,23 +2793,6 @@ def class_detail(request, pk):
     )
 
     # ── 4) Spell-slot tables for this class (grouped by feature) ─────────────
-    spell_slot_groups = []
-
-    spell_table_features = (
-        ClassFeature.objects
-        .filter(character_class=cls, kind="spell_table")
-        .prefetch_related("spell_slot_rows")   # matches related_name on SpellSlotRow
-        .order_by("name")
-    )
-
-    for feat in spell_table_features:
-        # SpellSlotRow.Meta already orders by level, but explicit is fine
-        rows = list(feat.spell_slot_rows.all().order_by("level"))
-        if rows:
-            spell_slot_groups.append({
-                "feature": feat,
-                "rows": rows,
-            })
 
 
 
@@ -2850,6 +2857,25 @@ def class_detail(request, pk):
  
 
     # ── 5) Summary 1…20 ────────────────────────────────────────────────────────
+
+    # 5a) Precompute Skill Point grants per level from ClassSkillPointGrant
+    sp_grants = list(cls.skill_point_grants.all())  # adjust related_name if needed
+    skill_points_by_level: dict[int, int] = {}
+    for g in sp_grants:
+        # assumes fields: at_level, points_awarded
+        skill_points_by_level[g.at_level] = (
+            skill_points_by_level.get(g.at_level, 0) + g.points_awarded
+        )
+
+    # 5b) Precompute Skill Feat grants per level from ClassSkillFeatGrant
+    sf_grants = list(cls.skill_feat_grants.all())  # related_name on ClassSkillFeatGrant
+    skill_feats_by_level: dict[int, int] = {}
+    for g in sf_grants:
+        # ClassSkillFeatGrant.num_picks = how many skill-feat picks at this level
+        skill_feats_by_level[g.at_level] = (
+            skill_feats_by_level.get(g.at_level, 0) + g.num_picks
+        )
+
     max_lvl = max(levels.aggregate(Max('level'))['level__max'] or 1, 20)
     summary = []
 
@@ -2857,13 +2883,13 @@ def class_detail(request, pk):
         cl = next((c for c in levels if c.level == lvl), None)
         feats = []
         if cl:
-            feats = list(getattr(cl, 'filtered_features', cl.features.all()))
+            feats = list(getattr(cl, "filtered_features", cl.features.all()))
 
         labels = []
         for f in feats:
-            if f.scope == 'subclass_feat':
+            if f.scope == "subclass_feat":
                 names = []
-                for sub in f.subclasses.all().select_related('group'):
+                for sub in f.subclasses.all().select_related("group"):
                     gname = getattr(getattr(sub, "group", None), "name", None)
                     names.append((gname or sub.name or "").strip())
                 names = [n for n in names if n]
@@ -2874,7 +2900,29 @@ def class_detail(request, pk):
                 labels.append("–".join(p for p in [f.code, f.name] if p))
 
         unique = list(dict.fromkeys(labels))  # dedupe, preserve order
-        summary.append({'level': lvl, 'features': unique})
+
+        # Skill points at this level:
+        # - If there are explicit grants rows, use them.
+        # - If no grant rows exist at all, fall back to class.skill_points_per_level.
+        if skill_points_by_level:
+            skill_points = skill_points_by_level.get(lvl, 0)
+        else:
+            skill_points = cls.skill_points_per_level or 0
+
+        # Skill feats at this level come ONLY from ClassSkillFeatGrant,
+        # NOT from ClassFeature.kind.
+        if skill_feats_by_level:
+            skill_feat_count = skill_feats_by_level.get(lvl, 0)
+        else:
+            skill_feat_count = 0
+
+        summary.append({
+            "level": lvl,
+            "features": unique,
+            "skill_feat_count": skill_feat_count,
+            "skill_points": skill_points,
+        })
+
 
     return render(request, 'codex/class_detail.html', {
         'cls': cls,
@@ -2884,8 +2932,8 @@ def class_detail(request, pk):
         'levels': levels,
         'subclass_groups': subclass_groups,
         'summary': summary,
-        'spell_slot_groups': spell_slot_groups,
     })
+
 
 
 

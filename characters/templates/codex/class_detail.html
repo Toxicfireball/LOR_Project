@@ -97,55 +97,7 @@
 </table>
 <p class="mb-8"><strong>Hit Die:</strong> d{{ hit_die }}</p>
 
-{# Spell slots per level, from SpellSlotTable model #}
-{% if spell_slot_groups %}
-  <h2 class="text-2xl font-semibold mb-2">Spellcasting Progression</h2>
 
-  {% for group in spell_slot_groups %}
-    <h3 class="text-lg font-semibold mt-3">
-      {{ group.feature.name }}
-      {% if group.feature.spell_list %}
-        ({{ group.feature.get_spell_list_display }})
-      {% endif %}
-    </h3>
-
-    <table class="table-auto w-full border border-gray-300 text-sm mb-4">
-      <thead>
-        <tr class="bg-gray-100">
-          <th class="border border-gray-300 px-2 py-1">Class Level</th>
-          <th class="border border-gray-300 px-2 py-1">1st</th>
-          <th class="border border-gray-300 px-2 py-1">2nd</th>
-          <th class="border border-gray-300 px-2 py-1">3rd</th>
-          <th class="border border-gray-300 px-2 py-1">4th</th>
-          <th class="border border-gray-300 px-2 py-1">5th</th>
-          <th class="border border-gray-300 px-2 py-1">6th</th>
-          <th class="border border-gray-300 px-2 py-1">7th</th>
-          <th class="border border-gray-300 px-2 py-1">8th</th>
-          <th class="border border-gray-300 px-2 py-1">9th</th>
-          <th class="border border-gray-300 px-2 py-1">10th</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in group.rows %}
-          <tr class="{% cycle 'bg-white' 'bg-gray-50' %}">
-            <td class="border border-gray-300 px-2 py-1">L{{ row.level }}</td>
-            <td class="border border-gray-300 px-2 py-1">{{ row.slot1 }}</td>
-            <td class="border border-gray-300 px-2 py-1">{{ row.slot2 }}</td>
-            <td class="border border-gray-300 px-2 py-1">{{ row.slot3 }}</td>
-            <td class="border border-gray-300 px-2 py-1">{{ row.slot4 }}</td>
-            <td class="border border-gray-300 px-2 py-1">{{ row.slot5 }}</td>
-            <td class="border border-gray-300 px-2 py-1">{{ row.slot6 }}</td>
-            <td class="border border-gray-300 px-2 py-1">{{ row.slot7 }}</td>
-            <td class="border border-gray-300 px-2 py-1">{{ row.slot8 }}</td>
-            <td class="border border-gray-300 px-2 py-1">{{ row.slot9 }}</td>
-            <td class="border border-gray-300 px-2 py-1">{{ row.slot10 }}</td>
-          </tr>
-        {% endfor %}
-
-      </tbody>
-    </table>
-  {% endfor %}
-{% endif %}
 
 {# Full-detail features by level #}
 <h2 class="text-2xl font-semibold mb-2">Class Features</h2>
@@ -610,12 +562,15 @@
 
 
 {# Summary 1–20 #}
-<h2 class="text-2xl font-semibold mt-8 mb-2">Feature Summary by Level</h2>
+{# Summary 1–20 #}
+<h2 class="text-2xl font-semibold mt-8 mb-2">Feature / Skill Feat / Skill Point Summary by Level</h2>
 <table class="table-auto w-full border-collapse border border-gray-300 mb-12">
   <thead>
     <tr class="bg-gray-100">
       <th class="border border-gray-300 px-4 py-2">Level</th>
       <th class="border border-gray-300 px-4 py-2">Features</th>
+      <th class="border border-gray-300 px-4 py-2">Skill Feats at this Level</th>
+      <th class="border border-gray-300 px-4 py-2">Skill Points from this Class</th>
     </tr>
   </thead>
   <tbody>
@@ -629,8 +584,19 @@
             &mdash;
           {% endif %}
         </td>
+        <td class="border border-gray-300 px-4 py-2 text-center">
+          {% if row.skill_feat_count %}
+            {{ row.skill_feat_count }}
+          {% else %}
+            &mdash;
+          {% endif %}
+        </td>
+        <td class="border border-gray-300 px-4 py-2 text-center">
+          {{ row.skill_points }}
+        </td>
       </tr>
     {% endfor %}
   </tbody>
 </table>
+
 {% endblock %}
