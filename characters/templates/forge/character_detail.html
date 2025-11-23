@@ -974,7 +974,7 @@
           <input type="hidden" name="kind" value="standard">
           <input type="hidden" name="roll_code" id="std-roll-code-field" value="">
           <div class="col-6">
-            <input class="form-control form-control-sm" name="name" placeholder="e.g. Proficiency" required>
+            <input class="form-control form-control-sm" name="label" placeholder="e.g. Proficiency" required>
           </div>
           <div class="col-3">
             <input class="form-control form-control-sm" name="value" type="number" placeholder="+/-" required>
@@ -1198,16 +1198,17 @@ function renderStdMods(list, container) {
         <span class="mono">${m.value >= 0 ? "+" : ""}${m.value}</span>
 
         <!-- Edit button -->
-        <form method="post" class="d-inline">
-          ${csrf_token}
-          <input type="hidden" name="roll_mod_edit" value="1">
-          <input type="hidden" name="mod_id" value="${m.id}">
-          <input type="hidden" name="roll_code" value="${currentRoll().code}">
-          <input type="hidden" name="kind" value="standard">
-          <input type="hidden" name="name" value="${m.name}">
-          <input type="hidden" name="value" value="${m.value}">
-          <button class="btn btn-sm btn-outline-secondary py-0 px-1">✎</button>
-        </form>
+<form method="post" class="d-inline">
+  ${csrf_token}
+  <input type="hidden" name="roll_mod_edit" value="1">
+  <input type="hidden" name="mod_id" value="${m.id}">
+  <input type="hidden" name="roll_code" value="${currentRoll().code}">
+  <input type="hidden" name="kind" value="standard">
+  <input type="hidden" name="label" value="${m.name}">
+  <input type="hidden" name="value" value="${m.value}">
+  <button class="btn btn-sm btn-outline-secondary py-0 px-1">✎</button>
+</form>
+
 
         <!-- Delete button -->
         <form method="post" class="d-inline">
@@ -1250,9 +1251,10 @@ function renderToggleMods(list, container, checkboxClass) {
           <input type="hidden" name="roll_mod_edit" value="1">
           <input type="hidden" name="mod_id" value="${m.id}">
           <input type="hidden" name="roll_code" value="${currentRoll().code}">
-          <input type="hidden" name="kind" value="toggle">
-          <input type="hidden" name="name" value="${m.name}">
-          <input type="hidden" name="value" value="${m.value}">
+<input type="hidden" name="kind" value="toggle">
+<input type="hidden" name="label" value="${m.name}">
+<input type="hidden" name="value" value="${m.value}">
+
           <button class="btn btn-sm btn-outline-secondary py-0 px-1">✎</button>
         </form>
 

@@ -7301,15 +7301,15 @@ def character_detail(request, pk):
         except ValueError:
             mid = 0
 
-        name = (request.POST.get("name") or "").strip()
+        label = (request.POST.get("label") or "").strip()   # ⬅️ CHANGED: was "name"
         try:
             value = int(request.POST.get("value") or "0")
         except ValueError:
             value = 0
 
-        if mid and name:
+        if mid and label:
             RollModifier.objects.filter(character=character, id=mid).update(
-                name=name,
+                name=label,          # ⬅️ still update model.name
                 value=value,
             )
 
@@ -10844,26 +10844,46 @@ def character_detail(request, pk):
     feat_ids = list(mg_qs.values_list("object_id", flat=True))
     feats_by_id = {f.id: f for f in ClassFeat._base_manager.filter(id__in=feat_ids).only("id", "name")}
     if request.method == "POST" and request.POST.get("roll_mod_form") and can_edit:
-        kind = request.POST.get("kind")  # "standard", "toggle", "ap_standard", "ap_toggle"
-        roll_code = (request.POST.get("roll_code") or "").strip()
-        name = (request.POST.get("name") or "").strip()
-        try:
-            value = int(request.POST.get("value") or "0")
-        except ValueError:
-            value = 0
 
-        if roll_code and name and kind in {"standard", "toggle", "ap_standard", "ap_toggle"}:
-            RollModifier.objects.create(
-                character=character,
-                roll_code=roll_code,
-                name=name,
-                value=value,
-                kind=kind,
+        code    = (request.POST.get("roll_code") or "").strip()      # e.g. "attack" or "generic"
+        kind    = (request.POST.get("kind") or "").strip()           # standard / toggle / ap_standard / ap_toggle
+        label   = (request.POST.get("label") or "").strip()          # ⬅️ CHANGED: was "name"
+        val_raw = (request.POST.get("value") or "").strip()
+
+        if not code or not label:
+            messages.error(request, "Name and roll code are required.")
+            return redirect(
+                reverse("characters:character_detail", args=[character.pk]) + "#tab-rolls"
             )
 
+        try:
+            value = int(val_raw)
+        except ValueError:
+            messages.error(request, "Modifier value must be a number.")
+            return redirect(
+                reverse("characters:character_detail", args=[character.pk]) + "#tab-rolls"
+            )
+
+        # Validate kind
+        if kind not in {"standard", "toggle", "ap_standard", "ap_toggle"}:
+            messages.error(request, "Invalid modifier kind.")
+            return redirect(
+                reverse("characters:character_detail", args=[character.pk]) + "#tab-rolls"
+            )
+
+        RollModifier.objects.create(
+            character=character,
+            roll_code=code,
+            kind=kind,
+            name=label,          # ⬅️ still saved to model.name
+            value=value,
+        )
+
+        messages.success(request, "Roll modifier added.")
         return redirect(
             reverse("characters:character_detail", args=[character.pk]) + "#tab-rolls"
         )
+
 
 
     # Build rows for “Manually Added Feats”
@@ -11048,7 +11068,12 @@ def character_detail(request, pk):
         "active_rows": active_rows,
         "passive_rows": passive_rows,
         "all_rows": all_rows,
-
+    "weapons_list": combat_blocks["pickers"]["weapons"],
+    "armor_list": combat_blocks["pickers"]["armor"],
+    "selected_armor": selected_armor,  # you already use this in the template
+    "equipped_weapon_1": by_slot.get(1).weapon if by_slot.get(1) else None,
+    "equipped_weapon_2": by_slot.get(2).weapon if by_slot.get(2) else None,
+    "equipped_weapon_3": by_slot.get(3).weapon if by_slot.get(3) else None,
         # — Backgrounds —
         "backgrounds": backgrounds,
         "roll_choices": roll_choices,
