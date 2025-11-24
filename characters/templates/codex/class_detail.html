@@ -23,10 +23,7 @@
           <dd><code>{{ cls.starting_skills_formula }}</code></dd>
         </div>
       {% endif %}
-      <div class="flex justify-between gap-2">
-        <dt class="font-medium">Skill Points / Level</dt>
-        <dd>{{ cls.skill_points_per_level }}</dd>
-      </div>
+
       {% with keys=cls.key_abilities.all %}
         {% if keys %}
           <div class="flex justify-between gap-2">
@@ -73,7 +70,23 @@
 
 {# Proficiency pivot table #}
 <h2 class="text-2xl font-semibold mb-2">Proficiencies & Hit Die</h2>
+
+{% if weapon_baseline or armor_baseline %}
+  <p class="mb-3 text-sm">
+    {% if weapon_baseline %}
+      <strong>Baseline Weapon Proficiency:</strong>
+      {{ weapon_baseline|join:", " }}.
+    {% endif %}
+    {% if armor_baseline %}
+      {% if weapon_baseline %}<br>{% endif %}
+      <strong>Baseline Armor Proficiency:</strong>
+      {{ armor_baseline|join:", " }}.
+    {% endif %}
+  </p>
+{% endif %}
+
 <table class="table-auto w-full border-collapse border border-gray-300 mb-8">
+
   <thead>
     <tr class="bg-gray-100">
       <th class="border border-gray-300 px-4 py-2">Proficiency</th>
@@ -362,6 +375,7 @@
         <div class="px-4 py-3">
           <p class="italic mb-3">{{ sub.description }}</p>
 
+
 {% if sub.features_by_level %}
   {% for lvl, feats in sub.features_by_level.items %}
     {% if group.system_type == 'modular_mastery' and lvl == 0 %}
@@ -373,82 +387,13 @@
     {% for sf in feats %}
       <div class="border rounded p-4 mb-4 bg-white shadow-sm">
         <h4 class="text-lg font-semibold">
-          {{ sf.name }} <small>({{ sf.code }})</small>
+          {{ sf.name }}
+          {% if sf.code %}
+            <small>({{ sf.code }})</small>
+          {% endif %}
         </h4>
 
         <div class="mt-2 mb-3">{{ sf.description|safe }}</div>
-
-        <dl class="grid grid-cols-2 gap-x-6 text-sm">
-          {% if sf.action_type %}
-            <dt class="font-medium">Action</dt>
-            <dd>{{ sf.get_action_type_display }}</dd>
-          {% endif %}
-          {% if sf.activity_type %}
-            <dt class="font-medium">Usage</dt>
-            <dd>{{ sf.get_activity_type_display }}</dd>
-          {% endif %}
-          {% if sf.uses %}
-            <dt class="font-medium">Uses</dt>
-            <dd>{{ sf.uses }}</dd>
-          {% endif %}
-          {% if sf.formula %}
-            <dt class="font-medium">Formula</dt>
-            <dd><code>{{ sf.formula }}</code></dd>
-          {% endif %}
-          {% if sf.modify_proficiency_target %}
-            <dt class="font-medium">Proficiency Set</dt>
-            <dd>
-              {{ sf.modify_proficiency_target }}
-              → {{ sf.modify_proficiency_amount.name }}
-            </dd>
-          {% endif %}
-          {% if sf.saving_throw_required %}
-            <dt class="font-medium">Save ({{ sf.get_saving_throw_type_display }})</dt>
-            <dd class="text-sm">
-              {% if sf.saving_throw_granularity == 'basic' %}
-                Success: {{ sf.saving_throw_basic_success }}<br>
-                Failure: {{ sf.saving_throw_basic_failure }}
-              {% else %}
-                Crit Success: {{ sf.saving_throw_critical_success }}<br>
-                Success: {{ sf.saving_throw_success }}<br>
-                Failure: {{ sf.saving_throw_failure }}<br>
-                Crit Failure: {{ sf.saving_throw_critical_failure }}
-              {% endif %}
-            </dd>
-          {% endif %}
-
-          {% if sf.mastery_rank is not None %}
-            <dt class="font-medium">Mastery Rank</dt>
-            <dd>{{ sf.mastery_rank }}</dd>
-          {% endif %}
-          {% if sf.level_required %}
-            <dt class="font-medium">Req. Class Level</dt>
-            <dd>L{{ sf.level_required }}</dd>
-          {% endif %}
-        </dl>
-
-        {# Options for this subclass feature (safe pattern) #}
-        {% with opts=sf.options.all %}
-          {% if opts %}
-            <div class="mt-4 border-t pt-3">
-              <h5 class="font-semibold mb-2">Options</h5>
-              <div class="space-y-3">
-                {% for opt in opts %}
-                  <div class="rounded border p-3 bg-gray-50">
-                    <div class="font-medium">{{ opt.label }}</div>
-
-                    {% if opt.grants_feature %}
-                      <div class="mt-2 rounded border p-3 bg-white">
-                        <div class="text-sm text-gray-600">Grants:</div>
-                        <h6 class="text-base font-semibold">
-                          {{ opt.grants_feature.name }}
-                          {% if opt.grants_feature.code %}
-                            <small>({{ opt.grants_feature.code }})</small>
-                          {% endif %}
-                        </h6>
-                        <div class="prose prose-sm mt-1">
-                          {{ opt.grants_feature.description|safe }}
-                        </div>
 
         <dl class="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
           {% if sf.kind %}
@@ -530,9 +475,107 @@
             <dd><code>{{ sf.available_masteries_formula }}</code></dd>
           {% endif %}
 
+          {% if sf.damage_type %}
+            <dt class="font-medium">Damage Type</dt>
+            <dd>{{ sf.get_damage_type_display }}</dd>
+          {% endif %}
 
+          {% if sf.gain_resistance_mode %}
+            <dt class="font-medium">Resistance Mode</dt>
+            <dd>{{ sf.get_gain_resistance_mode_display }}</dd>
+          {% endif %}
+          {% if sf.gain_resistance_amount %}
+            <dt class="font-medium">Resistance Amount</dt>
+            <dd>{{ sf.gain_resistance_amount }}</dd>
+          {% endif %}
+          {% if sf.gain_resistance_types %}
+            <dt class="font-medium">Resistance Types</dt>
+            <dd><code>{{ sf.gain_resistance_types|join:", " }}</code></dd>
+          {% endif %}
+
+          {% if sf.saving_throw_required %}
+            <dt class="font-medium">
+              Save ({{ sf.get_saving_throw_type_display }})
+            </dt>
+            <dd class="text-sm">
+              {% if sf.saving_throw_granularity == 'basic' %}
+                Success: {{ sf.saving_throw_basic_success }}<br>
+                Failure: {{ sf.saving_throw_basic_failure }}
+              {% else %}
+                Crit Success: {{ sf.saving_throw_critical_success }}<br>
+                Success: {{ sf.saving_throw_success }}<br>
+                Failure: {{ sf.saving_throw_failure }}<br>
+                Crit Failure: {{ sf.saving_throw_critical_failure }}
+              {% endif %}
+            </dd>
+          {% endif %}
         </dl>
 
+        {# Spell slots table for subclass features #}
+        {% with rows=sf.spell_slot_rows.all %}
+          {% if rows %}
+            <div class="mt-4">
+              <h5 class="font-semibold mb-2">Spell Slots Table</h5>
+              <table class="table-auto w-full border border-gray-300 text-sm">
+                <thead>
+                  <tr class="bg-gray-100">
+                    <th class="border border-gray-300 px-2 py-1">Class Level</th>
+                    <th class="border border-gray-300 px-2 py-1">1st</th>
+                    <th class="border border-gray-300 px-2 py-1">2nd</th>
+                    <th class="border border-gray-300 px-2 py-1">3rd</th>
+                    <th class="border border-gray-300 px-2 py-1">4th</th>
+                    <th class="border border-gray-300 px-2 py-1">5th</th>
+                    <th class="border border-gray-300 px-2 py-1">6th</th>
+                    <th class="border border-gray-300 px-2 py-1">7th</th>
+                    <th class="border border-gray-300 px-2 py-1">8th</th>
+                    <th class="border border-gray-300 px-2 py-1">9th</th>
+                    <th class="border border-gray-300 px-2 py-1">10th</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in rows %}
+                    <tr class="{% cycle 'bg-white' 'bg-gray-50' %}">
+                      <td class="border border-gray-300 px-2 py-1">L{{ row.level }}</td>
+                      <td class="border border-gray-300 px-2 py-1">{{ row.slot1 }}</td>
+                      <td class="border border-gray-300 px-2 py-1">{{ row.slot2 }}</td>
+                      <td class="border border-gray-300 px-2 py-1">{{ row.slot3 }}</td>
+                      <td class="border border-gray-300 px-2 py-1">{{ row.slot4 }}</td>
+                      <td class="border border-gray-300 px-2 py-1">{{ row.slot5 }}</td>
+                      <td class="border border-gray-300 px-2 py-1">{{ row.slot6 }}</td>
+                      <td class="border border-gray-300 px-2 py-1">{{ row.slot7 }}</td>
+                      <td class="border border-gray-300 px-2 py-1">{{ row.slot8 }}</td>
+                      <td class="border border-gray-300 px-2 py-1">{{ row.slot9 }}</td>
+                      <td class="border border-gray-300 px-2 py-1">{{ row.slot10 }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% endif %}
+        {% endwith %}
+
+        {# Options for this subclass feature #}
+        {% with opts=sf.options.all %}
+          {% if opts %}
+            <div class="mt-4 border-t pt-3">
+              <h5 class="font-semibold mb-2">Options</h5>
+              <div class="space-y-3">
+                {% for opt in opts %}
+                  <div class="rounded border p-3 bg-gray-50">
+                    <div class="font-medium">{{ opt.label }}</div>
+
+                    {% if opt.grants_feature %}
+                      <div class="mt-2 rounded border p-3 bg-white">
+                        <div class="text-sm text-gray-600">Grants:</div>
+                        <h6 class="text-base font-semibold">
+                          {{ opt.grants_feature.name }}
+                          {% if opt.grants_feature.code %}
+                            <small>({{ opt.grants_feature.code }})</small>
+                          {% endif %}
+                        </h6>
+                        <div class="prose prose-sm mt-1">
+                          {{ opt.grants_feature.description|safe }}
+                        </div>
                       </div>
                     {% endif %}
                   </div>

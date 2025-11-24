@@ -52,7 +52,7 @@ from django.views.decorators.http import require_GET
 # ── helpers that read the LEVEL TRIGGER instead of JSON ───────────────────
 import json as _json
 import uuid
-
+from django.db.models import Prefetch, Max, Min
 # characters/views.py
 import json
 
@@ -2702,23 +2702,49 @@ def class_detail(request, pk):
     cls = get_object_or_404(CharacterClass, pk=pk)
 
     # ── 1) Proficiency pivot ────────────────────────────────────────────────────
-    profs = list(
+    base_profs_qs = (
         cls.prof_progress
-           .select_related('tier')
-           .order_by('proficiency_type', 'armor_group', 'weapon_group', 'tier__bonus')
+           .select_related("tier")
+           .order_by("proficiency_type", "armor_group", "weapon_group", "tier__bonus")
     )
 
-    tiers = sorted({p.tier for p in profs}, key=lambda t: t.bonus)
+    # Baseline armor / weapon profs: earliest level rows only, shown as text, not in the table
+    weapon_baseline = []
+    armor_baseline  = []
+
+    weapon_qs = base_profs_qs.filter(proficiency_type="weapon")
+    if weapon_qs.exists():
+        base_lvl = weapon_qs.aggregate(Min("at_level"))["at_level__min"]
+        for p in weapon_qs.filter(at_level=base_lvl):
+            if p.weapon_group:
+                weapon_baseline.append(p.get_weapon_group_display())
+            elif p.weapon_item:
+                weapon_baseline.append(p.weapon_item.name)
+
+    armor_qs = base_profs_qs.filter(proficiency_type="armor")
+    if armor_qs.exists():
+        base_lvl = armor_qs.aggregate(Min("at_level"))["at_level__min"]
+        for p in armor_qs.filter(at_level=base_lvl):
+            if p.armor_group:
+                armor_baseline.append(p.get_armor_group_display())
+            elif p.armor_item:
+                armor_baseline.append(p.armor_item.name)
+
+    # Now build the pivot table, excluding armor/weapon progression
+    profs = list(
+        base_profs_qs.exclude(proficiency_type__in=["armor", "weapon"])
+    )
+
+    tiers = sorted({p.tier for p in profs}, key=lambda t: t.bonus) if profs else []
     tier_names = [t.name for t in tiers]
 
-    # Build rows keyed by a *detailed* label:
-    # e.g. "Armor – Light", "Armor – Heavy", "Weapon – Simple", "Weapon – Martial", etc.
+    # Build rows keyed by a label (Dodge, Perception, saves, etc.)
     row_map = {}  # label -> {tier_name -> at_level}
 
     for p in profs:
         base = p.get_proficiency_type_display()
 
-        # Attach armor/weapon group names when present
+        # Armor/weapon should already be excluded, but keep this defensive
         if p.proficiency_type == "armor":
             if p.armor_group:
                 label = f"{base} – {p.get_armor_group_display()}"
@@ -2741,7 +2767,6 @@ def class_detail(request, pk):
 
         row_map[label][p.tier.name] = p.at_level
 
-    # Convert to list for the template
     prof_rows = [
         {
             "type": label,
@@ -2819,8 +2844,9 @@ def class_detail(request, pk):
                             subclasses=sub,
                             subclass_group=group)
                     .select_related('modify_proficiency_amount')
-                    .prefetch_related('options__grants_feature')
+                    .prefetch_related('options__grants_feature', 'spell_slot_rows')
                 )
+
                 for f in modular_feats:
                     lvl = tier_map.get(f.tier)
                     if lvl:
@@ -2837,6 +2863,7 @@ def class_detail(request, pk):
                     .prefetch_related('options__grants_feature')
                     .order_by('mastery_rank', 'name')
                 )
+
                 if mastery_modules:
                     # use a synthetic “level 0” bucket so the template can render them
                     fbylevel[0] = list(mastery_modules)
@@ -2932,6 +2959,8 @@ def class_detail(request, pk):
         'levels': levels,
         'subclass_groups': subclass_groups,
         'summary': summary,
+        'weapon_baseline': weapon_baseline,
+        'armor_baseline': armor_baseline,
     })
 
 
