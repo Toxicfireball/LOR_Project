@@ -10735,7 +10735,7 @@ def character_detail(request, pk):
 
 
     current_level = total_level or 0
-    is_lvl6_plus = current_level >= 6
+    is_lvl6_plus = current_level > 4
 
     if current_level == 0 or is_lvl6_plus:
         # Level 0: no classes yet → show all valid starting classes
