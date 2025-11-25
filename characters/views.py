@@ -2730,10 +2730,23 @@ def class_detail(request, pk):
             elif p.armor_item:
                 armor_baseline.append(p.armor_item.name)
 
-    # Now build the pivot table, excluding armor/weapon progression
+    # Now build the pivot table:
+    #  - include generic Armor/Weapon rows
+    #  - EXCLUDE specific armor/weapon groups or items
     profs = list(
-        base_profs_qs.exclude(proficiency_type__in=["armor", "weapon"])
+        base_profs_qs.filter(
+            Q(
+                proficiency_type__in=["armor", "weapon"],
+                armor_group__isnull=True,
+                armor_item__isnull=True,
+                weapon_group__isnull=True,
+                weapon_item__isnull=True,
+            )
+            |
+            ~Q(proficiency_type__in=["armor", "weapon"])
+        )
     )
+
 
     tiers = sorted({p.tier for p in profs}, key=lambda t: t.bonus) if profs else []
     tier_names = [t.name for t in tiers]
