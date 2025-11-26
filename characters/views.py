@@ -31,7 +31,7 @@ from campaigns.models import CampaignMembership
 from django.db.models import Q, Max
 from django.shortcuts import render, redirect, get_object_or_404
 from django_select2.views import AutoResponseView
-from .models import Character, Skill  , RaceFeatureOption  
+from .models import Character, Skill  , RaceFeatureOption, SpecialItem
 from campaigns.models import Campaign, PartyItem
 from django.db import models
 import math
@@ -2975,7 +2975,6 @@ def class_detail(request, pk):
         'weapon_baseline': weapon_baseline,
         'armor_baseline': armor_baseline,
     })
-
 
 
 
