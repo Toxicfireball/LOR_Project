@@ -4771,7 +4771,8 @@ def _inventory_context(character):
     if getattr(character, "campaign_id", None):
         try:
             PartyItem = apps.get_model("campaigns", "PartyItem")
-            ContentType = apps.get_model("contenttypes", "ContentType")
+            # NOTE: we don't shadow ContentType here anymore; this line was unused
+            # ContentType = apps.get_model("contenttypes", "ContentType")
 
             def _label_for(obj):
                 return (
@@ -4781,6 +4782,7 @@ def _inventory_context(character):
                     or getattr(obj, "display_name", None)
                     or str(obj) or "—"
                 )
+
 
             qs = (PartyItem.objects
                 .filter(
@@ -4851,13 +4853,38 @@ def _inventory_context(character):
     for it in my_items:
         obj = getattr(it, "item", None)
 
-        # defaults
+        # Basic display name
+        base_name = (getattr(it, "name", "") or "").strip()
+        obj_name  = ""
+        if obj is not None:
+            for attr in ("name", "label", "title", "display_name"):
+                v = getattr(obj, attr, None)
+                if v:
+                    obj_name = str(v)
+                    break
+    for it in my_items:
+        obj = getattr(it, "item", None)
+
+        # Basic display name
+        base_name = (getattr(it, "name", "") or "").strip()
+        obj_name  = ""
+        if obj is not None:
+            for attr in ("name", "label", "title", "display_name"):
+                v = getattr(obj, attr, None)
+                if v:
+                    obj_name = str(v)
+                    break
+        it.display_name = base_name or obj_name or (str(obj) if obj is not None else "—")
+
+        # defaults for template
         it.kind           = None
         it.rarity         = None
         it.weapon         = False
         it.armor          = False
-        it.special_item   = None    # SpecialItem instance, if any
-        it.special_traits = []      # list[SpecialItemTraitValue]
+        it.special_item   = None      # SpecialItem instance, if any
+        it.special_traits = []        # list[SpecialItemTraitValue]
+        it.is_wearable    = False
+        it.wearable_slot  = None
 
         # Nothing resolved via GenericFK — skip
         if obj is None:
@@ -4893,12 +4920,14 @@ def _inventory_context(character):
             else:
                 it.rarity = getattr(obj, "rarity", None)
 
-            it.special_item = obj
+            it.special_item  = obj
+            it.is_wearable   = (obj.item_type == "wearable" and bool(obj.wearable_slot_id))
+            it.wearable_slot = getattr(obj, "wearable_slot", None)
 
             # Get ALL traits (not just active), ordered by name
             traits_qs = (
                 getattr(obj, "specialitemtraitvalue_set", None)
-                or getattr(obj, "traits", None)  # just in case you later add related_name="traits"
+                or getattr(obj, "traits", None)  # if you later add related_name="traits"
             )
             if hasattr(traits_qs, "all"):
                 it.special_traits = list(traits_qs.all().order_by("name"))
@@ -4916,6 +4945,76 @@ def _inventory_context(character):
 
         # Fallback: non-weapon/armor/special; leave defaults
 
+    # ── Wearable slot rows (from WearableSlot; ring has 2 positions) ────
+    from collections import defaultdict
+    wearable_rows = []
+    try:
+        WearableSlot = apps.get_model("characters", "WearableSlot")
+        all_slots = list(WearableSlot.objects.order_by("name"))
+    except LookupError:
+        all_slots = []
+
+    if all_slots:
+        # options_by_slot_id: which CharacterItems are wearable in that slot
+        options_by_slot_id = defaultdict(list)
+        # equipped_by_slot_code: what is currently equipped per slot code
+        equipped_by_slot_code = defaultdict(list)
+
+        for it in my_items:
+            slot = getattr(it, "wearable_slot", None)
+            if not getattr(it, "is_wearable", False) or slot is None:
+                continue
+            options_by_slot_id[slot.id].append(it)
+            if getattr(it, "is_equipped", False):
+                equipped_by_slot_code[(slot.code or "").lower()].append(it)
+
+        for slot in all_slots:
+            slot_code = (slot.code or "").lower()
+            options   = options_by_slot_id.get(slot.id, [])
+            # “Ring” slot: up to 2; everything else: 1
+            max_positions = 2 if slot_code == "ring" else 1
+
+            for idx in range(1, max_positions + 1):
+                current = None
+                eq_list = equipped_by_slot_code.get(slot_code, [])
+                if idx <= len(eq_list):
+                    current = eq_list[idx - 1]
+
+                if max_positions == 1:
+                    field_name = f"wear_slot_{slot_code}"
+                else:
+                    field_name = f"wear_slot_{slot_code}_{idx}"
+
+                wearable_rows.append({
+                    "slot":       slot,
+                    "index":      idx,          # 1 or 2 (for rings)
+                    "field_name": field_name,   # used by the form
+                    "current":    current,      # currently equipped CharacterItem or None
+                    "options":    options,      # wearable CharacterItems for this slot
+                })
+
+    # ── Attunement summary ─────────────────────────────────────────────
+    # Default max = 5 if field is missing or NULL
+    attunement_max = getattr(character, "attunement_max", 5) or 5
+
+
+    attuned_used   = 0
+    attuned_items  = []
+
+    for it in my_items:
+        obj = getattr(it, "special_item", None)
+        if not obj:
+            continue
+        # Only count if:
+        #   • SpecialItem has attunement=True
+        #   • This inventory row is marked as equipped
+        if getattr(obj, "attunement", False) and getattr(it, "is_equipped", False):
+            attuned_used += 1
+            attuned_items.append({
+                "name": getattr(obj, "name", str(obj)),
+                "slot": getattr(obj, "slot", None),
+                "kind": getattr(obj, "item_type", None),
+            })
 
     return {
         "show_inventory_tab": True,
@@ -4924,7 +5023,18 @@ def _inventory_context(character):
         "party_pool_items": party_pool,
         "weapons_all": weapons_all,          # for “Get Weapon”
         "armors_all": armors_all,            # for “Get Armor”
+
+        # Attunement summary for the tab
+        "inventory_attunement": {
+            "max":  attunement_max,
+            "used": attuned_used,
+            "items": attuned_items,
+        },
+
+        # Wearable slot UX (one per WearableSlot; ring shows 2 rows)
+        "wearable_rows": wearable_rows,
     }
+
 
 
 
@@ -7071,9 +7181,29 @@ def character_detail(request, pk):
             messages.success(request, f"Retrained {target} to {prev_name} (+{refund} SP).")
             return redirect('characters:character_detail', pk=pk)
 
-    # --- INVENTORY ops (Get Weapon/Armor, Add, Collect from Party, Remove) -------
-    if request.method == "POST" and can_edit and request.POST.get("inventory_op"):
+    if (
+        request.method == "POST"
+        and can_edit
+        and (
+            request.POST.get("inventory_op")              # new unified way
+            or request.POST.get("update_item_text")       # 4) edit free-text item
+            or request.POST.get("set_item_qty")           # 5) set quantity
+            or request.POST.get("collect_campaign_item")  # 6) collect from party
+            or request.POST.get("remove_item")            # 7) delete row
+        )
+    ):
+        # Normalise to a single `op` string
         op = (request.POST.get("inventory_op") or "").strip()
+
+        if not op:
+            if "update_item_text" in request.POST:
+                op = "update_item_text"
+            elif "set_item_qty" in request.POST:
+                op = "set_item_qty"
+            elif "collect_campaign_item" in request.POST:
+                op = "collect_campaign_item"
+            elif "remove_item" in request.POST:
+                op = "remove_item"
 
         try:
             CharacterItem = apps.get_model("characters", "CharacterItem")
@@ -10651,7 +10781,161 @@ def character_detail(request, pk):
 
             messages.success(request, "Item claimed from party inventory.")
             return redirect("characters:character_detail", pk=character.pk)
-    # ── 6) RENDER character_detail.html ───────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────
+    # INVENTORY POST HANDLING
+    # ─────────────────────────────────────────────────────────────────────
+    if request.method == "POST" and request.POST.get("inventory_op") and can_edit:
+        inv_op = request.POST.get("inventory_op")
+
+        # 1) Save currency
+        if inv_op == "save_currency":
+            try:
+                character.gold   = int(request.POST.get("gold")   or 0)
+                character.silver = int(request.POST.get("silver") or 0)
+                character.copper = int(request.POST.get("copper") or 0)
+                character.save(update_fields=["gold", "silver", "copper"])
+                messages.success(request, "Currency updated.")
+            except ValueError:
+                messages.error(request, "Currency values must be numbers.")
+            return redirect(
+                reverse("characters:character_detail", args=[character.pk]) + "#tab-inventory"
+            )
+
+        # 2) Save attunement max
+        if inv_op == "save_attunement_max":
+            try:
+                val = int(request.POST.get("attunement_max") or 0)
+                if val < 0:
+                    raise ValueError
+                character.attunement_max = val
+                character.save(update_fields=["attunement_max"])
+                messages.success(request, "Attunement maximum updated.")
+            except ValueError:
+                messages.error(request, "Attunement max must be a non-negative number.")
+            return redirect(
+                reverse("characters:character_detail", args=[character.pk]) + "#tab-inventory"
+            )
+
+        # 3) Save equipped WEARABLES (body slots)
+        # 3) Save equipped WEARABLES (body slots)
+        if inv_op == "save_equipped_items":
+            # Collect desired equipped CharacterItem IDs from:
+            #   • legacy checkboxes:  equip_item_<id>
+            #   • new slot fields:    wear_slot_<code> or wear_slot_<code>_<index>
+            equip_ids = set()
+            for key, val in request.POST.items():
+                # Old checkbox pattern
+                if key.startswith("equip_item_") and val:
+                    try:
+                        equip_ids.add(int(key.split("equip_item_", 1)[1]))
+                    except ValueError:
+                        pass
+
+                # New slot-based selector pattern
+                if key.startswith("wear_slot_") and val:
+                    try:
+                        equip_ids.add(int(val))
+                    except ValueError:
+                        pass
+
+
+            # All inventory items for this character
+            all_items = list(
+                CharacterItem.objects
+                .filter(character=character)
+                .select_related("item_content_type")
+            )
+
+            # Partition: wearables vs non-wearables
+            wearables = []            # list of (ci, special_item)
+            nonwearing_attuned_used = 0  # attunement already consumed by NON-wearables
+
+            for ci in all_items:
+                obj = getattr(ci, "item", None)
+                if isinstance(obj, SpecialItem):
+                    # Wearables handled here
+                    if obj.item_type == "wearable" and obj.wearable_slot_id:
+                        wearables.append((ci, obj))
+                    else:
+                        # Weapon / armor / artifact / whatever that requires attunement
+                        if obj.attunement and ci.is_equipped:
+                            nonwearing_attuned_used += 1
+
+            # Group requested wearables by slot code
+            slot_map = defaultdict(list)  # slot_code -> [CharacterItem,...]
+            id_to_pair = {}
+            for ci, obj in wearables:
+                id_to_pair[ci.id] = (ci, obj)
+                if ci.id in equip_ids:
+                    slot_code = (obj.wearable_slot.code or str(obj.wearable_slot_id)).lower()
+                    slot_map[slot_code].append(ci)
+
+            # Enforce per-slot limits: 1 per slot, 2 for 'ring'
+            slot_over_limits = []
+            slot_limited_ids = set()  # wearable CharacterItem IDs that survive slot limits
+
+            for slot_code, ci_list in slot_map.items():
+                limit = 2 if slot_code == "ring" else 1
+                if len(ci_list) > limit:
+                    slot_over_limits.append((slot_code, len(ci_list), limit))
+                # keep only first N
+                for ci in ci_list[:limit]:
+                    slot_limited_ids.add(ci.id)
+
+            # Now enforce attunement_max only for attunement-required wearables
+            attunement_max = getattr(character, "attunement_max", 5) or 5
+            attune_free = max(0, attunement_max - nonwearing_attuned_used)
+
+            attune_wearables = []
+            nonattune_wearables = []
+
+            for ci_id in slot_limited_ids:
+                ci, obj = id_to_pair[ci_id]
+                if obj.attunement:
+                    attune_wearables.append(ci)
+                else:
+                    nonattune_wearables.append(ci)
+
+            final_wearable_ids = set(ci.id for ci in nonattune_wearables)
+
+            # We can only keep up to attune_free attuned wearables
+            kept_attuned = attune_wearables[:attune_free]
+            final_wearable_ids.update(ci.id for ci in kept_attuned)
+
+            dropped_attuned = len(attune_wearables) - len(kept_attuned)
+
+            # Messages
+            for slot_code, count, limit in slot_over_limits:
+                messages.warning(
+                    request,
+                    f"{slot_code.title()} slot can have max {limit} item(s); "
+                    f"you tried {count}. Kept the first {limit}."
+                )
+
+            if attune_free <= 0 and attune_wearables:
+                messages.warning(
+                    request,
+                    "All attunement slots are already used by weapons/armor/other items; "
+                    "no attuned wearables could be equipped."
+                )
+            elif dropped_attuned > 0:
+                messages.warning(
+                    request,
+                    f"Not enough attunement slots: {dropped_attuned} wearable(s) were left unattuned."
+                )
+
+            # Persist: only change is_equipped for WEARABLES; everything else is untouched
+            for ci, obj in wearables:
+                desired = ci.id in final_wearable_ids
+                if ci.is_equipped != desired:
+                    ci.is_equipped = desired
+                    ci.save(update_fields=["is_equipped"])
+
+            messages.success(request, "Equipped wearables updated.")
+            return redirect(
+                reverse("characters:character_detail", args=[character.pk]) + "#tab-inventory"
+            )
+
     # Equip handler
     if request.method == "POST" and can_edit and request.POST.get("equip_weapon_slot"):
         slot = int(request.POST.get("equip_weapon_slot") or 0)

@@ -1622,10 +1622,10 @@ function renderToggleMods(list, container, checkboxClass) {
 </div>
 
 </div>
-
 <!-- INVENTORY TAB -->
 <div class="tab-pane fade" id="tab-inventory">
   <div class="row g-3">
+
     <!-- Currency -->
     <div class="col-12 col-lg-5">
       <div class="card h-100">
@@ -1634,21 +1634,25 @@ function renderToggleMods(list, container, checkboxClass) {
           <form method="post" class="row g-2">
             {% csrf_token %}
             <input type="hidden" name="inventory_op" value="save_currency">
+
             <div class="col-4">
               <label class="form-label form-label-sm">Gold</label>
               <input name="gold" type="number" class="form-control form-control-sm"
                      value="{{ inventory_currency.gold|default:0 }}" min="0">
             </div>
+
             <div class="col-4">
               <label class="form-label form-label-sm">Silver</label>
               <input name="silver" type="number" class="form-control form-control-sm"
                      value="{{ inventory_currency.silver|default:0 }}" min="0">
             </div>
+
             <div class="col-4">
               <label class="form-label form-label-sm">Copper</label>
               <input name="copper" type="number" class="form-control form-control-sm"
                      value="{{ inventory_currency.copper|default:0 }}" min="0">
             </div>
+
             <div class="col-12 d-flex justify-content-end">
               <button class="btn btn-sm btn-primary">Save</button>
             </div>
@@ -1657,227 +1661,457 @@ function renderToggleMods(list, container, checkboxClass) {
       </div>
     </div>
 
-    <!-- My Items -->
-<div class="card h-100">
-  <div class="card-header d-flex justify-content-between align-items-center">
-    <span class="fw-bold">Items</span>
-  </div>
+    <!-- Attunement + Wearables + Items -->
+    <div class="col-12 col-lg-7">
 
-  <div class="card-body">
-
-    <!-- Get Weapon -->
-    <form method="post" class="d-flex gap-2 align-items-center mb-2">
-      {% csrf_token %}
-      <input type="hidden" name="inventory_op" value="get_weapon">
-      <select name="weapon_id" class="form-select form-select-sm" required style="max-width:420px">
-        <option value="">— Select a weapon —</option>
-        {% for w in weapons_all %}
-          <option value="{{ w.id }}">{{ w.name }} ({{ w.damage }})</option>
-        {% endfor %}
-      </select>
-      <input name="item_qty" type="number" class="form-control form-control-sm" value="1" min="1" style="width:90px">
-      <button class="btn btn-sm btn-outline-primary">Get Weapon</button>
-    </form>
-
-    <!-- Get Armor -->
-    <form method="post" class="d-flex gap-2 align-items-center mb-3">
-      {% csrf_token %}
-      <input type="hidden" name="inventory_op" value="get_armor">
-      <select name="armor_id" class="form-select form-select-sm" required style="max-width:420px">
-        <option value="">— Select an armor —</option>
-        {% for a in armors_all %}
-          <option value="{{ a.id }}">{{ a.name }} (+{{ a.armor_value }})</option>
-        {% endfor %}
-      </select>
-      <input name="item_qty" type="number" class="form-control form-control-sm" value="1" min="1" style="width:90px">
-      <button class="btn btn-sm btn-outline-primary">Get Armor</button>
-    </form>
-
-    <!-- Manual free-text add (unchanged) -->
-    <form method="post" class="d-flex gap-2 align-items-center mb-3">
-      {% csrf_token %}
-      <input type="hidden" name="inventory_op" value="add_item">
-      <input name="item_name" class="form-control form-control-sm" placeholder="Add item…" required>
-      <input name="item_qty" type="number" class="form-control form-control-sm" value="1" min="1" style="width:90px">
-      <input name="item_desc" class="form-control form-control-sm"
-             placeholder="Description (optional)" style="min-width:220px">
-      <button class="btn btn-sm btn-primary">Add</button>
-    </form>
-
-
-    <div class="table-responsive">
-<table class="table table-sm">
-  <thead>
-    <tr>
-      <th>Name</th>
-      <th>Type</th>
-      <th>Rarity</th>
-      <th>Description</th>
-      <th class="text-end" style="width:120px">Qty</th>
-      <th class="text-end" style="width:100px">Action</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for it in inventory_items %}
-      <tr>
-        <td>
-          {{ it.name|default:it.item }}
-          {% if it.weapon %}<span class="badge text-bg-secondary ms-1">Weapon</span>{% endif %}
-          {% if it.armor %}<span class="badge text-bg-secondary ms-1">Armor</span>{% endif %}
-        </td>
-        <td class="text-muted">{{ it.kind|default:"—" }}</td>
-        <td class="text-muted">{{ it.rarity|default:"—" }}</td>
-<td class="text-muted">
-  {% if it.special_item %}
-    <!-- Special / magic item: header -->
-    <div class="fw-semibold">
-      {{ it.special_item.name }}
-      {% if it.special_item.attunement %}
-        <span class="badge text-bg-warning ms-1">Attunement</span>
-      {% endif %}
-    </div>
-
-    {% if it.special_item.slot %}
-      <div><small>Slot: {{ it.special_item.slot }}</small></div>
-    {% endif %}
-
-    {% if it.description or it.special_item.description %}
-      <div class="mt-1">
-        {{ it.description|default:it.special_item.description|linebreaksbr }}
-      </div>
-    {% endif %}
-
-    {% if it.special_traits %}
-      <div class="mt-2">
-        <strong>Traits</strong>
-        <ul class="mb-0 ps-3">
-          {% for tv in it.special_traits %}
-            <li class="mb-2">
-              <!-- Trait name -->
-              <div><strong>{{ tv.name }}</strong></div>
-
-              <!-- Trait description -->
-              {% if tv.description %}
-                <div>{{ tv.description|linebreaksbr }}</div>
-              {% endif %}
-
-              <!-- Core active config: actions / uses / formula / damage -->
-              {% if tv.uses or tv.action_type or tv.damage_type or tv.formula or tv.formula_target %}
-                <div><small>
-                  {% if tv.action_type %}Action: {{ tv.action_type }}{% endif %}
-                  {% if tv.uses %}
-                    {% if tv.action_type %} • {% endif %}
-                    Uses: {{ tv.uses }}
-                  {% endif %}
-                  {% if tv.formula_target or tv.formula %}
-                    {% if tv.action_type or tv.uses %} • {% endif %}
-                    Effect:
-                    {% if tv.formula_target %}{{ tv.formula_target }}{% endif %}
-                    {% if tv.formula %} ({{ tv.formula }}){% endif %}
-                  {% endif %}
-                  {% if tv.damage_type %}
-                    {% if tv.action_type or tv.uses or tv.formula or tv.formula_target %} • {% endif %}
-                    Damage type: {{ tv.damage_type }}
-                  {% endif %}
-                </small></div>
-              {% endif %}
-
-              <!-- Saving throw block -->
-              {% if tv.saving_throw_required %}
-                <div><small>
-                  Save:
-                  {% if tv.get_saving_throw_type_display %}
-                    {{ tv.get_saving_throw_type_display }}
-                  {% else %}
-                    {{ tv.saving_throw_type }}
-                  {% endif %}
-                  {% if tv.get_saving_throw_granularity_display %}
-                    ({{ tv.get_saving_throw_granularity_display }})
-                  {% endif %}
-                </small></div>
-
-                {% if tv.saving_throw_basic_success or tv.saving_throw_basic_failure %}
-                  <div><small>
-                    {% if tv.saving_throw_basic_success %}
-                      On success: {{ tv.saving_throw_basic_success }}<br>
-                    {% endif %}
-                    {% if tv.saving_throw_basic_failure %}
-                      On failure: {{ tv.saving_throw_basic_failure }}
-                    {% endif %}
-                  </small></div>
-                {% endif %}
-
-                {% if tv.saving_throw_critical_success or tv.saving_throw_success or tv.saving_throw_failure or tv.saving_throw_critical_failure %}
-                  <div><small>
-                    {% if tv.saving_throw_critical_success %}
-                      <strong>Crit success:</strong> {{ tv.saving_throw_critical_success }}<br>
-                    {% endif %}
-                    {% if tv.saving_throw_success %}
-                      <strong>Success:</strong> {{ tv.saving_throw_success }}<br>
-                    {% endif %}
-                    {% if tv.saving_throw_failure %}
-                      <strong>Failure:</strong> {{ tv.saving_throw_failure }}<br>
-                    {% endif %}
-                    {% if tv.saving_throw_critical_failure %}
-                      <strong>Crit failure:</strong> {{ tv.saving_throw_critical_failure }}
-                    {% endif %}
-                  </small></div>
-                {% endif %}
-              {% endif %}
-
-              <!-- Resistance / reduction block -->
-              {% if tv.gain_resistance_mode or tv.gain_resistance_types or tv.gain_resistance_amount %}
-                <div><small>
-                  Resistance:
-                  {% if tv.gain_resistance_mode %}
-                    {{ tv.get_gain_resistance_mode_display }}
-                  {% endif %}
-                  {% if tv.gain_resistance_types %}
-                    to {{ tv.gain_resistance_types|join:", " }}
-                  {% endif %}
-                  {% if tv.gain_resistance_amount %}
-                    ({{ tv.gain_resistance_amount }})
-                  {% endif %}
-                </small></div>
-              {% endif %}
-
-              <!-- Passive proficiency mods -->
-              {% if tv.modify_proficiency_target or tv.modify_proficiency_amount %}
-                <div><small>
-                  Proficiency:
-                  {% if tv.modify_proficiency_target %}{{ tv.modify_proficiency_target }}{% endif %}
-                  {% if tv.modify_proficiency_amount %} {{ tv.modify_proficiency_amount }}{% endif %}
-                </small></div>
-              {% endif %}
-            </li>
-          {% endfor %}
-        </ul>
-      </div>
-    {% endif %}
-  {% else %}
-    <!-- Non-magic item -->
-    {{ it.description|linebreaksbr }}
-  {% endif %}
-</td>
-        <td class="text-end">{{ it.quantity }}</td>
-        <td class="text-end">
-          <form method="post" class="d-inline">
+      <!-- Attunement card -->
+      <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span class="fw-bold">Attunement</span>
+          <span class="badge text-bg-secondary">
+            {{ inventory_attunement.used|default:0 }} /
+            {{ inventory_attunement.max|default:5 }} used
+          </span>
+        </div>
+        <div class="card-body">
+          <form method="post" class="row g-2 align-items-end">
             {% csrf_token %}
-            <input type="hidden" name="inventory_op" value="remove_item">
-            <input type="hidden" name="inventory_item_id" value="{{ it.id }}">
-            <button class="btn btn-sm btn-outline-danger">Remove</button>
-          </form>
-        </td>
-      </tr>
-    {% empty %}
+            <input type="hidden" name="inventory_op" value="save_attunement_max">
 
-            <tr><td colspan="3" class="text-muted">No items yet.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
+            <div class="col-6 col-md-4">
+              <label class="form-label form-label-sm">Max slots</label>
+              <input name="attunement_max"
+                     type="number"
+                     min="0"
+                     class="form-control form-control-sm"
+                     value="{{ inventory_attunement.max|default:5 }}">
+            </div>
+
+            <div class="col-6 col-md-4 text-end">
+              <button class="btn btn-sm btn-primary mt-3 mt-md-0">Save</button>
+            </div>
+          </form>
+
+          {% if inventory_attunement.items %}
+            <hr class="my-2">
+            <div class="small text-muted">
+              <strong>Currently attuned:</strong>
+              <ul class="mb-0 ps-3">
+                {% for a in inventory_attunement.items %}
+                  <li>
+                    {{ a.name }}
+                    {% if a.slot %} ({{ a.slot }}){% endif %}
+                  </li>
+                {% endfor %}
+              </ul>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Wearables & Magic Items (checkbox table) -->
+      <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span class="fw-bold">Wearables &amp; Magic Items</span>
+          <small class="text-muted">
+            One item per slot (except Rings: up to 2). Attuned items use attunement slots.
+          </small>
+        </div>
+        <div class="card-body p-2">
+          <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="inventory_op" value="save_equipped_items">
+
+            <div class="table-responsive">
+              <table class="table table-sm table-striped align-middle mb-2">
+                <thead>
+                  <tr>
+                    <th style="width: 30%;">Item</th>
+                    <th style="width: 15%;">Type</th>
+                    <th style="width: 15%;">Wear Slot</th>
+                    <th style="width: 10%;">Attune?</th>
+                    <th style="width: 10%;">Equipped</th>
+                    <th style="width: 10%;">Qty</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for it in inventory_items %}
+                    <tr>
+                      <td>{{ it.display_name }}</td>
+                      <td>{{ it.kind|default:"—" }}</td>
+                      <td>
+                        {% if it.is_wearable and it.wearable_slot %}
+                          {{ it.wearable_slot.name }}
+                        {% else %}
+                          —
+                        {% endif %}
+                      </td>
+                      <td>
+                        {% if it.special_item and it.special_item.attunement %}
+                          <span class="badge text-bg-warning">Attunement</span>
+                        {% else %}
+                          —
+                        {% endif %}
+                      </td>
+                      <td>
+                        {% if it.is_wearable %}
+                          <input type="checkbox"
+                                 name="equip_item_{{ it.id }}"
+                                 value="1"
+                                 {% if it.is_equipped %}checked{% endif %}>
+                        {% else %}
+                          —
+                        {% endif %}
+                      </td>
+                      <td>{{ it.quantity }}</td>
+                      <td class="small">
+                        {{ it.description|default_if_none:""|linebreaksbr }}
+                      </td>
+                    </tr>
+                  {% empty %}
+                    <tr>
+                      <td colspan="7" class="text-center text-muted">
+                        No items in inventory.
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+
+            <div class="d-flex justify-content-between align-items-center">
+              <small class="text-muted">
+                Non-ring slots: 1 item max. Ring slot (code <code>ring</code>): up to 2 items.
+              </small>
+              <button type="submit" class="btn btn-sm btn-primary">
+                Save Equipped Wearables
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Wearables equip form (by slot) -->
+      <div class="card mt-3">
+        <div class="card-header fw-bold">Wearables by Slot</div>
+        <div class="card-body">
+          {# Wearables equip form #}
+          <form method="post" action="{% url 'characters:character_detail' character.pk %}#tab-inventory">
+            {% csrf_token %}
+            <input type="hidden" name="inventory_op" value="save_equipped_items">
+
+            {% for row in wearable_rows %}
+              <div class="mb-3">
+                <label class="form-label">
+                  {{ row.slot.name }}{% if row.index > 1 %} ({{ row.index }}){% endif %} – from database:
+                  {% if row.current %}
+                    {% if row.current.item %}
+                      {{ row.current.item.name }}
+                    {% else %}
+                      {{ row.current.name|default:"(custom item)" }}
+                    {% endif %}
+                  {% else %}
+                    <em>None</em>
+                  {% endif %}
+                </label>
+
+                <select name="{{ row.field_name }}" class="form-select">
+                  <option value="">— None —</option>
+                  {% for ci in row.options %}
+                    <option value="{{ ci.id }}"
+                            {% if row.current and row.current.id == ci.id %}selected{% endif %}>
+                      {% if ci.item %}
+                        {{ ci.item.name }}
+                      {% else %}
+                        {{ ci.name|default:"(custom item)" }}
+                      {% endif %}
+                    </option>
+                  {% endfor %}
+                </select>
+              </div>
+            {% endfor %}
+
+            <div class="d-flex justify-content-end">
+              <button type="submit" class="btn btn-sm btn-primary">Save Wearables</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- My Items -->
+      <div class="card h-100 mt-3">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span class="fw-bold">Items</span>
+        </div>
+
+        <div class="card-body">
+
+          <!-- Get Weapon -->
+          <form method="post" class="d-flex gap-2 align-items-center mb-2">
+            {% csrf_token %}
+            <input type="hidden" name="inventory_op" value="get_weapon">
+
+            <select name="weapon_id" class="form-select form-select-sm" required style="max-width:420px">
+              <option value="">— Select a weapon —</option>
+              {% for w in weapons_all %}
+                <option value="{{ w.id }}">{{ w.name }} ({{ w.damage }})</option>
+              {% endfor %}
+            </select>
+
+            <input name="item_qty" type="number" class="form-control form-control-sm"
+                   value="1" min="1" style="width:90px">
+
+            <button class="btn btn-sm btn-outline-primary">Get Weapon</button>
+          </form>
+
+          <!-- Get Armor -->
+          <form method="post" class="d-flex gap-2 align-items-center mb-3">
+            {% csrf_token %}
+            <input type="hidden" name="inventory_op" value="get_armor">
+
+            <select name="armor_id" class="form-select form-select-sm" required style="max-width:420px">
+              <option value="">— Select an armor —</option>
+              {% for a in armors_all %}
+                <option value="{{ a.id }}">{{ a.name }} (+{{ a.armor_value }})</option>
+              {% endfor %}
+            </select>
+
+            <input name="item_qty" type="number" class="form-control form-control-sm"
+                   value="1" min="1" style="width:90px">
+
+            <button class="btn btn-sm btn-outline-primary">Get Armor</button>
+          </form>
+
+          <!-- Manual free-text add -->
+          <form method="post" class="d-flex gap-2 align-items-center mb-3">
+            {% csrf_token %}
+            <input type="hidden" name="inventory_op" value="add_item">
+
+            <input name="item_name" class="form-control form-control-sm"
+                   placeholder="Add item…" required>
+
+            <input name="item_qty" type="number" class="form-control form-control-sm"
+                   value="1" min="1" style="width:90px">
+
+            <input name="item_desc" class="form-control form-control-sm"
+                   placeholder="Description (optional)" style="min-width:220px">
+
+            <button class="btn btn-sm btn-primary">Add</button>
+          </form>
+
+          <!-- Items table -->
+          <div class="table-responsive">
+            <table class="table table-sm">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>Rarity</th>
+                  <th>Description</th>
+                  <th class="text-end" style="width:120px">Qty</th>
+                  <th class="text-end" style="width:100px">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for it in inventory_items %}
+                  <tr>
+                    <td>
+                      {{ it.name|default:it.item }}
+                      {% if it.weapon %}
+                        <span class="badge text-bg-secondary ms-1">Weapon</span>
+                      {% endif %}
+                      {% if it.armor %}
+                        <span class="badge text-bg-secondary ms-1">Armor</span>
+                      {% endif %}
+                    </td>
+
+                    <td class="text-muted">{{ it.kind|default:"—" }}</td>
+                    <td class="text-muted">{{ it.rarity|default:"—" }}</td>
+
+                    <td class="text-muted">
+                      {% if it.special_item %}
+                        <!-- Special / magic item: header -->
+                        <div class="fw-semibold">
+                          {{ it.special_item.name }}
+                          {% if it.special_item.attunement %}
+                            <span class="badge text-bg-warning ms-1">Attunement</span>
+                          {% endif %}
+                        </div>
+
+                        {% if it.special_item.slot %}
+                          <div><small>Slot: {{ it.special_item.slot }}</small></div>
+                        {% endif %}
+
+                        {% if it.description or it.special_item.description %}
+                          <div class="mt-1">
+                            {{ it.description|default:it.special_item.description|linebreaksbr }}
+                          </div>
+                        {% endif %}
+
+                        {% if it.special_traits %}
+                          <div class="mt-2">
+                            <strong>Traits</strong>
+                            <ul class="mb-0 ps-3">
+                              {% for tv in it.special_traits %}
+                                <li class="mb-2">
+                                  <!-- Trait name -->
+                                  <div><strong>{{ tv.name }}</strong></div>
+
+                                  <!-- Trait description -->
+                                  {% if tv.description %}
+                                    <div>{{ tv.description|linebreaksbr }}</div>
+                                  {% endif %}
+
+                                  <!-- Core active config: actions / uses / formula / damage -->
+                                  {% if tv.uses or tv.action_type or tv.damage_type or tv.formula or tv.formula_target %}
+                                    <div><small>
+                                      {% if tv.action_type %}
+                                        Action: {{ tv.action_type }}
+                                      {% endif %}
+                                      {% if tv.uses %}
+                                        {% if tv.action_type %} • {% endif %}
+                                        Uses: {{ tv.uses }}
+                                      {% endif %}
+                                      {% if tv.formula_target or tv.formula %}
+                                        {% if tv.action_type or tv.uses %} • {% endif %}
+                                        Effect:
+                                        {% if tv.formula_target %}{{ tv.formula_target }}{% endif %}
+                                        {% if tv.formula %} ({{ tv.formula }}){% endif %}
+                                      {% endif %}
+                                      {% if tv.damage_type %}
+                                        {% if tv.action_type or tv.uses or tv.formula or tv.formula_target %} • {% endif %}
+                                        Damage type: {{ tv.damage_type }}
+                                      {% endif %}
+                                    </small></div>
+                                  {% endif %}
+
+                                  <!-- Saving throw block -->
+                                  {% if tv.saving_throw_required %}
+                                    <div><small>
+                                      Save:
+                                      {% if tv.get_saving_throw_type_display %}
+                                        {{ tv.get_saving_throw_type_display }}
+                                      {% else %}
+                                        {{ tv.saving_throw_type }}
+                                      {% endif %}
+                                      {% if tv.get_saving_throw_granularity_display %}
+                                        ({{ tv.get_saving_throw_granularity_display }})
+                                      {% endif %}
+                                    </small></div>
+
+                                    {% if tv.saving_throw_basic_success or tv.saving_throw_basic_failure %}
+                                      <div><small>
+                                        {% if tv.saving_throw_basic_success %}
+                                          On success: {{ tv.saving_throw_basic_success }}<br>
+                                        {% endif %}
+                                        {% if tv.saving_throw_basic_failure %}
+                                          On failure: {{ tv.saving_throw_basic_failure }}
+                                        {% endif %}
+                                      </small></div>
+                                    {% endif %}
+
+                                    {% if tv.saving_throw_critical_success or tv.saving_throw_success or tv.saving_throw_failure or tv.saving_throw_critical_failure %}
+                                      <div><small>
+                                        {% if tv.saving_throw_critical_success %}
+                                          <strong>Crit success:</strong> {{ tv.saving_throw_critical_success }}<br>
+                                        {% endif %}
+                                        {% if tv.saving_throw_success %}
+                                          <strong>Success:</strong> {{ tv.saving_throw_success }}<br>
+                                        {% endif %}
+                                        {% if tv.saving_throw_failure %}
+                                          <strong>Failure:</strong> {{ tv.saving_throw_failure }}<br>
+                                        {% endif %}
+                                        {% if tv.saving_throw_critical_failure %}
+                                          <strong>Crit failure:</strong> {{ tv.saving_throw_critical_failure }}
+                                        {% endif %}
+                                      </small></div>
+                                    {% endif %}
+                                  {% endif %}
+
+                                  <!-- Resistance / reduction block -->
+                                  {% if tv.gain_resistance_mode or tv.gain_resistance_types or tv.gain_resistance_amount %}
+                                    <div><small>
+                                      Resistance:
+                                      {% if tv.gain_resistance_mode %}
+                                        {{ tv.get_gain_resistance_mode_display }}
+                                      {% endif %}
+                                      {% if tv.gain_resistance_types %}
+                                        to {{ tv.gain_resistance_types|join:", " }}
+                                      {% endif %}
+                                      {% if tv.gain_resistance_amount %}
+                                        ({{ tv.gain_resistance_amount }})
+                                      {% endif %}
+                                    </small></div>
+                                  {% endif %}
+
+                                  <!-- Passive proficiency mods -->
+                                  {% if tv.modify_proficiency_target or tv.modify_proficiency_amount %}
+                                    <div><small>
+                                      Proficiency:
+                                      {% if tv.modify_proficiency_target %}
+                                        {{ tv.modify_proficiency_target }}
+                                      {% endif %}
+                                      {% if tv.modify_proficiency_amount %}
+                                        {{ tv.modify_proficiency_amount }}
+                                      {% endif %}
+                                    </small></div>
+                                  {% endif %}
+                                </li>
+                              {% endfor %}
+                            </ul>
+                          </div>
+                        {% endif %}
+                      {% else %}
+                        <!-- Non-magic item -->
+                        {{ it.description|linebreaksbr }}
+                      {% endif %}
+                    </td>
+
+                    <td class="text-end">{{ it.quantity }}</td>
+
+                    <td class="text-end">
+                      {# Equip / Unequip only for special items with a wearable slot #}
+                      {% if it.special_item and it.special_item.slot %}
+                        {% if it.is_equipped %}
+                          <span class="badge text-bg-success me-1">Equipped</span>
+                          <form method="post" class="d-inline">
+                            {% csrf_token %}
+                            <input type="hidden" name="inventory_op" value="unequip_special">
+                            <input type="hidden" name="inventory_item_id" value="{{ it.id }}">
+                            <button class="btn btn-sm btn-outline-secondary">Unequip</button>
+                          </form>
+                        {% else %}
+                          <form method="post" class="d-inline me-1">
+                            {% csrf_token %}
+                            <input type="hidden" name="inventory_op" value="equip_special">
+                            <input type="hidden" name="inventory_item_id" value="{{ it.id }}">
+                            <button class="btn btn-sm btn-outline-primary">Equip</button>
+                          </form>
+                        {% endif %}
+                      {% endif %}
+
+                      <form method="post" class="d-inline">
+                        {% csrf_token %}
+                        <input type="hidden" name="inventory_op" value="remove_item">
+                        <input type="hidden" name="inventory_item_id" value="{{ it.id }}">
+                        <button class="btn btn-sm btn-outline-danger">Remove</button>
+                      </form>
+                    </td>
+                  </tr>
+                {% empty %}
+                  <tr>
+                    <td colspan="6" class="text-muted">No items yet.</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+        </div>
+      </div>
+
+    </div> <!-- /col-12 col-lg-7 -->
 
     <!-- Party Pool (collect) -->
     <div class="col-12">
@@ -1888,7 +2122,11 @@ function renderToggleMods(list, container, checkboxClass) {
             <div class="table-responsive">
               <table class="table table-sm align-middle mb-0">
                 <thead>
-                  <tr><th>Name</th><th style="width:120px" class="text-end">Qty</th><th style="width:160px" class="text-end">Action</th></tr>
+                  <tr>
+                    <th>Name</th>
+                    <th style="width:120px" class="text-end">Qty</th>
+                    <th style="width:160px" class="text-end">Action</th>
+                  </tr>
                 </thead>
                 <tbody>
                   {% for ci in party_pool_items %}
@@ -1914,6 +2152,7 @@ function renderToggleMods(list, container, checkboxClass) {
         </div>
       </div>
     </div>
+
   </div>
 </div>
 

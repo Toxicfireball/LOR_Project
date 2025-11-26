@@ -596,6 +596,10 @@ class Character(models.Model):
         null=True, blank=True,
         help_text="Leave blank to use your race's default."
     )
+    attunement_max = models.PositiveSmallIntegerField(
+        default=5,
+        help_text="Maximum number of magic items this character can be attuned to at once."
+    )
     # characters/models.py (inside class Character)
 
 
@@ -925,7 +929,7 @@ class CharacterItem(models.Model):
     # ✅ new: native free-text support (no catalog object)
     is_custom   = models.BooleanField(default=False)
     name        = models.CharField(max_length=120, blank=True, default="")
-
+    is_equipped = models.BooleanField(default=False)
     quantity    = models.PositiveIntegerField(default=1)
     description = models.TextField(blank=True, null=True)
 
@@ -941,6 +945,44 @@ class CharacterItem(models.Model):
     class Meta:
         ordering = ["-created_at"]
 
+class WearableSlot(models.Model):
+
+    code = models.SlugField(max_length=20, unique=True)
+    name = models.CharField(max_length=50)
+
+    def __str__(self):
+        return self.name
+
+class CharacterWearable(models.Model):
+    """
+    For each character and WearableSlot, remember which inventory item is equipped.
+    Slots themselves come from WearableSlot rows.
+    """
+    character = models.ForeignKey(
+        Character,
+        on_delete=models.CASCADE,
+        related_name="wearables",
+    )
+    slot = models.ForeignKey(
+        WearableSlot,
+        on_delete=models.CASCADE,
+        related_name="equipped_by",
+    )
+    item = models.ForeignKey(
+        CharacterItem,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="equipped_in_wearable_slots",
+    )
+
+    class Meta:
+        unique_together = (("character", "slot"),)
+
+    def __str__(self):
+        base = f"{self.character} – {self.slot.name}"
+        if self.item:
+            base += f": {self.item.name or getattr(self.item.item, 'name', '')}"
+        return base
 class PendingBackground(models.Model):
     """Player-proposed background awaiting GM approval. Mirrors Background fields 1:1."""
     # link it to a campaign optionally; GM of that campaign can approve
@@ -1437,13 +1479,6 @@ class Armor(models.Model):
     def group_code(self) -> str:
             return "unarmored" if self.type == self.TYPE_CLOTHING else self.type
 
-class WearableSlot(models.Model):
-
-    code = models.SlugField(max_length=20, unique=True)
-    name = models.CharField(max_length=50)
-
-    def __str__(self):
-        return self.name
 
 class SpecialItem(models.Model):
     ITEM_TYPE_CHOICES = [
