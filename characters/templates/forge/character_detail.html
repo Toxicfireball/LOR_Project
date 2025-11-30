@@ -3302,7 +3302,7 @@ function renderToggleMods(list, container, checkboxClass) {
 
       <div class="card-body">
 
-      <div class="card-body">
+
 
         {# ⬅ Slots summary (one per origin block) #}
         <div class="table-responsive mb-3">
@@ -3366,8 +3366,6 @@ function renderToggleMods(list, container, checkboxClass) {
 {% endif %}
 
 
-
-          </table>
         </div>
 
 <h6 class="mb-2">Prepared Spells</h6>
@@ -3386,11 +3384,64 @@ function renderToggleMods(list, container, checkboxClass) {
 {% endwith %}
 
 
-<h6 class="mt-4 mb-2">Learn New Spells (Leveled)</h6>
+{# 3) LEARN NEW LEVELED SPELLS #}
+<h6 class="mt-4 mb-2">
+  <span>Learn New Spells (Leveled)</span>
+</h6>
+
+
 {% with learn_id="learn-all-"|add:b.feature_id|stringformat:"s" %}
   {# pass rank=0 so each pick uses its own spell level; cap uses global needs_known #}
-  {% include "characters/_spell_table.html" with table_id=learn_id rows=b.learn_spells_all feature_id=b.feature_id action="learn_known" rank=0 limit_known=b.needs_known %}
+  {% include "characters/_spell_table.html" with
+      table_id=learn_id
+      rows=b.learn_spells_all
+      feature_id=b.feature_id
+      action="learn_known"
+      rank=0
+      limit_known=b.needs_known %}
 {% endwith %}
+
+{% if can_edit %}
+  <form method="post"
+        action="{% url 'characters:character_detail' character.pk %}"
+        class="row g-2 align-items-end mt-2">
+    {% csrf_token %}
+    <input type="hidden" name="spells_op" value="manual_learn">
+    <input type="hidden" name="feature_id" value="{{ b.feature_id }}">
+
+    <div class="col-md-6">
+      <label class="form-label form-label-sm mb-1">Spell</label>
+      <select name="manual_spell_id"
+              id="manual-spell-select-{{ b.feature_id }}"
+              class="form-select form-select-sm"
+              required>
+        {% for s in b.all_spells %}
+          <option value="{{ s.id }}">
+            {{ s.name }}{% if s.level is not None %} (Lvl {{ s.level }}){% endif %}
+          </option>
+        {% empty %}
+          <option disabled selected>No spells available</option>
+        {% endfor %}
+      </select>
+    </div>
+
+
+    <div class="col-md-4">
+      <label class="form-label form-label-sm mb-1">Reason / source</label>
+      <input type="text"
+             name="reason"
+             class="form-control form-control-sm"
+             placeholder="GM grant, scroll, etc.">
+    </div>
+
+    <div class="col-md-2 d-flex align-items-end">
+      <button class="btn btn-sm btn-outline-primary w-100">
+        Add to known
+      </button>
+    </div>
+  </form>
+{% endif %}
+
 
 
 

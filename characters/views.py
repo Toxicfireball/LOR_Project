@@ -4056,6 +4056,13 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
     spellcasting_blocks = []
     spell_selection_blocks = []
     slot_table_blocks = []
+    # GLOBAL aggregated caps / slots across all spell tables (for unified Spell tab)
+    sum_slots_by_rank   = {}   # {rank: total slots across all classes/features}
+    extra_slots_by_rank = {}   # non-prepared tables add onto these
+    total_cantrips_max  = 0    # SUM of per-feature cantrip caps
+    total_known_max     = 0    # SUM of per-feature known caps (when present)
+    total_prepared_max  = 0    # SUM of per-feature prepared caps (when present)
+    origin_tokens       = set()  # union of all origins/sub_origins the character can access
 
     # Resolve related models once for both GET and POST
     Known = character.known_spells.model          # CharacterKnownSpell
@@ -4508,7 +4515,7 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
             for r in range(1, max_rank_all + 1):
                 subset = known_full.filter(spell__level=r).exclude(spell_id__in=prepared_ids)
                 known_for_prepare_by_rank[r] = _rows_from_qs(subset)
-
+        all_spells_qs = avail_base.order_by("name")
         # --- LEARN choices: per-rank (kept) + unified all-levels list (5E) ---
         learn_spells_by_rank = {
             r: _rows_from_values(spell_choices_by_rank.get(r, []))
@@ -4537,7 +4544,10 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
             "known_cantrips_current": known_cantrips_current,
             "known_leveled_current":  known_leveled_current,
             "prepared_current":       prepared_current,
+            "learn_cantrip_rows": learn_cantrip_rows,
 
+            # For the manual add dropdown in the template
+            "all_spells": all_spells_qs,
             "needs_cantrips": max(0, int(total_cantrips_max or 0) - known_cantrips_current),
             "needs_known":    (max(0, int(total_known_max or 0) - known_leveled_current) if total_known_max else None),
             "needs_prepared": (max(0, int(total_prepared_max or 0) - prepared_current) if total_prepared_max else None),
@@ -4559,26 +4569,41 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
 
         })
 
-        # 🔹 Handle spell table actions (prepare / unprepare / learn / unlearn)
+    # 🔹 Handle spell table actions (prepare / unprepare / learn / unlearn)
     if request.method == "POST" and can_edit:
         op = (request.POST.get("spells_op") or "").strip()
 
-        if op in {"prepare", "unprepare", "learn_known", "learn_cantrip", "unlearn_cantrip"}:
+        if op in {"prepare", "unprepare", "learn_known", "learn_cantrip", "unlearn_cantrip", "manual_learn"}:
+
             # collect picks (IDs); both "pick" and "pick[]" are supported
             picks_raw = (
                 request.POST.getlist("pick[]")
                 or request.POST.getlist("pick")
                 or request.POST.getlist("picks[]")
                 or request.POST.getlist("picks")
-            ) or request.POST.getlist("pick")
+            ) or []
+
+            # 🔹 ALSO accept a single manual spell ID from the form
+            #    (adjust "manual_spell_id" to whatever your HTML uses)
+            manual_candidates = [
+                "manual_spell_id",          # main name I’m assuming
+                "manual_known_spell_id",    # optional fallback
+                "manual_cantrip_id",        # optional fallback
+            ]
+            for fname in manual_candidates:
+                mval = (request.POST.get(fname) or "").strip()
+                if mval:
+                    picks_raw.append(mval)
 
             pick_ids = []
             for x in picks_raw:
                 s = str(x)
                 if "|" in s:
-                    s = s.split("|", 1)[0]  # drop any rank suffix if it slipped through
+                    # drop any rank suffix if it slipped through (e.g. "123|3")
+                    s = s.split("|", 1)[0]
                 if s.isdigit():
                     pick_ids.append(int(s))
+
 
 
             # common fields from the form
@@ -4650,6 +4675,61 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
                 else:
                     messages.info(request, "Nothing to unprepare.")
                 return (spellcasting_blocks, spell_selection_blocks, redirect('characters:character_detail', pk=pk))
+            if op == "manual_learn":
+                # Manual "Add to known" from the dropdown
+                if not pick_ids:
+                    messages.error(request, "Pick a spell to add.")
+                    return (
+                        spellcasting_blocks,
+                        spell_selection_blocks,
+                        redirect("characters:character_detail", pk=pk),
+                    )
+
+                reason = (request.POST.get("reason") or "").strip() or "Manual add from Spell tab"
+
+                created = 0
+                updated = 0
+
+                for sid in pick_ids:
+                    # Ensure the spell actually exists
+                    sp = SpellModel.objects.filter(pk=sid).first()
+                    if not sp:
+                        continue
+
+                    obj, was_created = Known.objects.update_or_create(
+                        character=character,
+                        spell_id=sp.id,
+                        defaults={
+                            "origin": origin or "",
+                            # If CharacterKnownSpell has a rank field, uncomment this:
+                            # "rank": getattr(sp, "level", 0) or 0,
+                        },
+                    )
+                    if was_created:
+                        created += 1
+                    else:
+                        updated += 1
+
+                if created and not updated:
+                    messages.success(request, f"Manually added {created} spell(s) to known.")
+                elif created and updated:
+                    messages.success(
+                        request,
+                        f"Added {created} new spell(s); {updated} were already known and were updated.",
+                    )
+                elif updated:
+                    messages.info(
+                        request,
+                        "All selected spells were already known on this character (updated their entry).",
+                    )
+                else:
+                    messages.info(request, "Nothing to add.")
+
+                return (
+                    spellcasting_blocks,
+                    spell_selection_blocks,
+                    redirect("characters:character_detail", pk=pk),
+                )
 
             if op == "learn_known":
                 if not pick_ids:
