@@ -1264,7 +1264,11 @@ class SubclassGroup(models.Model):
     def __str__(self):
         return f"{self.character_class.name} – {self.name}"
 
-# models.py
+from django.db import models
+from django.db.models import Sum
+from django.db.models.functions import Coalesce
+
+
 class CharacterSkillPointTx(models.Model):
     SOURCE_CHOICES = [
         ("level_award", "Level Award"),
@@ -1283,10 +1287,19 @@ class CharacterSkillPointTx(models.Model):
     class Meta:
         ordering = ["created_at"]
 
-    @staticmethod
-    def balance_for(character):
-        from django.db.models import Sum
-        return (character.skill_point_txs.aggregate(t=Sum("amount"))["t"] or 0)
+    @classmethod
+    def balance_for(cls, character):
+        """
+        Net skill points for this character: sum of all `amount` values.
+        Returns 0 if there are no transactions.
+        """
+        agg = (
+            cls.objects
+            .filter(character=character)
+            .aggregate(total=Coalesce(Sum("amount"), 0))
+        )
+        return int(agg["total"])
+
 
 
 class ClassSubclass(models.Model):

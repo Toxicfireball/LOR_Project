@@ -31,7 +31,7 @@ from campaigns.models import CampaignMembership
 from django.db.models import Q, Max
 from django.shortcuts import render, redirect, get_object_or_404
 from django_select2.views import AutoResponseView
-from .models import Character, Skill  , RaceFeatureOption, SpecialItem
+from .models import Character, Skill  , RaceFeatureOption, SpecialItem, ClassSkillPointGrant
 from campaigns.models import Campaign, PartyItem
 from django.db import models
 import math
@@ -78,6 +78,122 @@ def ensure_character_mastery(character, mastery_or_id, level=None):
         mastery_id=mastery_id,
         defaults={"level_picked": int(level if level is not None else (character.level or 0))},
     )
+import re
+
+def _normalize_race_token(raw: str) -> str:
+    """
+    Normalize a race token so that:
+      - Casing / punctuation noise is stripped
+      - Common plurals are collapsed to a singular-ish form
+      - Noise words like 'only' are removed
+    """
+    t = str(raw or "").strip().lower()
+
+    # strip common noise words
+    t = re.sub(r"\b(only|heritage|ancestry|subrace)\b", "", t)
+
+    # keep letters, digits, spaces and hyphens
+    t = re.sub(r"[^\w\s\-]", "", t)
+    t = re.sub(r"\s+", " ", t).strip()
+
+    # irregular / common plurals -> singular
+    repl = {
+        "elves": "elf",
+        "dwarves": "dwarf",
+        "halflings": "halfling",
+        "humans": "human",
+        "gnomes": "gnome",
+        "orcs": "orc",
+        "tieflings": "tiefling",
+        "dragonborns": "dragonborn",
+        "half elves": "half elf",
+    }
+    for plural, sing in repl.items():
+        t = re.sub(rf"\b{plural}\b", sing, t)
+
+    # generic “ends with s” plural (goliaths -> goliath, tabaxi stays tabaxi)
+    if len(t) > 3 and t.endswith("s"):
+        t = t[:-1]
+
+    return t
+
+
+def _split_race_tokens(raw: str) -> list[str]:
+    """
+    Split a race string into logical tokens.
+
+    Examples:
+      'Gnome, Halfling' -> ['gnome', 'halfling']
+      'Tiefling, Lizardfolk, Tabaxi, Kitsune, Dragonborn'
+          -> ['tiefling','lizardfolk','tabaxi','kitsune','dragonborn']
+      'Elf, Half-Elf' -> ['elf','half-elf']
+      'High Elves' -> ['high elf']
+    """
+    if not raw:
+        return []
+
+    parts = re.split(r"[,\;/]", str(raw))
+    tokens: list[str] = []
+    for p in parts:
+        t = _normalize_race_token(p)
+        if t:
+            tokens.append(t)
+    return tokens
+
+
+def _feat_matches_character_race(feat_race: str, character) -> bool:
+    """
+    Returns True if this feat's race string should apply to this character.
+
+    Rules:
+      • Blank / null feat.race => always allowed (generic feat).
+      • Otherwise, build tokens for:
+          - character race + subrace
+          - feat.race
+        Then return True if ANY (ct, ft) satisfies:
+          ct == ft OR ct in ft OR ft in ct
+        after normalization.
+
+      So:
+        - 'Goliath' matches 'Goliath, Tabaxi'
+        - 'Goliath' matches 'Goliaths only'
+        - 'Elf'     matches 'Elf, Half-Elf', 'High Elves', 'Elves'
+    """
+    # Generic feats: no race restriction
+    if not feat_race or not str(feat_race).strip():
+        return True
+
+    # Character race / subrace names
+    char_names: list[str] = []
+    if getattr(character, "race", None) and getattr(character.race, "name", None):
+        char_names.append(character.race.name)
+    if getattr(character, "subrace", None) and getattr(character.subrace, "name", None):
+        char_names.append(character.subrace.name)
+
+    if not char_names:
+        # character has no race info → race-locked feats do NOT apply
+        return False
+
+    # Normalize + split the character side
+    char_tokens: list[str] = []
+    for raw in char_names:
+        char_tokens.extend(_split_race_tokens(raw))
+
+    # Normalize + split the feat side
+    feat_tokens = _split_race_tokens(feat_race)
+
+    if not feat_tokens:
+        # weird junk but effectively “no restriction”
+        return True
+
+    for ct in char_tokens:
+        for ft in feat_tokens:
+            if not ct or not ft:
+                continue
+            if ct == ft or ct in ft or ft in ct:
+                return True
+
+    return False
 
 # Functions callers are allowed to use in formulas
 _ALLOWED_FUNCS = {
@@ -5632,7 +5748,6 @@ def character_detail(request, pk):
     can_edit = (request.user.id == character.user_id) or is_gm_for_campaign
     # Handle level-up POSTs by delegating to the dedicated view
     if request.method == "POST" and "level_up_submit" in request.POST:
-        from .views import character_level_up  # only needed if views split; usually same file
         return character_level_up(request, pk)
 
     # NEW: users you can add (site-registered)
@@ -7911,28 +8026,54 @@ def character_detail(request, pk):
     is_spellcaster  = any(t.lower() == "spellcaster" for t in cls_tag_names)
 
     # B) race/subrace filter against free-text ClassFeat.race
+
+
+    # Feats the character already owns – used to hide them from pickers
+    owned_feat_ids = set(
+        CharacterFeat.objects
+        .filter(character=character)
+        .values_list("feat_id", flat=True)
+    )
+
+
+    # ---- FEAT FILTERS (General / Class / Skill) -----------------------------
+
+    # Character race/subrace display names as raw strings (used for race checks)
     race_names = []
-    if character.race and getattr(character.race, "name", None):
+    if getattr(character, "race", None) and getattr(character.race, "name", None):
         race_names.append(character.race.name)
-    if character.subrace and getattr(character.subrace, "name", None):
+    if getattr(character, "subrace", None) and getattr(character.subrace, "name", None):
         race_names.append(character.subrace.name)
 
-    # allow empty race, or match tokens of race/subrace
-    race_q = Q(race__exact="") | Q(race__isnull=True)
-    if race_names:
-        token_regexes = [rf'(^|[,;/\s]){re.escape(n)}([,;/\s]|$)' for n in race_names]
-        race_token_re = "(" + ")|(".join(token_regexes) + ")"
-        race_q |= Q(race__iregex=race_token_re)
+    # All feats this character already has – used to hide taken feats in all pickers
+    owned_feat_ids = set(
+        CharacterFeat.objects
+        .filter(character=character)
+        .values_list("feat_id", flat=True)
+    )
 
-    # C) GENERAL feats – only feat_type=General + race filter
+    # C) GENERAL feats – all General feats, minus already owned, race-checked
+    # C) GENERAL feats – all General feats, minus already owned, race-checked
     if "general_feat" in level_form.fields:
-        gf_qs = level_form.fields["general_feat"].queryset
-        if gf_qs is not None:
-            level_form.fields["general_feat"].queryset = (
-                gf_qs.filter(feat_type__iexact="General")
-                    .filter(race_q)
-                    .order_by("name")
-            )
+        # Start from ALL General feats
+        gf_qs = ClassFeat.objects.filter(feat_type__iexact="General")
+
+        allowed_ids: list[int] = []
+        for feat in gf_qs:
+            # hide feats already taken by this character
+            if feat.pk in owned_feat_ids:
+                continue
+
+            feat_race_str = getattr(feat, "race", "") or ""
+            if _feat_matches_character_race(feat_race_str, character):
+                allowed_ids.append(feat.pk)
+
+        level_form.fields["general_feat"].queryset = (
+            ClassFeat.objects.filter(pk__in=allowed_ids).order_by("name")
+        )
+
+
+
 
     if "class_feat_pick" in level_form.fields:
         # Use the same target class/level we validated with
@@ -7961,7 +8102,7 @@ def character_detail(request, pk):
             Q(class_name__exact="") | Q(class_name__isnull=True)
         )
 
-        qs = base.filter(membership_q)
+        qs = base.filter(membership_q).exclude(pk__in=owned_feat_ids)
 
         eligible_ids = [
             f.pk for f in qs
@@ -7985,12 +8126,46 @@ def character_detail(request, pk):
 
 
     # E) SKILL feats (if/when you add a field) – only feat_type=Skill + race filter
+    # E) SKILL feats (if/when you add a field) – only feat_type=Skill + race filter
+    # E) SKILL feats – feat_type=Skill + race helper
     if "skill_feat_pick" in level_form.fields:
         fld = level_form.fields["skill_feat_pick"]
         base_qs = fld.queryset or ClassFeat.objects.all()  # fallback
 
-        # Restrict to skill-feats + race/subrace first
-        sf_qs = base_qs.filter(feat_type__iexact="Skill").filter(race_q)
+        # 1) Start from Skill feats only
+        sf_qs = base_qs.filter(feat_type__iexact="Skill")
+
+        # 2) Apply race matching helper in Python
+        allowed_ids = []
+        for feat in sf_qs:
+            if _feat_matches_character_race(getattr(feat, "race", ""), character):
+                allowed_ids.append(feat.pk)
+
+        sf_qs = ClassFeat.objects.filter(pk__in=allowed_ids)
+
+        # (rest of your class/tag filter here stays the same)
+        target_cls = posted_cls
+        if target_cls:
+            class_tags = [t.lower() for t in target_cls.tags.values_list("name", flat=True)]
+            tokens = [target_cls.name] + class_tags
+            if "spellcaster" in class_tags: tokens += ["spellcaster", "spellcasting", "caster"]
+            if "martial" in class_tags:     tokens += ["martial"]
+            token_res = [rf'(^|[,;/\s]){re.escape(tok)}([,;/\s]|$)' for tok in tokens if tok]
+            any_token_re = "(" + ")|(".join(token_res) + ")" if token_res else None
+            if any_token_re:
+                sf_qs = sf_qs.filter(
+                    Q(class_name__iregex=any_token_re) |
+                    Q(tags__iregex=any_token_re) |
+                    Q(class_name__regex=r'(?i)\b(all|any)\s+classes?\b') |
+                    Q(class_name__exact="") | Q(class_name__isnull=True)
+                )
+
+        fld.queryset = sf_qs.order_by("name")
+        # … keep the rest (required flag, auto-select if exactly one, etc.) unchanged
+
+        if owned_feat_ids:
+            sf_qs = sf_qs.exclude(pk__in=owned_feat_ids)
+
 
         # Optional: restrict by class membership/tags (mirrors class_feat rules)
         target_cls = posted_cls if request.method == 'POST' else preview_cls
@@ -12337,44 +12512,50 @@ def character_level_up(request, pk):
             })
             continue
 
-    # and including the SYSTEM_MODULAR_LINEAR and SYSTEM_MODULAR_MASTERY branches
-    # that add `level_form.fields[field_name] = ...`
-    #
-    # (Do NOT copy any rendering-only preview bits; only the parts that add fields.)
-    #
-    # After pasting, those fields will exist on level_form for validation below.
+    # ---- FEAT FILTERS (General / Class / Skill) -----------------------------
 
-    # ── (F) Apply the SAME queryset restrictions you do in character_detail ─
-    # COPY the three filtering blocks EXACTLY (they only touch level_form fields):
-# Build race/subrace filter (identical to character_detail)
+    # Character race/subrace display names as raw strings (used for race checks)
     race_names = []
-    if character.race and getattr(character.race, "name", None):
+    if getattr(character, "race", None) and getattr(character.race, "name", None):
         race_names.append(character.race.name)
-    if character.subrace and getattr(character.subrace, "name", None):
+    if getattr(character, "subrace", None) and getattr(character.subrace, "name", None):
         race_names.append(character.subrace.name)
 
-    race_q = Q(race__exact="") | Q(race__isnull=True)
-    if race_names:
-        token_regexes = [rf'(^|[,;/\s]){re.escape(n)}([,;/\s]|$)' for n in race_names]
-        race_token_re = "(" + ")|(".join(token_regexes) + ")"
-        race_q |= Q(race__iregex=race_token_re)
+    # All feats this character already has – used to hide taken feats in all pickers
+    owned_feat_ids = set(
+        CharacterFeat.objects
+        .filter(character=character)
+        .values_list("feat_id", flat=True)
+    )
 
-    # C) GENERAL feats – only feat_type=General + race filter
+    # C) GENERAL feats – all General feats, minus already owned, race-checked
+    # C) GENERAL feats – all General feats, minus already owned, race-checked
     if "general_feat" in level_form.fields:
-        gf_qs = level_form.fields["general_feat"].queryset
-        if gf_qs is not None:
-            level_form.fields["general_feat"].queryset = (
-                gf_qs.filter(feat_type__iexact="General")
-                    .filter(race_q)
-                    .order_by("name")
-            )
+        # Start from ALL General feats
+        gf_qs = ClassFeat.objects.filter(feat_type__iexact="General")
+
+        allowed_ids: list[int] = []
+        for feat in gf_qs:
+            # hide feats already taken by this character
+            if feat.pk in owned_feat_ids:
+                continue
+
+            feat_race_str = getattr(feat, "race", "") or ""
+            if _feat_matches_character_race(feat_race_str, character):
+                allowed_ids.append(feat.pk)
+
+        level_form.fields["general_feat"].queryset = (
+            ClassFeat.objects.filter(pk__in=allowed_ids).order_by("name")
+        )
+
+
+
 
     if "class_feat_pick" in level_form.fields:
         # Use the same target class/level we validated with
         target_cls = posted_cls
         cls_after  = cls_level_for_validate
         cls_name   = target_cls.name
-
 
         class_tags = [t.lower() for t in target_cls.tags.values_list("name", flat=True)]
         tokens = [cls_name] + class_tags
@@ -12386,7 +12567,11 @@ def character_level_up(request, pk):
         token_res = [rf'(^|[,;/\s]){re.escape(tok)}([,;/\s]|$)' for tok in tokens if tok]
         any_token_re = "(" + ")|(".join(token_res) + ")" if token_res else None
 
+        # class feats, excluding anything already taken
         base = ClassFeat.objects.filter(feat_type__iexact="Class")
+        if owned_feat_ids:
+            base = base.exclude(pk__in=owned_feat_ids)
+
         membership_q = (
             Q(class_name__iregex=any_token_re) |
             Q(tags__iregex=any_token_re) |
@@ -12398,6 +12583,7 @@ def character_level_up(request, pk):
         )
 
         qs = base.filter(membership_q)
+
 
         eligible_ids = [
             f.pk for f in qs
@@ -12421,12 +12607,46 @@ def character_level_up(request, pk):
 
 
     # E) SKILL feats (if/when you add a field) – only feat_type=Skill + race filter
+        # E) SKILL feats (if/when you add a field) – only feat_type=Skill + race filter
+    # E) SKILL feats – feat_type=Skill + race helper
     if "skill_feat_pick" in level_form.fields:
         fld = level_form.fields["skill_feat_pick"]
         base_qs = fld.queryset or ClassFeat.objects.all()  # fallback
 
-        # Restrict to skill-feats + race/subrace first
-        sf_qs = base_qs.filter(feat_type__iexact="Skill").filter(race_q)
+        # 1) Start from Skill feats only
+        sf_qs = base_qs.filter(feat_type__iexact="Skill")
+
+        # 2) Apply race matching helper in Python
+        allowed_ids = []
+        for feat in sf_qs:
+            if _feat_matches_character_race(getattr(feat, "race", ""), character):
+                allowed_ids.append(feat.pk)
+
+        sf_qs = ClassFeat.objects.filter(pk__in=allowed_ids)
+
+        # (rest of your class/tag filter here stays the same)
+        target_cls = posted_cls
+        if target_cls:
+            class_tags = [t.lower() for t in target_cls.tags.values_list("name", flat=True)]
+            tokens = [target_cls.name] + class_tags
+            if "spellcaster" in class_tags: tokens += ["spellcaster", "spellcasting", "caster"]
+            if "martial" in class_tags:     tokens += ["martial"]
+            token_res = [rf'(^|[,;/\s]){re.escape(tok)}([,;/\s]|$)' for tok in tokens if tok]
+            any_token_re = "(" + ")|(".join(token_res) + ")" if token_res else None
+            if any_token_re:
+                sf_qs = sf_qs.filter(
+                    Q(class_name__iregex=any_token_re) |
+                    Q(tags__iregex=any_token_re) |
+                    Q(class_name__regex=r'(?i)\b(all|any)\s+classes?\b') |
+                    Q(class_name__exact="") | Q(class_name__isnull=True)
+                )
+
+        fld.queryset = sf_qs.order_by("name")
+        # … keep the rest (required flag, auto-select if exactly one, etc.) unchanged
+
+        if owned_feat_ids:
+            sf_qs = sf_qs.exclude(pk__in=owned_feat_ids)
+
 
         # Optional: restrict by class membership/tags (same as character_detail)
         target_cls = posted_cls
@@ -12596,12 +12816,14 @@ def character_level_up(request, pk):
 
 
         # D) general_feat + asi
+        # D) general_feat + asi
         if level_form.cleaned_data.get('general_feat'):
-            CharacterFeat.objects.create(
+            CharacterFeat.objects.get_or_create(
                 character=character,
                 feat=level_form.cleaned_data['general_feat'],
-                level=next_level
+                defaults={"level": next_level},
             )
+
         # NEW: persist the actual ability increases
         asi_mode = level_form.cleaned_data.get("asi_mode")
         if asi_mode:
@@ -12775,13 +12997,15 @@ def character_level_up(request, pk):
                 # F) class_feat_pick & skill_feat_pick
 
         # 1) Class Feat (unchanged behavior)
+        # 1) Class Feat
         pick = level_form.cleaned_data.get('class_feat_pick')
         if pick:
-            CharacterFeat.objects.create(
+            CharacterFeat.objects.get_or_create(
                 character=character,
                 feat=pick,
-                level=next_level
+                defaults={"level": next_level},
             )
+
 
         # 2) Skill Feat(s) – honor ClassSkillFeatGrant.num_picks at this new class level
         # 2) Skill Feat(s) – honor ClassSkillFeatGrant at this new class level
@@ -12875,22 +13099,38 @@ def character_level_up(request, pk):
 
 
         # --- Skill points grant for THIS level-up ---
-        pts = int(getattr(picked_cls, "skill_points_per_level", 0) or 0)
+        # --- Skill points grant for THIS level-up ---
+        # --- Skill points grant for THIS level-up ---
+        # Build a dict: {class_level -> points_awarded} for this class
+        skill_points_by_level = {}
+        for g in picked_cls.skill_point_grants.all():  # uses your working related_name
+            lvl = int(getattr(g, "at_level", 0) or 0)
+            pts = int(getattr(g, "points_awarded", 0) or 0)
+            if lvl > 0 and pts:
+                skill_points_by_level[lvl] = skill_points_by_level.get(lvl, 0) + pts
+
+        # Look up the points for THIS class level (after the level-up)
+        # e.g. Rogue L11 should pull whatever you set in the admin row for Rogue @ 11
+        base_pts = int(getattr(picked_cls, "skill_points_per_level", 0) or 0)
+        pts = skill_points_by_level.get(cls_level_after_post, base_pts)
+
+        # Create the transaction only if we actually have points to award
         if pts:
             CharacterSkillPointTx.objects.create(
                 character=character,
                 amount=pts,
                 source="level_award",
                 reason=f"{picked_cls.name} L{cls_level_after_post}",
-                at_level=next_level,
+                at_level=next_level,        # total character level
                 awarded_class=picked_cls,
             )
-            messages.success(request, f"Gained {pts} skill point(s) from {picked_cls.name}.")
+            messages.success(
+                request,
+                f"Gained {pts} skill point(s) from {picked_cls.name}."
+            )
 
 
-        # ---- DONE: all mutations saved; switch to PRG to avoid stale context ----
-        messages.success(request, f"{character.name} advanced to level {next_level}.")
-        return redirect('characters:character_detail', pk=pk)
+
 
     # Keep every statement in order (A..H in your comments):
     #   - create/update CharacterClassProgress
@@ -12900,7 +13140,7 @@ def character_level_up(request, pk):
     #   - general_feat, ASI application
     #   - loop over `level_form.cleaned_data` for subclass picks / options / subfeats
     #   - class_feat_pick persistence
-    #   - skill_feat_pick count enforcement & persistence (using skill_grant_post)
+    #   - skill_feat_pick countexit enforcement & persistence (using skill_grant_post)
     #   - martial_mastery note
     #   - starting skills (cls_level_after_post == 1) using _starting_skills_cap_for
     #   - skill points grant, success message
