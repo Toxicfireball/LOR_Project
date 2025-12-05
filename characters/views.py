@@ -11347,8 +11347,7 @@ def character_detail(request, pk):
     except LookupError:
         PrestigeFeature = None
 
-    # Which prestige class is selected in the LEFT preview form?
-    # The HTML uses "prestige_class" (not prestige_enrollment).
+
     raw_pc_id = (
         (request.GET.get("prestige_class")
         or request.POST.get("prestige_class")
@@ -12050,17 +12049,16 @@ def character_level_up(request, pk):
             return redirect("characters:character_detail", pk=pk)
 
 
+
         # 2) Which prestige CLASS?
-        # 2) Which prestige CLASS?
-        # Accept either "prestige_enrollment" or "prestige_class" from POST/GET.
+        #    Now we only ever use "prestige_class" from the modal.
         raw_pc_id = (
-            (request.POST.get("prestige_enrollment")
-            or request.POST.get("prestige_class")
-            or request.GET.get("prestige_enrollment")
-            or request.GET.get("prestige_class")
-            or "")
+            (request.POST.get("prestige_class")
+             or request.GET.get("prestige_class")
+             or "")
             .strip()
         )
+
 
         if not raw_pc_id.isdigit():
             messages.error(request, "Pick a prestige class.")

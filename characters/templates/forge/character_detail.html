@@ -3803,12 +3803,12 @@ tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
            id="adv-prestige"
            name="advance_track"
            value="prestige"
-           {% if not can_offer_prestige %}disabled{% endif %}
-           {% if track == 'prestige' and can_offer_prestige %}checked{% endif %}>
+           {% if next_level < 7 %}disabled{% endif %}
+           {% if track == 'prestige' and next_level >= 7 %}checked{% endif %}>
     <label class="form-check-label" for="adv-prestige">
       Prestige class
-      {% if not can_offer_prestige %}
-        <span class="text-muted">(requires level 7+ and an eligible prestige)</span>
+      {% if next_level < 7 %}
+        <span class="text-muted">(requires level 7+)</span>
       {% endif %}
     </label>
   </div>
@@ -3818,6 +3818,7 @@ tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
   </div>
 </div>
 {% endwith %}
+
 
 
               {# LEFT: Base class (visible when Base track) #}
@@ -3836,27 +3837,37 @@ tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
               {% endwith %}
 
               {# LEFT: Prestige dropdown (only visible when Prestige track) #}
-      <div id="left-prestige-wrap" class="mt-3" {% if track != 'prestige' %}hidden{% endif %}>
-        <label class="form-label fw-semibold">Prestige class</label>
-        {% if prestige_choices %}
-          {% with psel=request.GET.prestige_class|default:'' %}
-            <select name="prestige_class" id="left-prestige" class="form-select">
-              <option value="">— Select prestige —</option>
-              {% for p in prestige_choices %}
-                <option value="{{ p.id }}"
-                        {% if p.allowed_bases.all %}
-                          data-bases="{% for bc in p.allowed_bases.all %}{{ bc.id }}{% if not forloop.last %},{% endif %}{% endfor %}"
-                        {% endif %}
-                        {% if psel|stringformat:"s" == p.id|stringformat:"s" %}selected{% endif %}>
-                  {{ p.name }}
-                </option>
-              {% endfor %}
-            </select>
+<div id="left-prestige-wrap" class="mt-3" {% if track != 'prestige' %}hidden{% endif %}>
+  <label class="form-label fw-semibold">Prestige class</label>
+  {% if prestige_choices %}
+    {% with psel=request.GET.prestige_class|default:'' %}
+      <select name="prestige_class" id="left-prestige" class="form-select">
+        <option value="">— Select prestige —</option>
+        {% for p in prestige_choices %}
+          {% with meta=prestige_eligibility|get_item:p.id %}
+            <option value="{{ p.id }}"
+                    {% if p.allowed_bases.all %}
+                      data-bases="{% for bc in p.allowed_bases.all %}{{ bc.id }}{% if not forloop.last %},{% endif %}{% endfor %}"
+                    {% endif %}
+                    {% if meta and not meta.eligible %}disabled class="text-muted"{% endif %}
+                    {% if psel|stringformat:"s" == p.id|stringformat:"s" %}selected{% endif %}>
+              {{ p.name }}
+              {% if meta and not meta.eligible %}
+                — not eligible: {{ meta.reason }}
+              {% endif %}
+            </option>
           {% endwith %}
-        {% else %}
-          <div class="text-muted small">No eligible prestige classes.</div>
-        {% endif %}
+        {% endfor %}
+      </select>
+      <div class="form-text small mt-1">
+        Greyed-out prestiges are ones you don’t currently qualify for.
       </div>
+    {% endwith %}
+  {% else %}
+    <div class="text-muted small">No prestige classes defined.</div>
+  {% endif %}
+</div>
+
 
 
               {# Optional: mapping { "<prestige_id>": [<base_id>...] } #}
