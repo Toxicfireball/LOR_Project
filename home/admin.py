@@ -3012,7 +3012,10 @@ class PrestigeLevelInline(admin.TabularInline):
 class PrestigeFeatureInline(admin.StackedInline):
     model = PrestigeFeature
     extra = 0
-    fields = ("at_prestige_level","code","name","description","grants_class_feature")
+    # ↓ this is the critical change
+    autocomplete_fields = ("grants_class_feature",)
+    fields = ("at_prestige_level", "code", "name", "description", "grants_class_feature")
+
 @admin.action(description="Create prestige levels 1–5 (choose mode)")
 def create_default_prestige_levels(modeladmin, request, queryset):
     for pc in queryset:
