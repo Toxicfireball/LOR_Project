@@ -3424,6 +3424,39 @@ function renderToggleMods(list, container, checkboxClass) {
 
 
         </div>
+{% if b.heightening %}
+  <div class="alert alert-light border small mb-3">
+    <div class="d-flex justify-content-between align-items-center">
+      <strong>Overcast & Heightened (LOR)</strong>
+      <span class="text-muted">auto-calculated</span>
+    </div>
+
+    <div class="mt-2">
+      <div><strong>Overcast:</strong> Casting a spell using a higher-level spell slot than its base level. Many spells gain extra effects when overcast.</div>
+
+      <div class="mt-2">
+        <strong>Overcast notation:</strong> <code>4(+2)</code><br>
+        • First number = the first spell level where the extra effect begins (here: level 4).<br>
+        • <code>(+2)</code> = the effect stacks again every 2 levels after that (6, 8, 10, ...).<br>
+        • If a spell shows just a number (e.g. <code>6</code>), that effect starts when overcast to level 6.
+      </div>
+
+      <div class="mt-2">
+        <strong>Heightened (automatic):</strong> Your spells/cantrips behave as if overcast, without spending higher slots.
+        <ul class="mb-0">
+          <li>
+            <strong>Cantrips:</strong> cast as level <strong>{{ b.heightening.cantrip_rank }}</strong>
+            (ceil({{ b.heightening.combined_spellcaster_level }}/2)).
+          </li>
+          <li>
+            <strong>Spells:</strong> cast at least as level <strong>{{ b.heightening.spell_min_rank }}</strong>
+            (floor({{ b.heightening.highest_spell_rank }}/2)), based on highest spell level <strong>{{ b.heightening.highest_spell_rank }}</strong>.
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+{% endif %}
 
 <h6 class="mb-2">Prepared Spells</h6>
 {% with prep_id="prep-all-"|add:b.feature_id|stringformat:"s" %}

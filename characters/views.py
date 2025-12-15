@@ -4052,6 +4052,21 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
     Returns:
         (spellcasting_blocks, spell_selection_blocks, post_redirect_or_none)
     """
+
+    _OVERCAST_STEP_RE = re.compile(r'(?P<start>\d+)\s*\(\s*\+\s*(?P<step>\d+)\s*\)')
+
+    def _parse_overcast_spec(text: str):
+        """
+        Finds first token like '4(+2)' anywhere in text.
+        Returns {"start": 4, "step": 2} or None.
+        """
+        if not text:
+            return None
+        m = _OVERCAST_STEP_RE.search(text)
+        if not m:
+            return None
+        return {"start": int(m.group("start")), "step": int(m.group("step"))}
+
     # placeholders; will be filled by pasted block
     spellcasting_blocks = []
     spell_selection_blocks = []
@@ -4236,6 +4251,12 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
                 prepared_caps_by_token[tok] = max(prepared_caps_by_token.get(tok, 0), cap_r)
 
 
+    sum_slots_by_rank   = {}           # {rank: total slots across all features}
+    extra_slots_by_rank = {}
+    total_cantrips_max  = 0            # SUM of per-feature cantrip caps
+    total_known_max     = 0            # SUM of per-feature known caps (when present)
+    total_prepared_max  = 0            # SUM of per-feature prepared caps (when present)
+    origin_tokens       = set()        # union of origin/sub_origin tokens the character can access
 
     for cp in class_progress:
         owned_tables = (
@@ -4246,12 +4267,6 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
 
         # ← NEW: accumulator to merge multiple spell tables per origin
         # === GLOBAL accumulators across ALL classes / ALL spell-table features ===
-        sum_slots_by_rank   = {}           # {rank: total slots across all features}
-        extra_slots_by_rank = {}
-        total_cantrips_max  = 0            # SUM of per-feature cantrip caps
-        total_known_max     = 0            # SUM of per-feature known caps (when present)
-        total_prepared_max  = 0            # SUM of per-feature prepared caps (when present)
-        origin_tokens       = set()        # union of origin/sub_origin tokens the character can access
 
 
         # Build a dict like {"cleric_level": 5, "wizard_level": 2, ...}
@@ -4408,6 +4423,16 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
 
         # 5E: slots are separate from prepared. Expose editable "slots left" per rank.
         max_rank_all = (max(sum_slots_by_rank.keys()) if sum_slots_by_rank else 0)
+        # --- Heightened (automatic) calculations (LOR) ---
+        # Combined spellcaster level = sum of effective levels for classes that actually have spell tables
+        spellcasting_class_ids = [cid for cid, fts in spell_tables_by_class.items() if fts]
+        combined_spellcaster_level = sum(int(eff_levels.get(cid, 0) or 0) for cid in spellcasting_class_ids)
+
+        # Cantrips: ceil(combined/2)
+        heightened_cantrip_rank = int(math.ceil(combined_spellcaster_level / 2)) if combined_spellcaster_level else 0
+
+        # Spells: floor(highest_spell_level/2)
+        heightened_spell_min_rank = int(math.floor(max_rank_all / 2)) if max_rank_all else 0
 
         def _get_override(key: str):
             rowx = CharacterFieldOverride.objects.filter(character=character, key=key).first()
@@ -4535,6 +4560,19 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
         has_any_override = CharacterFieldOverride.objects.filter(
             character=character, key__regex=r'^spellcap(_formula)?:\d+:(cantrips|known|prepared)$'
         ).exists()
+        def _apply_heightening(rows):
+            for rr in rows:
+                lvl = int(rr.get("level") or 0)
+
+                # Heightened cast rank (what it behaves as)
+                if lvl == 0:
+                    rr["cast_rank"] = heightened_cantrip_rank
+                else:
+                    rr["cast_rank"] = max(lvl, heightened_spell_min_rank)
+
+                # Overcast notation helper (e.g. 4(+2)) from upcast_effect text
+                rr["overcast_spec"] = _parse_overcast_spec(rr.get("upcast_effect") or "")
+            return rows
 
         # ONE consolidated selection block
         spell_selection_blocks.append({
@@ -4562,6 +4600,12 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
 
 "prepared_remaining_by_rank": {r: int(slots_left_by_rank.get(r, 0)) for r in range(1, max_rank_all + 1)},            "slots_by_rank": {r: int(sum_slots_by_rank.get(r,0) or 0) for r in range(1, max_rank_all+1)},
 "slots_left_by_rank": {r: int(slots_left_by_rank.get(r, 0)) for r in range(1, max_rank_all + 1)},
+"heightening": {
+    "combined_spellcaster_level": combined_spellcaster_level,
+    "highest_spell_rank": max_rank_all,
+    "cantrip_rank": heightened_cantrip_rank,
+    "spell_min_rank": heightened_spell_min_rank,
+},
 
 "prepared_rows_by_rank": prepared_rows_by_rank,
 "prepared_rows_all": prepared_rows_all,                    # ← NEW (5E UI)
