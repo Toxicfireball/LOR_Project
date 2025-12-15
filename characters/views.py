@@ -4413,6 +4413,7 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
             # Default to total slots when no override; clamp to total
             slots_left_by_rank[r] = min(total_slots, (v if v is not None else total_slots))
 
+        manual_all_spells_qs = SpellModel.objects.all().only("id", "name", "level").order_by("name")
 
         # Learn choices = UNION of all accessible origins; if none collected, show all
         avail_base = SpellModel.objects.all()
@@ -4515,7 +4516,7 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
             for r in range(1, max_rank_all + 1):
                 subset = known_full.filter(spell__level=r).exclude(spell_id__in=prepared_ids)
                 known_for_prepare_by_rank[r] = _rows_from_qs(subset)
-        all_spells_qs = avail_base.order_by("name")
+        all_spells_qs = manual_all_spells_qs
         # --- LEARN choices: per-rank (kept) + unified all-levels list (5E) ---
         learn_spells_by_rank = {
             r: _rows_from_values(spell_choices_by_rank.get(r, []))
