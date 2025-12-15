@@ -3157,41 +3157,98 @@ function renderToggleMods(list, container, checkboxClass) {
     {% endif %}
   </div>
 
-  <!-- Manually Add Item (moved here) -->
+    {% if can_edit %}
+  <!-- Manual ClassFeature Manager (Add/Remove) -->
   <div class="card mt-3">
-    <div class="card-header fw-bold">Manually Add Item</div>
+    <div class="card-header fw-bold">Manage Class Features</div>
     <div class="card-body">
-      {% if manual_form %}
-        <form method="post" action="{% url 'characters:character_detail' character.pk %}">
-          {% csrf_token %}
-          <div class="row g-3">
-            <div class="col-md-3">
-              {{ manual_form.kind.label_tag }} {{ manual_form.kind }}
-            </div>
-            <div class="col-md-3" id="mf-feat">
-              {{ manual_form.feat.label_tag }} {{ manual_form.feat }}
-            </div>
-            <div class="col-md-3 d-none" id="mf-classfeature">
-              {{ manual_form.class_feature.label_tag }} {{ manual_form.class_feature }}
-            </div>
-            <div class="col-md-3 d-none" id="mf-racialfeature">
-              {{ manual_form.racial_feature.label_tag }} {{ manual_form.racial_feature }}
-            </div>
-            <div class="col-12">
-              {{ manual_form.reason.label_tag }} {{ manual_form.reason }}
-            </div>
-          </div>
-          <button class="btn btn-primary mt-2" name="manual_add_submit" value="1">Add</button>
-        </form>
-        {% if manual_form.errors %}
-          <div class="alert alert-danger mt-2 mb-0">
-            {{ manual_form.errors }}
-          </div>
-        {% endif %}
-      {% else %}
-        <p class="mb-0 text-muted">You don’t have permission to add items.</p>
-      {% endif %}
+
+      <!-- ADD CLASS FEATURE -->
+      <form method="post" action="{% url 'characters:character_detail' character.pk %}#tab-all" class="row g-2 align-items-end">
+        {% csrf_token %}
+        <input type="hidden" name="features_op" value="manual_add_class_feature">
+
+        <div class="col-12 col-lg-6">
+          <label class="form-label small mb-1">Add class feature</label>
+          <select name="class_feature_id" class="form-select" required>
+            <option value="">— choose —</option>
+            {% for f in all_class_features %}
+              <option value="{{ f.id }}">
+                {{ f.name }}
+                {% if f.character_class %} ({{ f.character_class.name }}){% endif %}
+                {% if f.activity_type %} — {{ f.activity_type|title }}{% endif %}
+                {% if f.kind %} — {{ f.kind|title }}{% endif %}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="col-12 col-lg-5">
+          <label class="form-label small mb-1">Reason (required)</label>
+          <input type="text" name="note" class="form-control" required>
+        </div>
+
+        <div class="col-12 col-lg-1">
+          <button class="btn btn-primary w-100">Add</button>
+        </div>
+      </form>
+
+      <hr class="my-3">
+
+      <!-- CURRENT GRANTED CLASS FEATURES + REMOVE -->
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>Feature</th>
+              <th>Class</th>
+              <th>Type</th>
+              <th style="width:240px;" class="text-end">Remove</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for cfrow in character_class_features %}
+              <tr>
+              <td>{{ cfrow.feature.name }}</td>
+                <td>
+                  {% if cfrow.class_feature.character_class %}
+                    {{ cfrow.class_feature.character_class.name }}
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+                <td>{{ cfrow.class_feature.activity_type|default:"—"|title }}</td>
+                <td class="text-end">
+                  <form method="post"
+                        action="{% url 'characters:character_detail' character.pk %}#tab-all"
+                        class="d-inline"
+                        onsubmit="return confirm('Remove this class feature from the character?');">
+                    {% csrf_token %}
+                    <input type="hidden" name="features_op" value="manual_remove_class_feature">
+                    <input type="hidden" name="character_feature_id" value="{{ cfrow.id }}">
+                    <input type="text"
+                           name="note"
+                           class="form-control form-control-sm d-inline-block"
+                           placeholder="Reason"
+                           required
+                           style="width: 140px;">
+                    <button class="btn btn-sm btn-outline-danger ms-2">Remove</button>
+                  </form>
+                </td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="4" class="text-muted">No class features currently granted.</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
     </div>
+  </div>
+{% endif %}
+
   </div>
 </div>
 
@@ -3392,13 +3449,8 @@ function renderToggleMods(list, container, checkboxClass) {
 
 {% with learn_id="learn-all-"|add:b.feature_id|stringformat:"s" %}
   {# pass rank=0 so each pick uses its own spell level; cap uses global needs_known #}
-  {% include "characters/_spell_table.html" with
-      table_id=learn_id
-      rows=b.learn_spells_all
-      feature_id=b.feature_id
-      action="learn_known"
-      rank=0
-      limit_known=b.needs_known %}
+{% include "characters/_spell_table.html" with table_id=learn_id rows=b.learn_spells_all feature_id=b.feature_id action="learn_known" rank=0 limit_known=b.needs_known %}
+
 {% endwith %}
 
 {% if can_edit %}
@@ -3444,6 +3496,10 @@ function renderToggleMods(list, container, checkboxClass) {
 
 
 
+<h6 class="mt-4 mb-2">Known Spells (Leveled)</h6>
+{% with known_l_id="known-leveled-"|add:b.feature_id|stringformat:"s" %}
+  {% include "characters/_spell_table.html" with table_id=known_l_id rows=b.known_leveled_rows_all feature_id=b.feature_id action="unlearn_known" rank=0 %}
+{% endwith %}
 
 
         {# 4) SHOW KNOWN CANTRIPS #}

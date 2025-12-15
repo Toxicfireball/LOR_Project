@@ -4263,7 +4263,21 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
             if token:
                 all_class_levels_ctx[f"{token}_level"] = prog.levels
 
-
+        def _rows_from_qs(qs):
+            out=[]
+            for s in qs.order_by("spell__level","spell__name"):
+                sp=s.spell
+                out.append({
+                    "id": sp.id, "known_id": getattr(s,"id",None), "prepared_id": getattr(s,"id",None),
+                    "name": sp.name, "origin": sp.origin or "", "sub_origin": sp.sub_origin or "",
+                    "level": sp.level, "rank": getattr(s,"rank", sp.level),
+                    "classification": sp.classification or "", "saving_throw": sp.saving_throw or "",
+                    "casting_time": sp.casting_time or "", "duration": sp.duration or "",
+                    "components": sp.components or "", "range": sp.range or "", "target": sp.target or "",
+                    "tags": sp.tags or "", "last_synced": sp.last_synced,
+                    "effect": sp.effect or "", "upcast_effect": sp.upcast_effect or "",
+                })
+            return out
         # --- COLLECT per-feature pieces into by_origin ---
         for ft in owned_tables:
             row = ft.spell_slot_rows.filter(level=cp.levels).first()
@@ -4337,9 +4351,9 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
             if expr_kn  is not None: known_max    = _eval(expr_kn)
             if expr_pr  is not None: prepared_max = _eval(expr_pr)
 
-            if known_max    is not None: known_max    = max(1, int(known_max))
-            if prepared_max is not None: prepared_max = max(1, int(prepared_max))
-            cantrips_max = max(1, int(cantrips_max or 0))
+            if known_max    is not None: known_max    = max(0, int(known_max))
+            if prepared_max is not None: prepared_max = max(0, int(prepared_max))
+            cantrips_max = max(0, int(cantrips_max or 0))
 
             def _ov_num(key):
                 rowx = CharacterFieldOverride.objects.filter(character=character, key=key).first()
@@ -4385,10 +4399,12 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
         known_leveled_qs  = character.known_spells.select_related("spell").filter(spell__level__gt=0)
         prepared_qs       = character.prepared_spells.select_related("spell")
 
+        learned_cantrips_rows     = _rows_from_qs(known_cantrips_qs)
+        known_leveled_rows_all    = _rows_from_qs(known_leveled_qs.order_by("spell__name"))
+
         known_cantrips_current = known_cantrips_qs.count()
         known_leveled_current  = known_leveled_qs.count()
         prepared_per_rank      = Counter(prepared_qs.values_list("rank", flat=True))
-        prepared_current       = sum(v for r, v in prepared_per_rank.items() if r and r > 0)
 
         # 5E: slots are separate from prepared. Expose editable "slots left" per rank.
         max_rank_all = (max(sum_slots_by_rank.keys()) if sum_slots_by_rank else 0)
@@ -4465,21 +4481,7 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
         }
 
 
-        def _rows_from_qs(qs):
-            out=[]
-            for s in qs.order_by("spell__level","spell__name"):
-                sp=s.spell
-                out.append({
-                    "id": sp.id, "known_id": getattr(s,"id",None), "prepared_id": getattr(s,"id",None),
-                    "name": sp.name, "origin": sp.origin or "", "sub_origin": sp.sub_origin or "",
-                    "level": sp.level, "rank": getattr(s,"rank", sp.level),
-                    "classification": sp.classification or "", "saving_throw": sp.saving_throw or "",
-                    "casting_time": sp.casting_time or "", "duration": sp.duration or "",
-                    "components": sp.components or "", "range": sp.range or "", "target": sp.target or "",
-                    "tags": sp.tags or "", "last_synced": sp.last_synced,
-                    "effect": sp.effect or "", "upcast_effect": sp.upcast_effect or "",
-                })
-            return out
+
 
         def _rows_from_values(values_list):
             out=[]
@@ -4494,17 +4496,19 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
                     "effect": v.get("effect") or "", "upcast_effect": v.get("upcast_effect") or "",
                 })
             return out
+        prepared_leveled_qs = prepared_qs.filter(spell__level__gt=0)
+
+        prepared_current  = prepared_leveled_qs.count()
 
         # --- PREPARED: per-rank (kept for compatibility) + unified all-levels list (5E) ---
         prepared_rows_by_rank = {r: [] for r in range(1, max_rank_all + 1)}
-        prepared_rows_all     = _rows_from_qs(prepared_qs.exclude(rank=0).order_by("spell__name"))
+        prepared_rows_all = _rows_from_qs(prepared_leveled_qs.order_by("spell__name"))
         if max_rank_all > 0:
             prep_full = prepared_qs.order_by("rank","spell__name")
             for r in range(1, max_rank_all + 1):
                 prepared_rows_by_rank[r] = _rows_from_qs(prep_full.filter(rank=r))
 
         # --- KNOWN (leveled): per-rank (kept) + unified all-levels list (5E) ---
-        learned_cantrips_rows = _rows_from_qs(known_cantrips_qs)
         prepared_ids          = set(prepared_qs.values_list("spell_id", flat=True))
 
         known_for_prepare_by_rank = {r: [] for r in range(1, max_rank_all + 1)}
@@ -4534,6 +4538,8 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
 
         # ONE consolidated selection block
         spell_selection_blocks.append({
+            "known_leveled_rows_all": known_leveled_rows_all,
+
             "feature_id": 0,  # not tied to a single feature
             "has_any_override": has_any_override,
             "class_name": "Spellcasting",
@@ -4559,8 +4565,8 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
 
 "prepared_rows_by_rank": prepared_rows_by_rank,
 "prepared_rows_all": prepared_rows_all,                    # ← NEW (5E UI)
-"learned_cantrips_rows": learned_cantrips_rows,
-
+    "learned_cantrips_rows": learned_cantrips_rows,
+    "known_leveled_rows_all": known_leveled_rows_all,
 "known_for_prepare_by_rank": known_for_prepare_by_rank,
 "known_for_prepare_all": known_for_prepare_all,            # ← NEW (5E UI)
 
@@ -4574,7 +4580,7 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
     if request.method == "POST" and can_edit:
         op = (request.POST.get("spells_op") or "").strip()
 
-        if op in {"prepare", "unprepare", "learn_known", "learn_cantrip", "unlearn_cantrip", "manual_learn"}:
+        if op in {"prepare", "unprepare", "learn_known", "learn_cantrip", "unlearn_cantrip", "unlearn_known", "manual_learn"}:
 
             # collect picks (IDs); both "pick" and "pick[]" are supported
             picks_raw = (
@@ -4809,7 +4815,24 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
                 else:
                     messages.info(request, "Nothing to unlearn.")
                 return (spellcasting_blocks, spell_selection_blocks, redirect('characters:character_detail', pk=pk))
+            if op == "unlearn_known":
+                if not pick_ids:
+                    messages.error(request, "Select at least one leveled spell to unlearn.")
+                    return (spellcasting_blocks, spell_selection_blocks, redirect('characters:character_detail', pk=pk))
 
+                # pick_ids from your table are CharacterKnownSpell IDs
+                qs = Known.objects.filter(character=character, id__in=pick_ids, spell__level__gt=0)
+
+                # Optional but sane: also remove from prepared if you unlearn it
+                spell_ids = list(qs.values_list("spell_id", flat=True))
+                Prep.objects.filter(character=character, spell_id__in=spell_ids).delete()
+
+                deleted, _ = qs.delete()
+                if deleted:
+                    messages.success(request, f"Unlearned {deleted} spell(s).")
+                else:
+                    messages.info(request, "Nothing to unlearn.")
+                return (spellcasting_blocks, spell_selection_blocks, redirect('characters:character_detail', pk=pk))
 
     if request.method == "POST" and request.POST.get("spells_op") == "adjust_formulas" and can_edit:
         fid = int(request.POST.get("feature_id") or 0)
@@ -5040,11 +5063,7 @@ def _inventory_context(character):
     except Exception:
         w_ct = a_ct = s_ct = None
 
-    # Enrich CharacterItem rows with kind/rarity flags for the table
-    try:
-        from django.contrib.contenttypes.models import ContentType
-    except Exception:
-        ContentType = None
+
 
     for it in my_items:
         obj = getattr(it, "item", None)
@@ -5813,6 +5832,7 @@ class AdvanceForm(forms.Form):
 def character_detail(request, pk):
     # ── 1) Load character & basic sheet context ─────────────────────────────
     character = get_object_or_404(Character, pk=pk)
+    CharacterFeature = apps.get_model("characters", "CharacterFeature")
 
     is_gm_for_campaign = False
     if character.campaign_id:
@@ -7410,8 +7430,9 @@ def character_detail(request, pk):
 
         def _upsert_ct_obj(ct_model_label, obj_id, add_qty=1, description="", from_party_item=None):
             app_label, model_name = ct_model_label
-            ContentType = apps.get_model("contenttypes", "ContentType")
-            ct = ContentType.objects.get(app_label=app_label, model=model_name.lower())
+            CTModel = apps.get_model("contenttypes", "ContentType")
+            ct = CTModel.objects.get(app_label=app_label, model=model_name.lower())
+
             row, created = CharacterItem.objects.get_or_create(
                 character=character,
                 item_content_type=ct,
@@ -11443,6 +11464,123 @@ def character_detail(request, pk):
         for mg in mg_qs if feats_by_id.get(mg.object_id)
     ]
 
+    if request.method == "POST" and can_edit and request.POST.get("features_op"):
+        op = (request.POST.get("features_op") or "").strip()
+
+        # small helper: redirect back to the Features tab
+        def _redir_features():
+            return redirect(reverse("characters:character_detail", args=[character.pk]) + "#tab-all")
+
+        if op == "manual_add_class_feature":
+            raw_id = (request.POST.get("class_feature_id") or "").strip()
+            note   = (request.POST.get("note") or "").strip()
+
+            if not raw_id.isdigit():
+                messages.error(request, "Pick a valid class feature.")
+                return _redir_features()
+            if not note:
+                messages.error(request, "Reason is required.")
+                return _redir_features()
+
+            cf = get_object_or_404(ClassFeature, pk=int(raw_id))
+
+            # Build defaults safely (only if those fields exist in your model)
+            cf_field_names = {f.name for f in CharacterFeature._meta.fields}
+            defaults = {}
+            if "level_picked" in cf_field_names:
+                defaults["level_picked"] = character.level
+            if "level" in cf_field_names:
+                defaults["level"] = character.level
+            if "source" in cf_field_names:
+                defaults["source"] = "manual"
+
+            obj, created = CharacterFeature.objects.get_or_create(
+                character=character,
+                feature=cf,
+                defaults=defaults,
+            )
+
+            # Store the reason keyed to the CharacterFeature row id
+            CharacterFieldNote.objects.update_or_create(
+                character=character,
+                key=f"manual:character_feature:{obj.id}",
+                defaults={"note": note},
+            )
+
+            messages.success(request, f"Added feature: {cf.name}")
+            return _redir_features()
+
+        if op == "manual_remove_class_feature":
+            raw_cfid = (request.POST.get("character_feature_id") or "").strip()
+            note     = (request.POST.get("note") or "").strip()
+
+            if not raw_cfid.isdigit():
+                messages.error(request, "Invalid feature row.")
+                return _redir_features()
+            if not note:
+                messages.error(request, "Reason is required.")
+                return _redir_features()
+
+            cfrow = (
+                CharacterFeature.objects
+                .filter(character=character, id=int(raw_cfid), feature__isnull=False)
+                .select_related("feature")
+                .first()
+            )
+
+            # Optional: clean activation rows too (prevents orphan toggles)
+            if not cfrow:
+                messages.error(request, "Feature not found.")
+                return _redir_features()
+
+            # Optional: clean activation rows too (prevents orphan toggles)
+            try:
+                Activation = apps.get_model("characters", "Activation")
+                ct = ContentType.objects.get_for_model(ClassFeature)
+                Activation.objects.filter(
+                    character=character,
+                    content_type=ct,
+                    object_id=cfrow.feature_id,   # ✅ feature_id not class_feature_id
+                ).delete()
+            except Exception:
+                pass
+
+            cf_name = cfrow.feature.name  # ✅
+            cfrow.delete()
+
+            # Record removal reason (optional: keep note history; or delete the old note)
+            CharacterFieldNote.objects.update_or_create(
+                character=character,
+                key=f"manual:character_feature:{cfrow.id}:removed",
+                defaults={"note": note},
+            )
+
+            cf_name = cfrow.class_feature.name
+            # remove the grant
+            cfrow.delete()
+
+            messages.success(request, f"Removed feature: {cf_name}")
+            return _redir_features()
+    # -------------------------------------------------------------------------------
+    # --- Feature manager lists for the template ------------------------------------
+    def _all_class_features_qs():
+        mgr = getattr(ClassFeature, "all_objects", None) or ClassFeature._base_manager or ClassFeature.objects
+        return (
+            mgr.select_related("character_class")
+            .only("id", "name", "character_class__id", "character_class__name", "activity_type", "kind")
+            .order_by("name")
+        )
+
+    all_class_features = list(_all_class_features_qs())
+
+    character_class_features = list(
+        CharacterFeature.objects
+            .filter(character=character, feature__isnull=False)
+            .select_related("feature", "feature__character_class")
+            .order_by("feature__name")
+    )
+
+
 
     all_feats = list(_all_feats_qs())
     if request.method == "POST" and request.POST.get("feats_op"):
@@ -11656,7 +11794,8 @@ def character_detail(request, pk):
         'proficiency_summary': proficiency_summary,
         'proficiency_detailed': rows,                # keep original table
         'proficiency_by_code': by_code,              # renamed to avoid override
-
+"all_class_features": all_class_features,
+"character_class_features": character_class_features,
         # — Features & feats —
         'feature_fields': feature_fields,
         'racial_features': racial_features,
