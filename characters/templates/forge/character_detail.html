@@ -159,7 +159,7 @@
     </div>
   </div>
 
-  <div class="row g-4">
+<div class="row g-4 align-items-start">
     <!-- LEFT: Basics + Ability Scores + quick finals -->
     <aside class="col-lg-3">
       <div class="position-sticky" style="top: 1rem;">
@@ -349,6 +349,13 @@
     <strong>{{ derived.dodge_total }}</strong>
   </span>
 </li>
+<li class="list-group-item d-flex justify-content-between align-items-center">
+  <span>Critical Threshold</span>
+  <span class="d-flex align-items-center gap-2">
+    <strong>{{ derived.crit_threshold_total }}</strong>
+  </span>
+</li>
+
 
 
 <li class="list-group-item d-flex justify-content-between align-items-center">
@@ -553,6 +560,9 @@
                 <ul class="list-group list-group-flush">
 <li class="list-group-item d-flex justify-content-between"><span>Armor</span><span class="fw-bold">{{ derived.armor_total }}</span></li>
 <li class="list-group-item d-flex justify-content-between"><span>Dodge</span><span class="fw-bold">{{ derived.dodge_total  }}</span></li>
+<li class="list-group-item d-flex justify-content-between"><span>Critical Threshold</span><span class="fw-bold">{{ derived.crit_threshold_total  }}</span></li>
+
+
 <li class="list-group-item d-flex justify-content-between"><span>Reflex</span><span class="fw-bold">{{ defense_totals.Reflex|default:"—" }}</span></li>
 <li class="list-group-item d-flex justify-content-between"><span>Fortitude</span><span class="fw-bold">{{ defense_totals.Fortitude|default:"—" }}</span></li>
 <li class="list-group-item d-flex justify-content-between align-items-center">
@@ -649,7 +659,8 @@
 <button
   class="btn btn-sm btn-outline-secondary edit-override"
   type="button"
-  data-key="prof:{{ r.code }}"
+data-key="prof:{{ r.code }}"
+
   data-calc="{{ r.calc.total }}"
   data-formula="{{ r.calc.formula }}"
   data-debug='{{ r.debug_json|safe }}'

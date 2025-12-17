@@ -522,6 +522,14 @@ def _trigger_mastery_cap(trigger):
     return (int(r) if r is not None else None)
 
 
+def _armor_prof_crit_bonus(prof_dict) -> int:
+    """
+    Crit protection from ARMOR proficiency tier:
+      Expert +1, Master +2, Legendary +3, else +0
+    """
+    name = (prof_dict or {}).get("name", "")
+    key = str(name).strip().lower()
+    return {"expert": 1, "master": 2, "legendary": 3}.get(key, 0)
 
 # views.py
 from django.views.decorators.http import require_GET
@@ -9221,14 +9229,53 @@ def character_detail(request, pk):
     )
 
     # Cap the *score*, then compute the modifier (e.g., cap 8 ⇒ (8-10)//2 = -1)
-    dex_score_raw = abil_score("dexterity")
-    if combined_cap is not None:
-        dex_score_eff = min(dex_score_raw, int(combined_cap))
-        dex_for_dodge = _abil_mod(dex_score_eff)
-        dex_label = f"Dexterity (capped to {combined_cap})"
-    else:
-        dex_for_dodge = _abil_mod(dex_score_raw)
-        dex_label = "Dexterity"
+    # --- Dodge DEX: (dex mod + 2) capped by armor dex cap MODIFIER ---
+    dex_mod_raw = abil_mod("dexterity")  # normal dex mod (no +2 here)
+
+
+    def _dex_cap_to_mod(cap):
+        """
+        Supports BOTH interpretations of dex_cap:
+        - modifier cap: typically 0..6 (e.g. 2 means “cap Dex contribution at +2”)
+        - score cap: typically 8..30 (e.g. 18 means “cap Dex score at 18” => +4)
+        """
+
+        if cap is None:
+            return None
+
+        s = str(cap).strip()
+
+        # If stored like "+2" or "-1", treat as a modifier cap explicitly.
+        if s.startswith(("+", "-")):
+            try:
+                return int(s)
+            except Exception:
+                return None
+
+        # Extract first integer from messy strings like "18 (cap)"
+        m = re.search(r"-?\d+", s)
+        if not m:
+            return None
+        cap_i = int(m.group(0))
+
+        # Key change: do NOT treat 8/9/10 as modifier caps.
+        # In your rules, modifier caps realistically live in a small range (0..6).
+        if 0 <= cap_i <= 6:
+            return cap_i  # modifier cap
+
+        return _abil_mod(cap_i)  # score cap -> convert to modifier cap
+
+    dex_cap_mod = _dex_cap_to_mod(combined_cap)
+
+    dex_cap_mod = _dex_cap_to_mod(combined_cap)  # combined_cap is a *DEX SCORE* cap, e.g. 17 -> +3
+
+    dex_for_dodge = dex_mod_raw + 2              # add the +2 first
+    if dex_cap_mod is not None:
+        dex_for_dodge = min(dex_for_dodge, dex_cap_mod)  # then cap
+
+    dex_label = f"Dexterity (+2, capped to {dex_cap_mod})" if dex_cap_mod is not None else "Dexterity (+2)"
+
+
 
 
     half_lvl_up = (character.level + 1) // 2 
@@ -9258,95 +9305,116 @@ def character_detail(request, pk):
     defense_rows = []
     def _hl(code): return hl_if_trained(code)
 
+ 
     def add_row(code, abil_name=None, abil_mod_val=0, label=None, base_const=0,
-                prof_override=None, half_override=None):
-        r = prof_by_code.get(code, {"tier_name":"—","modifier":0,"source":"—"})
+                prof_override=None, half_override=None,
+                *, level_label="½ level", include_prof=True, include_level=True,
+                custom_formula=None, custom_values=None, ctx_extra=None):
+
+        code_key = (str(code or "").strip().lower())
+        r = prof_by_code.get(code_key, {"tier_name":"—","modifier":0,"source":"—"})
         prof = int(prof_override if prof_override is not None else r["modifier"])
-        half = int(half_override if half_override is not None else _hl(code))
-        # ...rest of function unchanged, but use `prof` and `half` from above...
+        lvlc = int(half_override if half_override is not None else _hl(code))  # "level component"
 
+        # (system total BEFORE any overrides)
+        total_sys = base_const
+        if include_prof:
+            total_sys += prof
+        if include_level:
+            total_sys += lvlc
+        if abil_name:
+            total_sys += int(abil_mod_val)
 
-        # default system formula
-        total_sys = base_const + prof + half + (abil_mod_val if abil_name else 0)
+        # human-readable formula/values for system
         formula_h = []
         values_h  = []
-        if base_const: formula_h.append("base"); values_h.append(str(base_const))
-        formula_h += ["prof","½ level"]
-        values_h  += [str(prof), str(half)]
-        if abil_name:
-            formula_h.append(f"{abil_name[:3]} mod")
-            values_h.append(str(abil_mod_val))
 
-        # context for user formulas
+        if base_const:
+            formula_h.append("base"); values_h.append(str(base_const))
+        if include_prof:
+            formula_h.append("prof"); values_h.append(str(prof))
+        if include_level:
+            formula_h.append(level_label); values_h.append(str(lvlc))
+        if abil_name:
+            formula_h.append(f"{abil_name[:3]} mod"); values_h.append(str(abil_mod_val))
+
+        used_formula = custom_formula or " + ".join(formula_h)
+        values_s     = custom_values  or " + ".join(values_h)
+
+        # context for formula overrides
         ctx = {
-            "base": base_const, "prof": prof, "half": half,
+            "base": base_const,
+            "prof": prof,
+            "half": lvlc,  # keep existing token name, but note: for Armor we'll pass FULL level here
+            "level_comp": lvlc,
+
+            # also expose explicit levels so formulas can be unambiguous
+            "full_level": int(character.level),
+            "half_level_floor": int(half_lvl),
+            "half_level_ceil": int(half_lvl_up),
+
             "strength": abil_score("strength"), "dexterity": abil_score("dexterity"),
             "constitution": abil_score("constitution"), "intelligence": abil_score("intelligence"),
             "wisdom": abil_score("wisdom"), "charisma": abil_score("charisma"),
             "str_mod": abil_mod("strength"), "dex_mod": abil_mod("dexterity"),
             "con_mod": abil_mod("constitution"), "int_mod": abil_mod("intelligence"),
             "wis_mod": abil_mod("wisdom"), "cha_mod": abil_mod("charisma"),
-            "level": character.level, "floor": math.floor, "ceil": math.ceil, "min": min, "max": max, "int": int, "round": round,
-                }
+            "level": character.level,
+            "floor": math.floor, "ceil": math.ceil, "min": min, "max": max,
+            "int": int, "round": round,
+        }
+        if ctx_extra:
+            ctx.update(ctx_extra)
 
-        # (3) apply a per-stat formula override if present
-        used_formula = " + ".join(formula_h)
-        total_calc   = total_sys
+        # apply formula override (if present)
+        total_calc = total_sys
         try:
             expr = _formula_override(f"prof:{code}")
             if expr:
-                total_calc   = int(eval(expr, {"__builtins__": {}}, ctx))
+                total_calc = int(eval(expr, {"__builtins__": {}}, ctx))
                 used_formula = expr
         except Exception:
-            # keep system total on any error
             pass
 
-        # (4) allow a direct final override
+        # apply final override
         final = _final_override(f"prof:{code}")
         if final is not None:
             total_calc = final
 
         debug = {
             "formula": used_formula,
-            "values":  " + ".join(values_h),
+            "values":  values_s,
+            "system_total": total_sys,
             "total":   total_calc,
-            "vars": [
-                *([{"name": "base", "value": base_const, "note": "Base"}] if base_const else []),
-                {"name": "prof", "value": prof, "note": r.get("tier_name","")},
-                {"name": "½ level", "value": half, "note": "applies if trained"},
-                *([{"name": f"{(abil_name or '')[:3]} mod", "value": abil_mod_val, "note": abil_name}] if abil_name else []),
-            ],
         }
-        
 
         defense_rows.append({
             "code":   code,
             "type":   label or LABELS.get(code, code).title(),
             "tier":   r["tier_name"],
             "formula": used_formula,
-            "values":  debug["values"],
+            "values":  values_s,
             "total_s": _fmt(total_calc),
-            "source": r["source"],
+
+            # NEW: expose system vs current (for UI)
+            "system_total_s": _fmt(total_sys),
+            "system_total": total_sys,
+
             "calc": {
                 "formula": used_formula,
-                "parts": [
-                    *([{"key": "base", "label": "Base", "value": base_const}] if base_const else []),
-                    {"key": "prof", "label": "Proficiency", "value": prof, "note": r.get("tier_name","")},
-                    {"key": "half", "label": "½ level", "value": half},
-                    *([{"key": "abil", "label": f"{(abil_name or '')[:3]} mod", "value": abil_mod_val, "note": abil_name}] if abil_name else []),
-                ],
+                "system_total": total_sys,
                 "total": total_calc,
             },
-            # Provide debug as JSON for the modal viewer
             "debug_json": json.dumps(debug),
         })
+
     def _total_for(code, default=0):
         row = next((r for r in defense_rows if r["code"] == code), None)
         return int(row["calc"]["total"]) if row else default
     defense_totals = {r["type"]: r["total_s"] for r in (defense_rows or [])}
 
     # Ensure all core prof codes exist so Defense never collapses
-    for _code in ("armor","dodge","reflex","fortitude","will","perception","initiative","weapon","dc"):
+    for _code in ("armor","dodge","crit_threshold","reflex","fortitude","will","perception","initiative","weapon","dc"):
         if _code not in prof_by_code:
             prof_by_code[_code] = {
                 "type_code": _code,
@@ -9366,8 +9434,9 @@ def character_detail(request, pk):
         dex_for_dodge,
         label="Dodge",
         base_const=(10 + shield_value),
-        half_override=half_lvl_up
+        half_override=half_lvl_up  # keep your existing "always ⌈level/2⌉" behavior
     )
+
 
     for code in ("armor","dodge","reflex","fortitude","will","perception","initiative","weapon","dc"):
         tier_pk = overrides.get(f"prof_tier:{code}")
@@ -9384,10 +9453,18 @@ def character_detail(request, pk):
     add_row("perception",               label="Perception")
     add_row("initiative",               label="Initiative")
     # armor_value + 2×shield_value
+    armor_is_prof = bool(armor_prof.get("is_proficient"))
+    armor_lvl_comp = character.level if armor_is_prof else 0
+
     add_row(
-    "armor", label="Armor", base_const=(armor_value + 2*shield_value),
-    prof_override=armor_prof["bonus"], half_override=half_lvl
+        "armor",
+        label="Armor",
+        base_const=(armor_value + 2*shield_value),
+        prof_override=armor_prof["bonus"],
+        half_override=half_lvl_up,
+        level_label="½ level"
     )
+
 
     by_slot = {
         e.slot_index: e
@@ -9528,7 +9605,55 @@ def character_detail(request, pk):
         "fortitude_total":  _total_for("fortitude"),
         "will_total":       _total_for("will"),
         "perception_total": _total_for("perception"),
+       "crit_threshold_total":  _total_for("crit_threshold"),
+   
+   
     })
+    def _armor_crit_bonus():
+        if not selected_armor:
+            return 0
+        tier = (prof_by_code.get("armor", {}).get("tier_name") or "").strip().lower()
+        return {"expert": 2, "master": 3, "legendary": 4}.get(tier, 0)
+
+    crit_bonus = _armor_crit_bonus()
+    dodge_now  = _total_for("dodge", 0)
+
+    crit_sys = dodge_now + 10 + crit_bonus
+
+    armor_prof_name = (armor_prof.get("name") or "").strip().lower()
+    crit_bonus = {"expert": 1, "master": 2, "legendary": 3}.get(armor_prof_name, 0)
+
+    crit_sys = int(dodge_now) + 10 + int(crit_bonus)
+
+    add_row(
+        "crit_threshold",
+        label="Critical Threshold",
+        base_const=crit_sys,
+        prof_override=0,
+        half_override=0,
+        include_prof=False,
+        include_level=False,
+        custom_formula="dodge + 10 + armor_prof_crit",
+        custom_values=f"{_fmt(dodge_now)} + 10 + {_fmt(crit_bonus)}",
+        ctx_extra={"dodge": dodge_now, "armor_prof_crit": crit_bonus},
+    )
+
+    # ✅ Copy the computed value (the same one shown in the breakdown) into `derived`
+    _ct_row = next((
+        r for r in defense_rows
+        if (r.get("key") == "crit_threshold"
+            or r.get("id") == "crit_threshold"
+            or r.get("label") == "Critical Threshold"
+            or r.get("type") == "Critical Threshold")
+    ), None)
+
+    derived["crit_threshold_total"] = int(
+        (_ct_row or {}).get("calc", {}).get("total")
+        or (_ct_row or {}).get("total")
+        or 0
+    )
+
+
 
     def _atk_total(label):
         row = next((r for r in attack_rows if r["label"] == label), None)
@@ -11763,6 +11888,30 @@ def character_detail(request, pk):
         {"prestige_class": prestige_class_by_id[pid], "levels": lvl}
         for pid, lvl in prestige_levels_by_class.items()
     ]
+    def _int_or_none(v):
+        if v is None:
+            return None
+        s = str(v).strip()
+        if s == "":
+            return None
+        try:
+            return int(s)
+        except Exception:
+            return None
+
+    # 1) pull the calculated number from the row you already built
+    crit_row = next((r for r in defense_rows if r.get("key") == "crit_threshold"), None)
+    crit_threshold_calc = _int_or_none(crit_row["calc"]["total"]) if crit_row else None
+
+    # 2) pull the saved override (IMPORTANT: cast it)
+    ov = CharacterFieldOverride.objects.filter(
+        character=character,
+        key="final:crit_threshold",   # <-- use YOUR real key if different
+    ).values_list("value", flat=True).first()
+    crit_threshold_saved = _int_or_none(ov)
+
+    # 3) “current” = override if present else calc
+    crit_threshold_current = crit_threshold_saved if crit_threshold_saved is not None else crit_threshold_calc
 
     # --- Build counts-as field for the preview form (GET, modal) ---
     # We only care about this if we're high enough level AND we actually have a prestige
@@ -11814,7 +11963,9 @@ def character_detail(request, pk):
         'track': track,
         'class_summary': class_summary,
         'prestige_summary': prestige_summary,
-        # — Notes —
+        "crit_threshold_calc": crit_threshold_calc,
+        "crit_threshold_saved": crit_threshold_saved,
+        "crit_threshold_current": crit_threshold_current,
         "note_categories": note_categories,
         "notes_by_category": notes_by_category,
     "all_feats":       all_feats,  # <- now populated even if .objects is filtered
@@ -11838,8 +11989,8 @@ def character_detail(request, pk):
         'proficiency_summary': proficiency_summary,
         'proficiency_detailed': rows,                # keep original table
         'proficiency_by_code': by_code,              # renamed to avoid override
-"all_class_features": all_class_features,
-"character_class_features": character_class_features,
+    "all_class_features": all_class_features,
+    "character_class_features": character_class_features,
         # — Features & feats —
         'feature_fields': feature_fields,
         'racial_features': racial_features,
