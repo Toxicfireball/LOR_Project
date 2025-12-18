@@ -9282,7 +9282,7 @@ def character_detail(request, pk):
 
     derived = {
         "half_level":      half_lvl,
-        "armor_total":     (armor_value + 2*shield_value) + armor_prof["bonus"] + half_lvl,
+        "armor_total": (armor_value + 2*shield_value) + (int(armor_prof.get("bonus") or 0)*2) + half_lvl_up,
         "dodge_total":     10 + dex_for_dodge + shield_value + prof_dodge + half_lvl_up,
         "reflex_total":    dex_mod + prof_reflex + hl_if_trained("reflex"),
         "fortitude_total": con_mod + prof_fort   + hl_if_trained("fortitude"),
@@ -9456,13 +9456,27 @@ def character_detail(request, pk):
     armor_is_prof = bool(armor_prof.get("is_proficient"))
     armor_lvl_comp = character.level if armor_is_prof else 0
 
+    # Armor = (armor worn value) + (prof × 2) + ½ level (ceil)
+    armor_worn = int(armor_value) + (2 * int(shield_value))
+
+    # If you want to require proficiency to gain prof/level scaling, keep this gate.
+    # If you want armor to always scale regardless, remove the condition.
+    if armor_prof.get("is_proficient"):
+        prof_raw = int(armor_prof.get("bonus") or 0)
+        half_ceil = int(half_lvl_up)   # ceil(level/2)
+    else:
+        prof_raw = 0
+        half_ceil = 0
+
     add_row(
         "armor",
         label="Armor",
-        base_const=(armor_value + 2*shield_value),
-        prof_override=armor_prof["bonus"],
-        half_override=half_lvl_up,
-        level_label="½ level"
+        base_const=armor_worn,
+        prof_override=(prof_raw * 2),          # ✅ prof × 2
+        half_override=half_ceil,              # ✅ ½ level (round up)
+        level_label="½ level (ceil)",
+        custom_formula="armor worn + (prof × 2) + ½ level (ceil)",
+        custom_values=f"{_fmt(armor_worn)} + {_fmt(prof_raw)}×2 + {_fmt(half_ceil)}",
     )
 
 
