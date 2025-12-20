@@ -659,7 +659,7 @@
 <button
   class="btn btn-sm btn-outline-secondary edit-override"
   type="button"
-data-key="prof:{{ r.code }}"
+data-key="prof:{{ r.code|lower }}"
 
   data-calc="{{ r.calc.total }}"
   data-formula="{{ r.calc.formula }}"
@@ -3752,12 +3752,13 @@ document.addEventListener('DOMContentLoaded', function(){
     return;
   }
 
-  // Build Proficiency Levels JSON inline (from context)
-  const PROF_LEVELS = [
-    {% for pl in proficiency_levels %}
-      {"id": {{ pl.id }}, "name": "{{ pl.name|escapejs }}", "bonus": {{ pl.bonus|default:0 }} }{% if not forloop.last %},{% endif %}
-    {% endfor %}
-  ];
+const PROF_LEVELS = [
+  {% for pl in proficiency_tiers %}
+    {"id": {{ pl.id }}, "name": "{{ pl.name|escapejs }}", "bonus": {{ pl.bonus|default:0 }} }{% if not forloop.last %},{% endif %}
+  {% endfor %}
+];
+
+
 
   // Define renderDebug to avoid errors and show parts
   function renderDebug(target, data) {
@@ -3830,11 +3831,11 @@ html += '</ul></div>';
 tierSelect.innerHTML = '<option value="">— Select Tier —</option>' +
   PROF_LEVELS.map(pl => `<option value="${pl.id}">${pl.name} (+${pl.bonus})</option>`).join('');
 
-          const code = key.split(':')[1] || '';
-          profCodeEl.value = code;
+const code = key.startsWith('prof:') ? key.slice(5) : ''; // keeps EVERYTHING after "prof:"
+          profCodeEl.value = (code || "").toLowerCase();
           profTierPkEl.value = '';
           profReasonEl.value = '';
-          tierClearBtn.value = code;
+tierClearBtn.value = (code || "").toLowerCase();
         } else {
           tierBlock.classList.add('d-none');
           profCodeEl.value = '';
@@ -5356,26 +5357,41 @@ function getCookie(name) {
   const form2 = document.getElementById('overrideForm');
   if (!form2) return;
 
-  form2.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const fd = new FormData(form2);
-    try {
-      const resp = await fetch(form2.action, {
-        method: 'POST',
-        headers: {
-          'X-CSRFToken': getCookie('csrftoken'),
-          'X-Requested-With': 'XMLHttpRequest'
-        },
-        body: fd
-      });
-      if (!resp.ok) throw new Error('Bad response');
-      // success → refresh
-      location.reload();
-    } catch (err) {
-      alert('Failed to save override.');
-    }
+form2.addEventListener('submit', async (e) => {
+  e.preventDefault();
+
+  // IMPORTANT: include the clicked submit button (Django relies on this)
+  const submitter = e.submitter; // button/input that triggered submit
+  const fd = new FormData(form2);
+  if (submitter && submitter.name) {
+    fd.append(submitter.name, submitter.value || "1");
+  }
+
+  // DEBUG: see exactly what you are posting
+  console.log("submitter:", submitter?.name, submitter?.value);
+  console.table(Array.from(fd.entries()));
+
+  const resp = await fetch(form2.action, {
+    method: "POST",
+    headers: {
+      "X-CSRFToken": getCookie("csrftoken"),
+      "X-Requested-With": "XMLHttpRequest",
+    },
+    body: fd,
   });
-})();
+
+  const text = await resp.text(); // even for HTML error pages
+  console.log("STATUS:", resp.status, "URL:", resp.url, "redirected:", resp.redirected);
+  console.log("RESPONSE (first 1500 chars):\n", text.slice(0, 1500));
+
+  if (!resp.ok) {
+    alert(`Save failed: HTTP ${resp.status}\nSee console for response body.`);
+    return;
+  }
+
+  location.reload();
+});
+
   </script>
 
   <script>

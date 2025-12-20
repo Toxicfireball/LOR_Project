@@ -6335,8 +6335,98 @@ def character_detail(request, pk):
 
     if request.method == "POST" and "level_up_submit" in request.POST:
         return character_level_up(request, pk)
-    # === Unified override save (Formula / Final) — runs before any POST normalization ===
-    if request.method == "POST" and request.POST.get("override_submit") and can_edit:
+    
+    # ✅ SAVE proficiency tier override
+    if request.method == "POST" and can_edit and request.POST.get("save_prof_tier_override"):
+        code    = (request.POST.get("prof_code") or "").strip().lower()
+        tier_pk = (request.POST.get("prof_tier_pk") or "").strip()
+        reason  = (request.POST.get("prof_tier_reason") or request.POST.get("override_reason") or "").strip()
+
+        if not code:
+            messages.error(request, "Missing proficiency code.")
+            return redirect("characters:character_detail", pk=pk)
+        if not tier_pk.isdigit():
+            messages.error(request, "Invalid tier selected.")
+            return redirect("characters:character_detail", pk=pk)
+        if not reason:
+            messages.error(request, "Reason is required.")
+            return redirect("characters:character_detail", pk=pk)
+
+        key = f"prof_tier:{code}"
+
+        CharacterFieldOverride.objects.update_or_create(
+            character=character,
+            key=key,
+            defaults={"value": str(int(tier_pk))},
+        )
+        CharacterFieldNote.objects.update_or_create(
+            character=character,
+            key=key,
+            defaults={"note": reason},
+        )
+        print("[DBG] SAVE_PROF_TIER", dict(request.POST))
+        print("[DBG] saving key", key, "tier_pk", tier_pk, "reason", reason)
+
+        messages.success(request, "Proficiency tier override saved.")
+        return redirect("characters:character_detail", pk=pk)
+
+
+    # --- Proficiency Tier override (must run BEFORE override_submit handler) ---
+    if request.method == "POST" and can_edit and request.POST.get("save_prof_tier_override"):
+        code    = (request.POST.get("prof_code") or "").strip().lower()        
+        tier_pk = (request.POST.get("prof_tier_pk") or "").strip()
+        reason  = (request.POST.get("override_reason") or request.POST.get("prof_tier_reason") or "").strip()
+        print(code)
+        print(tier_pk)
+        print(reason)
+        if not code:
+            messages.error(request, "Missing proficiency code.")
+            return redirect("characters:character_detail", pk=pk)
+        if not tier_pk.isdigit():
+            messages.error(request, "Pick a valid proficiency tier.")
+            return redirect("characters:character_detail", pk=pk)
+        if not reason:
+            messages.error(request, "Reason is required.")
+            return redirect("characters:character_detail", pk=pk)
+
+        # Store tier override using existing override table (no new model required)
+        tier_key = f"proftier:{code}"
+        o, _ = CharacterFieldOverride.objects.get_or_create(character=character, key=tier_key)        
+        if str(o.value) != str(tier_pk):
+            o.value = str(tier_pk)
+            o.save(update_fields=["value"])
+
+    
+        else: 
+            print("wtf??")
+
+        CharacterFieldNote.objects.update_or_create(
+            character=character, key=tier_key, defaults={"note": reason}
+        )
+
+        messages.success(request, "Proficiency tier override saved.")
+        return redirect("characters:character_detail", pk=pk)
+
+
+
+    if request.method == "POST" and can_edit and ("clear_prof_tier_override" in request.POST):
+        code = (request.POST.get("prof_code") or request.POST.get("clear_prof_tier_override") or "").strip().lower()
+        if not code:
+                    messages.error(request, "Missing proficiency code.")
+                    return redirect("characters:character_detail", pk=pk)
+
+        tier_key = f"prof_tier:{code}"
+        CharacterFieldOverride.objects.filter(character=character, key=tier_key).delete()
+        CharacterFieldNote.objects.filter(character=character, key=tier_key).delete()
+
+        messages.success(request, "Proficiency tier override cleared.")
+        return redirect("characters:character_detail", pk=pk)
+
+    if (
+        request.method == "POST" and can_edit and request.POST.get("override_submit")
+        and not request.POST.get("save_prof_tier_override")
+        and not request.POST.get("clear_prof_tier_override")
+    ):        
         key     = (request.POST.get("override_key") or "").strip()
         formula = (request.POST.get("override_formula") or "").strip()
         final_s = (request.POST.get("override_final") or "").strip()
@@ -6388,9 +6478,44 @@ def character_detail(request, pk):
         messages.success(request, "Override saved.")
         return redirect("characters:character_detail", pk=pk)
  
-    # 🔹 Details editor (single authoritative handler)
+    if request.method == "POST" and can_edit and ("save_prof_tier_override" in request.POST):
+        code    = (request.POST.get("prof_code") or "").strip().lower()
+        tier_pk = (request.POST.get("prof_tier_pk") or "").strip()
+        # use the visible required reason field you already have in the form
+        reason  = (request.POST.get("override_reason") or "").strip()
 
- 
+        if not code:
+            messages.error(request, "Missing proficiency code.")
+            return redirect("characters:character_detail", pk=pk)
+
+        if not tier_pk.isdigit():
+            messages.error(request, "Pick a valid proficiency tier.")
+            return redirect("characters:character_detail", pk=pk)
+
+        if not reason:
+            messages.error(request, "Reason is required.")
+            return redirect("characters:character_detail", pk=pk)
+
+        ProficiencyTier = apps.get_model("characters", "ProficiencyTier")
+        tier = get_object_or_404(ProficiencyTier, pk=int(tier_pk))
+
+        tier_key = f"prof_tier:{code}"
+
+        o, _ = CharacterFieldOverride.objects.get_or_create(character=character, key=tier_key)
+        if str(o.value) != str(tier.pk):
+            o.value = str(tier.pk)
+            o.save(update_fields=["value"])
+
+        CharacterFieldNote.objects.update_or_create(
+            character=character,
+            key=tier_key,
+            defaults={"note": reason},
+        )
+
+        messages.success(request, "Proficiency tier override saved.")
+        return redirect("characters:character_detail", pk=pk)
+
+
     # LOR skill progression constants
     LOR_TIER_ORDER     = ["Untrained","Trained","Expert","Master","Legendary"]
     LOR_UPGRADE_COST   = {"Untrained":1, "Trained":2, "Expert":3, "Master":5}   # → next tier
@@ -8709,6 +8834,11 @@ def character_detail(request, pk):
 
     # ------- OVERRIDES map (includes numbers the user sets with a reason) -------
     overrides = {o.key: o.value for o in character.field_overrides.all()}
+    # Back-compat: old keys were saved as "proftier:<code>"
+    for k, v in list(overrides.items()):
+        if k.startswith("proftier:"):
+            overrides.setdefault("prof_tier:" + k[len("proftier:"):], v)
+
     # --- RESOURCES context ---------------------------------------------------------
     idx_ov = CharacterFieldOverride.objects.filter(character=character, key="resource:index").first()
     try:
@@ -8999,8 +9129,10 @@ def character_detail(request, pk):
                 else:
                     r = prof_by_code[gcode]
                     r["modifier"]  = int(pl.bonus or 0)
+                    r["bonus"]     = int(pl.bonus or 0)
                     r["tier_name"] = pl.name.title()
                     r["source"]    = "Tier override"
+
 
     # NEW: if no override, backfill weapon group profs from class rules
     # so display shows Simple/Martial/Special/Black Powder correctly.
@@ -9440,13 +9572,20 @@ def character_detail(request, pk):
 
     for code in ("armor","dodge","reflex","fortitude","will","perception","initiative","weapon","dc"):
         tier_pk = overrides.get(f"prof_tier:{code}")
+        print("DEBUG TIER APPLY", code, "tier_pk=", tier_pk, "type=", type(tier_pk))
+        if tier_pk and str(tier_pk).isdigit():
+            print("DEBUG lookups:",
+                "in ProficiencyLevel?", ProficiencyLevel.objects.filter(pk=int(tier_pk)).exists())
+
         if tier_pk and str(tier_pk).isdigit():
             pl = tier_rows.get(int(tier_pk))
             if pl and code in prof_by_code:
                 r = prof_by_code[code]
                 r["modifier"]  = int(pl.bonus or 0)
+                r["bonus"]     = int(pl.bonus or 0)
                 r["tier_name"] = pl.name.title()
                 r["source"]    = "Tier override"
+
     add_row("reflex", "Dexterity", dex_mod, label="Reflex")
     add_row("fortitude","Constitution", con_mod, label="Fortitude")
     add_row("will",   "Wisdom",   wis_mod, label="Will")
@@ -9710,9 +9849,9 @@ def character_detail(request, pk):
             .filter(name__in=FIVE_TIERS)
             .order_by(order, "bonus")
     )
+    proficiency_tiers = prof_levels
 
     # ← NEW: expose tiers for the Weapon Group editor templates
-    proficiency_tiers = prof_levels
 
     # --- Replace your current weapon_group_display build with this:
     _weapon_labels = {
@@ -12108,6 +12247,7 @@ def character_detail(request, pk):
         "martial_mastery_known": mm_ctx["martial_mastery_known"],
         "martial_mastery_available": mm_ctx["martial_mastery_available"],
                 "roll_choices": roll_choices,
+                'proficiency_levels': proficiency_tiers,  # alias for override modal JS
         "roll_mod_data_json": roll_mod_data_json,
     })
 
