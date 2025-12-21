@@ -84,6 +84,10 @@ class Skill(models.Model):
     description        = models.TextField(blank=True)
     is_advanced        = models.BooleanField(default=False)
 
+    @property
+    def effective_is_advanced(self) -> bool:
+        return bool(self.is_advanced)
+
     def __str__(self):
         if self.secondary_ability:
             return f"{self.name} ({self.ability.title()} / {self.secondary_ability.title()})"
@@ -1049,8 +1053,12 @@ class SubSkill(models.Model):
     )
     name        = models.CharField(max_length=100)
     description = models.TextField(blank=True)
+    @property
+    def effective_is_advanced(self) -> bool:
+        # SubSkills inherit the parent Skill's advanced-ness
+        return bool(self.skill.is_advanced)
+
     def __str__(self):
-        # show “<Skill name> – <SubSkill name>”
         return f"{self.skill.name} – {self.name}"
 
 

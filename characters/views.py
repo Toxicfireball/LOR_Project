@@ -9898,6 +9898,10 @@ def character_detail(request, pk):
         for obj in targets:
             is_sub = isinstance(obj, SubSkill)
             label  = f"{sk.name} – {obj.name}" if is_sub else sk.name
+
+            # ✅ NEW: advanced flag (SubSkill inherits from parent Skill via property)
+            is_adv = bool(getattr(obj, "effective_is_advanced", False))
+
             prof = current_prof_for(obj) or untrained_level
             pbonus = prof.bonus if prof else 0
 
@@ -9918,6 +9922,8 @@ def character_detail(request, pk):
                 "prof_id":   (prof.pk if prof else None),
                 "prof_name": (prof.name if prof else "Untrained"),
                 "prof_bonus": pbonus,
+                "is_advanced": is_adv,
+                "advanced_label": ("Advanced" if is_adv else "Standard"),
                 "mod1":      a1_mod,
                 "mod2":      a2_mod,
                 "half":      h,      # 0 for Untrained

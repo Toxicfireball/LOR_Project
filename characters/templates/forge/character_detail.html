@@ -1417,7 +1417,12 @@ function renderToggleMods(list, container, checkboxClass) {
             {% for row in skills_rows %}
               {# display row #}
               <tr>
-                <td>{{ row.label }}</td>
+          <td>
+            {{ row.label }}
+            <span class="badge ms-1 {% if row.is_advanced %}text-bg-warning{% else %}text-bg-secondary{% endif %}">
+              {{ row.advanced_label }}
+            </span>
+          </td>
                 <td>
                   {{ row.ability1 }}{% if row.ability2 %} / {{ row.ability2 }}{% endif %}
                 </td>
@@ -1517,7 +1522,12 @@ function renderToggleMods(list, container, checkboxClass) {
               <div class="small text-muted">This mirrors Combat’s calculation.</div>
 
               <div class="mt-2">
-                <div><strong>{{ row.label }}</strong></div>
+<div>
+  <strong>{{ row.label }}</strong>
+  <span class="badge ms-1 {% if row.is_advanced %}text-bg-warning{% else %}text-bg-secondary{% endif %}">
+    {{ row.advanced_label }}
+  </span>
+</div>
 
                 <div class="mt-1">
                   <div><em>Primary</em> — {{ row.formula1 }} <span class="text-muted">= {{ row.values1 }}</span></div>
