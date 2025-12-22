@@ -4,7 +4,7 @@
 {% block content %}
 <main class="container mx-auto px-4 pt-20">  {# pt-20 ≈ 80px; adjust to your navbar height #}
 
-<h1 class="text-3xl font-bold mb-6">All Classes</h1>
+<h1 class="text-3xl font-bold mb-6">Core Classes</h1>
 
 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
   {% for cls in classes %}
@@ -77,15 +77,7 @@
             L{{ pc.min_entry_level }}
           </div>
 
-          {% if pc.requires_gm_approval %}
-            <div class="text-amber-700">
-              <span class="font-medium">GM Approval:</span> Required
-            </div>
-          {% else %}
-            <div class="text-green-700">
-              <span class="font-medium">GM Approval:</span> Not required
-            </div>
-          {% endif %}
+
         </div>
       </a>
     {% endfor %}

@@ -2902,10 +2902,19 @@ def prestige_class_detail(request, code):
             ),
             Prefetch(
                 "features",
-                queryset=PrestigeFeature.objects
-                .select_related("grants_class_feature")
-                .order_by("at_prestige_level", "name")
+                queryset=(
+                    PrestigeFeature.objects
+                    .select_related("grants_class_feature")
+                    .prefetch_related(
+                        "grants_class_feature__spell_slot_rows",
+                        "grants_class_feature__options",
+                        "grants_class_feature__options__grants_feature",
+                        "grants_class_feature__options__grants_feature__spell_slot_rows",
+                    )
+                    .order_by("at_prestige_level", "name")
+                ),
             ),
+
         ),
         code=code,
     )
