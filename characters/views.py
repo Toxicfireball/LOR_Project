@@ -62,6 +62,110 @@ from django.shortcuts import redirect   # if not already imported
 from .models import RollModifier        # ADD this with your other model imports
 
 from .utils import parse_formula
+
+import re
+from collections import defaultdict
+
+from django.db.models import Q
+from django.views.generic import DetailView
+
+from glossary.models import GlossaryTerm  # adjust app name if yours differs
+from .models import Rulebook
+
+def _strip_html(s: str) -> str:
+    # cheap/fast tag stripper; good enough for matching terms in rich text
+    return re.sub(r"<[^>]*>", " ", s or "")
+
+def _matches_term(text: str, text_lower: str, term: GlossaryTerm) -> bool:
+    """
+    Returns True if ANY of (term.term + aliases) appear in text,
+    respecting case_sensitive + whole_word.
+    """
+    for w in term.terms_list():
+        if not w:
+            continue
+
+        if term.whole_word:
+            # whole-word-ish boundary that works better than \b for punctuation
+            pattern = r"(?<!\w)" + re.escape(w) + r"(?!\w)"
+            flags = 0 if term.case_sensitive else re.IGNORECASE
+            if re.search(pattern, text, flags=flags):
+                return True
+        else:
+            if term.case_sensitive:
+                if w in text:
+                    return True
+            else:
+                if w.lower() in text_lower:
+                    return True
+
+    return False
+
+
+class RulebookGlossaryView(DetailView):
+    model = Rulebook
+    template_name = "rulebook/glossary.html"
+    context_object_name = "rulebook"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+
+        q = (self.request.GET.get("q") or "").strip()
+        show_all = (self.request.GET.get("all") or "").strip() in ("1", "true", "yes")
+
+        # Pull all pages for matching
+        pages = self.object.pages.all().only("title", "content")
+
+        # Combine title + content for matching; strip HTML so terms across tags still match
+        combined = []
+        for p in pages:
+            combined.append(p.title or "")
+            combined.append(p.content or "")
+
+        raw_text = " ".join(combined)
+        text = _strip_html(raw_text)
+        text_lower = text.lower()
+
+        # Start glossary queryset
+        terms_qs = GlossaryTerm.objects.filter(active=True)
+
+        # Optional search within glossary itself
+        if q:
+            terms_qs = terms_qs.filter(
+                Q(term__icontains=q) |
+                Q(aliases__icontains=q) |
+                Q(definition__icontains=q)
+            )
+
+        # If show_all=1, don’t filter by “appears in rulebook”
+        if show_all:
+            matched_terms = list(terms_qs.order_by("-priority", "term"))
+        else:
+            matched_terms = []
+            for t in terms_qs.order_by("-priority", "term"):
+                if _matches_term(text, text_lower, t):
+                    matched_terms.append(t)
+
+        # Group A-Z for nicer display
+        grouped = defaultdict(list)
+        for t in matched_terms:
+            key = (t.term[:1] or "#").upper()
+            if not key.isalpha():
+                key = "#"
+            grouped[key].append(t)
+
+        # Sort groups and terms inside groups
+        grouped_sorted = []
+        for k in sorted(grouped.keys(), key=lambda x: ("ZZZ" if x == "#" else x)):
+            grouped_sorted.append((k, sorted(grouped[k], key=lambda t: t.term.lower())))
+
+        ctx["query"] = q
+        ctx["show_all"] = show_all
+        ctx["grouped_terms"] = grouped_sorted
+        ctx["term_count"] = sum(len(v) for _, v in grouped_sorted)
+        return ctx
+
+
 def _mm_cost(m) -> int:
     """Return the point cost for a mastery."""
     raw = getattr(m, "points_cost", None)
@@ -2763,10 +2867,95 @@ def feat_list(request):
 def codex_index(request):
     return render(request, 'codex/codex_index.html')
 
+from .models import (
+    PrestigeClass,
+    PrestigePrerequisite,
+    PrestigeLevel,
+    PrestigeFeature,
+)
+
+
+def prestige_class_detail(request, code):
+    pc = get_object_or_404(
+        PrestigeClass.objects
+        .prefetch_related(
+            Prefetch(
+                "prereqs",
+                queryset=PrestigePrerequisite.objects
+                .select_related(
+                    "target_class",
+                    "skill",
+                    "min_tier",
+                    "race",
+                    "subrace",
+                    "class_tag",
+                    "race_tag",
+                )
+                .order_by("group_index", "id")
+            ),
+            Prefetch(
+                "levels",
+                queryset=PrestigeLevel.objects
+                .select_related("fixed_counts_as")
+                .prefetch_related("allowed_counts_as")
+                .order_by("level")
+            ),
+            Prefetch(
+                "features",
+                queryset=PrestigeFeature.objects
+                .select_related("grants_class_feature")
+                .order_by("at_prestige_level", "name")
+            ),
+        ),
+        code=code,
+    )
+
+    # Group prereqs by group_index (groups are ANDed together)
+    grouped = OrderedDict()
+    for p in pc.prereqs.all():
+        grp = grouped.setdefault(
+            p.group_index,
+            {
+                "group_index": p.group_index,
+                "operator": p.intragroup_operator,  # AND/OR inside this group
+                "items": [],
+            }
+        )
+        grp["items"].append(p)
+
+    prereq_groups = list(grouped.values())
+
+    return render(
+        request,
+        "codex/prestige_class_detail.html",
+        {
+            "pc": pc,
+            "prereq_groups": prereq_groups,
+            "levels": pc.levels.all(),
+            "features": pc.features.all(),
+        },
+    )
+
+
 
 def class_list(request):
-    classes = CharacterClass.objects.all().order_by('name')
-    return render(request, 'codex/class_list.html', {'classes': classes})
+    classes = (
+        CharacterClass.objects
+        .all()
+        .prefetch_related("tags")
+        .order_by("name")
+    )
+    prestige_classes = PrestigeClass.objects.all().order_by("name")
+
+    return render(
+        request,
+        "codex/class_list.html",
+        {
+            "classes": classes,
+            "prestige_classes": prestige_classes,
+        },
+    )
+
 
 class LoremasterListView(ListView):
     model               = LoremasterArticle
@@ -3105,7 +3294,7 @@ def class_detail(request, pk):
 # characters/views.py
 
 from django.shortcuts import render, get_object_or_404
-from .models import CharacterClass, Race
+from .models import CharacterClass, Race, PrestigeClass
 
 
 
@@ -3314,6 +3503,51 @@ class RulebookListView(ListView):
                     })
         ctx["results"] = results
         ctx["query"] = q
+        return ctx
+import re
+from collections import defaultdict
+from django.views.generic import TemplateView
+from django.db.models import Q
+
+from glossary.models import GlossaryTerm  # adjust if your app name differs
+
+
+def _strip_html(s: str) -> str:
+    return re.sub(r"<[^>]*>", " ", s or "")
+
+
+class RulebookGlossaryAllView(TemplateView):
+    template_name = "rulebook/glossary_all.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        q = (self.request.GET.get("q") or "").strip()
+
+        qs = GlossaryTerm.objects.filter(active=True)
+
+        if q:
+            qs = qs.filter(
+                Q(term__icontains=q) |
+                Q(aliases__icontains=q) |
+                Q(definition__icontains=q)
+            )
+
+        qs = qs.order_by("-priority", "term")
+
+        grouped = defaultdict(list)
+        for t in qs:
+            key = (t.term[:1] or "#").upper()
+            if not key.isalpha():
+                key = "#"
+            grouped[key].append(t)
+
+        grouped_sorted = []
+        for k in sorted(grouped.keys(), key=lambda x: ("ZZZ" if x == "#" else x)):
+            grouped_sorted.append((k, sorted(grouped[k], key=lambda t: t.term.lower())))
+
+        ctx["query"] = q
+        ctx["grouped_terms"] = grouped_sorted
+        ctx["term_count"] = sum(len(v) for _, v in grouped_sorted)
         return ctx
 
 class RulebookDetailView(DetailView):

@@ -59,6 +59,28 @@ urlpatterns = [
 
     # Legacy alias for race features
     path("races/features/", views.race_features_data, name="race_features_data_legacy"),
+# Rulebooks
+path("rulebooks/", views.RulebookListView.as_view(), name="rulebook_list"),
+
+# NEW: Global glossary (separate page, not per-rulebook)
+path("rulebooks/glossary/", views.RulebookGlossaryAllView.as_view(), name="rulebooks_glossary"),
+
+# Rulebook detail + pages
+path("rulebooks/<int:pk>/", views.RulebookDetailView.as_view(), name="rulebook_detail"),
+
+# OPTIONAL: keep this only if you still want “glossary filtered to this rulebook”
+path("rulebooks/<int:pk>/glossary/", views.RulebookGlossaryView.as_view(), name="rulebook_glossary"),
+
+path(
+    "rulebooks/<int:rulebook_pk>/page/<int:pk>/",
+    views.RulebookPageDetailView.as_view(),
+    name="rulebook_page_detail",
+),
+path(
+    "rulebooks/page/<int:pk>/",
+    views.RulebookPageDetailView.as_view(),
+    name="rulebook_page_detail_by_pk",
+),
 
     # Loremaster
     path("loremaster/", views.LoremasterListView.as_view(), name="loremaster_list"),
@@ -66,18 +88,8 @@ urlpatterns = [
     path("loremaster/id/<int:pk>/", views.LoremasterDetailView.as_view(), name="loremaster_detail_by_pk"),
 
     # Rulebooks
-    path("rulebooks/", views.RulebookListView.as_view(), name="rulebook_list"),
-    path("rulebooks/<int:pk>/", views.RulebookDetailView.as_view(), name="rulebook_detail"),
-    path(
-        "rulebooks/<int:rulebook_pk>/page/<int:pk>/",
-        views.RulebookPageDetailView.as_view(),
-        name="rulebook_page_detail",
-    ),
-    path(
-        "rulebooks/page/<int:pk>/",
-        views.RulebookPageDetailView.as_view(),
-        name="rulebook_page_detail_by_pk",
-    ),
+
+path("codex/prestige/<slug:code>/", views.prestige_class_detail, name="prestige_class_detail"),
 
     # Background proposals (these were the ones you called out)
     path("propose-background/", views.propose_background_inline, name="propose_background_inline"),

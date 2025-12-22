@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+  <div class="flex items-center justify-between gap-4 mb-4">
+    <div>
+      <h1 class="text-3xl font-bold">Glossary</h1>
+      <p class="text-sm text-gray-500">
+        Showing {{ term_count }} term{{ term_count|pluralize }}.
+      </p>
+    </div>
+
+    <a href="{% url 'characters:rulebook_list' %}"
+       class="text-blue-500 hover:underline">
+      &larr; Back to Rulebooks
+    </a>
+  </div>
+
+  <form method="get" class="mb-6 flex gap-2 items-center">
+    <input
+      type="text" name="q"
+      placeholder="Search glossary terms…"
+      value="{{ query|default_if_none:'' }}"
+      class="flex-grow min-w-[240px] border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring focus:ring-blue-200"
+    />
+    <button type="submit"
+            class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+      Search
+    </button>
+  </form>
+
+  {% if grouped_terms %}
+    <div class="mb-6 flex flex-wrap gap-2 text-sm">
+      {% for letter, items in grouped_terms %}
+        <a class="px-2 py-1 border rounded hover:bg-gray-50" href="#gloss-{{ letter }}">{{ letter }}</a>
+      {% endfor %}
+    </div>
+
+    {% for letter, items in grouped_terms %}
+      <div class="mb-8">
+        <h2 id="gloss-{{ letter }}" class="text-2xl font-semibold mb-3">{{ letter }}</h2>
+        <div class="space-y-3">
+          {% for t in items %}
+            <div class="border border-gray-200 rounded p-4">
+              <h3 class="text-xl font-bold">{{ t.term }}</h3>
+              {% if t.aliases %}
+                <div class="text-sm text-gray-500 mb-2">
+                  <span class="font-semibold">Aliases:</span> {{ t.aliases }}
+                </div>
+              {% endif %}
+              <div class="text-gray-800 whitespace-pre-line">
+                {{ t.definition }}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endfor %}
+  {% else %}
+    <p class="text-gray-500 italic">
+      No glossary terms found{% if query %} for “{{ query }}”{% endif %}.
+    </p>
+  {% endif %}
+</div>
+{% endblock %}

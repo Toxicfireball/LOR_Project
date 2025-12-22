@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+{% block title %}{{ pc.name }} — Prestige Class{% endblock %}
+
+{% block content %}
+<main class="container mx-auto px-4 pt-20">
+
+  <div class="mb-6">
+    <a href="{% url 'characters:codex_classes' %}" class="text-sm text-gray-600 hover:underline">
+      ← Back to Classes
+    </a>
+  </div>
+
+  <div class="mb-8">
+    <div class="flex items-center gap-3">
+      <h1 class="text-3xl font-bold">{{ pc.name }}</h1>
+      <span class="inline-flex items-center px-2 py-1 text-xs font-semibold rounded bg-indigo-100 text-indigo-800">
+        Prestige
+      </span>
+    </div>
+
+    <div class="text-sm text-gray-700 mt-2">
+      <span class="font-medium">Min Entry:</span> L{{ pc.min_entry_level }}
+      ·
+      <span class="font-medium">GM Approval:</span>
+      {% if pc.requires_gm_approval %}Required{% else %}Not required{% endif %}
+      ·
+      <span class="font-medium">Code:</span> {{ pc.code }}
+    </div>
+
+{% if pc.description %}
+  <div class="prose max-w-none mt-4">
+    {{ pc.description|safe }}
+  </div>
+{% endif %}
+
+  </div>
+
+  {# ========================= #}
+  {# Entry Requirements        #}
+  {# ========================= #}
+  <section class="mb-10">
+    <h2 class="text-2xl font-bold mb-3">Entry Requirements</h2>
+
+    {% if prereq_groups %}
+      <p class="text-sm text-gray-600 mb-4">
+        All groups are required (AND). Within a group, requirements combine using that group’s operator (AND/OR).
+      </p>
+
+      <div class="space-y-4">
+        {% for g in prereq_groups %}
+          <div class="bg-white shadow rounded p-4 border border-gray-200">
+            <div class="flex items-center justify-between">
+              <div class="font-semibold">
+                Group {{ g.group_index }}
+              </div>
+              <div class="text-xs font-semibold px-2 py-1 rounded bg-gray-100 text-gray-700">
+                Inside group: {{ g.operator }}
+              </div>
+            </div>
+
+            <ul class="mt-3 list-disc pl-5 text-sm text-gray-800 space-y-1">
+              {% for p in g.items %}
+                <li>
+                  {% if p.kind == "class_level" %}
+                    {% if p.target_class and p.min_class_level %}
+                      {{ p.target_class.name }} level {{ p.min_class_level }}+
+                    {% else %}
+                      (Invalid class_level prereq)
+                    {% endif %}
+
+                  {% elif p.kind == "skill_tier" %}
+                    {% if p.skill and p.min_tier %}
+                      {{ p.skill.name }} — {{ p.min_tier.name }}
+                    {% else %}
+                      (Invalid skill_tier prereq)
+                    {% endif %}
+
+                  {% elif p.kind == "race" %}
+                    {% if p.race %}
+                      Race: {{ p.race.name }}
+                    {% else %}
+                      (Invalid race prereq)
+                    {% endif %}
+
+                  {% elif p.kind == "subrace" %}
+                    {% if p.subrace %}
+                      Subrace: {{ p.subrace.name }}
+                    {% else %}
+                      (Invalid subrace prereq)
+                    {% endif %}
+
+                  {% elif p.kind == "class_tag" %}
+                    {% if p.class_tag %}
+                      Class Tag: {{ p.class_tag.name }}
+                    {% else %}
+                      (Invalid class_tag prereq)
+                    {% endif %}
+
+                  {% elif p.kind == "race_tag" %}
+                    {% if p.race_tag %}
+                      Race Tag: {{ p.race_tag.name }}
+                    {% else %}
+                      (Invalid race_tag prereq)
+                    {% endif %}
+
+                  {% elif p.kind == "feat_code" %}
+                    {% if p.feat_code %}
+                      Feat/Tag: {{ p.feat_code }}
+                    {% else %}
+                      (Invalid feat_code prereq)
+                    {% endif %}
+
+                  {% else %}
+                    (Unknown prereq kind: {{ p.kind }})
+                  {% endif %}
+                </li>
+              {% endfor %}
+            </ul>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="text-sm text-gray-600">No prerequisites defined.</div>
+    {% endif %}
+  </section>
+
+  {# ========================= #}
+  {# Level Progression         #}
+  {# ========================= #}
+  <section class="mb-10">
+    <h2 class="text-2xl font-bold mb-3">Prestige Level Progression</h2>
+
+    {% if levels %}
+      <div class="overflow-x-auto bg-white shadow rounded border border-gray-200">
+        <table class="min-w-full text-sm">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="text-left px-4 py-2">Prestige Level</th>
+              <th class="text-left px-4 py-2">Counts-As Mode</th>
+              <th class="text-left px-4 py-2">Counts As</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y">
+            {% for lv in levels %}
+              <tr>
+                <td class="px-4 py-2">L{{ lv.level }}</td>
+                <td class="px-4 py-2">
+                  {% if lv.counts_as_mode == "fixed" %}
+                    Fixed
+                  {% else %}
+                    Choose
+                  {% endif %}
+                </td>
+                <td class="px-4 py-2">
+                  {% if lv.counts_as_mode == "fixed" %}
+                    {% if lv.fixed_counts_as %}
+                      {{ lv.fixed_counts_as.name }}
+                    {% else %}
+                      —
+                    {% endif %}
+                  {% else %}
+                    {% if lv.allowed_counts_as.all %}
+                      {% for c in lv.allowed_counts_as.all %}
+                        <span class="inline-block bg-gray-100 rounded px-2 py-1 mr-1 mb-1">{{ c.name }}</span>
+                      {% empty %}
+                        —
+                      {% endfor %}
+                    {% else %}
+                      —
+                    {% endif %}
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="text-sm text-gray-600">No prestige levels defined.</div>
+    {% endif %}
+  </section>
+
+  {# ========================= #}
+  {# Features                  #}
+  {# ========================= #}
+  <section class="mb-10">
+    <h2 class="text-2xl font-bold mb-3">Features</h2>
+
+    {% if features %}
+      <div class="space-y-3">
+{% for f in features %}
+  <div class="bg-white shadow rounded p-4 border border-gray-200">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <div class="font-semibold">
+          L{{ f.at_prestige_level }} — {{ f.name }}
+        </div>
+
+        <div class="text-xs text-gray-500 mt-1">
+          Code: {{ f.code }}
+          {% if f.grants_class_feature %}
+            · Mechanics: {{ f.grants_class_feature.name }}
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="text-xs font-semibold px-2 py-1 rounded bg-indigo-50 text-indigo-800">
+        Prestige Feature
+      </div>
+    </div>
+
+    {# PrestigeFeature.description (optional) #}
+    {% if f.description %}
+      <div class="mt-3 prose max-w-none">
+        {{ f.description|safe }}
+      </div>
+    {% endif %}
+
+    {# Linked ClassFeature (THIS is your mechanics text) #}
+    {% if f.grants_class_feature %}
+      <div class="mt-4 p-4 rounded border border-gray-200 bg-gray-50">
+        <div class="text-sm font-semibold mb-2">
+          Class Feature: {{ f.grants_class_feature.name }}
+        </div>
+
+        {% if f.grants_class_feature.description %}
+          <div class="prose max-w-none">
+            {{ f.grants_class_feature.description|safe }}
+          </div>
+        {% else %}
+          <div class="text-sm text-gray-500">
+            No description found on the linked ClassFeature.
+          </div>
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+{% endfor %}
+
+      </div>
+    {% else %}
+      <div class="text-sm text-gray-600">No features defined.</div>
+    {% endif %}
+  </section>
+
+</main>
+{% endblock %}

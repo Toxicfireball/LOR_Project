@@ -1203,6 +1203,7 @@ class CharacterClass(models.Model):
         blank=True,
         help_text="Select exactly one or two key ability scores for this class."
     )    
+    
     primary_image = models.ImageField(
         upload_to="class_images/primary/",
         blank=True,

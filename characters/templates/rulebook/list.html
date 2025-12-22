@@ -2,7 +2,13 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="container mx-auto px-4 py-8">
-  <h1 class="text-3xl font-bold mb-6">Rulebooks</h1>
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-3xl font-bold">Rulebooks</h1>
+  <a href="{% url 'characters:rulebooks_glossary' %}"
+     class="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50">
+    Glossary
+  </a>
+</div>
 
   <form method="get" class="mb-8 flex space-x-2">
     <input
@@ -25,9 +31,14 @@
       {% for result in results %}
         <div class="mb-6">
           <h2 class="text-2xl font-semibold">
-            <a href="{% url 'characters:rulebook_detail' result.rulebook.pk %}">
-              {{ result.rulebook.name }}
-            </a>
+<a href="{% url 'characters:rulebook_detail' result.rulebook.pk %}">
+  {{ result.rulebook.name }}
+</a>
+<a href="{% url 'characters:rulebook_glossary' result.rulebook.pk %}"
+   class="ms-3 text-sm text-blue-600 hover:underline">
+  Glossary
+</a>
+
           </h2>
           <ul class="ml-4 list-disc">
             {% for m in result.matches %}
@@ -44,20 +55,21 @@
     {% endif %}
   {% else %}
     {# -- no search term: show all rulebooks -- #}
-    <ul class="list-disc list-inside space-y-2 ml-5 mb-8">
-      {% for rb in rulebooks %}
-        <li>
-          <a
-            href="{% url 'characters:rulebook_detail' rb.pk %}"
-            class="text-lg text-gray-800 hover:text-blue-600"
-          >
-            {{ rb.name }}
-          </a>
-        </li>
-      {% empty %}
-        <li class="text-gray-500 italic">No rulebooks found.</li>
-      {% endfor %}
-    </ul>
+<ul class="list-disc list-inside space-y-2 ml-5 mb-8">
+  {% for rb in rulebooks %}
+    <li class="flex items-center gap-3">
+      <a href="{% url 'characters:rulebook_detail' rb.pk %}"
+         class="text-lg text-gray-800 hover:text-blue-600">
+        {{ rb.name }}
+      </a>
+
+
+    </li>
+  {% empty %}
+    <li class="text-gray-500 italic">No rulebooks found.</li>
+  {% endfor %}
+</ul>
+
   {% endif %}
 
   {% if is_paginated %}
