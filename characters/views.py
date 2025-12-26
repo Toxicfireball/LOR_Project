@@ -7,6 +7,7 @@ from django.db.models import Q, F
 from django.db.models.functions import Cast
 from django.db.models import Case, When, IntegerField
 # Create your views here.
+from django.db.models.functions import Trim
 from types import SimpleNamespace
 import re as _re
 from django.db import models as dj_models  # keep if you actually use Django's models
@@ -8443,6 +8444,7 @@ def character_detail(request, pk):
                 ).values_list('feature_id', flat=True)
             )
 
+
             # build eligible set across *all* subclasses
             eligible_ids = []
             for sub in grp.subclasses.all():
@@ -8623,7 +8625,7 @@ def character_detail(request, pk):
         token_res = [rf'(^|[,;/\s]){re.escape(tok)}([,;/\s]|$)' for tok in tokens if tok]
         any_token_re = "(" + ")|(".join(token_res) + ")" if token_res else None
 
-        base = ClassFeat.objects.filter(feat_type__iexact="Class")
+        base = ClassFeat.objects.annotate(_ft=Trim("feat_type")).filter(_ft__iexact="Class")
         membership_q = (
             Q(class_name__iregex=any_token_re) |
             Q(tags__iregex=any_token_re) |
@@ -13237,6 +13239,20 @@ def character_level_up(request, pk):
                     continue
                 prev_tiers_by_sub.setdefault(sid, set()).add(tier)
             # union of eligible features across ALL subclasses in this group
+            dbg = ClassFeat.objects.filter(name__iexact="Blaster").first()
+            if dbg:
+                print("DEBUG Blaster:",
+                    "id=", dbg.pk,
+                    "feat_type=", dbg.feat_type,
+                    "class_name=", dbg.class_name,
+                    "tags=", dbg.tags,
+                    "lvl=", dbg.level_prerequisite,
+                    "owned=", (dbg.pk in owned_feat_ids),
+                    "in_membership_q=", qs.filter(pk=dbg.pk).exists(),
+                    "req_ok=", (parse_req_level(dbg.level_prerequisite) <= cls_after),
+                    "posted_cls=", posted_cls.name,
+                    "cls_after=", cls_after)
+
             eligible_ids = []
             # union of eligible features across ALL subclasses in this group
             for sub in grp.subclasses.all():
@@ -13447,7 +13463,7 @@ def character_level_up(request, pk):
         any_token_re = "(" + ")|(".join(token_res) + ")" if token_res else None
 
         # class feats, excluding anything already taken
-        base = ClassFeat.objects.filter(feat_type__iexact="Class")
+        base = ClassFeat.objects.annotate(_ft=Trim("feat_type")).filter(_ft__iexact="Class")
         if owned_feat_ids:
             base = base.exclude(pk__in=owned_feat_ids)
 
