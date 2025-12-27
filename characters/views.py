@@ -4297,7 +4297,7 @@ def _weapon_group_for(weapon_obj):
 # ────────────────────────────────────────────────────────────────────────────────
 # Spell tab helper (extracted from character_detail)
 # ────────────────────────────────────────────────────────────────────────────────
-def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
+def _build_spell_tab(request, owned_feature_ids, character, class_progress, can_edit, *, pk):
     """
     Builds the spell tab payloads and handles the two spells_op POST actions.
 
@@ -4347,12 +4347,20 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
         }
         """
         totals = {"cantrips": 0, "known": 0, "prepared": 0}
+        saw_known = False
+        saw_prepared = False
+        
         for cp_ in class_progress:
             tables_ = (
                 ClassFeature.objects
-                .filter(kind="spell_table", character_class=cp_.character_class)
+                .filter(
+                    id__in=owned_feature_ids,
+                    kind="spell_table",
+                    character_class=cp_.character_class,
+                )
                 .distinct()
             )
+
             for ft_ in tables_:
                 row_ = ft_.spell_slot_rows.filter(level=cp_.levels).first()
 
@@ -4413,15 +4421,24 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
                 if kn_max   is not None and ov_kn is not None: kn_max = ov_kn
                 if pr_max   is not None and ov_pr is not None: pr_max = ov_pr
 
+                # track whether ANY table actually defines these caps
+
+                # ... inside the loops, after you compute can_max / kn_max / pr_max:
+
                 totals["cantrips"] += int(max(0, can_max or 0))
+
                 if kn_max is not None:
+                    saw_known = True
                     totals["known"] += int(max(0, kn_max))
-                else:
-                    totals["known"] = None
+
                 if pr_max is not None:
+                    saw_prepared = True
                     totals["prepared"] += int(max(0, pr_max))
-                else:
-                    totals["prepared"] = None
+        if not saw_known:
+            totals["known"] = None
+        if not saw_prepared:
+            totals["prepared"] = None
+
 
         return totals
     # === Prepared-caster multiclassing (3.1–3.4) support + effective levels ===
@@ -4432,8 +4449,13 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
     origin_tokens_by_class = {}
     for cp_ in class_progress:
         fts_ = (ClassFeature.objects
-                .filter(kind="spell_table", character_class=cp_.character_class)
+                .filter(
+                    id__in=owned_feature_ids,
+                    kind="spell_table",
+                    character_class=cp_.character_class
+                )
                 .distinct())
+
         spell_tables_by_class[int(cp_.character_class_id)] = list(fts_)
         prepared_flags_by_class[int(cp_.character_class_id)] = any(
             (getattr(ft, "spells_prepared_formula", None) or "").strip()
@@ -4513,9 +4535,14 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
     for cp in class_progress:
         owned_tables = (
             ClassFeature.objects
-            .filter(kind="spell_table", character_class=cp.character_class)
+            .filter(
+                id__in=owned_feature_ids,
+                kind="spell_table",
+                character_class=cp.character_class
+            )
             .distinct()
         )
+
 
         # ← NEW: accumulator to merge multiple spell tables per origin
         # === GLOBAL accumulators across ALL classes / ALL spell-table features ===
@@ -4709,15 +4736,23 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
         manual_all_spells_qs = SpellModel.objects.all().only("id", "name", "level").order_by("name")
 
         # Learn choices = UNION of all accessible origins; if none collected, show all
+        # Learn choices = UNION of all accessible origins; if none collected, show all
         avail_base = SpellModel.objects.all()
+
         if origin_tokens:
             q = Q()
             for tok in {t.strip() for t in origin_tokens if t}:
                 token_re = rf'(^|[,;/\s\(\)]+){re.escape(tok)}([,;/\s\(\)]+|$)'
-                q |= (Q(origin__icontains=tok) | Q(sub_origin__icontains=tok) |
-                    Q(origin__iregex=token_re) | Q(sub_origin__iregex=token_re))
-            filtered = avail_base.filter(q)
-            avail_base = filtered if filtered.exists() else avail_base
+                q |= (
+                    Q(origin__icontains=tok) | Q(sub_origin__icontains=tok) |
+                    Q(origin__iregex=token_re) | Q(sub_origin__iregex=token_re)
+                )
+            # IMPORTANT: do NOT fall back to "all spells" silently
+            avail_base = avail_base.filter(q)
+
+        # Use the filtered list for the manual dropdown too
+        manual_all_spells_qs = avail_base.only("id", "name", "level").order_by("name")
+
 
         cols = ["id","name","level","classification","effect","upcast_effect","saving_throw",
                 "casting_time","duration","components","range","target","origin","sub_origin","tags","last_synced"]
@@ -4985,7 +5020,7 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
                     return (
                         spellcasting_blocks,
                         spell_selection_blocks,
-                        redirect("characters:character_detail", pk=pk),
+                        redirect("characters:character_detail", pk=pk)
                     )
 
                 reason = (request.POST.get("reason") or "").strip() or "Manual add from Spell tab"
@@ -5031,7 +5066,7 @@ def _build_spell_tab(request, character, class_progress, can_edit, *, pk):
                 return (
                     spellcasting_blocks,
                     spell_selection_blocks,
-                    redirect("characters:character_detail", pk=pk),
+                    redirect("characters:character_detail", pk=pk)
                 )
 
             if op == "learn_known":
@@ -6155,7 +6190,63 @@ def character_detail(request, pk):
         .exclude(id__in=existing_ids)
         .order_by("username", "email")
     )
-    # --- Feats tab: single canonical manual add/remove ----------------------------
+    # --- CORE STATS SAVE: HP / HP Max / Temp HP ------------------------------------
+    if request.method == "POST" and can_edit and request.POST.get("save_core_stats_submit") == "1":
+        def _read_int(name, allow_blank=True):
+            raw = request.POST.get(name, "")
+            if raw == "" and allow_blank:
+                return None
+            try:
+                return int(raw)
+            except (TypeError, ValueError):
+                return None
+
+        new_hp      = _read_int("HP")
+        new_hp_max  = _read_int("hp_max")
+        new_temp_hp = _read_int("temp_HP")
+
+        # clamp if both provided
+        if new_hp is not None and new_hp < 0:
+            new_hp = 0
+        if new_hp_max is not None and new_hp_max < 0:
+            new_hp_max = 0
+        if new_temp_hp is not None and new_temp_hp < 0:
+            new_temp_hp = 0
+        if new_hp is not None and new_hp_max is not None and new_hp > new_hp_max:
+            new_hp = new_hp_max
+
+        # Save to model fields if they exist; otherwise fall back to CharacterFieldOverride
+        to_update = []
+
+        if hasattr(character, "HP") and new_hp is not None:
+            character.HP = new_hp
+            to_update.append("HP")
+        elif new_hp is not None:
+            CharacterFieldOverride.objects.update_or_create(
+                character=character, key="HP", defaults={"value": str(new_hp)}
+            )
+
+        if hasattr(character, "hp_max") and new_hp_max is not None:
+            character.hp_max = new_hp_max
+            to_update.append("hp_max")
+        elif new_hp_max is not None:
+            CharacterFieldOverride.objects.update_or_create(
+                character=character, key="hp_max", defaults={"value": str(new_hp_max)}
+            )
+
+        if hasattr(character, "temp_HP") and new_temp_hp is not None:
+            character.temp_HP = new_temp_hp
+            to_update.append("temp_HP")
+        elif new_temp_hp is not None:
+            CharacterFieldOverride.objects.update_or_create(
+                character=character, key="temp_HP", defaults={"value": str(new_temp_hp)}
+            )
+
+        if to_update:
+            character.save(update_fields=to_update)
+
+        messages.success(request, "HP updated.")
+        return redirect("characters:character_detail", pk=pk)
     if request.method == "POST" and request.POST.get("feats_op"):
         if not can_edit:
             return HttpResponseForbidden("You don’t have permission to edit this character.")
@@ -6214,10 +6305,10 @@ def character_detail(request, pk):
 
         code    = (request.POST.get("roll_code") or "").strip()      # e.g. "attack" or "generic"
         kind    = (request.POST.get("kind") or "").strip()           # standard / toggle / ap_standard / ap_toggle
-        name    = (request.POST.get("name") or "").strip()
+        label   = (request.POST.get("label") or request.POST.get("name") or "").strip()
         val_raw = (request.POST.get("value") or "").strip()
 
-        if not code or not name:
+        if not code or not label:
             messages.error(request, "Name and roll code are required.")
             return redirect(
                 reverse("characters:character_detail", args=[character.pk]) + "#tab-rolls"
@@ -6242,9 +6333,10 @@ def character_detail(request, pk):
             character=character,
             roll_code=code,
             kind=kind,
-            name=name,
+            name=label,   # model field stays "name", form field stays "label"
             value=value,
         )
+
 
         messages.success(request, "Roll modifier added.")
         return redirect(
@@ -7171,6 +7263,11 @@ def character_detail(request, pk):
         for f in base_feats
     )
 
+    owned_feature_ids = set(
+        CharacterFeature.objects
+            .filter(character=character)
+            .values_list("feature_id", flat=True)
+    )
 
 
     # --- spellcasting entitlements + selections ---
@@ -7178,7 +7275,10 @@ def character_detail(request, pk):
         spellcasting_blocks,
         spell_selection_blocks,
         _spell_redirect
-    ) = _build_spell_tab(request, character, class_progress, can_edit, pk=pk)
+    ) = _build_spell_tab(request, owned_feature_ids, character, class_progress, can_edit, pk=pk)
+
+    if _spell_redirect is not None:
+        return _spell_redirect
 
     # ── Spell slot table display: only those backed by actual Class Features ─────────
     # Gather the ClassFeature ids the character actually owns that are spell tables
@@ -7396,7 +7496,7 @@ def character_detail(request, pk):
                 )
 
         messages.success(request, "Updated spell slots left.")
-        return (spellcasting_blocks, spell_selection_blocks, redirect('characters:character_detail', pk=pk))
+        return redirect('characters:character_detail', pk=pk)
 
     # ── 3) PROFICIENCY TABLE FOR preview_cls ────────────────────────────────
     profs = list(
@@ -9593,8 +9693,22 @@ def character_detail(request, pk):
         except (TypeError, ValueError):
             return 0
 
-    hp_current = _int_or_zero(overrides.get("HP")      or getattr(character, "HP", 0))
-    temp_hp    = _int_or_zero(overrides.get("temp_HP") or getattr(character, "temp_HP", 0))
+    def _pick_override(key, fallback):
+        # treat None and "" as missing; keep "0"
+        v = overrides.get(key, None)
+        if v is None:
+            return fallback
+        if isinstance(v, str) and v.strip() == "":
+            return fallback
+        return v
+
+    hp_current = _int_or_zero(_pick_override("HP", getattr(character, "HP", 0)))
+    temp_hp    = _int_or_zero(_pick_override("temp_HP", getattr(character, "temp_HP", 0)))
+
+    hp_max_sys = hp_max  # whatever you currently compute
+    hp_max = _int_or_zero(_pick_override("hp_max", hp_max_sys))
+
+
 
     def _combine_dex_cap(*caps):
         caps = [c for c in caps if c is not None]
@@ -12108,32 +12222,36 @@ def character_detail(request, pk):
 
             # Optional: clean activation rows too (prevents orphan toggles)
             try:
-                Activation = apps.get_model("characters", "Activation")
+                Activation = apps.get_model("characters", "CharacterActivation")
                 ct = ContentType.objects.get_for_model(ClassFeature)
                 Activation.objects.filter(
                     character=character,
                     content_type=ct,
-                    object_id=cfrow.feature_id,   # ✅ feature_id not class_feature_id
+                    object_id=cfrow.feature_id,
                 ).delete()
             except Exception:
                 pass
 
-            cf_name = cfrow.feature.name  # ✅
+
+            # cache id + name BEFORE delete
+            cfrow_id = cfrow.id
+            cf_name = (
+                cfrow.feature.name if cfrow.feature_id else
+                cfrow.racial_feature.name if cfrow.racial_feature_id else
+                "—"
+            )
+
             cfrow.delete()
 
-            # Record removal reason (optional: keep note history; or delete the old note)
             CharacterFieldNote.objects.update_or_create(
                 character=character,
-                key=f"manual:character_feature:{cfrow.id}:removed",
+                key=f"manual:character_feature:{cfrow_id}:removed",
                 defaults={"note": note},
             )
 
-            cf_name = cfrow.class_feature.name
-            # remove the grant
-            cfrow.delete()
-
             messages.success(request, f"Removed feature: {cf_name}")
             return _redir_features()
+
     # -------------------------------------------------------------------------------
     # --- Feature manager lists for the template ------------------------------------
     def _all_class_features_qs():
@@ -12224,9 +12342,10 @@ def character_detail(request, pk):
             character=character,
             roll_code=code,
             kind=kind,
-            name=label,          # ⬅️ still saved to model.name
+            name=label,   # model field stays "name", form field stays "label"
             value=value,
         )
+
 
         messages.success(request, "Roll modifier added.")
         return redirect(
@@ -13614,6 +13733,14 @@ def character_level_up(request, pk):
 
         # Don’t force the #levelUpModal hash in the URL
         return redirect('characters:character_detail', pk=pk)
+
+
+    # write both
+    if hasattr(character, "hp_max"):
+        character.hp_max = new_max
+    if hasattr(character, "HP"):
+        character.HP = new_cur
+    character.save(update_fields=[f for f in ("hp_max","HP") if hasattr(character, f)])
 
 
     # ── (H) APPLY the level-up (copy the original body verbatim) ────────────

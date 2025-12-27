@@ -250,7 +250,9 @@
 
         <!-- Quick finals -->
 <div class="card">
-  <div class="card-header fw-bold">Core Stats</div>
+ <div class="card-header fw-bold">Core Stats</div>
+
+  <!-- FORM 1: HP / Temp HP / HP Max -->
   <form method="post" action="{% url 'characters:character_detail' character.pk %}" class="mb-0">
     {% csrf_token %}
     <ul class="list-group list-group-flush">
@@ -265,58 +267,76 @@
                  value="{{ hp_max }}" min="0">
         </span>
       </li>
-<li class="list-group-item">
-  <div class="d-flex justify-content-between">
-    <span>Speed</span>
-    <span class="fw-bold">{{ speed_ctx.total }}</span>
-  </div>
 
-  <details class="mt-2">
-    <summary>details</summary>
-    <div class="mt-2">
-      <div>Base:
-        <code>
-          {{ speed_ctx.base }}
-          {% if character.speed is None %}(from race: {{ speed_ctx.race_default }}){% endif %}
-        </code>
+      <li class="list-group-item d-flex justify-content-between align-items-center">
+        <span>Temp HP</span>
+        <span class="d-flex align-items-center gap-2">
+          <input name="temp_HP" type="number" class="form-control form-control-sm" style="width:90px"
+                 value="{{ temp_hp|default:0 }}" min="0">
+        </span>
+      </li>
+
+      <li class="list-group-item d-flex justify-content-end">
+        <button class="btn btn-sm btn-primary" name="save_core_stats_submit" value="1">Save</button>
+      </li>
+
+    </ul>
+  </form>
+
+  <!-- FORM 2+: Speed stays OUTSIDE the HP form (can keep its nested forms safely now) -->
+  <ul class="list-group list-group-flush">
+    <li class="list-group-item">
+      <div class="d-flex justify-content-between">
+        <span>Speed</span>
+        <span class="fw-bold">{{ speed_ctx.total }}</span>
       </div>
 
-      {% if speed_ctx.deltas %}
-      <ul class="mt-2 mb-2">
-        {% for m in speed_ctx.deltas %}
-        <li>
-          <code>{% if m.value >= 0 %}+{% endif %}{{ m.value }}</code>
-          <em class="ms-1">{{ m.note }}</em>
+      <details class="mt-2">
+        <summary>details</summary>
+        <div class="mt-2">
+          <div>Base:
+            <code>
+              {{ speed_ctx.base }}
+              {% if character.speed is None %}(from race: {{ speed_ctx.race_default }}){% endif %}
+            </code>
+          </div>
+
+          {% if speed_ctx.deltas %}
+          <ul class="mt-2 mb-2">
+            {% for m in speed_ctx.deltas %}
+            <li>
+              <code>{% if m.value >= 0 %}+{% endif %}{{ m.value }}</code>
+              <em class="ms-1">{{ m.note }}</em>
+              {% if can_edit %}
+              <form method="post" class="d-inline" action="{% url 'characters:character_detail' character.pk %}">
+                {% csrf_token %}
+                <input type="hidden" name="speed_op" value="remove_delta">
+                <input type="hidden" name="mod_key" value="{{ m.key }}">
+                <button type="submit" class="btn btn-xs btn-link text-danger p-0 ms-2">remove</button>
+              </form>
+              {% endif %}
+            </li>
+            {% endfor %}
+          </ul>
+          {% endif %}
+
           {% if can_edit %}
-          <form method="post" class="d-inline" action="{% url 'characters:character_detail' character.pk %}">
+          <form method="post" class="row g-2 align-items-end" action="{% url 'characters:character_detail' character.pk %}">
             {% csrf_token %}
-            <input type="hidden" name="speed_op" value="remove_delta">
-            <input type="hidden" name="mod_key" value="{{ m.key }}">
-            <button type="submit" class="btn btn-xs btn-link text-danger p-0 ms-2">remove</button>
+            <input type="hidden" name="speed_op" value="add_delta">
+            <div class="col-auto">
+              <label class="form-label form-label-sm mb-0">Δ</label>
+              <input name="delta" type="text" inputmode="numeric" class="form-control form-control-sm" placeholder="+5 or -5" required>
+            </div>
+            <div class="col">
+              <label class="form-label form-label-sm mb-0">Reason</label>
+              <input name="note" type="text" class="form-control form-control-sm" placeholder="Haste, armor, etc." required>
+            </div>
+            <div class="col-auto">
+              <button type="submit" class="btn btn-sm btn-outline-primary">Add</button>
+            </div>
           </form>
           {% endif %}
-        </li>
-        {% endfor %}
-      </ul>
-      {% endif %}
-
-      {% if can_edit %}
-      <form method="post" class="row g-2 align-items-end" action="{% url 'characters:character_detail' character.pk %}">
-        {% csrf_token %}
-        <input type="hidden" name="speed_op" value="add_delta">
-        <div class="col-auto">
-          <label class="form-label form-label-sm mb-0">Δ</label>
-          <input name="delta" type="text" inputmode="numeric" class="form-control form-control-sm" placeholder="+5 or -5" required>
-        </div>
-        <div class="col">
-          <label class="form-label form-label-sm mb-0">Reason</label>
-          <input name="note" type="text" class="form-control form-control-sm" placeholder="Haste, armor, etc." required>
-        </div>
-        <div class="col-auto">
-          <button type="submit" class="btn btn-sm btn-outline-primary">Add</button>
-        </div>
-      </form>
-      {% endif %}
     </div>
   </details>
 </li>
@@ -1010,7 +1030,7 @@ data-key="prof:{{ r.code|lower }}"
           <input type="hidden" name="kind" value="toggle">
           <input type="hidden" name="roll_code" id="toggle-roll-code-field" value="">
           <div class="col-6">
-            <input class="form-control form-control-sm" name="name" placeholder="e.g. Flanking" required>
+<input class="form-control form-control-sm" name="label" placeholder="e.g. Flanking" required>
           </div>
           <div class="col-3">
             <input class="form-control form-control-sm" name="value" type="number" placeholder="+/-" required>
@@ -1086,7 +1106,7 @@ data-key="prof:{{ r.code|lower }}"
           <input type="hidden" name="kind" value="ap_toggle">
           <input type="hidden" name="roll_code" id="ap-toggle-roll-code-field" value="">
           <div class="col-6">
-            <input class="form-control form-control-sm" name="name" placeholder="e.g. Talent" required>
+      <input class="form-control form-control-sm" name="label" placeholder="e.g. Feat ..." required>
           </div>
           <div class="col-3">
             <input class="form-control form-control-sm" name="value" type="number" placeholder="+/-" required>
