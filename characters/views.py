@@ -13370,6 +13370,22 @@ def character_level_up(request, pk):
     #   def _active_subclass_for_group(...):
     #   def _linear_feats_for_level(...):
 
+
+    # ---- FEAT FILTERS (General / Class / Skill) -----------------------------
+
+    # Character race/subrace display names as raw strings (used for race checks)
+    race_names = []
+    if getattr(character, "race", None) and getattr(character.race, "name", None):
+        race_names.append(character.race.name)
+    if getattr(character, "subrace", None) and getattr(character.subrace, "name", None):
+        race_names.append(character.subrace.name)
+
+    # All feats this character already has – used to hide taken feats in all pickers
+    owned_feat_ids = set(
+        CharacterFeat.objects
+        .filter(character=character)
+        .values_list("feat_id", flat=True)
+    )
     for trigger in gain_sub_feat_triggers:
         grp = trigger.subclass_group
         if not grp:
@@ -13420,6 +13436,10 @@ def character_level_up(request, pk):
                     continue
                 prev_tiers_by_sub.setdefault(sid, set()).add(tier)
             # union of eligible features across ALL subclasses in this group
+            # union of eligible features across ALL subclasses in this group
+
+            qs = ClassFeat.objects.none()  # ✅ FIX: define qs before the debug print
+
             dbg = ClassFeat.objects.filter(name__iexact="Blaster").first()
             if dbg:
                 print("DEBUG Blaster:",
@@ -13433,6 +13453,7 @@ def character_level_up(request, pk):
                     "req_ok=", (parse_req_level(dbg.level_prerequisite) <= cls_after),
                     "posted_cls=", posted_cls.name,
                     "cls_after=", cls_after)
+
 
             eligible_ids = []
             # union of eligible features across ALL subclasses in this group
@@ -13587,22 +13608,6 @@ def character_level_up(request, pk):
                 },
             })
             continue
-
-    # ---- FEAT FILTERS (General / Class / Skill) -----------------------------
-
-    # Character race/subrace display names as raw strings (used for race checks)
-    race_names = []
-    if getattr(character, "race", None) and getattr(character.race, "name", None):
-        race_names.append(character.race.name)
-    if getattr(character, "subrace", None) and getattr(character.subrace, "name", None):
-        race_names.append(character.subrace.name)
-
-    # All feats this character already has – used to hide taken feats in all pickers
-    owned_feat_ids = set(
-        CharacterFeat.objects
-        .filter(character=character)
-        .values_list("feat_id", flat=True)
-    )
 
     # C) GENERAL feats – all General feats, minus already owned, race-checked
     # C) GENERAL feats – all General feats, minus already owned, race-checked
@@ -13836,8 +13841,7 @@ def character_level_up(request, pk):
             auto_feats_post = []
 
 
-        except ClassLevel.DoesNotExist:
-            auto_feats_post = []
+
         picks = level_form.cleaned_data.get("skill_feat_pick")
         chosen = []
         if picks is None:
