@@ -42,6 +42,8 @@ from django.db.models import Q
 from .models import CharacterMartialMastery, MartialMastery, CharacterItem  
 from collections import defaultdict
 from .models import NoteCategory, CharacterNote
+from django.db.models import Q
+from django.core.exceptions import FieldDoesNotExist
 
 from django.views.decorators.http import require_POST
 from django.http import JsonResponse, HttpResponseBadRequest
@@ -2967,19 +2969,79 @@ def class_list(request):
     )
 
 
+
 class LoremasterListView(ListView):
-    model               = LoremasterArticle
-    template_name       = "loremaster/loremaster_list.html"
+    model = LoremasterArticle
+    template_name = "loremaster/loremaster_list.html"
     context_object_name = "articles"
-    paginate_by         = 10
+    paginate_by = 12  # feels better for a grid; change to 10 if you want
+
+    # ---- helpers ----
+    def _has_field(self, name: str) -> bool:
+        try:
+            self.model._meta.get_field(name)
+            return True
+        except FieldDoesNotExist:
+            return False
+
+    def _default_date_field(self) -> str:
+        """
+        Pick a sensible date field for ordering if it exists.
+        Adjust the preference order to match your actual model.
+        """
+        for f in ("published_at", "published_on", "published_date", "created_at", "created_on", "created"):
+            if self._has_field(f):
+                return f
+        return "pk"  # last resort, stable
 
     def get_queryset(self):
         qs = super().get_queryset().filter(published=True)
-        q  = self.request.GET.get("q", "")
+
+        q = (self.request.GET.get("q") or "").strip()
         if q:
-            qs = qs.filter(title__icontains=q) | qs.filter(excerpt__icontains=q)
+            qs = qs.filter(
+                Q(title__icontains=q) |
+                Q(excerpt__icontains=q)
+            ).distinct()
+
+        # Sorting
+        sort = (self.request.GET.get("sort") or "new").strip()
+        date_field = self._default_date_field()
+
+        sort_map = {
+            "new":  f"-{date_field}",
+            "old":  f"{date_field}",
+            "az":   "title",
+            "za":   "-title",
+        }
+        order_by = sort_map.get(sort, sort_map["new"])
+        qs = qs.order_by(order_by)
+
         return qs
 
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+
+        # Keep query params across pagination links
+        params = self.request.GET.copy()
+        params.pop("page", None)
+
+        ctx["q"] = (self.request.GET.get("q") or "").strip()
+        ctx["sort"] = (self.request.GET.get("sort") or "new").strip()
+        ctx["view_mode"] = (self.request.GET.get("view") or "cards").strip()  # "cards" or "compact"
+        ctx["qs_params"] = params.urlencode()
+
+        # UI helpers
+        ctx["sort_options"] = [
+            ("new", "Newest"),
+            ("old", "Oldest"),
+            ("az", "Title (A–Z)"),
+            ("za", "Title (Z–A)"),
+        ]
+        # paginator page object already exists as page_obj
+        ctx["total_results"] = ctx["paginator"].count if ctx.get("paginator") else 0
+
+        return ctx
 
 class LoremasterDetailView(DetailView):
     model         = LoremasterArticle
@@ -13735,12 +13797,6 @@ def character_level_up(request, pk):
         return redirect('characters:character_detail', pk=pk)
 
 
-    # write both
-    if hasattr(character, "hp_max"):
-        character.hp_max = new_max
-    if hasattr(character, "HP"):
-        character.HP = new_cur
-    character.save(update_fields=[f for f in ("hp_max","HP") if hasattr(character, f)])
 
 
     # ── (H) APPLY the level-up (copy the original body verbatim) ────────────
