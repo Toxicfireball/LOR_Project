@@ -2692,8 +2692,10 @@ from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbid
 @require_POST
 def set_armor_choice(request, pk):
     character = get_object_or_404(Character, pk=pk, user=request.user)
-    armor_id = (request.POST.get("armor_id") or "").strip()
+    if not character.can_edit(request.user):
+        return HttpResponseForbidden("You cannot edit this character.")
 
+    armor_id = (request.POST.get("armor_id") or "").strip()
     # Clear equipped armor
     if armor_id == "":
         CharacterFieldOverride.objects.filter(character=character, key="equipped_armor_id").delete()
@@ -11058,9 +11060,11 @@ def character_detail(request, pk):
 
     # Only two roll types for the dice roller
     roll_choices = [
-        {"code": "attack",  "label": "Attack roll",     "kind": "attack"},
-        {"code": "generic", "label": "Non-attack roll", "kind": "other"},
+        {"code": "attack",   "label": "Attack roll",      "kind": "attack"},
+        {"code": "generic",  "label": "Non-attack roll",  "kind": "other"},
+        {"code": "dicepool", "label": "Dice pool",        "kind": "other"},
     ]
+
 
     # Load any saved roll modifiers from CharacterFieldOverride
     roll_ov = CharacterFieldOverride.objects.filter(

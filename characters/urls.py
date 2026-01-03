@@ -16,14 +16,13 @@ urlpatterns = [
     # Character mutations / AJAX (POST)
     path("ajax/race-features/", views.race_features_data, name="race_features_data"),
     path("<int:pk>/set-weapon/", views.set_weapon_choice, name="set_weapon_choice"),
-    path("<int:pk>/set-armor/", views.set_armor_choice, name="set_armor_choice"),
     path("<int:pk>/set-activation/", views.set_activation, name="set_activation"),
     path("<int:pk>/add-known-spell/", views.add_known_spell, name="add_known_spell"),
     path("<int:pk>/set-prepared-spell/", views.set_prepared_spell, name="set_prepared_spell"),
     path("<int:pk>/pick-martial-mastery/", views.pick_martial_mastery, name="pick_martial_mastery"),
     path("<int:pk>/override/", views.set_field_override, name="set_field_override"),
     path("<int:pk>/set-shield/", views.set_shield_choice, name="set_shield_choice"),
-
+path("<int:pk>/set-armor/", views.set_armor_choice, name="set_armor_choice"),
     # Link character ↔ campaign
     path(
         "campaigns/<int:campaign_id>/link/<int:character_id>/",

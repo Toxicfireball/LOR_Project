@@ -1121,6 +1121,120 @@ data-key="prof:{{ r.code|lower }}"
         Armor piercing for this attack = ⌊hit roll / 2⌋ + AP standard modifiers + AP toggle modifiers
       </div>
     </div>
+    
+  <!-- DICE POOL PANEL (NEW) -->
+  <div class="panel" id="pool-panel">
+    <div class="d-flex align-items-center justify-content-between mb-1">
+      <h6 class="mb-0">Dice Pool</h6>
+      <div class="d-flex gap-2">
+        <button id="btn-roll-pool" class="btn btn-sm btn-success" type="button">Roll Pool</button>
+        <button id="btn-clear-pool" class="btn btn-sm btn-outline-secondary" type="button">Clear</button>
+      </div>
+    </div>
+
+    <div class="small text-muted mb-2">
+      Mix any dice. Total = (sum of dice) + base + standard modifiers + active toggles
+    </div>
+
+    <!-- Dice counts -->
+    <div class="row g-2 align-items-end">
+      <div class="col-4 col-md-2">
+        <label class="form-label form-label-sm mb-0">d4</label>
+        <input id="pool-d4" type="number" class="form-control form-control-sm" value="0" min="0">
+      </div>
+      <div class="col-4 col-md-2">
+        <label class="form-label form-label-sm mb-0">d6</label>
+        <input id="pool-d6" type="number" class="form-control form-control-sm" value="0" min="0">
+      </div>
+      <div class="col-4 col-md-2">
+        <label class="form-label form-label-sm mb-0">d8</label>
+        <input id="pool-d8" type="number" class="form-control form-control-sm" value="0" min="0">
+      </div>
+      <div class="col-4 col-md-2">
+        <label class="form-label form-label-sm mb-0">d10</label>
+        <input id="pool-d10" type="number" class="form-control form-control-sm" value="0" min="0">
+      </div>
+      <div class="col-4 col-md-2">
+        <label class="form-label form-label-sm mb-0">d12</label>
+        <input id="pool-d12" type="number" class="form-control form-control-sm" value="0" min="0">
+      </div>
+      <div class="col-4 col-md-2">
+        <label class="form-label form-label-sm mb-0">d20</label>
+        <input id="pool-d20" type="number" class="form-control form-control-sm" value="0" min="0">
+      </div>
+    </div>
+
+    <div class="row g-2 align-items-end mt-1">
+      <div class="col-md-4">
+        <label class="form-label form-label-sm mb-0">Base modifier</label>
+        <input id="pool-base" type="number" class="form-control form-control-sm" value="0">
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label form-label-sm mb-0">Dice sum</label>
+        <input id="pool-dice-sum" type="number" class="form-control form-control-sm" value="0" readonly>
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label form-label-sm mb-0">Total</label>
+        <input id="pool-total" type="number" class="form-control form-control-sm" value="0" readonly>
+      </div>
+    </div>
+
+    <div class="mt-2">
+      <label class="form-label form-label-sm mb-0">Breakdown</label>
+      <div id="pool-breakdown" class="mono small p-2 rounded" style="border:1px solid rgba(0,0,0,.1);opacity:.9"></div>
+    </div>
+
+    <!-- Pool standard modifiers -->
+    <div class="mt-3">
+      <div class="d-flex align-items-center justify-content-between mb-1">
+        <strong class="small mb-0">Pool modifiers (always on)</strong>
+      </div>
+      <div id="pool-std-mods" class="vr-bucket"></div>
+
+      <form class="row g-2 mt-1" method="post">
+        {% csrf_token %}
+        <input type="hidden" name="roll_mod_form" value="1">
+        <input type="hidden" name="kind" value="standard">
+        <input type="hidden" name="roll_code" value="dicepool">
+        <div class="col-6">
+          <input class="form-control form-control-sm" name="label" placeholder="e.g. Weapon bonus" required>
+        </div>
+        <div class="col-3">
+          <input class="form-control form-control-sm" name="value" type="number" placeholder="+/-" required>
+        </div>
+        <div class="col-3 d-grid">
+          <button class="btn btn-sm btn-outline-primary">Add</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Pool toggle modifiers -->
+    <div class="mt-3">
+      <div class="d-flex align-items-center justify-content-between mb-1">
+        <strong class="small mb-0">Pool toggle modifiers</strong>
+        <span class="small text-muted">Tick to include</span>
+      </div>
+      <div id="pool-toggle-mods" class="vr-bucket"></div>
+
+      <form class="row g-2 mt-1" method="post">
+        {% csrf_token %}
+        <input type="hidden" name="roll_mod_form" value="1">
+        <input type="hidden" name="kind" value="toggle">
+        <input type="hidden" name="roll_code" value="dicepool">
+        <div class="col-6">
+          <input class="form-control form-control-sm" name="label" placeholder="e.g. Rage / Buff" required>
+        </div>
+        <div class="col-3">
+          <input class="form-control form-control-sm" name="value" type="number" placeholder="+/-" required>
+        </div>
+        <div class="col-3 d-grid">
+          <button class="btn btn-sm btn-outline-primary">Add</button>
+        </div>
+      </form>
+    </div>
+  </div>
   </div>
 
   <hr class="my-3">
@@ -1142,6 +1256,13 @@ data-key="prof:{{ r.code|lower }}"
   const csrf_token = `{% csrf_token %}`;
 
     const el = id => document.getElementById(id);
+// --- Dice Pool elements ---
+const poolStdRoot   = el("pool-std-mods");
+const poolTogRoot   = el("pool-toggle-mods");
+const poolDiceSumEl = el("pool-dice-sum");
+const poolTotalEl   = el("pool-total");
+const poolBaseEl    = el("pool-base");
+const poolBreakEl   = el("pool-breakdown");
 
     const rollTypeSelect = el("roll-type");
     const rollBaseInput  = el("roll-base");
@@ -1170,6 +1291,34 @@ data-key="prof:{{ r.code|lower }}"
     const ATTACK_BASE_BONUS = Number(data.attack_base_bonus || 0);
 
     const rollsByCode = {};
+    function getRollByCode(code) {
+  if (rollsByCode[code]) return rollsByCode[code];
+  return {
+    code,
+    label: code,
+    kind: "other",
+    std_mods: [],
+    toggle_mods: [],
+    ap_std_mods: [],
+    ap_toggle_mods: [],
+  };
+}
+
+function clampInt(v) {
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function rollDie(sides) {
+  return Math.floor(Math.random() * sides) + 1;
+}
+
+function rollMany(sides, count) {
+  const out = [];
+  for (let i = 0; i < count; i++) out.push(rollDie(sides));
+  return out;
+}
+
     (data.rolls || []).forEach(r => { rollsByCode[r.code] = r; });
 
     function currentRoll() {
@@ -1211,14 +1360,14 @@ data-key="prof:{{ r.code|lower }}"
         if (f) f.value = code;
       });
     }
-
-function renderStdMods(list, container) {
+function renderStdMods(list, container, rollCode, kindForEdit) {
   container.innerHTML = "";
   if (!list || !list.length) {
     container.innerHTML =
       '<div class="small text-muted soft">No standard modifiers saved for this roll.</div>';
     return;
   }
+
   list.forEach(m => {
     const row = document.createElement("div");
     row.className = "d-flex justify-content-between align-items-center mb-1";
@@ -1228,20 +1377,17 @@ function renderStdMods(list, container) {
       <span class="d-flex align-items-center gap-2">
         <span class="mono">${m.value >= 0 ? "+" : ""}${m.value}</span>
 
-        <!-- Edit button -->
-<form method="post" class="d-inline">
-  ${csrf_token}
-  <input type="hidden" name="roll_mod_edit" value="1">
-  <input type="hidden" name="mod_id" value="${m.id}">
-  <input type="hidden" name="roll_code" value="${currentRoll().code}">
-  <input type="hidden" name="kind" value="standard">
-  <input type="hidden" name="label" value="${m.name}">
-  <input type="hidden" name="value" value="${m.value}">
-  <button class="btn btn-sm btn-outline-secondary py-0 px-1">✎</button>
-</form>
+        <form method="post" class="d-inline">
+          ${csrf_token}
+          <input type="hidden" name="roll_mod_edit" value="1">
+          <input type="hidden" name="mod_id" value="${m.id}">
+          <input type="hidden" name="roll_code" value="${rollCode}">
+          <input type="hidden" name="kind" value="${kindForEdit}">
+          <input type="hidden" name="label" value="${m.name}">
+          <input type="hidden" name="value" value="${m.value}">
+          <button class="btn btn-sm btn-outline-secondary py-0 px-1">✎</button>
+        </form>
 
-
-        <!-- Delete button -->
         <form method="post" class="d-inline">
           ${csrf_token}
           <input type="hidden" name="roll_mod_delete" value="1">
@@ -1250,13 +1396,11 @@ function renderStdMods(list, container) {
         </form>
       </span>
     `;
-
     container.appendChild(row);
   });
 }
 
-
-function renderToggleMods(list, container, checkboxClass) {
+function renderToggleMods(list, container, rollCode, checkboxClass, kindForEdit) {
   container.innerHTML = "";
   if (!list || !list.length) {
     container.innerHTML =
@@ -1270,26 +1414,21 @@ function renderToggleMods(list, container, checkboxClass) {
 
     row.innerHTML = `
       <span>${m.name}</span>
-
       <span class="d-flex align-items-center gap-2">
         <span class="mono">${m.value >= 0 ? "+" : ""}${m.value}</span>
-        <input type="checkbox" class="form-check-input ${checkboxClass}"
-               data-value="${m.value}">
+        <input type="checkbox" class="form-check-input ${checkboxClass}" data-value="${m.value}">
 
-        <!-- Edit button -->
         <form method="post" class="d-inline">
           ${csrf_token}
           <input type="hidden" name="roll_mod_edit" value="1">
           <input type="hidden" name="mod_id" value="${m.id}">
-          <input type="hidden" name="roll_code" value="${currentRoll().code}">
-<input type="hidden" name="kind" value="toggle">
-<input type="hidden" name="label" value="${m.name}">
-<input type="hidden" name="value" value="${m.value}">
-
+          <input type="hidden" name="roll_code" value="${rollCode}">
+          <input type="hidden" name="kind" value="${kindForEdit}">
+          <input type="hidden" name="label" value="${m.name}">
+          <input type="hidden" name="value" value="${m.value}">
           <button class="btn btn-sm btn-outline-secondary py-0 px-1">✎</button>
         </form>
 
-        <!-- Delete button -->
         <form method="post" class="d-inline">
           ${csrf_token}
           <input type="hidden" name="roll_mod_delete" value="1">
@@ -1298,10 +1437,10 @@ function renderToggleMods(list, container, checkboxClass) {
         </form>
       </span>
     `;
-
     container.appendChild(row);
   });
 }
+
 
 
     function sumStd(list) {
@@ -1326,19 +1465,24 @@ function renderToggleMods(list, container, checkboxClass) {
       }
 
       // Standard / toggle for main roll
-      renderStdMods(r.std_mods, stdRoot);
-      renderToggleMods(r.toggle_mods, togRoot, "mod-toggle");
+renderStdMods(r.std_mods, stdRoot, r.code, "standard");
+renderToggleMods(r.toggle_mods, togRoot, r.code, "mod-toggle", "toggle");
 
       // AP block only for attacks
       if (r.kind === "attack") {
         apPanel.style.display = "";
-        renderStdMods(r.ap_std_mods, apStdRoot);
-        renderToggleMods(r.ap_toggle_mods, apTogRoot, "ap-mod-toggle");
+renderStdMods(r.ap_std_mods, apStdRoot, r.code, "ap_standard");
+renderToggleMods(r.ap_toggle_mods, apTogRoot, r.code, "ap-mod-toggle", "ap_toggle");
       } else {
         apPanel.style.display = "none";
         apStdRoot.innerHTML = "";
         apTogRoot.innerHTML = "";
       }
+      // --- Render Dice Pool mods (roll_code = dicepool) ---
+const pool = getRollByCode("dicepool");
+renderStdMods(pool.std_mods, poolStdRoot, "dicepool", "standard");
+renderToggleMods(pool.toggle_mods, poolTogRoot, "dicepool", "pool-mod-toggle", "toggle");
+
     }
 
 
@@ -1357,6 +1501,68 @@ function renderToggleMods(list, container, checkboxClass) {
       apTotalInput.value   = 0;
       renderAll();
     });
+el("btn-roll-pool")?.addEventListener("click", () => {
+  const pool = getRollByCode("dicepool");
+
+  const c4  = clampInt(el("pool-d4")?.value);
+  const c6  = clampInt(el("pool-d6")?.value);
+  const c8  = clampInt(el("pool-d8")?.value);
+  const c10 = clampInt(el("pool-d10")?.value);
+  const c12 = clampInt(el("pool-d12")?.value);
+  const c20 = clampInt(el("pool-d20")?.value);
+
+  const base = Number(poolBaseEl?.value || 0);
+
+  const r4  = rollMany(4,  c4);
+  const r6  = rollMany(6,  c6);
+  const r8  = rollMany(8,  c8);
+  const r10 = rollMany(10, c10);
+  const r12 = rollMany(12, c12);
+  const r20 = rollMany(20, c20);
+
+  const diceSum =
+    r4.reduce((a,b)=>a+b,0)  +
+    r6.reduce((a,b)=>a+b,0)  +
+    r8.reduce((a,b)=>a+b,0)  +
+    r10.reduce((a,b)=>a+b,0) +
+    r12.reduce((a,b)=>a+b,0) +
+    r20.reduce((a,b)=>a+b,0);
+
+  const stdSum  = sumStd(pool.std_mods);
+  const togSum  = sumFromCheckboxes(".pool-mod-toggle");
+  const total   = diceSum + base + stdSum + togSum;
+
+  if (poolDiceSumEl) poolDiceSumEl.value = diceSum;
+  if (poolTotalEl) poolTotalEl.value = total;
+
+  const parts = [];
+  if (c4)  parts.push(`${c4}d4=${JSON.stringify(r4)}`);
+  if (c6)  parts.push(`${c6}d6=${JSON.stringify(r6)}`);
+  if (c8)  parts.push(`${c8}d8=${JSON.stringify(r8)}`);
+  if (c10) parts.push(`${c10}d10=${JSON.stringify(r10)}`);
+  if (c12) parts.push(`${c12}d12=${JSON.stringify(r12)}`);
+  if (c20) parts.push(`${c20}d20=${JSON.stringify(r20)}`);
+
+  const breakdown = parts.length ? parts.join("  ") : "No dice selected.";
+  if (poolBreakEl) poolBreakEl.textContent = breakdown;
+
+  const msg =
+    `[POOL] diceSum=${diceSum}  base=${base >= 0 ? "+"+base : base}  std=${stdSum >= 0 ? "+"+stdSum : stdSum}` +
+    `  toggles=${togSum >= 0 ? "+"+togSum : togSum}  => total=${total} | ${breakdown}`;
+
+  logLine(msg);
+});
+
+el("btn-clear-pool")?.addEventListener("click", () => {
+  ["pool-d4","pool-d6","pool-d8","pool-d10","pool-d12","pool-d20"].forEach(id => {
+    const x = el(id); if (x) x.value = 0;
+  });
+  if (poolBaseEl) poolBaseEl.value = 0;
+  if (poolDiceSumEl) poolDiceSumEl.value = 0;
+  if (poolTotalEl) poolTotalEl.value = 0;
+  if (poolBreakEl) poolBreakEl.textContent = "";
+  document.querySelectorAll(".pool-mod-toggle:checked").forEach(chk => chk.checked = false);
+});
 
     el("btn-roll-main").addEventListener("click", () => {
       const r    = currentRoll();
