@@ -7239,8 +7239,19 @@ def character_detail(request, pk):
     # Attach modifiers from DB
     for m in RollModifier.objects.filter(character=character):
         bucket = roll_map.get(m.roll_code)
+
+        # NEW: don't drop mods if roll_code isn't in roll_map
         if not bucket:
-            continue
+            roll_map[m.roll_code] = bucket = {
+                "code": m.roll_code,
+                "label": m.roll_code,     # you can prettify later
+                "kind": "other",
+                "std_mods": [],
+                "toggle_mods": [],
+                "ap_std_mods": [],
+                "ap_toggle_mods": [],
+            }
+
         mod_dict = {"id": m.id, "name": m.name, "value": m.value}
         if m.kind == "standard":
             bucket["std_mods"].append(mod_dict)
@@ -7250,6 +7261,7 @@ def character_detail(request, pk):
             bucket["ap_std_mods"].append(mod_dict)
         elif m.kind == "ap_toggle":
             bucket["ap_toggle_mods"].append(mod_dict)
+
 
     roll_mod_data = {"rolls": list(roll_map.values())}
     roll_mod_data = {
