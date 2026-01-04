@@ -1,6 +1,27 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="max-w-6xl mx-auto px-4 py-6 space-y-4">
+
+<style>
+  /* Page-scoped: keep this page readable even if the site is in dark mode */
+  .lor-page { color-scheme: light; }
+  .lor-page { color: rgb(17 24 39) !important; } /* gray-900 */
+
+  /* Make native selects / inputs readable */
+  .lor-page select,
+  .lor-page input,
+  .lor-page textarea {
+    background: #fff !important;
+    color: rgb(17 24 39) !important;
+    border-color: rgb(209 213 219) !important; /* gray-300 */
+  }
+  .lor-page select option { color: rgb(17 24 39) !important; }
+
+  /* Nicer details/summary affordance */
+  .lor-page details > summary::-webkit-details-marker { display: none; }
+</style>
+
+<div class="lor-page max-w-6xl mx-auto px-4 py-6 space-y-4">
+
   <!-- Header -->
   <div class="flex items-start justify-between">
     <div>
@@ -173,57 +194,369 @@
                     Details
                   </summary>
 
-                  <div class="mt-3 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-gray-800">
-                    <!-- Defenses -->
-                    <div>
-                      <div class="font-semibold mb-1">Defenses</div>
-                      <div>Level: {{ row.obj.enemy_type.level|default:"—" }}</div>
-                      <div>Armor: {{ row.obj.enemy_type.armor|default:"—" }} · Dodge: {{ row.obj.enemy_type.dodge|default:"—" }}</div>
-                      <div>Initiative (base): {{ row.obj.enemy_type.initiative|default:"—" }}</div>
-                      <div>HP: {{ row.hp.0 }} / {{ row.hp.1 }}</div>
-                      <div>Speed: {{ row.obj.enemy_type.speed|default:"—" }}</div>
-                      <div>Resistances: {{ row.obj.enemy_type.resistances|default:"—" }}</div>
-                      <div>
-                        Tags:
-                        {% for t in row.obj.enemy_type.tags.all %}
-                          <span class="inline-block rounded bg-gray-200 px-2 py-0.5 text-xs mr-1">{{ t.name }}</span>
-                        {% empty %}<span class="text-gray-500">—</span>{% endfor %}
-                      </div>
-                    </div>
+<div class="mt-3 space-y-4">
 
-                    <!-- Scores & Saves -->
-                    <div>
-                      <div class="font-semibold mb-1">Scores & Skills</div>
-                      <div class="grid grid-cols-3 gap-x-3 gap-y-1">
-                        <div>STR {{ row.obj.enemy_type.str_score|default:"—" }}</div>
-                        <div>DEX {{ row.obj.enemy_type.dex_score|default:"—" }}</div>
-                        <div>CON {{ row.obj.enemy_type.con_score|default:"—" }}</div>
-                        <div>INT {{ row.obj.enemy_type.int_score|default:"—" }}</div>
-                        <div>WIS {{ row.obj.enemy_type.wis_score|default:"—" }}</div>
-                        <div>CHA {{ row.obj.enemy_type.cha_score|default:"—" }}</div>
-                      </div>
-                      <div class="mt-2">Perception {{ row.obj.enemy_type.perception|default:"—" }} · Stealth {{ row.obj.enemy_type.stealth|default:"—" }}</div>
-                      <div>Saves — Will {{ row.obj.enemy_type.will_save|default:"—" }},
-                           Reflex {{ row.obj.enemy_type.reflex_save|default:"—" }},
-                           Fortitude {{ row.obj.enemy_type.fortitude_save|default:"—" }}</div>
-                    </div>
+  <!-- Top grid: Quick Stats / Skills / Offense -->
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
-                    <!-- Abilities -->
+    <!-- Quick Stats -->
+    <div class="bg-white rounded-lg border border-gray-200 p-3">
+      <div class="flex items-center justify-between mb-2">
+        <div class="font-semibold">Quick Stats</div>
+        <div class="flex flex-wrap gap-1">
+          <span class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-700">
+            {{ row.obj.enemy_type.get_category_display }}
+          </span>
+          {% if row.obj.enemy_type.campaign_id %}
+            <span class="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700">
+              Campaign
+            </span>
+          {% else %}
+            <span class="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700">
+              Global
+            </span>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
+        <div class="text-gray-600">Level</div><div class="font-medium">{{ row.obj.enemy_type.level|default:"—" }}</div>
+        <div class="text-gray-600">HP</div><div class="font-medium">{{ row.hp.0 }} / {{ row.hp.1 }}</div>
+        <div class="text-gray-600">Speed</div><div class="font-medium">{{ row.obj.enemy_type.speed|default:"—" }}</div>
+        <div class="text-gray-600">Initiative (base)</div><div class="font-medium">{{ row.obj.enemy_type.initiative|default:"—" }}</div>
+        <div class="text-gray-600">Armor</div><div class="font-medium">{{ row.obj.enemy_type.armor|default:"—" }}</div>
+        <div class="text-gray-600">Dodge</div><div class="font-medium">{{ row.obj.enemy_type.dodge|default:"—" }}</div>
+        <div class="text-gray-600">Crit Threshold</div><div class="font-medium">{{ row.obj.enemy_type.crit_threshold|default:"—" }}</div>
+      </div>
+
+      <div class="mt-2">
+        <div class="text-xs font-semibold text-gray-600 mb-1">Tags</div>
+        <div class="flex flex-wrap gap-1">
+          {% for t in row.obj.enemy_type.tags.all %}
+            <span class="inline-flex items-center rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700">{{ t.name }}</span>
+          {% empty %}
+            <span class="text-gray-500 text-sm">—</span>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="mt-2">
+        <div class="text-xs font-semibold text-gray-600 mb-1">Resistances / Notes</div>
+        <div class="text-sm text-gray-800 whitespace-pre-line">
+          {{ row.obj.enemy_type.resistances|default:"—" }}
+        </div>
+      </div>
+    </div>
+
+    <!-- Scores / Saves / Skills -->
+    <div class="bg-white rounded-lg border border-gray-200 p-3">
+      <div class="font-semibold mb-2">Scores, Saves & Skills</div>
+
+      <div class="text-xs font-semibold text-gray-600 mb-1">Ability Scores</div>
+      <div class="grid grid-cols-3 gap-x-3 gap-y-1 text-sm">
+        <div>STR <span class="font-medium">{{ row.obj.enemy_type.str_score|default:"—" }}</span></div>
+        <div>DEX <span class="font-medium">{{ row.obj.enemy_type.dex_score|default:"—" }}</span></div>
+        <div>CON <span class="font-medium">{{ row.obj.enemy_type.con_score|default:"—" }}</span></div>
+        <div>INT <span class="font-medium">{{ row.obj.enemy_type.int_score|default:"—" }}</span></div>
+        <div>WIS <span class="font-medium">{{ row.obj.enemy_type.wis_score|default:"—" }}</span></div>
+        <div>CHA <span class="font-medium">{{ row.obj.enemy_type.cha_score|default:"—" }}</span></div>
+      </div>
+
+      <div class="mt-2 text-xs font-semibold text-gray-600 mb-1">Saves</div>
+      <div class="text-sm">
+        Will <span class="font-medium">{{ row.obj.enemy_type.will_save|default:"—" }}</span>
+        · Reflex <span class="font-medium">{{ row.obj.enemy_type.reflex_save|default:"—" }}</span>
+        · Fortitude <span class="font-medium">{{ row.obj.enemy_type.fortitude_save|default:"—" }}</span>
+      </div>
+
+      <div class="mt-2 text-xs font-semibold text-gray-600 mb-1">Skills</div>
+      <div class="grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
+        <div>Perception <span class="font-medium">{{ row.obj.enemy_type.perception|default:"—" }}</span></div>
+        <div>Stealth <span class="font-medium">{{ row.obj.enemy_type.stealth|default:"—" }}</span></div>
+        <div>Athletics <span class="font-medium">{{ row.obj.enemy_type.athletics|default:"—" }}</span></div>
+        <div>Acrobatics <span class="font-medium">{{ row.obj.enemy_type.acrobatics|default:"—" }}</span></div>
+        <div>Insight <span class="font-medium">{{ row.obj.enemy_type.insight|default:"—" }}</span></div>
+      </div>
+    </div>
+
+    <!-- Offense (Basic Attack + spellcasting toggle) -->
+    <div class="bg-white rounded-lg border border-gray-200 p-3">
+      <div class="font-semibold mb-2">Offense</div>
+
+      <div class="text-xs font-semibold text-gray-600 mb-1">Basic Attack</div>
+      <div class="rounded-md border border-gray-200 bg-gray-50 p-2">
+        <div class="flex items-center justify-between gap-2">
+          <div class="font-medium">
+            {{ row.obj.enemy_type.basic_attack_name|default:"Strike" }}
+          </div>
+          <span class="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[11px] text-gray-700 border border-gray-200">
+            {{ row.obj.enemy_type.get_basic_attack_action_display }}
+          </span>
+        </div>
+
+        <div class="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
+          <div class="text-gray-600">To Hit</div><div class="font-medium">{{ row.obj.enemy_type.basic_attack_to_hit|default:"—" }}</div>
+          <div class="text-gray-600">AP</div><div class="font-medium">{{ row.obj.enemy_type.basic_attack_ap|default:"—" }}</div>
+          <div class="text-gray-600">Damage</div><div class="font-medium">{{ row.obj.enemy_type.basic_attack_damage|default:"—" }}</div>
+        </div>
+
+        {% if row.obj.enemy_type.basic_attack_note %}
+          <div class="mt-2 text-sm text-gray-700 whitespace-pre-line">
+            {{ row.obj.enemy_type.basic_attack_note }}
+          </div>
+        {% endif %}
+      </div>
+
+      <div class="mt-3 text-xs font-semibold text-gray-600 mb-1">Spellcasting</div>
+      <div class="text-sm">
+        <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px]
+          {% if row.obj.enemy_type.can_cast_spells %}bg-indigo-50 text-indigo-700 border border-indigo-200
+          {% else %}bg-gray-100 text-gray-700 border border-gray-200{% endif %}">
+          {% if row.obj.enemy_type.can_cast_spells %}Enabled{% else %}Disabled{% endif %}
+        </span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Special Abilities (existing) -->
+  <div class="bg-white rounded-lg border border-gray-200 p-3">
+    <div class="font-semibold mb-2">Special Abilities</div>
+    <ul class="space-y-2 text-sm">
+      {% for ab in row.obj.enemy_type.abilities.all %}
+        <li class="rounded-md border border-gray-200 bg-gray-50 p-2">
+          <div class="font-medium">
+            {{ ab.get_ability_type_display }}{% if ab.title %}: {{ ab.title }}{% endif %}
+          </div>
+          <div class="text-gray-700 whitespace-pre-line">{{ ab.description }}</div>
+          {% if ab.action_cost %}
+            <div class="text-xs text-gray-500 mt-1">Action: {{ ab.action_cost }}</div>
+          {% endif %}
+        </li>
+      {% empty %}
+        <li class="text-gray-500">No special abilities.</li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <!-- Spells (show EVERYTHING when present) -->
+  <div class="bg-white rounded-lg border border-gray-200 p-3">
+    {% with spells=row.obj.enemy_type.spells.all %}
+      <details class="group">
+        <summary class="cursor-pointer select-none flex items-center justify-between gap-2">
+          <div class="font-semibold">
+            Spells <span class="text-xs font-normal text-gray-500">({{ spells|length }})</span>
+          </div>
+          <span class="text-gray-500 text-sm group-open:rotate-180 transition-transform">▾</span>
+        </summary>
+
+        <div class="mt-3 space-y-2">
+          {% for sp in spells %}
+            <details class="rounded-md border border-gray-200 bg-gray-50 p-2">
+              <summary class="cursor-pointer select-none flex items-center justify-between gap-2">
+                <div class="font-medium">
+                  {{ sp.name }}
+                  <span class="text-xs text-gray-500">
+                    {% if sp.level == 0 %}(Cantrip){% else %}(L{{ sp.level }}){% endif %}
+                  </span>
+                </div>
+                <span class="text-gray-400 text-sm">▾</span>
+              </summary>
+
+              <div class="mt-2 text-sm text-gray-800 space-y-2">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  <div><span class="text-xs font-semibold text-gray-600">Classification:</span> {{ sp.classification|default:"—" }}</div>
+                  <div><span class="text-xs font-semibold text-gray-600">Saving Throw:</span> {{ sp.saving_throw|default:"—" }}</div>
+                  <div><span class="text-xs font-semibold text-gray-600">Casting Time:</span> {{ sp.casting_time|default:"—" }}</div>
+                  <div><span class="text-xs font-semibold text-gray-600">Duration:</span> {{ sp.duration|default:"—" }}</div>
+                  <div><span class="text-xs font-semibold text-gray-600">Components:</span> {{ sp.components|default:"—" }}</div>
+                  <div><span class="text-xs font-semibold text-gray-600">Range:</span> {{ sp.range|default:"—" }}</div>
+                  <div><span class="text-xs font-semibold text-gray-600">Target:</span> {{ sp.target|default:"—" }}</div>
+                  <div><span class="text-xs font-semibold text-gray-600">Origin:</span> {{ sp.origin|default:"—" }}{% if sp.sub_origin %} / {{ sp.sub_origin }}{% endif %}</div>
+                  <div class="md:col-span-2"><span class="text-xs font-semibold text-gray-600">Mastery Req:</span> {{ sp.mastery_req|default:"—" }}</div>
+                  <div class="md:col-span-2"><span class="text-xs font-semibold text-gray-600">Tags:</span> {{ sp.tags|default:"—" }}</div>
+                </div>
+
+                <div>
+                  <div class="text-xs font-semibold text-gray-600">Description</div>
+                  <div class="whitespace-pre-line text-sm">{{ sp.description|default:"—" }}</div>
+                </div>
+
+                {% if sp.effect %}
+                  <div>
+                    <div class="text-xs font-semibold text-gray-600">Effect</div>
+                    <div class="whitespace-pre-line text-sm">{{ sp.effect }}</div>
+                  </div>
+                {% endif %}
+
+                {% if sp.upcast_effect %}
+                  <div>
+                    <div class="text-xs font-semibold text-gray-600">Upcast Effect</div>
+                    <div class="whitespace-pre-line text-sm">{{ sp.upcast_effect }}</div>
+                  </div>
+                {% endif %}
+              </div>
+            </details>
+          {% empty %}
+            <div class="text-gray-500 text-sm">No spells.</div>
+          {% endfor %}
+        </div>
+      </details>
+    {% endwith %}
+  </div>
+
+  <!-- Martial Masteries (show EVERYTHING when present) -->
+  <div class="bg-white rounded-lg border border-gray-200 p-3">
+    {% with mms=row.obj.enemy_type.martial_masteries.all %}
+      <details class="group">
+        <summary class="cursor-pointer select-none flex items-center justify-between gap-2">
+          <div class="font-semibold">
+            Martial Masteries <span class="text-xs font-normal text-gray-500">({{ mms|length }})</span>
+          </div>
+          <span class="text-gray-500 text-sm group-open:rotate-180 transition-transform">▾</span>
+        </summary>
+
+        <div class="mt-3 space-y-2">
+          {% for mm in mms %}
+            <details class="rounded-md border border-gray-200 bg-gray-50 p-2">
+              <summary class="cursor-pointer select-none flex items-center justify-between gap-2">
+                <div class="font-medium">
+                  {{ mm.name }}
+                  <span class="text-xs text-gray-500">(L{{ mm.level_required }}, {{ mm.points_cost }} pts)</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  {% if mm.is_rare %}
+                    <span class="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[11px] text-amber-800 border border-amber-200">
+                      Rare
+                    </span>
+                  {% endif %}
+                  {% if mm.action_cost %}
+                    <span class="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[11px] text-gray-700 border border-gray-200">
+                      {{ mm.get_action_cost_display }}
+                    </span>
+                  {% endif %}
+                  <span class="text-gray-400 text-sm">▾</span>
+                </div>
+              </summary>
+
+              <div class="mt-2 text-sm text-gray-800 space-y-2">
+                {% if mm.description %}
+                  <div>
+                    <div class="text-xs font-semibold text-gray-600">Description</div>
+                    <div class="text-sm leading-relaxed">{{ mm.description|safe }}</div>
+                  </div>
+                {% endif %}
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  <div>
+                    <div class="text-xs font-semibold text-gray-600">Ability Restriction</div>
                     <div>
-                      <div class="font-semibold mb-1">Abilities</div>
-                      <ul class="space-y-2">
-                        {% for ab in row.obj.enemy_type.abilities.all %}
-                          <li>
-                            <div class="font-medium">{{ ab.get_ability_type_display }}{% if ab.title %}: {{ ab.title }}{% endif %}</div>
-                            <div class="text-gray-700 text-sm">{{ ab.description }}</div>
-                            {% if ab.action_cost %}<div class="text-xs text-gray-500 mt-0.5">Action: {{ ab.action_cost }}</div>{% endif %}
-                          </li>
-                        {% empty %}
-                          <li class="text-gray-500">No special abilities.</li>
-                        {% endfor %}
-                      </ul>
+                      {% if mm.restrict_by_ability %}
+                        Requires {{ mm.required_ability }} {{ mm.required_ability_score }}
+                      {% else %}
+                        —
+                      {% endif %}
                     </div>
                   </div>
+
+                  <div>
+                    <div class="text-xs font-semibold text-gray-600">Class Restriction</div>
+                    <div>
+                      {% if mm.all_classes %}
+                        Any class
+                      {% else %}
+                        {% for c in mm.classes.all %}
+                          <span class="inline-flex items-center rounded bg-white px-2 py-0.5 text-xs border border-gray-200 mr-1 mb-1">{{ c.name }}</span>
+                        {% empty %}
+                          —
+                        {% endfor %}
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div class="text-xs font-semibold text-gray-600">Weapon Restriction</div>
+                    <div>
+                      {% if mm.restrict_to_weapons %}
+                        {% for w in mm.allowed_weapons.all %}
+                          <span class="inline-flex items-center rounded bg-white px-2 py-0.5 text-xs border border-gray-200 mr-1 mb-1">{{ w.name }}</span>
+                        {% empty %}
+                          <span class="text-gray-500">No allowed weapons set.</span>
+                        {% endfor %}
+                      {% else %}
+                        —
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div class="text-xs font-semibold text-gray-600">Trait Restriction</div>
+                    <div>
+                      {% if mm.restrict_to_traits %}
+                        <div class="text-xs text-gray-500 mb-1">Match mode: {{ mm.get_trait_match_mode_display }}</div>
+                        {% for tr in mm.allowed_traits.all %}
+                          <span class="inline-flex items-center rounded bg-white px-2 py-0.5 text-xs border border-gray-200 mr-1 mb-1">{{ tr.name }}</span>
+                        {% empty %}
+                          <span class="text-gray-500">No allowed traits set.</span>
+                        {% endfor %}
+                      {% else %}
+                        —
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div class="text-xs font-semibold text-gray-600">Damage Type Restriction</div>
+                    <div>
+                      {% if mm.restrict_to_damage %}
+                        <span class="text-sm">{{ mm.allowed_damage_types|default:"—" }}</span>
+                      {% else %}
+                        —
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div class="text-xs font-semibold text-gray-600">Weapon Group Restriction</div>
+                    <div>
+                      {% if mm.restrict_to_weapon_groups %}
+                        <span class="text-sm">{{ mm.allowed_weapon_groups|default:"—" }}</span>
+                      {% else %}
+                        —
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div class="text-xs font-semibold text-gray-600">Range Restriction</div>
+                    <div>
+                      {% if mm.restrict_to_range %}
+                        <span class="text-sm">{{ mm.allowed_range_types|default:"—" }}</span>
+                      {% else %}
+                        —
+                      {% endif %}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </details>
+          {% empty %}
+            <div class="text-gray-500 text-sm">No martial masteries.</div>
+          {% endfor %}
+        </div>
+      </details>
+    {% endwith %}
+  </div>
+
+  {% if row.obj.enemy_type.description %}
+    <div class="bg-white rounded-lg border border-gray-200 p-3">
+      <div class="font-semibold mb-1">Description</div>
+      <div class="text-sm text-gray-700 whitespace-pre-line">{{ row.obj.enemy_type.description }}</div>
+    </div>
+  {% endif %}
+
+</div>
+
 
                   {% if row.obj.enemy_type.description %}
                     <div class="mt-3 text-gray-700">{{ row.obj.enemy_type.description }}</div>

@@ -1,19 +1,361 @@
+{# templates/campaigns/enemytype_form.html #}
 {% extends "base.html" %}
-{% block content %}
-<div class="max-w-5xl mx-auto px-4 py-6 space-y-6">
 
-  <div class="flex items-center justify-between">
+{% block content %}
+
+<style>
+/* hard hide helpers (works even if Tailwind isn't present) */
+.lor-page .hidden,
+.lor-page .lor-hidden{
+  display:none !important;
+}
+
+
+  /* =========================================================
+     FORCE LIGHT THEME FOR THIS PAGE (white cards + white inputs)
+     Put this <style> block in the template.
+     ========================================================= */
+
+  /* Ensure browser-native form controls render in light mode */
+/* Ensure browser-native form controls render in light mode */
+.lor-page { color-scheme: light; }
+
+/* FORCE readable text on this white page */
+.lor-page { color: rgb(17 24 39) !important; } /* gray-900 */
+
+/* Make picker text explicit (this is the one that fixes "blank lists") */
+/* Make picker text readable WITHOUT nuking all button colors */
+.lor-page .lor-pick,
+.lor-page .lor-pick .lor-pick-h,
+.lor-page .lor-pick .lor-pick-text,
+.lor-page .lor-pick .lor-pick-empty{
+  color: rgb(17 24 39) !important;
+}
+
+/* Ensure text stays visible in weird theme/button resets */
+.lor-page .lor-pick .lor-pick-text{
+  -webkit-text-fill-color: rgb(17 24 39) !important;
+}
+/* Selected summary (chips) */
+.lor-page .lor-pick-summary{
+  padding: .6rem .75rem;
+  border-bottom: 1px solid rgb(229 231 235);
+  background: #fff;
+  max-height: 110px;
+  overflow: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+}
+
+.lor-page .lor-pick-chip{
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  border: 1px solid rgb(229 231 235);
+  background: rgb(249 250 251);
+  border-radius: 999px;
+  padding: .2rem .55rem;
+  font-size: .75rem;
+  color: rgb(31 41 55);
+}
+
+.lor-page .lor-pick-chip button{
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid rgb(209 213 219);
+  background: #fff;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+
+
+/* Re-apply your intended subtle greys (because the rule above forces dark) */
+.lor-page .lor-label,
+.lor-page .lor-help,
+.lor-page .lor-pick-h{
+  color: rgb(75 85 99) !important; /* gray-600 */
+}
+.lor-page .lor-pick-empty{
+  color: rgb(107 114 128) !important; /* gray-500 */
+}
+
+  /* Layout / cards */
+  .lor-page .lor-card{
+    background:#fff !important;
+    border:1px solid rgb(229 231 235) !important;  /* gray-200 */
+    border-radius: 1rem;
+    box-shadow: 0 1px 2px rgba(0,0,0,.05) !important;
+  }
+  .lor-page .lor-card-h{
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid rgb(229 231 235) !important;
+  }
+  .lor-page .lor-card-b{ padding: 1.25rem; }
+
+  /* Labels / help text */
+  .lor-page .lor-label{
+    display:block;
+    font-size:.75rem;
+    color: rgb(75 85 99) !important; /* gray-600 */
+    margin-bottom:.25rem;
+  }
+  .lor-page .lor-help{
+    color: rgb(75 85 99) !important; /* gray-600 */
+    font-size:.75rem;
+    line-height: 1.2rem;
+  }
+
+  /* Inputs/selects/textareas: force white background */
+  .lor-page .lor-form input[type="text"],
+  .lor-page .lor-form input[type="number"],
+  .lor-page .lor-form input[type="email"],
+  .lor-page .lor-form input[type="url"],
+  .lor-page .lor-form select,
+  .lor-page .lor-form textarea{
+    width: 100%;
+    background:#fff !important;
+    color: rgb(17 24 39) !important;     /* gray-900 */
+    border:1px solid rgb(209 213 219) !important; /* gray-300 */
+    border-radius: 0.75rem;             /* rounded-xl */
+    padding: 0.55rem 0.75rem;
+    outline: none;
+  }
+  .lor-page .lor-form textarea{ min-height: 96px; }
+
+  .lor-page .lor-form input:focus,
+  .lor-page .lor-form select:focus,
+  .lor-page .lor-form textarea:focus{
+    border-color: rgb(99 102 241) !important; /* indigo-500 */
+    box-shadow: 0 0 0 3px rgba(99,102,241,.15) !important;
+  }
+
+  /* Placeholder text */
+  .lor-page .lor-form ::placeholder{
+    color: rgb(156 163 175) !important; /* gray-400 */
+    opacity: 1;
+  }
+
+  /* Chips / divider */
+  .lor-page .lor-chip{
+    display:inline-flex;
+    align-items:center;
+    gap:.4rem;
+    padding:.15rem .6rem;
+    border-radius:999px;
+    font-size:.75rem;
+    border:1px solid rgb(229 231 235) !important;
+    background: rgb(249 250 251) !important; /* gray-50 */
+    color: rgb(31 41 55) !important;         /* gray-800 */
+  }
+  .lor-page .lor-divider{
+    border-top:1px dashed rgb(229 231 235) !important;
+    margin: 1rem 0;
+  }
+
+
+/* Picker UI */
+.lor-page .lor-pick{
+  border:1px solid rgb(229 231 235);
+  border-radius: .9rem;
+  overflow: hidden;
+  background:#fff;
+}
+.lor-page .lor-pick-top{
+  display:flex;
+  gap:.5rem;
+  align-items:center;
+  padding:.75rem;
+  border-bottom:1px solid rgb(229 231 235);
+  background: rgb(249 250 251);
+}
+.lor-page .lor-pick-top input{
+  flex:1;
+  min-width: 0;
+  padding:.55rem .75rem;
+  border:1px solid rgb(209 213 219);
+  border-radius:.75rem;
+  background:#fff;
+}
+.lor-page .lor-pick-top button{
+  padding:.55rem .75rem;
+  border:1px solid rgb(209 213 219);
+  border-radius:.75rem;
+  background:#fff;
+  color: rgb(31 41 55);
+}
+.lor-page .lor-pick-grid{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+}
+.lor-page .lor-pick-col{
+  min-height: 260px;
+}
+.lor-page .lor-pick-col + .lor-pick-col{
+  border-left:1px solid rgb(229 231 235);
+}
+.lor-page .lor-pick-h{
+  font-size:.75rem;
+  color: rgb(75 85 99);
+  font-weight: 700;
+  padding:.6rem .75rem;
+  border-bottom:1px solid rgb(229 231 235);
+  background:#fff;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+.lor-page .lor-pick-list{
+  max-height: 360px;
+  overflow:auto;
+}
+.lor-page .lor-pick-item{
+  width:100%;
+  text-align:left;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:.75rem;
+  padding:.55rem .75rem;
+  border-bottom:1px solid rgb(243 244 246);
+  background:#fff;
+  cursor:pointer;
+}
+.lor-page .lor-pick-item:hover{
+  background: rgb(249 250 251);
+}
+.lor-page .lor-pick-empty{
+  padding:.8rem .75rem;
+  color: rgb(107 114 128);
+  font-size:.85rem;
+}
+/* Make sure picker rows are never "invisible" due to base button/theme styles */
+.lor-page .lor-pick-item{
+  display:flex !important;
+  opacity:1 !important;
+  visibility:visible !important;
+  font-size: .95rem !important;
+  line-height: 1.25rem !important;
+  color: rgb(17 24 39) !important;
+  -webkit-text-fill-color: rgb(17 24 39) !important;
+}
+
+/* Critical: let the name span take width (otherwise it can collapse to 0) */
+.lor-page .lor-pick-item .truncate{
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+}
+
+/* Keep the small "Add/Remove" lighter */
+.lor-page .lor-pick-item .text-xs{
+  font-size: .75rem !important;
+  color: rgb(107 114 128) !important;
+  -webkit-text-fill-color: rgb(107 114 128) !important;
+}
+/* Picker header right side */
+.lor-page .lor-pick-h-right{
+  display:inline-flex;
+  align-items:center;
+  gap:.5rem;
+}
+
+/* Small header buttons */
+.lor-page .lor-pick-mini{
+  padding:.25rem .5rem;
+  border:1px solid rgb(209 213 219);
+  border-radius:.6rem;
+  background:#fff;
+  font-size:.75rem;
+  line-height:1rem;
+  color: rgb(55 65 81);
+}
+.lor-page .lor-pick-mini:hover{ background: rgb(249 250 251); }
+
+/* New row layout */
+.lor-page .lor-pick-row{
+  display:flex;
+  align-items:center;
+  gap:.6rem;
+  padding:.55rem .75rem;
+  border-bottom:1px solid rgb(243 244 246);
+  background:#fff;
+}
+.lor-page .lor-pick-row:hover{ background: rgb(249 250 251); }
+
+.lor-page .lor-pick-text{
+  flex:1 1 auto;
+  min-width:0;
+  font-size:.95rem;
+  line-height:1.25rem;
+  color: rgb(17 24 39);
+}
+
+/* Add/Remove icon buttons */
+.lor-page .lor-pick-act{
+  flex:0 0 auto;
+  width:28px;
+  height:28px;
+  display:grid;
+  place-items:center;
+  border-radius:999px;
+  border:1px solid rgb(209 213 219);
+  background:#fff;
+  font-weight:800;
+  line-height:1;
+  cursor:pointer;
+  user-select:none;
+}
+.lor-page .lor-pick-act:hover{ background: rgb(243 244 246); }
+
+.lor-page .lor-pick-act.lor-add{ color: rgb(79 70 229); }   /* indigo-ish */
+.lor-page .lor-pick-act.lor-rem{ color: rgb(220 38 38); }   /* red-ish */
+/* --- FIX cramped picker search bar (your .lor-form input{width:100%} breaks flex) --- */
+.lor-page .lor-pick-top{
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.lor-page .lor-pick-top input[data-pick-search]{
+  width: auto !important;          /* override .lor-form width:100% */
+  flex: 1 1 260px;
+  min-width: 220px;
+}
+
+</style>
+
+<div class="lor-page max-w-6xl mx-auto px-4 py-6 space-y-6">
+
+  <!-- Header -->
+  <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
     <div class="min-w-0">
-<h1 class="text-2xl font-semibold tracking-tight">
-  {% if form.instance.pk %}Edit Creature Type{% else %}Create Creature Type{% endif %}
-</h1>
-<p class="text-sm text-gray-600 mt-1">
-  Campaign: <strong>{{ campaign.name }}</strong> •
-  <a class="text-indigo-600 hover:underline" href="{% url 'campaigns:campaign_detail' campaign.id %}#encounters">Back to Encounters</a>
-</p>
+      <h1 class="text-2xl font-semibold tracking-tight">
+        {% if form.instance.pk %}Edit Enemy / NPC{% else %}Create Enemy / NPC{% endif %}
+      </h1>
+      <p class="text-sm text-gray-600 mt-1">
+        Campaign: <strong>{{ campaign.name }}</strong> •
+        <a class="text-indigo-600 hover:underline" href="{% url 'campaigns:campaign_detail' campaign.id %}#encounters">
+          Back to Encounters
+        </a>
+      </p>
+    </div>
+
+    <div class="flex items-center gap-2">
+      <a href="{% url 'campaigns:campaign_detail' campaign.id %}#encounters"
+         class="px-3 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">
+        Cancel
+      </a>
+<button type="submit" form="enemy-form"
+        class="px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">
+        {% if form.instance.pk %}Save{% else %}Create{% endif %}
+      </button>
     </div>
   </div>
 
+  <!-- Messages -->
   {% if messages %}
     <div class="space-y-2">
       {% for message in messages %}
@@ -27,245 +369,603 @@
     </div>
   {% endif %}
 
-  <form method="post"
-        action="{% if form.instance.pk %}
-                   {% url 'campaigns:edit_enemy_type' campaign.id form.instance.id %}
-                 {% else %}
-                   {% url 'campaigns:new_enemy_type' campaign.id %}
-                 {% endif %}"
-        class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+{% if form.instance.pk %}
+  {% url 'campaigns:edit_enemy_type' campaign.id form.instance.id as enemy_action %}
+{% else %}
+  {% url 'campaigns:new_enemy_type' campaign.id as enemy_action %}
+{% endif %}
+
+<form id="enemy-form" method="post"
+      action="{{ enemy_action }}"
+      class="lor-form space-y-6"
+      novalidate>
+
     {% csrf_token %}
 
-    {# ==== Error blocks ==== #}
-    {% if form.non_field_errors %}
-      <div class="p-4 text-sm text-red-700 bg-red-50 border-b border-red-200">
-        {{ form.non_field_errors }}
-      </div>
-    {% endif %}
-    {% for field in form.visible_fields %}
-      {% if field.errors %}
-        <div class="p-3 text-sm text-red-700 bg-red-50 border-b border-red-200">
-          <strong>{{ field.label }}:</strong> {{ field.errors|join:", " }}
-        </div>
-      {% endif %}
-    {% endfor %}
-    {% if formset.non_field_errors %}
-      <div class="p-3 text-sm text-red-700 bg-red-50 border-b border-red-200">
-        {{ formset.non_field_errors }}
-      </div>
-    {% endif %}
+    {# Top error summary #}
+{% if form.errors or formset.errors %}
+  <div class="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+    <div class="font-semibold mb-1">Fix the following:</div>
 
-    <!-- Basics -->
-    <div class="p-5 border-b">
-      <h2 class="font-semibold text-lg">Basics</h2>
-      <p class="text-xs text-gray-600">Choose whether this type is <strong>Global</strong> (usable in all campaigns) or only for this campaign.</p>
-    </div>
-    <div class="p-5 grid grid-cols-1 md:grid-cols-12 gap-4">
-      <div class="md:col-span-3">
-        <label class="block text-xs text-gray-600 mb-1">Scope</label>
-        {{ form.scope }}
-      </div>
-      <div class="md:col-span-3">
-        <label class="block text-xs text-gray-600 mb-1">Category</label>
-        {{ form.category }}  {# Monster / NPC #}
-      </div>
-      <div class="md:col-span-6">
-        <label class="block text-xs text-gray-600 mb-1">Name</label>
-        {{ form.name }}
-      </div>
-      <div class="md:col-span-2">
-        <label class="block text-xs text-gray-600 mb-1">Level</label>
-        {{ form.level }}
-      </div>
-      <div class="md:col-span-2">
-        <label class="block text-xs text-gray-600 mb-1">HP</label>
-        {{ form.hp }}
-      </div>
-      <div class="md:col-span-2">
-        <label class="block text-xs text-gray-600 mb-1">Armor</label>
-        {{ form.armor }}
-      </div>
-      <div class="md:col-span-2">
-        <label class="block text-xs text-gray-600 mb-1">Dodge</label>
-        {{ form.dodge }}
-      </div>
-      <div class="md:col-span-4">
-        <label class="block text-xs text-gray-600 mb-1">Initiative</label>
-        {{ form.initiative }}
-      </div>
-    </div>
+    <ul class="list-disc pl-5 space-y-1">
+      {# Form field errors #}
+      {% for field in form.visible_fields %}
+        {% for err in field.errors %}
+          <li><strong>{{ field.label }}:</strong> {{ err }}</li>
+        {% endfor %}
+      {% endfor %}
 
-    <!-- Ability Scores -->
-    <div class="p-5 border-t">
-      <h3 class="font-semibold mb-3">Ability Scores</h3>
-      <div class="grid grid-cols-2 md:grid-cols-6 gap-3">
-        <div><label class="block text-xs text-gray-600 mb-1">STR</label>{{ form.str_score }}</div>
-        <div><label class="block text-xs text-gray-600 mb-1">DEX</label>{{ form.dex_score }}</div>
-        <div><label class="block text-xs text-gray-600 mb-1">CON</label>{{ form.con_score }}</div>
-        <div><label class="block text-xs text-gray-600 mb-1">INT</label>{{ form.int_score }}</div>
-        <div><label class="block text-xs text-gray-600 mb-1">WIS</label>{{ form.wis_score }}</div>
-        <div><label class="block text-xs text-gray-600 mb-1">CHA</label>{{ form.cha_score }}</div>
-      </div>
-    </div>
+      {# Form non-field errors #}
+      {% for err in form.non_field_errors %}
+        <li>{{ err }}</li>
+      {% endfor %}
 
-    <!-- Saves & Skills -->
-    <div class="p-5 border-t">
-      <h3 class="font-semibold mb-3">Saves & Skills</h3>
-      <div class="grid grid-cols-2 md:grid-cols-6 gap-3">
-        <div><label class="block text-xs text-gray-600 mb-1">Speed</label>{{ form.speed }}</div>
+      {# Formset errors (per-form fields) #}
+      {% for f in formset.forms %}
+        {% for field in f.visible_fields %}
+          {% for err in field.errors %}
+            <li><strong>Ability {{ forloop.parentloop.counter }} – {{ field.label }}:</strong> {{ err }}</li>
+          {% endfor %}
+        {% endfor %}
+        {% for err in f.non_field_errors %}
+          <li><strong>Ability {{ forloop.counter }}:</strong> {{ err }}</li>
+        {% endfor %}
+      {% endfor %}
 
-        <div><label class="block text-xs text-gray-600 mb-1">Will</label>{{ form.will_save }}</div>
-        <div><label class="block text-xs text-gray-600 mb-1">Reflex</label>{{ form.reflex_save }}</div>
-        <div><label class="block text-xs text-gray-600 mb-1">Fortitude</label>{{ form.fortitude_save }}</div>
-        <div><label class="block text-xs text-gray-600 mb-1">Perception</label>{{ form.perception }}</div>
-        <div><label class="block text-xs text-gray-600 mb-1">Stealth</label>{{ form.stealth }}</div>
-        <div><label class="block text-xs text-gray-600 mb-1">Athletics</label>{{ form.athletics }}</div>
-
-      </div>
-    </div>
-
-    <!-- Text -->
-    <div class="p-5 border-t grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div>
-        <label class="block text-xs text-gray-600 mb-1">Description</label>
-        {{ form.description }}
-      </div>
-      <div>
-        <label class="block text-xs text-gray-600 mb-1">Resistances (text)</label>
-        {{ form.resistances }}
-      </div>
-    </div>
-
-    <!-- Tags -->
-    <div class="p-5 border-t">
-      <h3 class="font-semibold mb-3">Tags</h3>
-      <div class="grid md:grid-cols-2 gap-4">
-        <div>{{ form.tags }}</div>
-        <div class="text-xs text-gray-600">
-          <p class="mb-2">Available tags (create in Admin):</p>
-          <div class="flex flex-wrap gap-2">
-            {% for t in tags %}
-              <span class="px-2 py-0.5 rounded bg-gray-100 text-gray-700">{{ t.name }}</span>
-            {% empty %}
-              <span class="text-gray-400">No tags yet.</span>
-            {% endfor %}
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Abilities Inline -->
-    <div class="p-5 border-t">
-      <div class="flex items-center justify-between">
-        <h3 class="font-semibold mb-3">Abilities</h3>
-        <button type="button" id="ab-add"
-                class="px-3 py-1.5 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">
-          + Add ability
-        </button>
-      </div>
-
-      {{ formset.management_form }}
-
-{# Show any formset-level errors (e.g., bad management form counts) #}
-{% if formset.non_field_errors %}
-  <div class="p-3 text-sm text-red-700 bg-red-50 border-b border-red-200">
-    {{ formset.non_field_errors }}
+      {# Formset non-form errors #}
+      {% for err in formset.non_form_errors %}
+        <li>{{ err }}</li>
+      {% endfor %}
+    </ul>
   </div>
 {% endif %}
 
-<div id="ab-forms" class="space-y-3">
-  {% for f in formset.forms %}
-    <div class="grid grid-cols-1 md:grid-cols-12 gap-3 border rounded-lg p-3 ability-row">
-      {# IMPORTANT: include hidden fields (especially the primary-key id) #}
-      {% for hidden in f.hidden_fields %}{{ hidden }}{% endfor %}
-      {# (optional) if you want to actually show hidden-field errors: #}
-      {% for hidden in f.hidden_fields %}
-        {% if hidden.errors %}
-          <div class="md:col-span-12 text-xs text-red-700">{{ hidden.errors|join:", " }}</div>
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+      <!-- LEFT COLUMN -->
+      <div class="lg:col-span-8 space-y-6">
+
+        <!-- Identity -->
+        <div class="lor-card">
+          <div class="lor-card-h">
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <h2 class="font-semibold text-lg">Identity</h2>
+                <p class="lor-help">Name, scope, category, and tags.</p>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                {% if form.instance.pk %}
+                  <span class="lor-chip">ID: {{ form.instance.pk }}</span>
+                {% endif %}
+                {% if form.category %}
+                  <span class="lor-chip">Type: {{ form.category.value|default:"—" }}</span>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+
+          <div class="lor-card-b grid grid-cols-1 md:grid-cols-12 gap-4">
+{% if form.scope %}
+  <div class="md:col-span-4">
+    <label class="lor-label">Scope</label>
+    {{ form.scope }}
+    {% if form.scope.errors %}<div class="text-xs text-red-700 mt-1">{{ form.scope.errors|join:", " }}</div>{% endif %}
+  </div>
+{% endif %}
+
+
+            {% if form.category %}
+              <div class="md:col-span-3">
+                <label class="lor-label">Category</label>
+                {{ form.category }}
+                {% if form.category.errors %}<div class="text-xs text-red-700 mt-1">{{ form.category.errors|join:", " }}</div>{% endif %}
+              </div>
+            {% endif %}
+
+            <div class="{% if form.campaign or form.category %}md:col-span-5{% else %}md:col-span-12{% endif %}">
+              <label class="lor-label">Name</label>
+              {{ form.name }}
+              {% if form.name.errors %}<div class="text-xs text-red-700 mt-1">{{ form.name.errors|join:", " }}</div>{% endif %}
+            </div>
+
+            {% if form.tags %}
+              <div class="md:col-span-12">
+                <label class="lor-label">Tags</label>
+                {{ form.tags }}
+                {% if form.tags.errors %}<div class="text-xs text-red-700 mt-1">{{ form.tags.errors|join:", " }}</div>{% endif %}
+              </div>
+            {% endif %}
+          </div>
+        </div>
+
+        <!-- Core Statblock -->
+        <div class="lor-card">
+          <div class="lor-card-h">
+            <h2 class="font-semibold text-lg">Core Statblock</h2>
+            <p class="lor-help">The numbers you reference constantly.</p>
+          </div>
+
+          <div class="lor-card-b grid grid-cols-1 md:grid-cols-12 gap-4">
+            <div class="md:col-span-2">
+              <label class="lor-label">Level</label>
+              {{ form.level }}
+              {% if form.level.errors %}<div class="text-xs text-red-700 mt-1">{{ form.level.errors|join:", " }}</div>{% endif %}
+            </div>
+
+            <div class="md:col-span-2">
+              <label class="lor-label">HP</label>
+              {{ form.hp }}
+              {% if form.hp.errors %}<div class="text-xs text-red-700 mt-1">{{ form.hp.errors|join:", " }}</div>{% endif %}
+            </div>
+
+            {% if form.speed %}
+              <div class="md:col-span-2">
+                <label class="lor-label">Speed</label>
+                {{ form.speed }}
+                {% if form.speed.errors %}<div class="text-xs text-red-700 mt-1">{{ form.speed.errors|join:", " }}</div>{% endif %}
+              </div>
+            {% endif %}
+
+            <div class="md:col-span-2">
+              <label class="lor-label">Initiative</label>
+              {{ form.initiative }}
+              {% if form.initiative.errors %}<div class="text-xs text-red-700 mt-1">{{ form.initiative.errors|join:", " }}</div>{% endif %}
+            </div>
+
+            <div class="md:col-span-2">
+              <label class="lor-label">Armor</label>
+              {{ form.armor }}
+              {% if form.armor.errors %}<div class="text-xs text-red-700 mt-1">{{ form.armor.errors|join:", " }}</div>{% endif %}
+            </div>
+
+            <div class="md:col-span-2">
+              <label class="lor-label">Dodge</label>
+              {{ form.dodge }}
+              {% if form.dodge.errors %}<div class="text-xs text-red-700 mt-1">{{ form.dodge.errors|join:", " }}</div>{% endif %}
+            </div>
+
+            {% if form.crit_threshold %}
+              <div class="md:col-span-3">
+                <label class="lor-label">Critical Threshold</label>
+                {{ form.crit_threshold }}
+                {% if form.crit_threshold.errors %}<div class="text-xs text-red-700 mt-1">{{ form.crit_threshold.errors|join:", " }}</div>{% endif %}
+              </div>
+            {% elif form.critical_threshold %}
+              <div class="md:col-span-3">
+                <label class="lor-label">Critical Threshold</label>
+                {{ form.critical_threshold }}
+                {% if form.critical_threshold.errors %}<div class="text-xs text-red-700 mt-1">{{ form.critical_threshold.errors|join:", " }}</div>{% endif %}
+              </div>
+            {% endif %}
+          </div>
+
+          <div class="lor-divider"></div>
+
+          <div class="lor-card-b pt-0">
+            <h3 class="font-semibold mb-3">Ability Scores</h3>
+            <div class="grid grid-cols-2 md:grid-cols-6 gap-3">
+              <div><label class="lor-label">STR</label>{{ form.str_score }}</div>
+              <div><label class="lor-label">DEX</label>{{ form.dex_score }}</div>
+              <div><label class="lor-label">CON</label>{{ form.con_score }}</div>
+              <div><label class="lor-label">INT</label>{{ form.int_score }}</div>
+              <div><label class="lor-label">WIS</label>{{ form.wis_score }}</div>
+              <div><label class="lor-label">CHA</label>{{ form.cha_score }}</div>
+            </div>
+          </div>
+
+          <div class="lor-divider"></div>
+
+          <div class="lor-card-b pt-0">
+            <h3 class="font-semibold mb-3">Saves</h3>
+            <div class="grid grid-cols-2 md:grid-cols-6 gap-3">
+              <div><label class="lor-label">Will</label>{{ form.will_save }}</div>
+              <div><label class="lor-label">Reflex</label>{{ form.reflex_save }}</div>
+              <div><label class="lor-label">Fortitude</label>{{ form.fortitude_save }}</div>
+            </div>
+          </div>
+
+          <div class="lor-divider"></div>
+
+          <div class="lor-card-b pt-0">
+            <h3 class="font-semibold mb-3">Skills</h3>
+            <div class="grid grid-cols-2 md:grid-cols-6 gap-3">
+              <div><label class="lor-label">Perception</label>{{ form.perception }}</div>
+              <div><label class="lor-label">Stealth</label>{{ form.stealth }}</div>
+              <div><label class="lor-label">Athletics</label>{{ form.athletics }}</div>
+
+              {% if form.acrobatics %}
+                <div><label class="lor-label">Acrobatics</label>{{ form.acrobatics }}</div>
+              {% endif %}
+              {% if form.insight %}
+                <div><label class="lor-label">Insight</label>{{ form.insight }}</div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        <!-- Offense -->
+        <div class="lor-card">
+          <div class="lor-card-h">
+            <h2 class="font-semibold text-lg">Offense</h2>
+            <p class="lor-help">Default “Basic Attack” fields, if your model includes them.</p>
+          </div>
+
+          <div class="lor-card-b grid grid-cols-1 md:grid-cols-12 gap-4">
+            {% if form.basic_attack_name %}
+              <div class="md:col-span-5">
+                <label class="lor-label">Basic Attack Name</label>
+                {{ form.basic_attack_name }}
+              </div>
+            {% endif %}
+
+        {% if form.basic_attack_action_cost %}
+          <div class="md:col-span-2">
+            <label class="lor-label">Action Cost</label>
+            {{ form.basic_attack_action_cost }}
+            {% if form.basic_attack_action_cost.errors %}<div class="text-xs text-red-700 mt-1">{{ form.basic_attack_action_cost.errors|join:", " }}</div>{% endif %}
+          </div>
+        {% elif form.basic_attack_action %}
+          <div class="md:col-span-2">
+            <label class="lor-label">Action Cost</label>
+            {{ form.basic_attack_action }}
+            {% if form.basic_attack_action.errors %}<div class="text-xs text-red-700 mt-1">{{ form.basic_attack_action.errors|join:", " }}</div>{% endif %}
+          </div>
         {% endif %}
-      {% endfor %}
 
-      {% if f.non_field_errors %}
-        <div class="md:col-span-12 text-sm text-red-700">{{ f.non_field_errors }}</div>
-      {% endif %}
+            {% if form.basic_attack_to_hit %}
+              <div class="md:col-span-2">
+                <label class="lor-label">To-Hit</label>
+                {{ form.basic_attack_to_hit }}
+              </div>
+            {% endif %}
 
-      <div class="md:col-span-2">
-        <label class="block text-xs text-gray-600 mb-1">Type</label>
-        {{ f.ability_type }}
-        {% if f.errors.ability_type %}<div class="text-xs text-red-700 mt-1">{{ f.errors.ability_type|join:", " }}</div>{% endif %}
+            {% if form.basic_attack_ap %}
+              <div class="md:col-span-3">
+                <label class="lor-label">Armor Piercing (AP)</label>
+                {{ form.basic_attack_ap }}
+              </div>
+            {% endif %}
+
+            {% if form.basic_attack_damage %}
+              <div class="md:col-span-6">
+                <label class="lor-label">Damage</label>
+                {{ form.basic_attack_damage }}
+              </div>
+            {% endif %}
+
+            {% if form.basic_attack_damage_type %}
+              <div class="md:col-span-3">
+                <label class="lor-label">Damage Type</label>
+                {{ form.basic_attack_damage_type }}
+              </div>
+            {% endif %}
+
+            {% if form.basic_attack_range %}
+              <div class="md:col-span-3">
+                <label class="lor-label">Range / Reach</label>
+                {{ form.basic_attack_range }}
+              </div>
+            {% endif %}
+
+{% if form.basic_attack_notes %}
+  <div class="md:col-span-12">
+    <label class="lor-label">Attack Notes</label>
+    {{ form.basic_attack_notes }}
+    {% if form.basic_attack_notes.errors %}<div class="text-xs text-red-700 mt-1">{{ form.basic_attack_notes.errors|join:", " }}</div>{% endif %}
+  </div>
+{% elif form.basic_attack_note %}
+  <div class="md:col-span-12">
+    <label class="lor-label">Attack Notes</label>
+    {{ form.basic_attack_note }}
+    {% if form.basic_attack_note.errors %}<div class="text-xs text-red-700 mt-1">{{ form.basic_attack_note.errors|join:", " }}</div>{% endif %}
+  </div>
+{% endif %}
+          </div>
+        </div>
+<div class="grid lg:grid-cols-2 gap-4">
+
+  <!-- Spellcasting -->
+  <section class="lor-card">
+    <div class="lor-card-h flex items-start justify-between gap-3">
+      {% if form.spells.errors %}
+  <div class="text-xs text-red-700 mt-2">
+    {{ form.spells.errors|join:", " }}
+  </div>
+{% endif %}
+
+      <div>
+        <h3 class="font-semibold">Spellcasting</h3>
+        <p class="lor-help">Search on the left, click to add. Selected are on the right.</p>
       </div>
+      <label class="inline-flex items-center gap-2 text-sm text-gray-700 whitespace-nowrap">
 
-      <div class="md:col-span-2">
-        <label class="block text-xs text-gray-600 mb-1">Action</label>
-        {{ f.action_cost }}
-        {% if f.errors.action_cost %}<div class="text-xs text-red-700 mt-1">{{ f.errors.action_cost|join:", " }}</div>{% endif %}
-      </div>
-
-      <div class="md:col-span-7">
-        <label class="block text-xs text-gray-600 mb-1">Title</label>
-        {{ f.title }}
-        {% if f.errors.title %}<div class="text-xs text-red-700 mt-1">{{ f.errors.title|join:", " }}</div>{% endif %}
-      </div>
-
-      <div class="md:col-span-1 flex items-end justify-end">
-        {% if formset.can_delete %}
-        <label class="inline-flex items-center gap-2 text-xs text-red-700">
-          {{ f.DELETE }} Delete
-        </label>
-        {% endif %}
-      </div>
-
-      <div class="md:col-span-12">
-        <label class="block text-xs text-gray-600 mb-1">Description</label>
-        {{ f.description }}
-        {% if f.errors.description %}<div class="text-xs text-red-700 mt-1">{{ f.errors.description|join:", " }}</div>{% endif %}
-      </div>
+        {{ form.can_cast_spells }}
+        <span>Can cast spells</span>
+      </label>
     </div>
-  {% empty %}
-    <p class="text-sm text-gray-500">No abilities yet. Click “Add ability”.</p>
-  {% endfor %}
+
+    <div class="lor-card-b space-y-3" id="spellBlock">
+      {# keep the real select for form submission, but hide it #}
+<div id="spellDisabledNote" class="text-sm text-gray-600 hidden">
+  Enable “Can cast spells” to select spells.
 </div>
 
-<template id="ab-empty-template">
-  <div class="grid grid-cols-1 md:grid-cols-12 gap-3 border rounded-lg p-3 ability-row">
-    {# include hidden fields (ab-__prefix__-id) so JS-add works cleanly #}
-    {% for hidden in formset.empty_form.hidden_fields %}{{ hidden }}{% endfor %}
+<div class="lor-hidden" data-pick-source="spells">
+  {{ form.spells }}
+</div>
 
-    <div class="md:col-span-2">
-      <label class="block text-xs text-gray-600 mb-1">Type</label>
-      {{ formset.empty_form.ability_type }}
+<div id="spellPickerWrap" class="lor-pick hidden" data-pick="spells">
+  <div class="lor-pick-top">
+    <input type="text" data-pick-search placeholder="Search spells…">
+    <button type="button" class="lor-pick-mini" data-pick-clear-search>Clear search</button>
+  </div>
+  <div class="lor-pick-summary" data-pick-summary></div>
+  <div class="lor-pick-grid">
+    <div class="lor-pick-col">
+      <div class="lor-pick-h"><span>Available</span></div>
+      <div class="lor-pick-list" data-pick-available></div>
     </div>
-    <div class="md:col-span-2">
-      <label class="block text-xs text-gray-600 mb-1">Action</label>
-      {{ formset.empty_form.action_cost }}
-    </div>
-    <div class="md:col-span-7">
-      <label class="block text-xs text-gray-600 mb-1">Title</label>
-      {{ formset.empty_form.title }}
-    </div>
-    <div class="md:col-span-1 flex items-end justify-end">
-      {% if formset.can_delete %}
-      <label class="inline-flex items-center gap-2 text-xs text-red-700">
-        {{ formset.empty_form.DELETE }} Delete
-      </label>
-      {% endif %}
-    </div>
-    <div class="md:col-span-12">
-      <label class="block text-xs text-gray-600 mb-1">Description</label>
-      {{ formset.empty_form.description }}
+
+    <div class="lor-pick-col">
+      <div class="lor-pick-h">
+        <span>Selected</span>
+        <span class="lor-pick-h-right">
+          <span class="text-xs text-gray-500" data-pick-count></span>
+          <button type="button" class="lor-pick-mini" data-pick-clear-selected>Unselect all</button>
+        </span>
+      </div>
+      <div class="lor-pick-list" data-pick-selected></div>
     </div>
   </div>
-</template>
-      <p class="text-xs text-gray-500 mt-2">Add as many abilities as you need. Tick “Delete” to remove a row.</p>
+</div>
+
+    </div>
+  </section>
+
+<!-- Martial Masteries -->
+<section class="lor-card">
+  <div class="lor-card-h">
+    <h3 class="font-semibold">Martial Masteries</h3>
+    <p class="lor-help">Search on the left, click + to add. Click × to remove.</p>
+  </div>
+{% if form.martial_masteries.errors %}
+  <div class="text-xs text-red-700 mt-2">
+    {{ form.martial_masteries.errors|join:", " }}
+  </div>
+{% endif %}
+
+  <div class="lor-card-b space-y-3">
+<div class="lor-hidden" data-pick-source="masteries">
+  {{ form.martial_masteries }}
+</div>
+
+<div class="lor-pick" data-pick="masteries">
+  <div class="lor-pick-top">
+    <input type="text" data-pick-search placeholder="Search masteries…">
+    <button type="button" class="lor-pick-mini" data-pick-clear-search>Clear search</button>
+  </div>
+
+  <div class="lor-pick-summary" data-pick-summary></div>
+
+  <div class="lor-pick-grid">
+    <div class="lor-pick-col">
+      <div class="lor-pick-h"><span>Available</span></div>
+      <div class="lor-pick-list" data-pick-available></div>
     </div>
 
-    <!-- Footer -->
-    <div class="p-5 border-t flex items-center justify-end gap-3">
-      <a href="{% url 'campaigns:campaign_detail' campaign.id %}#encounters"
-         class="px-3 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">Cancel</a>
-      <button class="px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">
-  {% if form.instance.pk %}Save Changes{% else %}Create Creature Type{% endif %}
-</button>
+    <div class="lor-pick-col">
+      <div class="lor-pick-h">
+        <span>Selected</span>
+        <span class="lor-pick-h-right">
+          <span class="text-xs text-gray-500" data-pick-count></span>
+          <button type="button" class="lor-pick-mini" data-pick-clear-selected>Unselect all</button>
+        </span>
+      </div>
+      <div class="lor-pick-list" data-pick-selected></div>
+    </div>
+  </div>
+</div>
+
+  </div>
+</section>
+
+
+</div>
+
+
+        <!-- Abilities -->
+        <div class="lor-card">
+          <div class="lor-card-h">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <div>
+                <h2 class="font-semibold text-lg">Abilities</h2>
+                <p class="lor-help">Active vs Passive. Keep this as the “everything else” bucket.</p>
+              </div>
+              <div class="flex items-center gap-2">
+                <button type="button" id="ab-add-active"
+                        class="px-3 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">
+                  + Add Active
+                </button>
+                <button type="button" id="ab-add-passive"
+                        class="px-3 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">
+                  + Add Passive
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="lor-card-b space-y-6">
+            {{ formset.management_form }}
+
+            <div>
+              <div class="flex items-center justify-between">
+                <h3 class="font-semibold">Active Abilities</h3>
+                <span class="lor-chip">Actions / Reactions / Free</span>
+              </div>
+              <div id="ab-active" class="space-y-3 mt-3"></div>
+            </div>
+
+            <div>
+              <div class="flex items-center justify-between">
+                <h3 class="font-semibold">Passive Abilities</h3>
+                <span class="lor-chip">Always-on</span>
+              </div>
+              <div id="ab-passive" class="space-y-3 mt-3"></div>
+            </div>
+
+            <!-- Staging (server-rendered rows, moved by JS) -->
+            <div id="ab-staging" class="lor-hidden">
+              {% for f in formset.forms %}
+                <div class="border rounded-xl p-3 ability-row bg-white" data-ability-row>
+                  {% for hidden in f.hidden_fields %}{{ hidden }}{% endfor %}
+                  {% if f.non_field_errors %}
+                    <div class="text-sm text-red-700 mb-2">{{ f.non_field_errors }}</div>
+                  {% endif %}
+
+                  <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+                    <div class="md:col-span-2">
+                      <label class="lor-label">Type</label>
+                      {{ f.ability_type }}
+                    </div>
+
+                    <div class="md:col-span-2">
+                      <label class="lor-label">Action</label>
+                      {{ f.action_cost }}
+                    </div>
+
+                    <div class="md:col-span-7">
+                      <label class="lor-label">Title</label>
+                      {{ f.title }}
+                    </div>
+
+                    <div class="md:col-span-1 flex items-end justify-end">
+                      {% if formset.can_delete %}
+                        <label class="inline-flex items-center gap-2 text-xs text-red-700">
+                          {{ f.DELETE }} Delete
+                        </label>
+                      {% endif %}
+                    </div>
+
+                    <div class="md:col-span-12">
+                      <label class="lor-label">Description</label>
+                      {{ f.description }}
+                    </div>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+
+            <!-- Empty template -->
+            <template id="ab-empty-template">
+              <div class="border rounded-xl p-3 ability-row bg-white" data-ability-row>
+                {% for hidden in formset.empty_form.hidden_fields %}{{ hidden }}{% endfor %}
+                <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+                  <div class="md:col-span-2">
+                    <label class="lor-label">Type</label>
+                    {{ formset.empty_form.ability_type }}
+                  </div>
+
+                  <div class="md:col-span-2">
+                    <label class="lor-label">Action</label>
+                    {{ formset.empty_form.action_cost }}
+                  </div>
+
+                  <div class="md:col-span-7">
+                    <label class="lor-label">Title</label>
+                    {{ formset.empty_form.title }}
+                  </div>
+
+                  <div class="md:col-span-1 flex items-end justify-end">
+                    {% if formset.can_delete %}
+                      <label class="inline-flex items-center gap-2 text-xs text-red-700">
+                        {{ formset.empty_form.DELETE }} Delete
+                      </label>
+                    {% endif %}
+                  </div>
+
+                  <div class="md:col-span-12">
+                    <label class="lor-label">Description</label>
+                    {{ formset.empty_form.description }}
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- Resistances / Notes -->
+        <div class="lor-card">
+          <div class="lor-card-h">
+            <h2 class="font-semibold text-lg">Resistances & Notes</h2>
+            <p class="lor-help">Keep this clean: mechanics in abilities, misc notes here.</p>
+          </div>
+
+          <div class="lor-card-b grid grid-cols-1 md:grid-cols-2 gap-4">
+            {% if form.damage_resistance %}
+              <div>
+                <label class="lor-label">Damage Resistance</label>
+                {{ form.damage_resistance }}
+              </div>
+            {% endif %}
+
+            {% if form.resistances %}
+              <div class="{% if form.damage_resistance %}{% else %}md:col-span-2{% endif %}">
+                <label class="lor-label">Other resistance notes</label>
+                {{ form.resistances }}
+                {% if form.resistances.errors %}<div class="text-xs text-red-700 mt-1">{{ form.resistances.errors|join:", " }}</div>{% endif %}
+              </div>
+            {% endif %}
+          </div>
+        </div>
+
+        <!-- Description -->
+        <div class="lor-card">
+          <div class="lor-card-h">
+            <h2 class="font-semibold text-lg">Description</h2>
+            <p class="lor-help">GM notes, behavior, cues.</p>
+          </div>
+          <div class="lor-card-b">
+            {{ form.description }}
+            {% if form.description.errors %}<div class="text-xs text-red-700 mt-1">{{ form.description.errors|join:", " }}</div>{% endif %}
+          </div>
+        </div>
+
+        <!-- Footer buttons -->
+        <div class="flex items-center justify-end gap-3">
+          <a href="{% url 'campaigns:campaign_detail' campaign.id %}#encounters"
+             class="px-3 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">Cancel</a>
+          <button type="submit" class="px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">
+            {% if form.instance.pk %}Save{% else %}Create{% endif %}
+          </button>
+        </div>
+
+      </div>
+
+      <!-- RIGHT COLUMN -->
+      <div class="lg:col-span-4 space-y-6">
+
+        <div class="lor-card">
+          <div class="lor-card-h">
+            <h2 class="font-semibold text-lg">Quick Reference</h2>
+            <p class="lor-help">Fast sanity check.</p>
+          </div>
+          <div class="lor-card-b space-y-2 text-sm text-gray-700">
+            <div class="flex justify-between"><span class="text-gray-500">Level</span><span>{{ form.level.value|default:"—" }}</span></div>
+            <div class="flex justify-between"><span class="text-gray-500">HP</span><span>{{ form.hp.value|default:"—" }}</span></div>
+            <div class="flex justify-between"><span class="text-gray-500">Armor</span><span>{{ form.armor.value|default:"—" }}</span></div>
+            <div class="flex justify-between"><span class="text-gray-500">Dodge</span><span>{{ form.dodge.value|default:"—" }}</span></div>
+            <div class="flex justify-between"><span class="text-gray-500">Initiative</span><span>{{ form.initiative.value|default:"—" }}</span></div>
+
+            {% if form.crit_threshold %}
+              <div class="flex justify-between"><span class="text-gray-500">Crit Threshold</span><span>{{ form.crit_threshold.value|default:"—" }}</span></div>
+            {% elif form.critical_threshold %}
+              <div class="flex justify-between"><span class="text-gray-500">Crit Threshold</span><span>{{ form.critical_threshold.value|default:"—" }}</span></div>
+            {% endif %}
+          </div>
+        </div>
+
+      </div>
+
     </div>
   </form>
 </div>
@@ -273,25 +973,292 @@
 
 {% block extra_js %}
 <script>
-(function () {
-  const addBtn = document.getElementById('ab-add');
-  const container = document.getElementById('ab-forms');
-  const tmpl = document.getElementById('ab-empty-template');
-  const totalInput = document.getElementById('id_ab-TOTAL_FORMS');
+document.addEventListener("DOMContentLoaded", () => {
 
-  if (!addBtn || !container || !tmpl || !totalInput) return;
+  // -------------------------
+  // Ability formset handling
+  // -------------------------
+  (function () {
+    const totalInput = document.getElementById('id_ab-TOTAL_FORMS');
+    const tmpl = document.getElementById('ab-empty-template');
 
-  function addRow() {
-    const idx = parseInt(totalInput.value, 10);
-    const html = tmpl.innerHTML.replaceAll('__prefix__', idx);
-    const frag = document.createRange().createContextualFragment(html);
-    container.appendChild(frag);
-    totalInput.value = idx + 1;
+    const btnAddActive  = document.getElementById('ab-add-active');
+    const btnAddPassive = document.getElementById('ab-add-passive');
+
+    const staging = document.getElementById('ab-staging');
+    const activeBox = document.getElementById('ab-active');
+    const passiveBox = document.getElementById('ab-passive');
+
+    if (!totalInput || !tmpl || !activeBox || !passiveBox) return;
+
+    function abilityTypeSelect(row) { return row.querySelector('select[name$="-ability_type"]'); }
+    function actionCostSelect(row) { return row.querySelector('select[name$="-action_cost"]'); }
+    function isPassiveValue(val) { return String(val || "").toLowerCase() === "passive"; }
+
+    function moveRowToBucket(row) {
+      const sel = abilityTypeSelect(row);
+      const val = sel ? sel.value : "";
+      if (isPassiveValue(val)) passiveBox.appendChild(row);
+      else activeBox.appendChild(row);
+    }
+
+    if (staging) staging.querySelectorAll('[data-ability-row]').forEach(moveRowToBucket);
+
+    document.addEventListener('change', function (e) {
+      const t = e.target;
+      if (t && t.matches('select[name$="-ability_type"]')) {
+        const row = t.closest('[data-ability-row]');
+        if (row) moveRowToBucket(row);
+      }
+    });
+
+    function addRow(kind) {
+      const idx = parseInt(totalInput.value || "0", 10);
+      const html = tmpl.innerHTML.replaceAll('__prefix__', idx);
+      const frag = document.createRange().createContextualFragment(html);
+
+      const target = (kind === "passive") ? passiveBox : activeBox;
+      target.appendChild(frag);
+
+      const inserted = target.querySelector('[data-ability-row]:last-child');
+      if (!inserted) return;
+
+      const tSel = abilityTypeSelect(inserted);
+      if (tSel) tSel.value = (kind === "passive" ? "passive" : "active");
+
+      const aSel = actionCostSelect(inserted);
+      if (aSel && kind === "passive") {
+        const opts = Array.from(aSel.options).map(o => o.value);
+        if (opts.includes("-")) aSel.value = "-";
+        else if (opts.includes("0")) aSel.value = "0";
+        else if (opts.includes("none")) aSel.value = "none";
+      }
+
+      totalInput.value = idx + 1;
+    }
+
+    if (btnAddActive)  btnAddActive.addEventListener('click', () => addRow("active"));
+    if (btnAddPassive) btnAddPassive.addEventListener('click', () => addRow("passive"));
+  })();
+const toggle = document.getElementById("{{ form.can_cast_spells.id_for_label }}");
+const spellWrap  = document.getElementById("spellPickerWrap");
+const note       = document.getElementById("spellDisabledNote");
+const spellSelect= document.getElementById("id_spells");
+
+
+let spellInitDone = false;
+// -------------------------
+// Picker (spells/masteries)
+// -------------------------
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, m => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+  }[m]));
+}
+
+window.PICKERS = window.PICKERS || {};
+const PICKERS = window.PICKERS;
+
+function initPicker(pickName, sourceKey){
+  const root = document.querySelector(`[data-pick="${pickName}"]`);
+  if (!root) return console.warn("[picker] missing root", pickName);
+
+  // optional: force the styling class
+  root.classList.add("lor-pick");
+
+  const summaryEl = root.querySelector("[data-pick-summary]");
+
+  const sel = document.querySelector(`[data-pick-source="${sourceKey}"] select`);
+  if (!sel) return console.warn("[picker] missing select", { pickName, sourceKey });
+
+  const srcWrap = sel.closest(`[data-pick-source="${sourceKey}"]`);
+  if (srcWrap) srcWrap.classList.add("lor-hidden");
+
+
+
+  const searchEl      = root.querySelector("[data-pick-search]");
+  const availBox      = root.querySelector("[data-pick-available]");
+  const selBox        = root.querySelector("[data-pick-selected]");
+  const countEl       = root.querySelector("[data-pick-count]");
+  const clearSearchEl = root.querySelector("[data-pick-clear-search]");
+  const clearSelEl    = root.querySelector("[data-pick-clear-selected]");
+
+  const getTS = () => sel.tomselect || null;
+
+  function getOpts(){
+    return Array.from(sel.options).filter(o => o.value !== "");
   }
 
-  addBtn.addEventListener('click', addRow);
+  function getSelectedValues(){
+    const ts = getTS();
+    if (ts) return (ts.items || []).map(String);
+    return getOpts().filter(o => o.selected).map(o => String(o.value));
+  }
 
-  // IMPORTANT: do NOT auto-add a blank ability row on load.
-})();
+  function setSelected(val, on){
+    val = String(val);
+    const ts = getTS();
+
+    if (ts){
+      if (on) ts.addItem(val, true);
+      else ts.removeItem(val, true);
+      return;
+    }
+
+    const opt = getOpts().find(o => String(o.value) === val);
+    if (!opt) return;
+
+    if (!sel.multiple && on){
+      getOpts().forEach(o => (o.selected = false));
+    }
+    opt.selected = !!on;
+  }
+
+  function clearAll(){
+    const ts = getTS();
+    if (ts) ts.clear(true);
+    else getOpts().forEach(o => (o.selected = false));
+  }
+
+  function fireSelChanged(){
+    sel.dispatchEvent(new Event("input", { bubbles:true }));
+    sel.dispatchEvent(new Event("change", { bubbles:true }));
+  }
+
+function render(){
+  const opts = getOpts();
+  const optMap = new Map(opts.map(o => [String(o.value), o]));
+
+  const selectedVals = getSelectedValues();
+  const selectedSet  = new Set(selectedVals);
+
+  const q = (searchEl?.value || "").trim().toLowerCase();
+
+  // Search ONLY affects Available
+  const available = opts
+    .filter(o => !selectedSet.has(String(o.value)))
+    .filter(o => !q || (o.textContent || "").toLowerCase().includes(q));
+
+  // Selected ALWAYS shows everything selected
+  const selected = selectedVals
+    .map(v => optMap.get(String(v)))
+    .filter(Boolean);
+
+  if (countEl) countEl.textContent = selected.length ? `${selected.length} selected` : "";
+
+  // chips summary
+  if (summaryEl){
+    summaryEl.innerHTML = selected.length
+      ? selected.map(o => `
+          <span class="lor-pick-chip">
+            <span class="truncate">${escapeHtml(o.textContent)}</span>
+            <button type="button" data-remove="${escapeHtml(o.value)}" aria-label="Remove">×</button>
+          </span>
+        `).join("")
+      : `<span class="text-sm text-gray-500">None selected.</span>`;
+  }
+
+  // Available list (filtered)
+  if (availBox){
+    availBox.innerHTML = available.length
+      ? available.map(o => `
+          <div class="lor-pick-row" data-add="${escapeHtml(o.value)}" role="button" tabindex="0">
+            <span class="lor-pick-text truncate">${escapeHtml(o.textContent)}</span>
+            <button type="button" class="lor-pick-act lor-add" data-add="${escapeHtml(o.value)}" aria-label="Add">+</button>
+          </div>
+        `).join("")
+      : `<div class="lor-pick-empty">${q ? "No matches." : "Nothing available."}</div>`;
+  }
+
+  // Selected column list (always full)
+  if (selBox){
+    selBox.innerHTML = selected.length
+      ? selected.map(o => `
+          <div class="lor-pick-row" data-remove="${escapeHtml(o.value)}" role="button" tabindex="0">
+            <span class="lor-pick-text truncate">${escapeHtml(o.textContent)}</span>
+            <button type="button" class="lor-pick-act lor-rem" data-remove="${escapeHtml(o.value)}" aria-label="Remove">×</button>
+          </div>
+        `).join("")
+      : `<div class="lor-pick-empty">None selected.</div>`;
+  }
+}
+
+
+  // Click anywhere on the row OR the button
+  root.addEventListener("click", (e) => {
+    const add = e.target.closest("[data-add]");
+    if (add){
+      setSelected(add.getAttribute("data-add"), true);
+      fireSelChanged();
+      render();
+      return;
+    }
+
+    const rem = e.target.closest("[data-remove]");
+    if (rem){
+      setSelected(rem.getAttribute("data-remove"), false);
+      fireSelChanged();
+      render();
+      return;
+    }
+  });
+
+  if (searchEl) searchEl.addEventListener("input", render);
+
+  if (clearSearchEl){
+    clearSearchEl.addEventListener("click", () => {
+      if (searchEl) searchEl.value = "";
+      render();
+    });
+  }
+
+  if (clearSelEl){
+    clearSelEl.addEventListener("click", () => {
+      clearAll();
+      fireSelChanged();
+      render();
+    });
+  }
+
+  sel.addEventListener("change", render);
+
+  render();
+  PICKERS[pickName] = { render, clearAll };
+}
+
+// init both pickers
+initPicker("spells", "spells");
+initPicker("masteries", "masteries");
+
+function syncSpellToggle(){
+  // If there are preselected spells, force the UI ON once (initial load only)
+  const hasSelectedSpells = !!(spellSelect && Array.from(spellSelect.options)
+    .some(o => o.value !== "" && o.selected));
+
+  if (!spellInitDone && toggle && hasSelectedSpells) {
+    toggle.checked = true;
+  }
+  spellInitDone = true;
+
+  const on = !!(toggle && toggle.checked);
+
+  if (spellWrap) spellWrap.classList.toggle("hidden", !on);
+  if (note)      note.classList.toggle("hidden", on);
+
+  if (spellSelect){
+    spellSelect.disabled = !on;
+  }
+
+  if (PICKERS.spells) PICKERS.spells.render();
+}
+
+
+  if (toggle){
+    toggle.addEventListener("change", syncSpellToggle);
+    syncSpellToggle();
+  }
+});
 </script>
+
+
 {% endblock %}

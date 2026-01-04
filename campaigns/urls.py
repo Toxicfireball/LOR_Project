@@ -26,8 +26,6 @@ urlpatterns = [
     path("<int:campaign_id>/bg/<int:pb_id>/approve/", views.approve_pending_bg, name="approve_pending_bg"),
     path("<int:campaign_id>/bg/<int:pb_id>/reject/",  views.reject_pending_bg,  name="reject_pending_bg"),
 
-    # Enemy Types & Abilities
-    path("<int:campaign_id>/enemies/create/", views.create_enemy_type, name="create_enemy_type"),
     path("<int:campaign_id>/enemies/add-ability/", views.add_enemy_ability, name="add_enemy_ability"),
     path("<int:campaign_id>/enemy-types/<int:et_id>/edit/", views.edit_enemy_type, name="edit_enemy_type"),
     path("<int:campaign_id>/enemies/<int:et_id>/delete/", views.delete_enemy_type, name="delete_enemy_type"),
@@ -56,7 +54,8 @@ urlpatterns = [
         name="record_enemy_to_pc_damage",   # <-- NEW: fixes NoReverseMatch
     ),
     path("<int:campaign_id>/encounters/<int:encounter_id>/enemy_note", views.update_enemy_note, name="update_enemy_note"),
-
+   path("<int:campaign_id>/enemies/new/", views.enemy_type_editor, name="enemy_type_new"),
+    path("<int:campaign_id>/enemies/<int:enemy_type_id>/edit/", views.enemy_type_editor, name="enemy_type_edit"),
     # GM & Analytics
     path("<int:campaign_id>/gm-dashboard/", views.gm_dashboard, name="gm_dashboard"),
     path("<int:campaign_id>/damage_stats", views.campaign_damage_stats, name="campaign_damage_stats"),

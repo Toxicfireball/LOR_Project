@@ -552,7 +552,7 @@
       </div>
 
       {% if is_gm %}
-      <form id="et-new" method="post" action="{% url 'campaigns:create_enemy_type' campaign.id %}"
+      <form id="et-new" method="post" action="{% url 'campaigns:new_enemy_type' campaign.id %}"
             class="p-4 border-b space-y-2 hidden">
         {% csrf_token %}
         <div class="grid grid-cols-12 gap-2">

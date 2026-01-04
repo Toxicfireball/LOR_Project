@@ -3,12 +3,14 @@ from django import forms
 from django.contrib.auth.models import User
 from django.contrib.contenttypes.models import ContentType
 import re
+from django.db import models
 from .models import Campaign, CampaignNote, CampaignMessage
 from characters.models import Character, Weapon, Armor, SpecialItem
 from characters.models import Character, ClassFeat
 from .models import EnemyType, EnemyAbility, Encounter, EncounterEnemy, EnemyTag
 from django.db.models import Q
 from django.forms.models import inlineformset_factory
+from characters.models import Spell, MartialMastery
 # ===== Helper: build a single "equipment" select =====
 def equipment_choices():
     opts = []
@@ -214,17 +216,204 @@ def parse_equipment_key(key: str):
 from django import forms
 from .models import EnemyType, EnemyAbility, Encounter, EncounterEnemy
 
+# campaigns/forms.py
+from django import forms
+from .models import EnemyType, EnemyAbility, EnemyDamageResistance
+from django.forms.models import inlineformset_factory, BaseInlineFormSet
+
 class EnemyTypeForm(forms.ModelForm):
+    # OPTIONAL: keep your existing Scope UI working even though model uses campaign FK
+    SCOPE_CHOICES = (("campaign", "This Campaign"), ("global", "Global"))
+    scope = forms.ChoiceField(choices=SCOPE_CHOICES, required=False)
+
     class Meta:
         model = EnemyType
         fields = [
-            "name","level","hp","armor","dodge","initiative",
-            "str_score","dex_score","con_score","int_score","wis_score","cha_score",
-            "will_save","reflex_save","fortitude_save","speed",
-            "perception","stealth","athletics",
-            "description","resistances",
-        ]
+            # basics
+            "category", "name", "level", "hp", "speed",
+            "armor", "dodge", "initiative", "crit_threshold",
 
+            # ability scores
+            "str_score","dex_score","con_score","int_score","wis_score","cha_score",
+
+            # saves
+            "will_save","reflex_save","fortitude_save",
+
+            # skills
+            "perception","stealth","athletics","acrobatics","insight",
+
+            # basic attack
+            "basic_attack_name","basic_attack_action","basic_attack_to_hit",
+            "basic_attack_ap","basic_attack_damage","basic_attack_note",
+
+            # spellcasting + picks
+            "can_cast_spells","spells",
+
+            # martial masteries
+            "martial_masteries",
+
+            # tags + text
+            "tags","description","resistances",
+        ]
+        widgets = {
+            "description": forms.Textarea(attrs={"rows": 4}),
+            "resistances": forms.Textarea(attrs={"rows": 4}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        self._campaign = kwargs.pop("campaign", None)
+        super().__init__(*args, **kwargs)
+        for fname, field in self.fields.items():
+            if fname != "name":
+                field.required = False
+        if "spells" in self.fields:
+            qs = Spell.objects.all().order_by("name")
+            if self.instance.pk:
+                qs = (qs | self.instance.spells.all()).distinct()
+            self.fields["spells"].queryset = qs
+            self.fields["spells"].required = False
+
+        if "martial_masteries" in self.fields:
+            qs = MartialMastery.objects.all().order_by("name")
+            if self.instance.pk:
+                qs = (qs | self.instance.martial_masteries.all()).distinct()
+            self.fields["martial_masteries"].queryset = qs
+            self.fields["martial_masteries"].required = False
+
+        if "tags" in self.fields:
+            self.fields["tags"].queryset = EnemyTag.objects.all().order_by("name")
+            self.fields["tags"].required = False
+        if "spells" in self.fields:
+            self.fields["spells"].queryset = Spell.objects.order_by("level", "name")
+            self.fields["spells"].required = False
+
+        if "martial_masteries" in self.fields:
+            self.fields["martial_masteries"].queryset = MartialMastery.objects.order_by("level_required", "name")
+            self.fields["martial_masteries"].required = False
+
+        # AFTER your widget styling loop:
+        if "spells" in self.fields:
+            self.fields["spells"].widget.attrs.update({
+                "data-ts": "spells",
+                "placeholder": "Search spells…",
+            })
+
+        if "martial_masteries" in self.fields:
+            self.fields["martial_masteries"].widget.attrs.update({
+                "data-ts": "masteries",
+                "placeholder": "Search masteries…",
+            })
+
+
+
+        # derive scope initial from instance
+        if self.instance and self.instance.pk:
+            self.fields["scope"].initial = "campaign" if self.instance.campaign_id else "global"
+        else:
+            self.fields["scope"].initial = "campaign"
+
+        # hide scope if you don’t want global creation from inside a campaign
+        # (leave it visible if you DO want global)
+        # self.fields["scope"].widget = forms.HiddenInput()
+
+        # Make multi-selects sane in UI
+        self.fields["spells"].required = False
+        self.fields["martial_masteries"].required = False
+
+        # ---- styling: make all widgets not-ugly by default ----
+        base = "w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30"
+        select = base
+        textarea = "w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30"
+
+        for name, field in self.fields.items():
+            w = field.widget
+            if isinstance(w, forms.Textarea):
+                w.attrs.setdefault("class", textarea)
+            elif isinstance(w, (forms.Select, forms.SelectMultiple)):
+                w.attrs.setdefault("class", select)
+            else:
+                w.attrs.setdefault("class", base)
+
+        # smaller checkbox style
+        if "can_cast_spells" in self.fields:
+            self.fields["can_cast_spells"].widget.attrs.update({"class": "h-4 w-4 rounded border-gray-300"})
+
+    def clean(self):
+        cleaned = super().clean()
+
+        # If spellcasting is off, force spells empty
+        if not cleaned.get("can_cast_spells"):
+            cleaned["spells"] = []
+
+        # For non-null numeric model fields: blank -> model default (or 0)
+        for fname, form_field in self.fields.items():
+            if fname in ("name", "scope", "spells", "martial_masteries", "tags", "can_cast_spells"):
+                continue
+
+            if cleaned.get(fname) not in (None, ""):
+                continue
+
+            try:
+                mf = self._meta.model._meta.get_field(fname)
+            except Exception:
+                continue
+
+            # Only touch numeric model fields that DO NOT allow NULL
+            if isinstance(mf, (models.IntegerField, models.FloatField, models.DecimalField)) and not mf.null:
+                default = mf.default
+                if callable(default):
+                    default = default()
+                if default in (None, ""):
+                    default = 0
+                cleaned[fname] = default
+
+        return cleaned
+
+    def save(self, commit=True):
+        obj = super().save(commit=False)
+
+        # apply scope -> campaign FK
+        scope = self.cleaned_data.get("scope") or "campaign"
+        if scope == "global":
+            obj.campaign = None
+        else:
+            obj.campaign = self._campaign
+
+        if commit:
+            obj.save()
+            self.save_m2m()
+            if not self.cleaned_data.get("can_cast_spells"):
+                obj.spells.clear()
+        return obj
+
+
+class EnemyDamageResistanceInlineForm(forms.ModelForm):
+    class Meta:
+        model = EnemyDamageResistance
+        fields = ["mode", "damage_type", "amount"]
+        widgets = {}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        base = "w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30"
+        for f in self.fields.values():
+            f.widget.attrs.setdefault("class", base)
+
+class _EnemyDRBaseInlineFormSet(BaseInlineFormSet):
+    def add_fields(self, form, index):
+        super().add_fields(form, index)
+        fk_name = self.fk.name
+        if fk_name in form.fields:
+            form.fields[fk_name].required = False
+
+EnemyDamageResistanceFormSet = inlineformset_factory(
+    parent_model=EnemyType,
+    model=EnemyDamageResistance,
+    form=EnemyDamageResistanceInlineForm,
+    formset=_EnemyDRBaseInlineFormSet,
+    extra=0,
+    can_delete=True,
+)
 
 # campaigns/forms.py
 # keep this for the standalone "add ability" view

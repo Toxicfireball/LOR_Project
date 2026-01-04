@@ -151,6 +151,43 @@ class EnemyType(models.Model):
     perception = models.IntegerField(default=0)
     stealth = models.IntegerField(default=0)
     athletics = models.IntegerField(default=0)
+    # NEW: missing skills
+    acrobatics  = models.IntegerField(default=0)
+    insight     = models.IntegerField(default=0)
+
+    # NEW: crit threshold
+    crit_threshold = models.PositiveIntegerField(default=20)
+
+    # NEW: Basic Attack (single “default strike” profile)
+    BASIC_ACTION_CHOICES = (
+        ("1", "1 Action"),
+        ("2", "2 Actions"),
+        ("3", "3 Actions"),
+        ("reaction", "Reaction"),
+        ("free", "Free"),
+    )
+    basic_attack_name   = models.CharField(max_length=120, default="Strike")
+    basic_attack_action = models.CharField(max_length=10, choices=BASIC_ACTION_CHOICES, default="1")
+    basic_attack_to_hit = models.IntegerField(default=0)
+    basic_attack_ap     = models.IntegerField(default=0)
+    basic_attack_damage = models.CharField(max_length=120, blank=True, help_text="e.g. 2d8+6")
+    basic_attack_note   = models.CharField(max_length=255, blank=True)
+
+    # NEW: Spellcasting toggle + spell list
+    can_cast_spells = models.BooleanField(default=False)
+    spells = models.ManyToManyField(
+        "characters.Spell",
+        blank=True,
+        related_name="enemy_types",
+    )
+
+    # NEW: Martial Masteries
+    martial_masteries = models.ManyToManyField(
+        "characters.MartialMastery",
+        blank=True,
+        related_name="enemy_types",
+    )
+
     # Text
     description = models.TextField(blank=True)
     resistances = models.TextField(blank=True, help_text="Free text for resistances/notes")
@@ -174,10 +211,52 @@ class EnemyType(models.Model):
             ),
         ]
 
+
     def __str__(self):
         scope = self.campaign.name if self.campaign_id else "Global"
         return f"{self.name} ({scope})"
 
+class EnemyDamageResistance(models.Model):
+    MODE_CHOICES = (
+        ("reduction", "Reduction (flat)"),
+        ("resistance", "Resistance (half)"),
+    )
+
+    DAMAGE_TYPE_CHOICES = [
+        ('all',                       "All Damage"),
+        ('physical_all',              "All Physical"),
+        ('physical_non_magical',      "Non-magical Physical"),
+        ('physical_bludgeoning',      "Physical Bludgeoning"),
+        ('physical_slashing',         "Physical Slashing"),
+        ('physical_piercing',         "Physical Piercing"),
+        ('explosive',                 "Explosive"),
+        ('magical_bludgeoning',       "Magical Bludgeoning"),
+        ('magical_slashing',          "Magical Slashing"),
+        ('magical_piercing',          "Magical Piercing"),
+        ('acid',                      "Acid"),
+        ('cold',                      "Cold"),
+        ('fire',                      "Fire"),
+        ('force',                     "Force"),
+        ('lightning',                 "Lightning"),
+        ('necrotic',                  "Necrotic"),
+        ('poison',                    "Poison"),
+        ('psychic',                   "Psychic"),
+        ('radiant',                   "Radiant"),
+        ('thunder',                   "Thunder"),
+        ('true',                      "True"),
+    ]
+
+    enemy_type = models.ForeignKey(EnemyType, on_delete=models.CASCADE, related_name="damage_resistances")
+    mode       = models.CharField(max_length=12, choices=MODE_CHOICES, default="reduction")
+    damage_type= models.CharField(max_length=25, choices=DAMAGE_TYPE_CHOICES)
+    amount     = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ["damage_type", "mode"]
+        unique_together = (("enemy_type","mode","damage_type"),)
+
+    def __str__(self):
+        return f"{self.enemy_type}: {self.mode} {self.damage_type} -{self.amount}"
 
 class EnemyAbility(models.Model):
     """Per-enemy-type abilities, passive or active."""

@@ -597,19 +597,6 @@ def leave_campaign(request, campaign_id):
     return redirect("campaigns:campaign_list")
 # ====== ENEMIES & ENCOUNTERS (GM only) =======================================
 
-@login_required
-def create_enemy_type(request, campaign_id):
-    campaign = get_object_or_404(Campaign, id=campaign_id)
-    if not _is_gm(request.user, campaign):
-        return HttpResponseForbidden("GM only.")
-    if request.method != "POST": raise Http404()
-    form = EnemyTypeForm(request.POST)
-    if not form.is_valid():
-        messages.error(request, "Fix the enemy fields.")
-        return redirect("campaigns:campaign_detail", campaign_id=campaign.id)
-    et = form.save()
-    messages.success(request, f"Enemy '{et.name}' created.")
-    return redirect("campaigns:campaign_detail", campaign_id=campaign.id)
 
 
 @login_required
@@ -625,6 +612,65 @@ def add_enemy_ability(request, campaign_id):
     ab = form.save()
     messages.success(request, f"Added {ab.get_ability_type_display()} ability to {ab.enemy_type.name}.")
     return redirect("campaigns:campaign_detail", campaign_id=campaign.id)
+# campaigns/views.py
+from django.contrib.auth.decorators import login_required
+from django.db import transaction
+from django.http import HttpResponseForbidden, Http404
+from django.shortcuts import get_object_or_404, redirect, render
+from django.contrib import messages
+
+from .models import Campaign, EnemyType, EnemyTag
+from .forms import EnemyTypeForm, EnemyAbilityInlineFormSet, EnemyDamageResistanceFormSet
+
+@login_required
+def enemy_type_editor(request, campaign_id, enemy_type_id=None):
+    campaign = get_object_or_404(Campaign, id=campaign_id)
+    if not _is_gm(request.user, campaign):
+        return HttpResponseForbidden("GM only.")
+
+    instance = None
+    if enemy_type_id:
+        instance = get_object_or_404(EnemyType, id=enemy_type_id)
+
+    if request.method == "POST":
+        form = EnemyTypeForm(request.POST, instance=instance, campaign=campaign)
+        # bind formsets to the instance if it exists, else bind to a temporary object
+        temp_parent = instance or EnemyType(campaign=campaign)
+        ab_formset = EnemyAbilityInlineFormSet(request.POST, instance=temp_parent, prefix="ab")
+        dr_formset = EnemyDamageResistanceFormSet(request.POST, instance=temp_parent, prefix="dr")
+
+        if not form.is_valid():
+            messages.error(request, "Fix the enemy fields.")
+        else:
+            with transaction.atomic():
+                saved = form.save(commit=True)
+
+                # rebind formsets to the real saved instance (so saves work)
+                ab_formset = EnemyAbilityInlineFormSet(request.POST, instance=saved, prefix="ab")
+                dr_formset = EnemyDamageResistanceFormSet(request.POST, instance=saved, prefix="dr")
+
+                if ab_formset.is_valid() and dr_formset.is_valid():
+                    ab_formset.save()
+                    dr_formset.save()
+                    messages.success(request, f"Saved '{saved.name}'.")
+                    return redirect("campaigns:campaign_detail", campaign_id=campaign.id)
+                else:
+                    messages.error(request, "Fix ability/resistance rows.")
+                    instance = saved  # keep showing the saved object
+
+    else:
+        form = EnemyTypeForm(instance=instance, campaign=campaign)
+        ab_formset = EnemyAbilityInlineFormSet(instance=instance, prefix="ab")
+        dr_formset = EnemyDamageResistanceFormSet(instance=instance, prefix="dr")
+
+    tags = EnemyTag.objects.all().order_by("name")
+    return render(request, "campaigns/enemy_type_editor.html", {
+        "campaign": campaign,
+        "form": form,
+        "formset": ab_formset,
+        "dr_formset": dr_formset,
+        "tags": tags,
+    })
 
 
 @login_required
@@ -922,9 +968,17 @@ def encounter_detail(request, campaign_id, encounter_id):
     enemies = (
         enc.enemies
         .select_related("enemy_type")
-        .prefetch_related("enemy_type__abilities", "enemy_type__tags")
+        .prefetch_related(
+            "enemy_type__abilities",
+            "enemy_type__tags",
+            "enemy_type__spells",
+            "enemy_type__martial_masteries",
+            "enemy_type__martial_masteries__allowed_weapons",
+            "enemy_type__martial_masteries__allowed_traits",
+        )
         .order_by("id")
     )
+
 
     add_form = AddEnemyToEncounterForm()
     add_form.fields["enemy_type"].queryset = EnemyType.objects.filter(
@@ -1108,6 +1162,8 @@ def remove_party_item(request, campaign_id, pi_id):
     messages.info(request, f"Removed {name} from party inventory.")
     return redirect(f"{reverse('campaigns:campaign_detail', args=[campaign.id])}#inventory")
 
+from django.db import transaction
+
 @login_required
 def new_enemy_type(request, campaign_id):
     campaign = get_object_or_404(Campaign, id=campaign_id)
@@ -1115,24 +1171,27 @@ def new_enemy_type(request, campaign_id):
         return HttpResponseForbidden("GM only.")
 
     if request.method == "POST":
-        form = EnemyTypeCreateForm(request.POST, campaign=campaign)
+        form = EnemyTypeForm(request.POST, campaign=campaign)
+        formset = EnemyAbilityInlineFormSet(request.POST, prefix="ab")  # bind so errors show
+
         if form.is_valid():
-            et = form.save(commit=False)
-            et.save()
-            form.save_m2m()
-            formset = EnemyAbilityInlineFormSet(request.POST, instance=et, prefix="ab")
-            if formset.is_valid():
-                formset.save()
-                messages.success(
-                    request,
-                    f"Enemy Type '{et.name}' created ({'Global' if et.campaign_id is None else campaign.name})."
-                )
-                return redirect(f"{reverse('campaigns:campaign_detail', args=[campaign.id])}#encounters")
-        else:
-            formset = EnemyAbilityInlineFormSet(request.POST, prefix="ab")
+            with transaction.atomic():
+                et = form.save()  # use your overridden save()
+                formset = EnemyAbilityInlineFormSet(request.POST, instance=et, prefix="ab")
+                if formset.is_valid():
+                    formset.save()
+                    messages.success(
+                        request,
+                        f"Enemy Type '{et.name}' created ({'Global' if et.campaign_id is None else campaign.name})."
+                    )
+                    return redirect(f"{reverse('campaigns:campaign_detail', args=[campaign.id])}#encounters")
+
+                # formset invalid -> rollback so et isn't created
+                transaction.set_rollback(True)
+
+        messages.error(request, "Please fix the errors below.")
     else:
-        form = EnemyTypeCreateForm(campaign=campaign)
-        # empty formset for inline abilities
+        form = EnemyTypeForm(campaign=campaign)
         dummy = EnemyType(campaign=campaign, name="__draft__")
         formset = EnemyAbilityInlineFormSet(instance=dummy, prefix="ab")
 
@@ -1143,6 +1202,7 @@ def new_enemy_type(request, campaign_id):
         "formset": formset,
         "tags": tags,
     })
+
 
 @login_required
 def add_enemy_to_encounter(request, campaign_id, encounter_id):
@@ -1175,26 +1235,35 @@ def add_enemy_to_encounter(request, campaign_id, encounter_id):
     messages.success(request, f"Added {created} × {et.name}.")
     return redirect("campaigns:encounter_detail", campaign_id=campaign.id, encounter_id=enc.id)
 
+from django.db.models import Q
+
 @login_required
 def edit_enemy_type(request, campaign_id, et_id):
     campaign = get_object_or_404(Campaign, id=campaign_id)
     if not _is_gm(request.user, campaign):
         return HttpResponseForbidden("GM only.")
-    et = get_object_or_404(EnemyType, id=et_id)
+
+    # Only allow editing global or this campaign's types
+    et = get_object_or_404(
+        EnemyType,
+        Q(campaign__isnull=True) | Q(campaign=campaign),
+        id=et_id,
+    )
 
     if request.method == "POST":
-        form = EnemyTypeCreateForm(request.POST, instance=et, campaign=campaign)
+        form = EnemyTypeForm(request.POST, instance=et, campaign=campaign)
         formset = EnemyAbilityInlineFormSet(request.POST, instance=et, prefix="ab")
+
         if form.is_valid() and formset.is_valid():
             et = form.save()
             form.save_m2m()
             formset.save()
             messages.success(request, f"Enemy Type '{et.name}' updated.")
             return redirect(f"{reverse('campaigns:campaign_detail', args=[campaign.id])}#encounters")
-        # 👇 if invalid, show a clear error and fall through to render the bound forms
+
         messages.error(request, "Please fix the errors below and try again.")
     else:
-        form = EnemyTypeCreateForm(instance=et, campaign=campaign)
+        form = EnemyTypeForm(instance=et, campaign=campaign)
         formset = EnemyAbilityInlineFormSet(instance=et, prefix="ab")
 
     return render(request, "campaigns/enemytype_form.html", {
@@ -1203,7 +1272,7 @@ def edit_enemy_type(request, campaign_id, et_id):
         "formset": formset,
         "tags": EnemyTag.objects.all(),
     })
-    
+
     
 @login_required
 def delete_encounter(request, campaign_id, encounter_id):

@@ -2704,6 +2704,10 @@ class Spell(models.Model):
         null=True,
         help_text="If this is an inherent‐spell feature, store its full Spell here."
     )
+    def __str__(self):
+        if self.level == 0:
+            return f"{self.name} (Cantrip)"
+        return f"{self.name} (L{self.level})"
 class ClassFeat(models.Model):
     name = models.CharField(max_length=512)
     description = models.TextField()
