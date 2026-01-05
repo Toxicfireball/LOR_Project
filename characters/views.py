@@ -3790,11 +3790,11 @@ def level_down(request, pk):
             #    If it is, greedily downgrade highest tiers until balance >= 0.
 
             # ---- helpers: cost tables (upgrade costs → refunds on downgrade)
-            UPGRADE_COST = {"Untrained": 0, "Trained": 1, "Expert": 2, "Master": 3, "Legendary": 5}
+            UPGRADE_COST = {"Untrained": 0, "Trained": 1, "Expert": 2, "Master": 4, "Legendary": 8}
             ORDER = ["Untrained", "Trained", "Expert", "Master", "Legendary"]
             REFUND = {  # refund gained when stepping down one tier
-                ("Legendary", "Master"): 5,
-                ("Master", "Expert"): 3,
+                ("Legendary", "Master"): 8,
+                ("Master", "Expert"): 4,
                 ("Expert", "Trained"): 2,
                 ("Trained", "Untrained"): 1,
             }
