@@ -6918,7 +6918,7 @@ def character_detail(request, pk):
 
     # LOR skill progression constants
     LOR_TIER_ORDER     = ["Untrained","Trained","Expert","Master","Legendary"]
-    LOR_UPGRADE_COST   = {"Untrained":1, "Trained":2, "Expert":3, "Master":5}   # → next tier
+    LOR_UPGRADE_COST   = {"Untrained":1, "Trained":2, "Expert":4, "Master":8}   # → next tier
     LOR_MIN_LEVEL_FOR  = {"Trained":0, "Expert":3, "Master":7, "Legendary":14}  # first level you may *reach* that tier
 
     def _tier_name(pl):
