@@ -617,7 +617,17 @@ class Character(models.Model):
     def con_mod(self): return self.ability_mod("constitution")
     @property
     def wis_mod(self): return self.ability_mod("wisdom")
-
+    def can_edit(self, user) -> bool:
+        if not user or not getattr(user, "is_authenticated", False):
+            return False
+        if user.id == self.user_id:
+            return True
+        if self.campaign_id:
+            CampaignMembership = apps.get_model("campaigns", "CampaignMembership")
+            return CampaignMembership.objects.filter(
+                campaign_id=self.campaign_id, user=user, role="gm"
+            ).exists()
+        return False
     def _base_prof_bonus(self, code: str) -> int:
         """
         Read the highest proficiency tier (bonus) this character reaches for `code`
@@ -1491,6 +1501,7 @@ class Armor(models.Model):
     )
     name          = models.CharField(max_length=100, unique=True)
     armor_value   = models.PositiveSmallIntegerField()
+    armor_defence   = models.PositiveSmallIntegerField()
     type          = models.CharField(max_length=10, choices=TYPE_CHOICES)
     traits        = models.ManyToManyField(ArmorTrait, blank=True, help_text="Select any special traits")
     speed_penalty = models.IntegerField(help_text="Flat penalty to speed (ft)")

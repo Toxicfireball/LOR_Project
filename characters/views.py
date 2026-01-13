@@ -2691,7 +2691,23 @@ from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbid
 @login_required
 @require_POST
 def set_armor_choice(request, pk):
-    character = get_object_or_404(Character, pk=pk, user=request.user)
+    character = get_object_or_404(Character, pk=pk)
+    CharacterFeature = apps.get_model("characters", "CharacterFeature")
+
+    is_gm_for_campaign = False
+    if character.campaign_id:
+        is_gm_for_campaign = CampaignMembership.objects.filter(
+            campaign=character.campaign, user=request.user, role="gm"
+        ).exists()
+
+    # NEW: allow explicitly shared viewers
+    is_shared_viewer = CharacterViewer.objects.filter(character=character, user=request.user).exists()
+
+    if not (request.user.id == character.user_id or is_gm_for_campaign or is_shared_viewer):
+        return HttpResponseForbidden("You don’t have permission to view this character.")
+
+    can_edit = (request.user.id == character.user_id) or is_gm_for_campaign
+
     if not character.can_edit(request.user):
         return HttpResponseForbidden("You cannot edit this character.")
 
@@ -9625,10 +9641,12 @@ def character_detail(request, pk):
             overrides.get("final:equipped_armor_id")  # ← value saved by the override form
             or overrides.get("equipped_armor_id")     # ← legacy fallback if you had older data
         )
+        armor_defence =  int(overrides.get("armor_defence") or 0) 
         armor_value = int(overrides.get("armor_value") or 0)
         if equipped_id:
             selected_armor = Armor.objects.get(pk=int(equipped_id))
             armor_value = int(getattr(selected_armor, "armor_value", 0) or 0)
+            armor_defence = int(getattr(selected_armor, "armor_defence", 0) or 0)
     except Exception:
         armor_value = 0
         selected_armor = None
@@ -9845,12 +9863,25 @@ def character_detail(request, pk):
 
 
 
-    half_lvl_up = (character.level + 1) // 2 
+    half_lvl_up = (character.level + 1) // 2  # ceil(level/2)
+
+    dodge_tier = (prof_by_code.get("dodge", {}).get("tier_name") or "")
+    defence_half = half_lvl_up if dodge_tier.strip().lower() != "untrained" else 0
+
+    defence_total = (
+        10
+        + dex_for_dodge
+        + armor_defence
+        + shield_value
+        + int(prof_by_code.get("dodge", {}).get("modifier", 0) or 0)
+        + defence_half
+    )
 
     derived = {
-        "half_level":      half_lvl,
-        "armor_total": (armor_value + 2*shield_value) + (int(armor_prof.get("bonus") or 0)*2) + half_lvl_up,
-        "dodge_total":     10 + dex_for_dodge + shield_value + prof_dodge + half_lvl_up,
+    "half_level":      half_lvl,
+    "armor_total":     int(armor_value),
+    "defence_total":   defence_total,
+    "dodge_total":     defence_total,  # backward compatibility
         "reflex_total":    dex_mod + prof_reflex + hl_if_trained("reflex"),
         "fortitude_total": con_mod + prof_fort   + hl_if_trained("fortitude"),
         "will_total":      wis_mod + prof_will   + hl_if_trained("will"),
@@ -9993,16 +10024,6 @@ def character_detail(request, pk):
 
     
 
-    # base 10 + shield bonus
-    # force ⌈level/2⌉ on Dodge (no training requirement)
-    add_row(
-        "dodge",
-        dex_label,
-        dex_for_dodge,
-        label="Dodge",
-        base_const=(10 + shield_value),
-        half_override=half_lvl_up  # keep your existing "always ⌈level/2⌉" behavior
-    )
 
 
     for code in ("armor","dodge","reflex","fortitude","will","perception","initiative","weapon","dc"):
@@ -10020,6 +10041,23 @@ def character_detail(request, pk):
                 r["bonus"]     = int(pl.bonus or 0)
                 r["tier_name"] = pl.name.title()
                 r["source"]    = "Tier override"
+    # --- Defence (replaces Dodge) ---
+    # Defence = 10 + dex(+2,capped) + armor_value + shield_value + proficiency
+    add_row(
+        "dodge",  # internal code stays "dodge"
+        dex_label,
+        dex_for_dodge,
+        label="Defence",
+        base_const=(10 + int(armor_defence) + int(shield_value)),
+        half_override=defence_half,          # ceil(level/2) if trained, else 0
+        level_label="½ level (ceil)",
+        custom_formula="10 + dex(+2,capped) + armor_defence + shield + prof + ½ level(ceil)",
+        custom_values=(
+            f"10 + {_fmt(dex_for_dodge)} + {_fmt(armor_defence)} + {_fmt(shield_value)}"
+            f" + {_fmt(prof_by_code.get('dodge', {}).get('modifier', 0) or 0)} + {_fmt(defence_half)}"
+        ),
+    )
+
 
     add_row("reflex", "Dexterity", dex_mod, label="Reflex")
     add_row("fortitude","Constitution", con_mod, label="Fortitude")
@@ -10027,31 +10065,21 @@ def character_detail(request, pk):
     add_row("perception",               label="Perception")
     add_row("initiative",               label="Initiative")
     # armor_value + 2×shield_value
-    armor_is_prof = bool(armor_prof.get("is_proficient"))
-    armor_lvl_comp = character.level if armor_is_prof else 0
-
-    # Armor = (armor worn value) + (prof × 2) + ½ level (ceil)
-    armor_worn = int(armor_value) + (2 * int(shield_value))
-
-    # If you want to require proficiency to gain prof/level scaling, keep this gate.
-    # If you want armor to always scale regardless, remove the condition.
-    if armor_prof.get("is_proficient"):
-        prof_raw = int(armor_prof.get("bonus") or 0)
-        half_ceil = int(half_lvl_up)   # ceil(level/2)
-    else:
-        prof_raw = 0
-        half_ceil = 0
+    # --- Armor (DR digit) ---
+    # Armor proficiency now gives +1/+2/+3 at Expert/Master/Legendary (NOT ×2, NO level scaling).
+    tier_name = (prof_by_code.get("armor", {}).get("tier_name") or "").strip().lower()
+    armor_prof_bonus = {"expert": 1, "master": 2, "legendary": 3}.get(tier_name, 0)
 
     add_row(
         "armor",
-        label="Armor",
-        base_const=armor_worn,
-        prof_override=(prof_raw * 2),          # ✅ prof × 2
-        half_override=half_ceil,              # ✅ ½ level (round up)
-        level_label="½ level (ceil)",
-        custom_formula="armor worn + (prof × 2) + ½ level (ceil)",
-        custom_values=f"{_fmt(armor_worn)} + {_fmt(prof_raw)}×2 + {_fmt(half_ceil)}",
+        label="Armor (DR)",
+        base_const=int(armor_value),     # your DB digit
+        prof_override=int(armor_prof_bonus),
+        include_level=False,             # IMPORTANT: no ½-level scaling
+        custom_formula="armor + armor_prof_bonus",
+        custom_values=f"{_fmt(armor_value)} + {_fmt(armor_prof_bonus)}",
     )
+
 
 
     by_slot = {
@@ -11091,7 +11119,7 @@ def character_detail(request, pk):
     # ----- LEFT CARD: finals only -----
     finals_left = [
         {"label": "Armor",       "value": derived["armor_total"]},
-        {"label": "Dodge",       "value": derived["dodge_total"]},
+{"label": "Defence", "value": derived["defence_total"]},
         {"label": "Reflex",      "value": derived["reflex_total"]},
         {"label": "Fortitude",   "value": derived["fortitude_total"]},
         {"label": "Will",        "value": derived["will_total"]},

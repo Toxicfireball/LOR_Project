@@ -98,7 +98,7 @@ def get_other_vars():
     ] + class_fields + [
         "reflex_save", "fortitude_save", "will_save",
         "initiative", "weapon_attack", "spell_attack", "spell_dc",
-        "perception", "dodge",
+        "perception", "defence",
     ]
 
 # home/admin.py (near other small helpers)
@@ -1615,7 +1615,7 @@ class ArmorTraitInline(admin.TabularInline):
 
 @admin.register(Armor)
 class ArmorAdmin(admin.ModelAdmin):
-    list_display = ("name","armor_value","type","speed_penalty","dex_cap","hinderance","strength_requirement")
+    list_display = ("name","armor_value","armor_defence","type","speed_penalty","dex_cap","hinderance","strength_requirement")
     list_filter  = ("type","traits")
     search_fields= ("name",)
     exclude = ("traits",)
@@ -1924,7 +1924,7 @@ class ClassFeatureAdmin(admin.ModelAdmin):
 
     def formfield_for_choice_field(self, db_field, request, **kwargs):
         if db_field.name == "modify_proficiency_target":
-            # 1) grab your old armor/dodge/etc list
+            # 1) grab your old armor/defence/etc list
             base_choices = list(db_field.choices)
             # 2) append one tuple per Skill
             skill_choices = [(f"skill_{s.pk}", s.name) for s in Skill.objects.all()]
@@ -2631,7 +2631,7 @@ class RacialFeatureAdmin(SummernoteModelAdmin):
 
     def formfield_for_choice_field(self, db_field, request, **kwargs):
         if db_field.name == "modify_proficiency_target":
-            # 1) grab your old armor/dodge/etc list
+            # 1) grab your old armor/defence/etc list
             base_choices = list(db_field.choices)
             # 2) append one tuple per Skill
             skill_choices = [(f"skill_{s.pk}", s.name) for s in Skill.objects.all()]

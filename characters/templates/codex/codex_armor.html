@@ -29,47 +29,51 @@
 
   <div class="table-wrap bg-white rounded-xl shadow">
     <table class="min-w-full text-sm">
-      <thead class="bg-gray-50 text-gray-700">
-        <tr class="text-left">
-          <th class="px-4 py-3">Name</th>
-          <th class="px-4 py-3">Armor</th>
-          <th class="px-4 py-3">Dex Cap</th>
-          <th class="px-4 py-3">Str Req</th>
-          <th class="px-4 py-3">Speed Penalty</th>
-          <th class="px-4 py-3">Hindrance</th>
-          <th class="px-4 py-3">Group Code</th>
-          <th class="px-4 py-3">Traits</th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-gray-100">
-        {% for a in g.list %}
-        <tr>
-          <td class="px-4 py-3 font-medium">{{ a.name }}</td>
-          <td class="px-4 py-3">{{ a.armor_value }}</td>
-          <td class="px-4 py-3">{{ a.dex_cap|default:"—" }}</td>
-          <td class="px-4 py-3">{{ a.strength_requirement|default:"—" }}</td>
-          <td class="px-4 py-3">{{ a.speed_penalty }}</td>
-          <td class="px-4 py-3">{{ a.hinderance }}</td>
-          <td class="px-4 py-3">{{ a.group_code }}</td>
-          <td class="px-4 py-3">
-            {% if a.traits.all %}
-            <div class="flex flex-wrap gap-1.5">
-              {% for t in a.traits.all %}
-                <span class="tt">
-                  <button class="badge tt-btn" type="button">{{ t.name }}</button>
-                  <div class="tt-panel" role="tooltip">
-                    <div class="text-xs leading-snug">
-                      <div class="font-semibold mb-1">{{ t.name }}</div>
-                      <p class="mb-0.5">{{ t.description }}</p>
-                    </div>
-                  </div>
-                </span>
-              {% endfor %}
+<thead class="bg-gray-50 text-gray-700">
+  <tr class="text-left">
+    <th class="px-4 py-3">Name</th>
+    <th class="px-4 py-3">Armor Value</th>
+    <th class="px-4 py-3">Armor Defence</th>
+    <th class="px-4 py-3">Dex Cap</th>
+    <th class="px-4 py-3">Str Req</th>
+    <th class="px-4 py-3">Speed Penalty</th>
+    <th class="px-4 py-3">Hindrance</th>
+    <th class="px-4 py-3">Group Code</th>
+    <th class="px-4 py-3">Traits</th>
+  </tr>
+</thead>
+<tbody class="divide-y divide-gray-100">
+  {% for a in g.list %}
+  <tr>
+    <td class="px-4 py-3 font-medium">{{ a.name }}</td>
+    <td class="px-4 py-3">{{ a.armor_value }}</td>
+    <td class="px-4 py-3">{{ a.armor_defence }}</td>
+    <td class="px-4 py-3">{{ a.dex_cap|default:"—" }}</td>
+    <td class="px-4 py-3">{{ a.strength_requirement|default:"—" }}</td>
+    <td class="px-4 py-3">{{ a.speed_penalty }}</td>
+    <td class="px-4 py-3">{{ a.hinderance }}</td>
+    <td class="px-4 py-3">{{ a.group_code }}</td>
+    <td class="px-4 py-3">
+      {% if a.traits.exists %}
+      <div class="flex flex-wrap gap-1.5">
+        {% for t in a.traits.all %}
+          <span class="tt">
+            <button class="badge tt-btn" type="button">{{ t.name }}</button>
+            <div class="tt-panel" role="tooltip">
+              <div class="text-xs leading-snug">
+                <div class="font-semibold mb-1">{{ t.name }}</div>
+                <p class="mb-0.5">{{ t.description }}</p>
+              </div>
             </div>
-            {% else %}<span class="text-gray-400">—</span>{% endif %}
-          </td>
-        </tr>
+          </span>
         {% endfor %}
+      </div>
+      {% else %}<span class="text-gray-400">—</span>{% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</tbody>
+
       </tbody>
     </table>
   </div>
