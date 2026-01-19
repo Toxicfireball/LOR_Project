@@ -191,3 +191,7 @@ MEDIA_URL  = "/media/"
 # ensure the dir exists at boot
 import os
 os.makedirs(MEDIA_ROOT, exist_ok=True)
+# Auth redirects
+LOGIN_URL = "accounts:login"
+LOGIN_REDIRECT_URL = "campaigns:campaign_list"   # pick a real existing route
+LOGOUT_REDIRECT_URL = "/"                        # optional; your logout view already sets next_page
