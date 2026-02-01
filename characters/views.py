@@ -5393,7 +5393,16 @@ def _inventory_context(character):
     my_items = []
     inv_qs = getattr(character, "inventory_items", None)
     if hasattr(inv_qs, "all"):
-        my_items = list(_safe_order_by(inv_qs.all()))
+        inv_all = inv_qs.all()
+
+        # If your CharacterItem model has item_content_type/item_object_id + GenericFK `item`
+        try:
+            inv_all = inv_all.select_related("item_content_type").prefetch_related("item")
+        except Exception:
+            pass
+
+        my_items = list(_safe_order_by(inv_all))
+
 
 
     # party pool items (unclaimed items at the campaign level)
@@ -5414,27 +5423,36 @@ def _inventory_context(character):
                 )
 
 
-            qs = (PartyItem.objects
+            qs = (
+                PartyItem.objects
                 .filter(
-                    campaign=character.campaign,
+                    campaign_id=character.campaign_id,
                     claimed_by_characters__isnull=True,
                 )
-                .distinct()  # M2M joins can duplicate rows
-                .select_related("item_content_type"))
+                .distinct()
+                .select_related("item_content_type")
+            )
+
+            # If PartyItem has a GenericForeignKey property named `item`, this is the big win:
+            if hasattr(PartyItem, "item"):
+                qs = qs.prefetch_related("item")
+
 
             party_pool = []
             for pi in _safe_order_by(qs):
                 # Resolve the underlying item for the label
-                obj = None
-                ct = getattr(pi, "item_content_type", None)
-                if ct:
-                    try:
-                        obj = ct.get_object_for_this_type(pk=int(pi.item_object_id))
-                    except Exception:
-                        obj = None
-                # Fallback if you already have a GFK property named `item`
+                # If `item` GenericFK exists and we prefetched it, this is now O(1) with no extra queries
+                obj = getattr(pi, "item", None)
+
+                # Fallback only if you do NOT have a GenericFK
                 if obj is None:
-                    obj = getattr(pi, "item", None)
+                    ct = getattr(pi, "item_content_type", None)
+                    if ct:
+                        try:
+                            obj = ct.get_object_for_this_type(pk=int(pi.item_object_id))
+                        except Exception:
+                            obj = None
+
 
                 party_pool.append({
                     "id":  pi.id,
@@ -5458,36 +5476,12 @@ def _inventory_context(character):
         Weapon = Armor = SpecialItem = None
         weapons_all, armors_all, specials_all = [], [], []
 
-    # Enrich CharacterItem rows with kind/rarity flags for the table
-    for it in my_items:
-        obj = getattr(it, "item", None)
-        # quick defensive flags (overwritten below)
-        it.weapon = bool(obj and 'Weapon' in str(type(obj))) if weapons_all else False
-        it.armor  = bool(obj and 'Armor'  in str(type(obj))) if armors_all  else False
-
-    # ^ the two lines above are just defensive; we’ll overwrite properly below
-    try:
-        from django.contrib.contenttypes.models import ContentType
-        w_ct = ContentType.objects.get_for_model(Weapon)      if Weapon      else None
-        a_ct = ContentType.objects.get_for_model(Armor)       if Armor       else None
-        s_ct = ContentType.objects.get_for_model(SpecialItem) if SpecialItem else None
-    except Exception:
-        w_ct = a_ct = s_ct = None
 
 
 
-    for it in my_items:
-        obj = getattr(it, "item", None)
 
-        # Basic display name
-        base_name = (getattr(it, "name", "") or "").strip()
-        obj_name  = ""
-        if obj is not None:
-            for attr in ("name", "label", "title", "display_name"):
-                v = getattr(obj, attr, None)
-                if v:
-                    obj_name = str(v)
-                    break
+
+
     for it in my_items:
         obj = getattr(it, "item", None)
 
@@ -5703,11 +5697,11 @@ def _mm_restrictions(mm):
         bits.append(f"Range: {rng}")
     # weapon list
     if getattr(mm, "restrict_to_weapons", False):
-        names = list(mm.allowed_weapons.values_list("name", flat=True))
+        names = [w.name for w in mm.allowed_weapons.all()]
         bits.append("Weapons: " + (", ".join(names) if names else "—"))
     # trait gate
     if getattr(mm, "restrict_to_traits", False):
-        names = list(mm.allowed_traits.values_list("name", flat=True))
+        names = [t.name for t in mm.allowed_traits.all()]
         mode  = "ANY" if getattr(mm, "trait_match_mode", "any") == "any" else "ALL"
         bits.append(f"Traits ({mode}): " + (", ".join(names) if names else "—"))
     # damage-type gate
@@ -5751,18 +5745,11 @@ def build_martial_mastery_context(character, class_progress) -> Dict[str, Any]:
     # Count how many Martial Mastery features this specific character actually has.
     active_mm_features = 0
 
-    # OPTIONAL HOOK: wire this to your *real* per-character feature table.
-    # Right now this returns True for everything (old behaviour) so it won't crash.
-    # You will plug your own check here, see comment below.
-    def _character_has_mm_feature(cf: ClassFeature) -> bool:
-        """
-        Return True only if this character has actually gained this ClassFeature
-        (via CharacterFeature). This is the canonical 'has this feature' check.
-        """
-        return CharacterFeature.objects.filter(
-            character=character,
-            feature=cf,
-        ).exists()
+    feats_qs = (
+        ClassFeature.objects
+        .filter(kind="martial_mastery", character_features__character=character)
+        .distinct()
+    )
     # Any feature with kind == 'martial_mastery' contributes points/known slots,
     # but only if the character has actually gained that feature.
     from characters.models import ClassFeature, CharacterFeature
@@ -5776,9 +5763,7 @@ def build_martial_mastery_context(character, class_progress) -> Dict[str, Any]:
     )
 
     for f in feats_qs:
-        # HARD GATE: skip features the character has not actually gained yet
-        if not _character_has_mm_feature(f):
-            continue
+
 
         active_mm_features += 1
 
@@ -5949,8 +5934,10 @@ def build_martial_mastery_context(character, class_progress) -> Dict[str, Any]:
     show_tab = (active_mm_features > 0 and (tot_points > 0 or tot_known > 0))
     # 2) What is already known?
     # Always resolve to MartialMastery rows
-    known_qs = MartialMastery.objects.filter(
-        id__in=character.martial_masteries.values_list("mastery_id", flat=True)
+    known_qs = (
+        MartialMastery.objects
+        .filter(id__in=character.martial_masteries.values_list("mastery_id", flat=True))
+        .prefetch_related("classes", "allowed_weapons", "allowed_traits")
     )
 
 
@@ -6001,43 +5988,60 @@ def build_martial_mastery_context(character, class_progress) -> Dict[str, Any]:
     char_class_ids = {c.id for c in char_classes}
     char_class_slugs = {getattr(c, "slug", "") for c in char_classes}
 
-    # base pool: everything not already known
-    pool = MartialMastery.objects.exclude(id__in=known_ids)
 
-    def meets_class(mm) -> bool:
-        # use the real M2M field name
-        if hasattr(mm, "classes"):
-            ids = set(mm.classes.values_list("id", flat=True))
-            return not ids or bool(ids & char_class_ids)
-        return True
 
-    def meets_level(mm) -> bool:
-        return total_level >= _mm_level(mm)
+    pool = (
+        MartialMastery.objects
+        .exclude(id__in=known_ids)
+        .prefetch_related("classes", "allowed_weapons", "allowed_traits")
+    )
 
+    # Filter by required level in SQL if the field exists
+    try:
+        # allow NULL/0 meaning "no level requirement"
+        pool = pool.filter(Q(level_required__isnull=True) | Q(level_required__lte=total_level))
+    except Exception:
+        # if your model doesn't have level_required, keep pool unfiltered and we’ll gate in Python below
+        pass
+
+    # Filter by class restriction in SQL:
+    # - if mastery has no classes linked => allowed for all (classes__isnull=True)
+    # - else it must match one of the character's classes
+    try:
+        if char_class_ids:
+            pool = pool.filter(Q(classes__isnull=True) | Q(classes__id__in=char_class_ids)).distinct()
+        else:
+            pool = pool.filter(classes__isnull=True).distinct()
+    except Exception:
+        pass
 
     available_rows = []
     for mm in pool:
-        if not meets_level(mm):   # must meet level
+        # Safety gate in case level_required doesn't exist / wasn't filtered
+        lvl = _mm_level(mm)
+        if total_level < lvl:
             continue
-        if not meets_class(mm):   # must meet class
-            continue
-        cost = _coalesce_int(mm.points_cost, 0)
+
+        restr = _mm_restrictions(mm)  # compute once (don’t call twice)
+
+        cost = _coalesce_int(getattr(mm, "points_cost", 0), 0)
         can_now = (points_left >= cost) and can_learn_more
+
         available_rows.append({
             "id": mm.id,
             "name": mm.name,
             "points_cost": cost,
             "actions_required": _mm_actions(mm),
-            "level": _mm_level(mm),
-            "restrictions": _mm_restrictions(mm),
-
+            "level": lvl,
+            "restrictions": restr,
             "details": [
                 ("Description", getattr(mm, "description", "") or getattr(mm, "summary", "") or "—"),
                 ("Tags", getattr(mm, "tags", "—")),
-                ("Prerequisites",  _mm_restrictions(mm)),
+                ("Prerequisites", restr),
             ],
             "can_learn_now": can_now,
         })
+
 
     ctx = {
         "show_martial_mastery_tab": show_tab,
@@ -6250,7 +6254,7 @@ def character_detail(request, pk):
         is_gm_for_campaign = CampaignMembership.objects.filter(
             campaign=character.campaign, user=request.user, role="gm"
         ).exists()
-
+    active_tab = (request.GET.get("tab") or request.POST.get("tab") or "summary").strip().lower()
     # NEW: allow explicitly shared viewers
     is_shared_viewer = CharacterViewer.objects.filter(character=character, user=request.user).exists()
 
@@ -12458,6 +12462,9 @@ def character_detail(request, pk):
             reverse("characters:character_detail", args=[character.pk]) + "#tab-rolls"
         )
 
+    inventory_ctx = {}
+    if active_tab in {"inventory", "combat"}:
+        inventory_ctx = _inventory_context(character)
 
 
     # Build rows for “Manually Added Feats”
@@ -12662,7 +12669,7 @@ def character_detail(request, pk):
         'weapon_group_display': weapon_group_display,
 
         # — Inventory / equipment —
-        **_inventory_context(character),  # provides weapons_list, armor_list, selected_armor, etc.
+        **inventory_ctx,
         'equipped_weapons': {
             1: (equipped_main.weapon.id if equipped_main else None),
             2: (equipped_alt.weapon.id  if equipped_alt  else None),

@@ -2,6 +2,8 @@
 {% extends "base.html" %}
 {% load static %}
 {% load ui_extras %}
+{% url 'characters:character_detail' character.pk as char_url %}
+
 {% load range_extras %}
 {% block extra_css %}
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -10,6 +12,7 @@
 {% endblock %}
 
 {% block content %}
+
 <style>
   #martial-mastery .mm-head { min-height: 2rem; }
   /* Martial Mastery summary header — keep controls from overlapping columns */
@@ -476,40 +479,88 @@
     </div>
   </div>
   {% endif %}
+<ul class="nav nav-tabs" id="sheetTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-details" type="button" role="tab">
+      Details
+    </button>
+  </li>
 
-      <ul class="nav nav-tabs" id="sheetTabs" role="tablist">
-        <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-details" type="button">Details</button></li>
-        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-combat"  type="button">Combat</button></li>
-<li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-rolls" type="button">Rolls</button></li>
-        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-skills"  type="button">Skills</button></li>
-        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-feats"   type="button">Feats</button></li>
-<li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-active"       type="button">Active</button></li>
-<li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-passive"      type="button">Passive</button></li>
-<li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-custom" type="button">Custom</button></li>
-<li class="nav-item">
-  <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-notes" type="button">Notes</button>
-</li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-combat" type="button" role="tab">
+      Combat
+    </button>
+  </li>
 
-<li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-all"          type="button">All</button></li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-rolls" type="button" role="tab">
+      Rolls
+    </button>
+  </li>
+
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-skills" type="button" role="tab">
+      Skills
+    </button>
+  </li>
+
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-feats" type="button" role="tab">
+      Feats
+    </button>
+  </li>
+
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-active" type="button" role="tab">
+      Active
+    </button>
+  </li>
+
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-passive" type="button" role="tab">
+      Passive
+    </button>
+  </li>
+
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-custom" type="button" role="tab">
+      Custom
+    </button>
+  </li>
+
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-notes" type="button" role="tab">
+      Notes
+    </button>
+  </li>
+
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-all" type="button" role="tab">
+      All
+    </button>
+  </li>
+
   <li class="nav-item" role="presentation" {% if not show_martial_mastery_tab %}hidden{% endif %}>
-    <button class="nav-link" id="martial-mastery-tab"
-            data-bs-toggle="tab" data-bs-target="#martial-mastery"
-            type="button" role="tab">
+    <button class="nav-link" id="martial-mastery-tab" data-bs-toggle="tab" data-bs-target="#martial-mastery" type="button" role="tab">
       Martial Mastery
     </button>
   </li>
-  <li class="nav-item">
-  <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-inventory" type="button">
-    Inventory
-  </button>
-</li>
 
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-inventory" type="button" role="tab">
+      Inventory
+    </button>
+  </li>
 
-{% if show_spellcasting_tab %}
-  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-spellcasting" type="button">Spellcasting</button></li>
-{% endif %}
+  {% if show_spellcasting_tab %}
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-spellcasting" type="button" role="tab">
+        Spellcasting
+      </button>
+    </li>
+  {% endif %}
+</ul>
 
-      </ul>
 
       <div class="tab-content pt-3">
         <!-- DETAILS TAB -->
@@ -6328,6 +6379,25 @@ function resetSpeed(btn){
   });
 </script>
 
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  if (!window.bootstrap) return;
+
+  // If page loads with a hash (e.g. #tab-feats), activate that tab
+  if (window.location.hash) {
+    const btn = document.querySelector(`#sheetTabs button[data-bs-target="${window.location.hash}"]`);
+    if (btn) bootstrap.Tab.getOrCreateInstance(btn).show();
+  }
+
+  // When user switches tabs, update the URL hash (no reload)
+  document.querySelectorAll('#sheetTabs button[data-bs-toggle="tab"]').forEach(btn => {
+    btn.addEventListener('shown.bs.tab', (e) => {
+      const target = e.target.getAttribute('data-bs-target');
+      if (target) history.replaceState(null, '', target);
+    });
+  });
+});
+</script>
 
 
 {% endblock %}
