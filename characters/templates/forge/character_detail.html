@@ -1227,7 +1227,6 @@ data-key="prof:{{ r.code|lower }}"
         <div class="card-header d-flex align-items-center justify-content-between">
           <div>
             <div class="section-title">Dice Pool</div>
-            <div class="small muted">Mix dice; pool uses the <span class="mono">dicepool</span> modifier bucket.</div>
           </div>
           <div class="d-flex gap-2">
             <button id="btn-roll-pool" class="btn btn-sm btn-success" type="button">Roll Pool</button>
@@ -1371,7 +1370,7 @@ data-key="prof:{{ r.code|lower }}"
       <div class="card shadow-sm mb-3">
         <div class="card-header">
           <div class="section-title">Dice Tray</div>
-          <div class="small muted">Large animated dice results (separate from the fields).</div>
+        
         </div>
         <div class="card-body">
           <div class="dice-tray">
@@ -1421,9 +1420,7 @@ data-key="prof:{{ r.code|lower }}"
   <div class="card-header d-flex align-items-center justify-content-between">
     <div>
       <div class="section-title">Damage Reduction</div>
-      <div class="small muted">
-        Armor reduces <span class="mono">ceil(damage/10)</span> per Armor/Ward. Total reduction caps at damage.
-      </div>
+
     </div>
     <button id="dr-reset" class="btn btn-sm btn-outline-secondary" type="button">Reset</button>
   </div>
