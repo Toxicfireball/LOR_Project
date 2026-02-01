@@ -5375,43 +5375,47 @@ def _mm_level_prereq(m):
 # views/characters.py (or wherever character_detail lives)
 from django.apps import apps
 from django.db.models import Q
-
 def _inventory_context(character):
     """
-    Returns a context dict for the Inventory tab:
-      - currency: gold/silver/copper fields from Character (defaults to 0)
-      - inventory_items: items already owned by this character
-      - party_pool_items: campaign 'party' items that are not yet claimed
-    This is defensive against missing models/fields.
+    Returns context dict for Inventory tab:
+      - currency
+      - inventory_items (CharacterItem rows)
+      - party_pool_items (unclaimed PartyItem rows)
+      - weapons_all / armors_all pickers
+      - wearable_rows + attunement summary
     """
-    # currency (defaults to 0 if the fields don't exist yet)
+
+    # --- currency ---
     gold   = getattr(character, "gold", 0) or 0
     silver = getattr(character, "silver", 0) or 0
     copper = getattr(character, "copper", 0) or 0
 
-    # character inventory items (expects reverse related name 'inventory_items')
-    my_items = []
-    inv_qs = getattr(character, "inventory_items", None)
-    if hasattr(inv_qs, "all"):
-        inv_all = inv_qs.all()
-
-        # If your CharacterItem model has item_content_type/item_object_id + GenericFK `item`
-        try:
-            inv_all = inv_all.select_related("item_content_type").prefetch_related("item")
-        except Exception:
-            pass
-
-        my_items = list(_safe_order_by(inv_all))
+    # --- inventory rows (CharacterItem) ---
+    inv_mgr = getattr(character, "inventory_items", None)
+    if hasattr(inv_mgr, "all"):
+        inv_qs = (
+            inv_mgr.all()
+            .select_related("item_content_type", "from_party_item")
+        )
+        my_items = list(_safe_order_by(inv_qs))
+    else:
+        my_items = []
 
 
-
-    # party pool items (unclaimed items at the campaign level)
+    # --- party pool (PartyItem) ---
     party_pool = []
     if getattr(character, "campaign_id", None):
         try:
             PartyItem = apps.get_model("campaigns", "PartyItem")
-            # NOTE: we don't shadow ContentType here anymore; this line was unused
-            # ContentType = apps.get_model("contenttypes", "ContentType")
+
+            qs = (
+                PartyItem.objects
+                .filter(
+                    campaign=character.campaign,
+                    claimed_by__isnull=True,   # <-- IMPORTANT: matches your PartyItem model
+                )
+                .select_related("item_content_type")
+            )
 
             def _label_for(obj):
                 return (
@@ -5422,72 +5426,46 @@ def _inventory_context(character):
                     or str(obj) or "—"
                 )
 
-
-            qs = (
-                PartyItem.objects
-                .filter(
-                    campaign_id=character.campaign_id,
-                    claimed_by_characters__isnull=True,
-                )
-                .distinct()
-                .select_related("item_content_type")
-            )
-
-            # If PartyItem has a GenericForeignKey property named `item`, this is the big win:
-            if hasattr(PartyItem, "item"):
-                qs = qs.prefetch_related("item")
-
-
-            party_pool = []
             for pi in _safe_order_by(qs):
-                # Resolve the underlying item for the label
-                # If `item` GenericFK exists and we prefetched it, this is now O(1) with no extra queries
-                obj = getattr(pi, "item", None)
+                obj = None
+                ct = getattr(pi, "item_content_type", None)
+                if ct:
+                    try:
+                        obj = ct.get_object_for_this_type(pk=int(pi.item_object_id))
+                    except Exception:
+                        obj = None
 
-                # Fallback only if you do NOT have a GenericFK
+                # If your PartyItem defines a GFK property `item`, allow fallback:
                 if obj is None:
-                    ct = getattr(pi, "item_content_type", None)
-                    if ct:
-                        try:
-                            obj = ct.get_object_for_this_type(pk=int(pi.item_object_id))
-                        except Exception:
-                            obj = None
-
+                    obj = getattr(pi, "item", None)
 
                 party_pool.append({
                     "id":  pi.id,
                     "qty": int(getattr(pi, "quantity", 1) or 1),
                     "name": _label_for(obj),
                 })
+
         except LookupError:
             party_pool = []
 
-
-    # Catalogs for pickers / item type detection
+    # --- catalogs for pickers (Weapon / Armor / SpecialItem) ---
+    # IMPORTANT: import your real models; do NOT apps.get_model() them.
     try:
-        Weapon      = apps.get_model("characters", "Weapon")
-        Armor       = apps.get_model("characters", "Armor")
-        SpecialItem = apps.get_model("characters", "SpecialItem")
-
+        from .models import Weapon, Armor, SpecialItem, WearableSlot
         weapons_all  = list(Weapon.objects.order_by("name"))
         armors_all   = list(Armor.objects.order_by("name"))
         specials_all = list(SpecialItem.objects.order_by("name"))
-    except LookupError:
-        Weapon = Armor = SpecialItem = None
+    except Exception:
+        Weapon = Armor = SpecialItem = WearableSlot = None
         weapons_all, armors_all, specials_all = [], [], []
 
-
-
-
-
-
-
+    # --- normalize each CharacterItem for template display ---
     for it in my_items:
         obj = getattr(it, "item", None)
 
-        # Basic display name
+        # display name
         base_name = (getattr(it, "name", "") or "").strip()
-        obj_name  = ""
+        obj_name = ""
         if obj is not None:
             for attr in ("name", "label", "title", "display_name"):
                 v = getattr(obj, attr, None)
@@ -5501,59 +5479,48 @@ def _inventory_context(character):
         it.rarity         = None
         it.weapon         = False
         it.armor          = False
-        it.special_item   = None      # SpecialItem instance, if any
-        it.special_traits = []        # list[SpecialItemTraitValue]
+        it.special_item   = None
+        it.special_traits = []
         it.is_wearable    = False
-        it.wearable_slot  = None
+        it.wearable_slot  = getattr(it, "wearable_slot", None)
 
-        # Nothing resolved via GenericFK — skip
         if obj is None:
             continue
 
-        # --- Weapon ---
         if Weapon and isinstance(obj, Weapon):
-            it.kind   = "Weapon"
+            it.kind = "Weapon"
             it.weapon = True
             it.rarity = getattr(obj, "rarity", None)
             continue
 
-        # --- Armor ---
         if Armor and isinstance(obj, Armor):
-            it.kind   = "Armor"
-            it.armor  = True
+            it.kind = "Armor"
+            it.armor = True
             it.rarity = getattr(obj, "rarity", None)
             continue
 
-        # --- Special / magic item ---
         if SpecialItem and isinstance(obj, SpecialItem):
-            # Type label (Weapon / Armor / Wearable / Artifact / Consumable)
+            # Kind
             kind_display = getattr(obj, "get_item_type_display", None)
-            if callable(kind_display):
-                it.kind = kind_display()
-            else:
-                it.kind = getattr(obj, "item_type", None) or "Magic Item"
+            it.kind = kind_display() if callable(kind_display) else (getattr(obj, "item_type", None) or "Magic Item")
 
-            # Rarity label from choices if available
+            # Rarity
             rarity_display = getattr(obj, "get_rarity_display", None)
-            if callable(rarity_display):
-                it.rarity = rarity_display()
-            else:
-                it.rarity = getattr(obj, "rarity", None)
+            it.rarity = rarity_display() if callable(rarity_display) else getattr(obj, "rarity", None)
 
             it.special_item  = obj
-            it.is_wearable   = (obj.item_type == "wearable" and bool(obj.wearable_slot_id))
+            it.is_wearable   = (getattr(obj, "item_type", None) == "wearable" and bool(getattr(obj, "wearable_slot_id", None)))
             it.wearable_slot = getattr(obj, "wearable_slot", None)
 
-            # Get ALL traits (not just active), ordered by name
             traits_qs = (
                 getattr(obj, "specialitemtraitvalue_set", None)
-                or getattr(obj, "traits", None)  # if you later add related_name="traits"
+                or getattr(obj, "traits", None)
             )
             if hasattr(traits_qs, "all"):
                 it.special_traits = list(traits_qs.all().order_by("name"))
 
-            # Merge CharacterItem.description with SpecialItem.description
-            base_desc  = (it.description or "").strip()
+            # Merge descriptions
+            base_desc  = (getattr(it, "description", "") or "").strip()
             extra_desc = (getattr(obj, "description", "") or "").strip()
             if extra_desc:
                 if base_desc and extra_desc not in base_desc:
@@ -5561,23 +5528,13 @@ def _inventory_context(character):
                 elif not base_desc:
                     it.description = extra_desc
 
-            continue
-
-        # Fallback: non-weapon/armor/special; leave defaults
-
-    # ── Wearable slot rows (from WearableSlot; ring has 2 positions) ────
+    # --- wearable slot rows ---
     from collections import defaultdict
     wearable_rows = []
-    try:
-        WearableSlot = apps.get_model("characters", "WearableSlot")
-        all_slots = list(WearableSlot.objects.order_by("name"))
-    except LookupError:
-        all_slots = []
 
+    all_slots = list(WearableSlot.objects.order_by("name")) if WearableSlot else []
     if all_slots:
-        # options_by_slot_id: which CharacterItems are wearable in that slot
         options_by_slot_id = defaultdict(list)
-        # equipped_by_slot_code: what is currently equipped per slot code
         equipped_by_slot_code = defaultdict(list)
 
         for it in my_items:
@@ -5590,8 +5547,7 @@ def _inventory_context(character):
 
         for slot in all_slots:
             slot_code = (slot.code or "").lower()
-            options   = options_by_slot_id.get(slot.id, [])
-            # “Ring” slot: up to 2; everything else: 1
+            options = options_by_slot_id.get(slot.id, [])
             max_positions = 2 if slot_code == "ring" else 1
 
             for idx in range(1, max_positions + 1):
@@ -5600,34 +5556,25 @@ def _inventory_context(character):
                 if idx <= len(eq_list):
                     current = eq_list[idx - 1]
 
-                if max_positions == 1:
-                    field_name = f"wear_slot_{slot_code}"
-                else:
-                    field_name = f"wear_slot_{slot_code}_{idx}"
+                field_name = f"wear_slot_{slot_code}" if max_positions == 1 else f"wear_slot_{slot_code}_{idx}"
 
                 wearable_rows.append({
-                    "slot":       slot,
-                    "index":      idx,          # 1 or 2 (for rings)
-                    "field_name": field_name,   # used by the form
-                    "current":    current,      # currently equipped CharacterItem or None
-                    "options":    options,      # wearable CharacterItems for this slot
+                    "slot": slot,
+                    "index": idx,
+                    "field_name": field_name,
+                    "current": current,
+                    "options": options,
                 })
 
-    # ── Attunement summary ─────────────────────────────────────────────
-    # Default max = 5 if field is missing or NULL
+    # --- attunement summary ---
     attunement_max = getattr(character, "attunement_max", 5) or 5
-
-
-    attuned_used   = 0
-    attuned_items  = []
+    attuned_used = 0
+    attuned_items = []
 
     for it in my_items:
         obj = getattr(it, "special_item", None)
         if not obj:
             continue
-        # Only count if:
-        #   • SpecialItem has attunement=True
-        #   • This inventory row is marked as equipped
         if getattr(obj, "attunement", False) and getattr(it, "is_equipped", False):
             attuned_used += 1
             attuned_items.append({
@@ -5639,19 +5586,11 @@ def _inventory_context(character):
     return {
         "show_inventory_tab": True,
         "inventory_currency": {"gold": gold, "silver": silver, "copper": copper},
-        "inventory_items": my_items,         # list of CharacterItem (GFK -> item)
+        "inventory_items": my_items,
         "party_pool_items": party_pool,
-        "weapons_all": weapons_all,          # for “Get Weapon”
-        "armors_all": armors_all,            # for “Get Armor”
-
-        # Attunement summary for the tab
-        "inventory_attunement": {
-            "max":  attunement_max,
-            "used": attuned_used,
-            "items": attuned_items,
-        },
-
-        # Wearable slot UX (one per WearableSlot; ring shows 2 rows)
+        "weapons_all": weapons_all,
+        "armors_all": armors_all,
+        "inventory_attunement": {"max": attunement_max, "used": attuned_used, "items": attuned_items},
         "wearable_rows": wearable_rows,
     }
 
@@ -6385,47 +6324,64 @@ def character_detail(request, pk):
 
             return redirect(reverse("characters:character_detail", args=[character.pk]) + "#tab-feats")
     # --- Dice Roller: add standard / toggle / AP modifiers -----------------------
-    if request.method == "POST" and request.POST.get("roll_mod_form") and can_edit:
+    if request.method == "POST" and request.POST.get("roll_mod_form") == "1":
+        code = (request.POST.get("roll_code") or "").strip()
+        kind = (request.POST.get("kind") or "").strip()
+        label = (request.POST.get("label") or request.POST.get("name") or "").strip()  # accept both
+        value = (request.POST.get("value") or "").strip()
 
-        code    = (request.POST.get("roll_code") or "").strip()      # e.g. "attack" or "generic"
-        kind    = (request.POST.get("kind") or "").strip()           # standard / toggle / ap_standard / ap_toggle
-        label   = (request.POST.get("label") or request.POST.get("name") or "").strip()
-        val_raw = (request.POST.get("value") or "").strip()
-
-        if not code or not label:
-            messages.error(request, "Name and roll code are required.")
-            return redirect(
-                reverse("characters:character_detail", args=[character.pk]) + "#tab-rolls"
-            )
+        if not code or not kind or not label:
+            if _is_ajax(request):
+                return JsonResponse({"ok": False, "error": "Missing roll_code/kind/label."}, status=400)
+            messages.error(request, "Missing roll_code/kind/label.")
+            return redirect(url)
 
         try:
-            value = int(val_raw)
-        except ValueError:
-            messages.error(request, "Modifier value must be a number.")
-            return redirect(
-                reverse("characters:character_detail", args=[character.pk]) + "#tab-rolls"
-            )
+            value_int = int(value)
+        except Exception:
+            if _is_ajax(request):
+                return JsonResponse({"ok": False, "error": "Value must be an integer."}, status=400)
+            messages.error(request, "Value must be an integer.")
+            return redirect(url)
 
-        # Validate kind
-        if kind not in {"standard", "toggle", "ap_standard", "ap_toggle"}:
-            messages.error(request, "Invalid modifier kind.")
-            return redirect(
-                reverse("characters:character_detail", args=[character.pk]) + "#tab-rolls"
-            )
+        # Normalize roll_code into bucket codes (so user doesn’t create 500 separate codes)
+        code_l = code.lower()
+        if code_l.startswith("attack"):
+            code = "attack"
+        elif code_l.startswith("save"):
+            code = "save"
+        elif code_l.startswith("skill"):
+            code = "skill"
+        elif code_l == "dicepool":
+            code = "dicepool"
+        else:
+            code = "generic"
 
         RollModifier.objects.create(
             character=character,
             roll_code=code,
             kind=kind,
-            name=label,   # model field stays "name", form field stays "label"
-            value=value,
+            name=label,
+            value=value_int,
         )
 
+        if _is_ajax(request):
+            # Return ONLY the updated bucket (fast)
+            qs = RollModifier.objects.filter(character=character, roll_code=code).order_by("id")
+            bucket = {"code": code, "label": code, "kind": "other", "std_mods": [], "toggle_mods": [], "ap_std_mods": [], "ap_toggle_mods": []}
+            if code == "attack": bucket["kind"] = "attack"
+            if code == "save":   bucket["kind"] = "save"
+            if code == "skill":  bucket["kind"] = "skill"
+            for m in qs:
+                item = {"id": m.id, "name": m.name, "value": int(m.value or 0)}
+                if m.kind == "standard": bucket["std_mods"].append(item)
+                elif m.kind == "toggle": bucket["toggle_mods"].append(item)
+                elif m.kind == "ap_standard": bucket["ap_std_mods"].append(item)
+                elif m.kind == "ap_toggle": bucket["ap_toggle_mods"].append(item)
+            return JsonResponse({"ok": True, "bucket": bucket})
 
-        messages.success(request, "Roll modifier added.")
-        return redirect(
-            reverse("characters:character_detail", args=[character.pk]) + "#tab-rolls"
-        )
+        messages.success(request, f"Added modifier: {label} ({kind})")
+        return redirect(url)
 
 
     # Sharing UI data for template
@@ -7223,72 +7179,7 @@ def character_detail(request, pk):
         for mg in mg_qs if feats_by_id.get(mg.object_id)
     ]
 
-    roll_choices = [
-        {"code": "attack",          "label": "Attack Roll",          "kind": "attack"},
-        {"code": "save_fort",       "label": "Save – Fortitude",     "kind": "save"},
-        {"code": "save_reflex",     "label": "Save – Reflex",        "kind": "save"},
-        {"code": "save_will",       "label": "Save – Will",          "kind": "save"},
-        {"code": "skill_athletics", "label": "Skill – Athletics",    "kind": "skill"},
-        {"code": "skill_acrobatics","label": "Skill – Acrobatics",   "kind": "skill"},
-        {"code": "skill_perception","label": "Skill – Perception",   "kind": "skill"},
-        {"code": "skill_stealth",   "label": "Skill – Stealth",      "kind": "skill"},
-    ]
 
-    # Initialise structure for each roll
-    roll_map = {
-        r["code"]: {
-            "code": r["code"],
-            "label": r["label"],
-            "kind": r["kind"],
-            "std_mods": [],
-            "toggle_mods": [],
-            "ap_std_mods": [],
-            "ap_toggle_mods": [],
-        }
-        for r in roll_choices
-    }
-    # --- Dice Roller: attack base bonus taken from Combat tab --------------------
-    try:
-        # Use the best "to hit" across all equipped weapons; fall back to 0
-        attack_base_bonus = max(
-            int(a.get("hit_best") or 0) for a in attacks_detailed
-        ) if attacks_detailed else 0
-    except Exception:
-        attack_base_bonus = 0
-
-    # Attach modifiers from DB
-    for m in RollModifier.objects.filter(character=character):
-        bucket = roll_map.get(m.roll_code)
-
-        # NEW: don't drop mods if roll_code isn't in roll_map
-        if not bucket:
-            roll_map[m.roll_code] = bucket = {
-                "code": m.roll_code,
-                "label": m.roll_code,     # you can prettify later
-                "kind": "other",
-                "std_mods": [],
-                "toggle_mods": [],
-                "ap_std_mods": [],
-                "ap_toggle_mods": [],
-            }
-
-        mod_dict = {"id": m.id, "name": m.name, "value": m.value}
-        if m.kind == "standard":
-            bucket["std_mods"].append(mod_dict)
-        elif m.kind == "toggle":
-            bucket["toggle_mods"].append(mod_dict)
-        elif m.kind == "ap_standard":
-            bucket["ap_std_mods"].append(mod_dict)
-        elif m.kind == "ap_toggle":
-            bucket["ap_toggle_mods"].append(mod_dict)
-
-
-    roll_mod_data = {"rolls": list(roll_map.values())}
-    roll_mod_data = {
-        "rolls": list(roll_map.values()),
-        "attack_base_bonus": int(attack_base_bonus or 0),
-    }
-    roll_mod_data_json = mark_safe(json.dumps(roll_mod_data))
     # — Martial Mastery —
 
     if request.method == "POST":
@@ -8066,29 +7957,58 @@ def character_detail(request, pk):
             return row  # ← return the CharacterItem instance
         # Get Weapon from catalog
         if op == "get_weapon":
-            wid = (request.POST.get("weapon_id") or "").strip()
-            try:
-                Weapon = apps.get_model("characters", "Weapon")
-                w = Weapon.objects.get(pk=int(wid))
-            except Exception:
-                messages.error(request, "Invalid weapon.")
-                return redirect('characters:character_detail', pk=pk)
-            _upsert_ct_obj(("characters", "Weapon"), w.id, add_qty=qty)
-            messages.success(request, f"Added {qty} × {w.name} to inventory.")
-            return redirect('characters:character_detail', pk=pk)
+            wid = request.POST.get("weapon_id")
+            if not wid:
+                return redirect("character_detail", pk=character.id)
 
-        # Get Armor from catalog
-        if op == "get_armor":
-            aid = (request.POST.get("armor_id") or "").strip()
             try:
-                Armor = apps.get_model("characters", "Armor")
+
+                w = Weapon.objects.get(pk=int(wid))
+            except (ValueError, TypeError, Weapon.DoesNotExist, Exception):
+                return redirect("character_detail", pk=character.id)
+
+            qty = int(request.POST.get("weapon_qty", 1) or 1)
+
+            ct = ContentType.objects.get_for_model(Weapon)
+            ci, created = CharacterItem.objects.get_or_create(
+                character=character,
+                item_content_type=ct,
+                item_object_id=str(w.id),
+                defaults={"quantity": qty},
+            )
+            if not created:
+                ci.quantity = int(ci.quantity or 0) + qty
+                ci.save(update_fields=["quantity"])
+
+            return redirect("character_detail", pk=character.id)
+
+
+        if op == "get_armor":
+            aid = request.POST.get("armor_id")
+            if not aid:
+                return redirect("character_detail", pk=character.id)
+
+            try:
+
                 a = Armor.objects.get(pk=int(aid))
-            except Exception:
-                messages.error(request, "Invalid armor.")
-                return redirect('characters:character_detail', pk=pk)
-            _upsert_ct_obj(("characters", "Armor"), a.id, add_qty=qty)
-            messages.success(request, f"Added {qty} × {a.name} to inventory.")
-            return redirect('characters:character_detail', pk=pk)
+            except (ValueError, TypeError, Armor.DoesNotExist, Exception):
+                return redirect("character_detail", pk=character.id)
+
+            qty = int(request.POST.get("armor_qty", 1) or 1)
+
+            ct = ContentType.objects.get_for_model(Armor)
+            ci, created = CharacterItem.objects.get_or_create(
+                character=character,
+                item_content_type=ct,
+                item_object_id=str(a.id),
+                defaults={"quantity": qty},
+            )
+            if not created:
+                ci.quantity = int(ci.quantity or 0) + qty
+                ci.save(update_fields=["quantity"])
+
+            return redirect("character_detail", pk=character.id)
+
 
         # Manual free-text add (no catalog type)
         # ✅ Free-text add (no catalog type required)
@@ -8333,18 +8253,28 @@ def character_detail(request, pk):
             )
 
     # --- Dice Roller: DELETE a modifier ---------------------------------------
-    if request.method == "POST" and request.POST.get("roll_mod_delete") and can_edit:
-        try:
-            mid = int(request.POST.get("mod_id") or "0")
-        except ValueError:
-            mid = 0
+    if request.method == "POST" and request.POST.get("roll_mod_delete") == "1":
+        mid = request.POST.get("mod_id")
+        mod = RollModifier.objects.filter(character=character, id=mid).first()
+        if mod:
+            code = mod.roll_code
+            mod.delete()
 
-        if mid:
-            RollModifier.objects.filter(character=character, id=mid).delete()
+            if _is_ajax(request):
+                qs = RollModifier.objects.filter(character=character, roll_code=code).order_by("id")
+                bucket = {"code": code, "label": code, "kind": "other", "std_mods": [], "toggle_mods": [], "ap_std_mods": [], "ap_toggle_mods": []}
+                if code == "attack": bucket["kind"] = "attack"
+                if code == "save":   bucket["kind"] = "save"
+                if code == "skill":  bucket["kind"] = "skill"
+                for m in qs:
+                    item = {"id": m.id, "name": m.name, "value": int(m.value or 0)}
+                    if m.kind == "standard": bucket["std_mods"].append(item)
+                    elif m.kind == "toggle": bucket["toggle_mods"].append(item)
+                    elif m.kind == "ap_standard": bucket["ap_std_mods"].append(item)
+                    elif m.kind == "ap_toggle": bucket["ap_toggle_mods"].append(item)
+                return JsonResponse({"ok": True, "bucket": bucket})
 
-        return redirect(
-            reverse("characters:character_detail", args=[character.pk]) + "#tab-rolls"
-        )
+        return redirect(url)
 
 
     # --- Dice Roller: EDIT a modifier -----------------------------------------
@@ -8366,10 +8296,24 @@ def character_detail(request, pk):
                 value=value,
             )
 
-        return redirect(
-            reverse("characters:character_detail", args=[character.pk]) + "#tab-rolls"
-        )
+        mod.save(update_fields=["name", "value"])
 
+        if _is_ajax(request):
+            code = mod.roll_code
+            qs = RollModifier.objects.filter(character=character, roll_code=code).order_by("id")
+            bucket = {"code": code, "label": code, "kind": "other", "std_mods": [], "toggle_mods": [], "ap_std_mods": [], "ap_toggle_mods": []}
+            if code == "attack": bucket["kind"] = "attack"
+            if code == "save":   bucket["kind"] = "save"
+            if code == "skill":  bucket["kind"] = "skill"
+            for m in qs:
+                item = {"id": m.id, "name": m.name, "value": int(m.value or 0)}
+                if m.kind == "standard": bucket["std_mods"].append(item)
+                elif m.kind == "toggle": bucket["toggle_mods"].append(item)
+                elif m.kind == "ap_standard": bucket["ap_std_mods"].append(item)
+                elif m.kind == "ap_toggle": bucket["ap_toggle_mods"].append(item)
+            return JsonResponse({"ok": True, "bucket": bucket})
+
+        return redirect(url)
 
     if _grants_class_feat_at and "class_feat_pick" not in level_form.fields:
         level_form.fields["class_feat_pick"] = forms.ModelChoiceField(
@@ -11100,20 +11044,133 @@ def character_detail(request, pk):
         print(f"[DBG] attacks_detailed slot={label} name={w.name} group={group_code} "
         f"tier={w_prof['name']} bonus={int(w_prof['bonus'])} half={half_w} "
         f"→ hit_best={math_['hit_best']} dmg_best={math_['dmg_best']} rule={math_['rule']}")
+  
+    # Dice roller: selectable roll targets + saved roll modifiers (small buckets)
+    # ─────────────────────────────────────────────────────────────────────────────
 
+    RollModifier = apps.get_model("characters", "RollModifier")
 
-    # Only two roll types for the dice roller
-    roll_choices = [
-        {"code": "attack",   "label": "Attack roll",      "kind": "attack"},
-        {"code": "generic",  "label": "Non-attack roll",  "kind": "other"},
-        {"code": "dicepool", "label": "Dice pool",        "kind": "other"},
+    # 1) Build selectable roll targets (these populate the dropdown)
+    attack_opts = []
+    attack_base_bonus = 0
+    for a in (attacks_detailed or []):
+        base = int(a.get("hit_best") or 0)
+        attack_base_bonus = max(attack_base_bonus, base)
+        attack_opts.append({
+            "code": f"attack:w{a['weapon_id']}",
+            "label": f"{a['name']} ({a['slot']})",
+            "kind": "attack",
+            "base": base,
+        })
+
+    save_opts = [
+        {"code": "save:fortitude", "label": "Fortitude", "kind": "save", "base": int(derived.get("fortitude_total") or 0)},
+        {"code": "save:reflex",    "label": "Reflex",    "kind": "save", "base": int(derived.get("reflex_total") or 0)},
+        {"code": "save:will",      "label": "Will",      "kind": "save", "base": int(derived.get("will_total") or 0)},
     ]
 
+    skill_opts = []
+    for row in (all_skill_rows or []):
+        # ability1 always exists in your row builder
+        a1 = row.get("ability1") or ""
+        skill_opts.append({
+            "code": f"skill:{row['id_key']}:1",
+            "label": f"{row['label']} ({a1})",
+            "kind": "skill",
+            "base": int(row.get("total1") or 0),
+        })
+        # if you have dual-ability skills, include the second variant
+        if row.get("ability2"):
+            a2 = row.get("ability2") or ""
+            skill_opts.append({
+                "code": f"skill:{row['id_key']}:2",
+                "label": f"{row['label']} ({a2})",
+                "kind": "skill",
+                "base": int(row.get("total2") or 0),
+            })
 
-    # Load any saved roll modifiers from CharacterFieldOverride
-    roll_ov = CharacterFieldOverride.objects.filter(
-        character=character, key="roll_mods"
-    ).first()
+    other_opts = [
+        {"code": "check:initiative",  "label": "Initiative",  "kind": "other", "base": int(derived.get("initiative_total") or 0)},
+        {"code": "check:perception",  "label": "Perception",  "kind": "other", "base": int(derived.get("perception_total") or 0)},
+        {"code": "generic",           "label": "Custom / Other", "kind": "other", "base": 0},
+        {"code": "dicepool",          "label": "Dice Pool",   "kind": "other", "base": 0},
+    ]
+
+    roll_choice_groups = []
+    if attack_opts:
+        roll_choice_groups.append({"label": "Attacks", "options": attack_opts})
+    else:
+        roll_choice_groups.append({"label": "Attacks", "options": [{
+            "code": "attack:w0", "label": "Attack (no weapon equipped)", "kind": "attack", "base": 0
+        }]})
+    roll_choice_groups.append({"label": "Saves",  "options": save_opts})
+    roll_choice_groups.append({"label": "Skills", "options": skill_opts})
+    roll_choice_groups.append({"label": "Other",  "options": other_opts})
+
+    # Flat list (if anything else still expects roll_choices)
+    roll_choices = [o for g in roll_choice_groups for o in g["options"]]
+
+    # 2) Saved modifiers: keep them in small buckets so JSON stays small
+    # Buckets used by the UI:
+    #   attack  -> all attack roll mods (+ AP mods)
+    #   save    -> all save roll mods
+    #   skill   -> all skill roll mods
+    #   generic -> all other d20 roll mods
+    #   dicepool-> dice pool roll mods
+    bucket_defs = [
+        {"code": "attack",   "label": "Attack Modifiers",   "kind": "attack"},
+        {"code": "save",     "label": "Save Modifiers",     "kind": "save"},
+        {"code": "skill",    "label": "Skill Modifiers",    "kind": "skill"},
+        {"code": "generic",  "label": "Generic Modifiers",  "kind": "other"},
+        {"code": "dicepool", "label": "Dice Pool Modifiers","kind": "other"},
+    ]
+    roll_map = {
+        b["code"]: {
+            "code": b["code"],
+            "label": b["label"],
+            "kind": b["kind"],
+            "std_mods": [],
+            "toggle_mods": [],
+            "ap_std_mods": [],
+            "ap_toggle_mods": [],
+        }
+        for b in bucket_defs
+    }
+
+    def _bucket_for_roll_code(code: str) -> str:
+        c = (code or "").lower()
+        if c.startswith("attack"):
+            return "attack"
+        if c.startswith("save"):
+            return "save"
+        if c.startswith("skill"):
+            return "skill"
+        if c == "dicepool":
+            return "dicepool"
+        if c in ("generic", "other"):
+            return "generic"
+        return "generic"
+
+    mods_qs = RollModifier.objects.filter(character=character).order_by("id")
+    for m in mods_qs:
+        bcode = _bucket_for_roll_code(m.roll_code)
+        r = roll_map[bcode]
+        item = {"id": m.id, "name": m.name, "value": int(m.value or 0)}
+        if m.kind == "standard":
+            r["std_mods"].append(item)
+        elif m.kind == "toggle":
+            r["toggle_mods"].append(item)
+        elif m.kind == "ap_standard":
+            r["ap_std_mods"].append(item)
+        elif m.kind == "ap_toggle":
+            r["ap_toggle_mods"].append(item)
+
+    roll_mod_data = {
+        "rolls": list(roll_map.values()),
+        "attack_base_bonus": int(attack_base_bonus or 0),
+    }
+    roll_mod_data_json = mark_safe(json.dumps(roll_mod_data))
+
     try:
         roll_blob = json.loads(roll_ov.value) if (roll_ov and roll_ov.value) else {}
     except Exception:
@@ -11915,11 +11972,12 @@ def character_detail(request, pk):
                         pass
 
                 # New slot-based selector pattern
-                if key.startswith("wear_slot_") and val:
+                if (key.startswith("wear_slot_") or key.startswith("wearable_")) and val:
                     try:
                         equip_ids.add(int(val))
                     except ValueError:
                         pass
+
 
 
             # All inventory items for this character
@@ -12462,9 +12520,8 @@ def character_detail(request, pk):
             reverse("characters:character_detail", args=[character.pk]) + "#tab-rolls"
         )
 
-    inventory_ctx = {}
-    if active_tab in {"inventory", "combat"}:
-        inventory_ctx = _inventory_context(character)
+
+    inventory_ctx = _inventory_context(character)
 
 
     # Build rows for “Manually Added Feats”
@@ -12613,7 +12670,7 @@ def character_detail(request, pk):
         'tier_names': tier_names,
             'available_feats': available_feats,   # flat list for simple loops
             'feat_groups':     feat_groups,       # grouped dict for sectioned UIs
-
+"roll_choice_groups": roll_choice_groups,
         # — Abilities / proficiencies —
         'ability_map': ability_map,
         'abilities': abilities,
