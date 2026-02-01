@@ -167,6 +167,8 @@ class RulebookGlossaryView(DetailView):
         ctx["grouped_terms"] = grouped_sorted
         ctx["term_count"] = sum(len(v) for _, v in grouped_sorted)
         return ctx
+def _is_ajax(request) -> bool:
+    return request.headers.get("x-requested-with") == "XMLHttpRequest"
 
 
 def _mm_cost(m) -> int:
@@ -11048,7 +11050,6 @@ def character_detail(request, pk):
     # Dice roller: selectable roll targets + saved roll modifiers (small buckets)
     # ─────────────────────────────────────────────────────────────────────────────
 
-    RollModifier = apps.get_model("characters", "RollModifier")
 
     # 1) Build selectable roll targets (these populate the dropdown)
     attack_opts = []

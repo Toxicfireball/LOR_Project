@@ -86,6 +86,12 @@
   column-gap:.5rem;
   row-gap:.25rem;
 }
+/* Details image: force visible even if global CSS hides images */
+#tab-details img.details-image{
+  display:block !important;
+  max-width:100% !important;
+  height:auto !important;
+}
 
 
 /* a touch slimmer so the name column breathes */
@@ -584,7 +590,7 @@
   <div class="card-header fw-bold">Image</div>
   <div class="card-body">
     {% if character.details_image %}
-      <img src="{{ character.details_image.url }}" class="img-fluid rounded mb-2">
+<img src="{{ character.details_image.url }}" class="img-fluid rounded mb-2 details-image" alt="Character image">
     {% else %}
       <div class="text-muted mb-2">No image yet.</div>
     {% endif %}
@@ -1045,9 +1051,12 @@ data-key="prof:{{ r.code|lower }}"
     }
 
     /* Modifier tables */
-    #tab-rolls .mod-table th { white-space: nowrap; }
-    #tab-rolls .mod-table td { vertical-align: middle; }
-    #tab-rolls .mod-actions { width: 1%; white-space: nowrap; text-align: right; }
+
+#tab-rolls .mod-actions { display: table-cell !important; width: 1%; white-space: nowrap; text-align: right; }
+#tab-rolls .mod-actions .btn{ display: inline-flex !important; }
+#tab-rolls button[data-bs-target="#collapse-add-std"],
+#tab-rolls button[data-bs-target="#collapse-add-toggle"]{ display: inline-flex !important; }
+#tab-rolls #roll-std-mods { display: block !important; }
 
     /* Toggle list */
     #tab-rolls .toggle-list .form-check {
@@ -1157,7 +1166,8 @@ data-key="prof:{{ r.code|lower }}"
               </table>
             </div>
 
-            <div class="collapse mt-2" id="collapse-add-std">
+            <div class="mt-2" id="collapse-add-std">
+
               <form id="form-add-std-mod" class="row g-2" method="post">
                 {% csrf_token %}
                 <input type="hidden" name="roll_mod_form" value="1">
@@ -1189,7 +1199,8 @@ data-key="prof:{{ r.code|lower }}"
 
             <div id="roll-toggle-mods" class="toggle-list"></div>
 
-            <div class="collapse mt-2" id="collapse-add-toggle">
+            <div class="mt-2" id="collapse-add-toggle">
+
               <form id="form-add-toggle-mod" class="row g-2" method="post">
                 {% csrf_token %}
                 <input type="hidden" name="roll_mod_form" value="1">
@@ -1297,7 +1308,8 @@ data-key="prof:{{ r.code|lower }}"
               </table>
             </div>
 
-            <div class="collapse mt-2" id="collapse-add-pool-std">
+            <div class="mt-2" id="collapse-add-pool-std">
+
               <form class="row g-2" method="post">
                 {% csrf_token %}
                 <input type="hidden" name="roll_mod_form" value="1">
@@ -1328,7 +1340,8 @@ data-key="prof:{{ r.code|lower }}"
 
             <div id="pool-toggle-mods" class="toggle-list"></div>
 
-            <div class="collapse mt-2" id="collapse-add-pool-toggle">
+            <div class="mt-2" id="collapse-add-pool-toggle">
+
               <form class="row g-2" method="post">
                 {% csrf_token %}
                 <input type="hidden" name="roll_mod_form" value="1">
@@ -1403,6 +1416,75 @@ data-key="prof:{{ r.code|lower }}"
           <div id="roll-log" class="roll-log mono small"></div>
         </div>
       </div>
+<!-- Damage Reduction -->
+<div class="card shadow-sm mt-3" id="dr-card">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <div>
+      <div class="section-title">Damage Reduction</div>
+      <div class="small muted">
+        Armor reduces <span class="mono">ceil(damage/10)</span> per Armor. Ward is flat. Total reduction caps at damage.
+      </div>
+    </div>
+    <button id="dr-reset" class="btn btn-sm btn-outline-secondary" type="button">Reset</button>
+  </div>
+
+  <div class="card-body">
+    <div class="row g-2">
+      <div class="col-6">
+        <label class="form-label small mb-1">Damage done</label>
+        <input id="dr-damage" type="number" class="form-control" value="0" min="0">
+      </div>
+
+      <div class="col-6">
+        <label class="form-label small mb-1">Ward (flat)</label>
+        <input id="dr-ward" type="number" class="form-control" value="0" min="0">
+      </div>
+
+      <div class="col-6">
+        <label class="form-label small mb-1">Armor</label>
+        <input id="dr-armor" type="number" class="form-control" value="0" min="0">
+      </div>
+
+      <div class="col-6 d-flex align-items-end">
+        <div class="form-check">
+          <input id="dr-armor-enabled" class="form-check-input" type="checkbox" checked>
+          <label class="form-check-label small" for="dr-armor-enabled">Apply armor</label>
+        </div>
+      </div>
+    </div>
+
+    <hr class="my-3">
+
+    <div class="row g-2">
+  <div class="col-6" style="display: none;">
+    <label class="form-label small mb-1">Step (ceil(damage/10))</label>
+    <input id="dr-step" type="number" class="form-control" value="0" readonly>
+  </div>
+
+      <div class="col-6">
+        <label class="form-label small mb-1">Armor reduction</label>
+        <input id="dr-armor-reduction" type="number" class="form-control" value="0" readonly>
+      </div>
+
+      <div class="col-6">
+        <label class="form-label small mb-1">Total reduction (capped)</label>
+        <input id="dr-total-reduction" type="number" class="form-control" value="0" readonly>
+      </div>
+
+      <div class="col-6">
+        <label class="form-label small mb-1">Final damage</label>
+        <input id="dr-final" type="number" class="form-control fw-semibold" value="0" readonly>
+      </div>
+    </div>
+
+    <div class="mt-2">
+      <div class="small muted">
+        Percent reduced: <span id="dr-percent" class="fw-semibold">0%</span>
+      </div>
+      <div id="dr-breakdown" class="mono small p-2 rounded bg-light border mt-1">—</div>
+    </div>
+  </div>
+</div>
 
     </div>
   </div>
@@ -1440,6 +1522,19 @@ data-key="prof:{{ r.code|lower }}"
     const poolTogModsBox  = document.getElementById("pool-toggle-mods");
     const btnRollPool     = document.getElementById("btn-roll-pool");
     const btnClearPool    = document.getElementById("btn-clear-pool");
+// damage reduction
+const drDamageIn        = document.getElementById("dr-damage");
+const drArmorIn         = document.getElementById("dr-armor");
+const drWardIn          = document.getElementById("dr-ward");
+const drArmorEnabledCb  = document.getElementById("dr-armor-enabled");
+const drResetBtn        = document.getElementById("dr-reset");
+
+const drStepOut         = document.getElementById("dr-step");
+const drArmorRedOut     = document.getElementById("dr-armor-reduction");
+const drTotalRedOut     = document.getElementById("dr-total-reduction");
+const drFinalOut        = document.getElementById("dr-final");
+const drPctEl           = document.getElementById("dr-percent");
+const drBreakEl         = document.getElementById("dr-breakdown");
 
     // tray
     const trayTitle    = document.getElementById("dice-title");
@@ -1699,6 +1794,54 @@ data-key="prof:{{ r.code|lower }}"
       line.textContent = text;
       rollLogEl.prepend(line);
     }
+function clampInt(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.trunc(n));
+}
+
+function computeDamageReduction(damage, armor, ward, armorApplies) {
+  const dmg = clampInt(damage);
+  const arm = clampInt(armor);
+  const w   = clampInt(ward);
+
+  const step = dmg > 0 ? Math.ceil(dmg / 10) : 0;          // per 1 armor
+  const armorReduction = armorApplies ? (arm * step) : 0;
+  const wardReduction  = w;
+
+  const rawReduction   = armorReduction + wardReduction;
+  const totalReduction = Math.min(dmg, rawReduction);       // cap at damage
+  const finalDamage    = Math.max(0, dmg - totalReduction);
+
+  const pct = dmg > 0 ? (totalReduction / dmg) * 100 : 0;
+
+  return { dmg, arm, w, step, armorReduction, wardReduction, totalReduction, finalDamage, pct };
+}
+
+function renderDamageReduction() {
+  // If card not present (future reuse), bail safely
+  if (!drDamageIn) return;
+
+  const armorApplies = !!drArmorEnabledCb?.checked;
+  const out = computeDamageReduction(
+    drDamageIn.value,
+    drArmorIn.value,
+    drWardIn.value,
+    armorApplies
+  );
+
+  drStepOut.value     = out.step;
+  drArmorRedOut.value = out.armorReduction;
+  drTotalRedOut.value = out.totalReduction;
+  drFinalOut.value    = out.finalDamage;
+
+  const pctRounded = Math.round(out.pct * 10) / 10;
+  drPctEl.textContent = `${pctRounded}%`;
+
+  const armorTerm = armorApplies ? `armor(${out.arm}) * ceil(${out.dmg}/10)=${out.step} => ${out.armorReduction}` : `armor ignored`;
+  drBreakEl.textContent =
+    `damage(${out.dmg}) | ${armorTerm} | ward(${out.w}) => raw(${out.armorReduction + out.wardReduction}) | capped(${out.totalReduction}) | final(${out.finalDamage})`;
+}
 
     // ---------- Main render ----------
     function renderAll() {
@@ -1720,6 +1863,8 @@ data-key="prof:{{ r.code|lower }}"
       const base = Number(rollBaseInput.value || 0);
       const out = computeD20Total(d20, base, bucketCode);
       rollTotalInput.value = out.total;
+// Damage reduction preview
+renderDamageReduction();
 
       // Recompute pool preview fields
       updatePoolPreview();
@@ -1743,6 +1888,17 @@ data-key="prof:{{ r.code|lower }}"
       rollD20Input.value = 0;
       renderAll();
     });
+// Damage reduction events
+[drDamageIn, drArmorIn, drWardIn].forEach(el => el && el.addEventListener("input", () => renderDamageReduction()));
+drArmorEnabledCb && drArmorEnabledCb.addEventListener("change", () => renderDamageReduction());
+
+drResetBtn && drResetBtn.addEventListener("click", () => {
+  drDamageIn.value = 0;
+  drArmorIn.value = 0;
+  drWardIn.value = 0;
+  drArmorEnabledCb.checked = true;
+  renderDamageReduction();
+});
 
     rollBaseInput.addEventListener("input", () => renderAll());
     poolBaseInput.addEventListener("input", () => renderAll());
@@ -1769,8 +1925,10 @@ data-key="prof:{{ r.code|lower }}"
       const bucket = delBtn.getAttribute("data-bucket") || "generic";
 
       const fd = new FormData();
-      fd.append("roll_mod_delete", "1");
-      fd.append("mod_id", String(mid));
+fd.append("roll_mod_delete", "1");
+fd.append("mod_id", String(mid));
+fd.append("roll_code", bucket);
+
 
       const res = await postFormAjax(fd);
       if (!res) return;
