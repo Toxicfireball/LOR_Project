@@ -78,6 +78,21 @@ from .models import Rulebook
 def _strip_html(s: str) -> str:
     # cheap/fast tag stripper; good enough for matching terms in rich text
     return re.sub(r"<[^>]*>", " ", s or "")
+def _load_character_and_perms(request, pk):
+    character = get_object_or_404(Character, pk=pk)
+
+    is_gm_for_campaign = False
+    if character.campaign_id:
+        is_gm_for_campaign = CampaignMembership.objects.filter(
+            campaign=character.campaign, user=request.user, role="gm"
+        ).exists()
+
+    is_shared_viewer = CharacterViewer.objects.filter(character=character, user=request.user).exists()
+    if not (request.user.id == character.user_id or is_gm_for_campaign or is_shared_viewer):
+        return None, None, HttpResponseForbidden("You don’t have permission to view this character.")
+
+    can_edit = (request.user.id == character.user_id) or is_gm_for_campaign
+    return character, can_edit, None
 
 def _matches_term(text: str, text_lower: str, term: GlossaryTerm) -> bool:
     """
@@ -104,6 +119,50 @@ def _matches_term(text: str, text_lower: str, term: GlossaryTerm) -> bool:
 
     return False
 
+def _starting_skills_cap_for(character, cls_obj, class_progress):
+    expr = (getattr(cls_obj, "starting_skills_formula", "") or "").strip()
+    if not expr:
+        return 0
+
+
+    def _abil(score: int) -> int:
+        return (score - 10) // 2
+
+    # IMPORTANT: short names -> MODIFIERS
+    ctx = {
+        # modifiers (primary names)
+        "strength": _abil(character.strength), "dexterity": _abil(character.dexterity),
+        "constitution": _abil(character.constitution), "intelligence": _abil(character.intelligence),
+        "wisdom": _abil(character.wisdom), "charisma": _abil(character.charisma),
+
+        # explicit *_mod aliases (same values as above)
+        "str_mod": _abil(character.strength), "dex_mod": _abil(character.dexterity),
+        "con_mod": _abil(character.constitution), "int_mod": _abil(character.intelligence),
+        "wis_mod": _abil(character.wisdom), "cha_mod": _abil(character.charisma),
+
+        # scores (only if you want them available explicitly)
+        "strength_score": character.strength, "dexterity_score": character.dexterity,
+        "constitution_score": character.constitution, "intelligence_score": character.intelligence,
+        "wisdom_score": character.wisdom, "charisma_score": character.charisma,
+
+        # math/helpers
+        "floor": math.floor, "ceil": math.ceil, "min": min, "max": max,
+        "int": int, "round": round,
+    }
+
+    # <class>_level tokens (wizard_level, fighter_level, ...)
+    for prog in character.class_progress.select_related('character_class'):
+        token = re.sub(r'[^a-z0-9_]', '', (prog.character_class.name or '')
+                    .strip().lower().replace(' ', '_'))
+        if token:
+            ctx[f"{token}_level"] = int(prog.levels or 0)
+
+    try:
+        val = eval(_normalize_formula(expr), {"__builtins__": {}}, ctx)
+        return max(0, int(val))
+    except Exception:
+        return 0
+    
 
 class RulebookGlossaryView(DetailView):
     model = Rulebook
@@ -1851,7 +1910,38 @@ def _weapon_math(weapon: Weapon, str_mod: int, dex_mod: int, prof_weapon: int, h
                     base=base, hit_str=hit_S, hit_dex=hit_D, dmg_str=dmg_S, dmg_dex=dmg_D, traits=sorted(traits))
     return dict(rule="default", show_choice_hit=False, show_choice_dmg=False,
                 base=base, hit_str=hit_S, hit_dex=hit_D, dmg_str=dmg_S, dmg_dex=dmg_D, traits=sorted(traits))
-                
+ 
+ 
+def _weapon_traits_display(weapon: Weapon) -> list[str]:
+    vals = (
+        WeaponTraitValue.objects
+        .filter(weapon=weapon)
+        .select_related('trait')
+        .order_by('trait__name')
+    )
+
+    out = []
+    for v in vals:
+        name = (v.trait.name or "").strip()
+        if not name:
+            continue
+        value = (v.value or "").strip()
+        if value:
+            out.append(f"{name} {value}")
+        else:
+            out.append(name)
+
+    # de-dupe, preserve order
+    seen = set()
+    dedup = []
+    for s in out:
+        k = s.lower()
+        if k in seen:
+            continue
+        seen.add(k)
+        dedup.append(s)
+    return dedup
+               
 def _weapon_math_for(
     weapon: Weapon,
     str_mod: int,
@@ -1927,13 +2017,8 @@ def _weapon_math_for(
             "base": base,
             "traits": sorted(list(traits)),
         }
+        
 
-    print(
-        f"[DBG] _weapon_math_for: name={getattr(weapon,'name','?')} "
-        f"prof={prof_weapon} half={half_lvl_if_trained} str_mod={str_mod} dex_mod={dex_mod} "
-        f"rule={res['rule']} → hit_str={res['hit_str']} hit_dex={res['hit_dex']} "
-        f"dmg_str={res['dmg_str']} dmg_dex={res['dmg_dex']}"
-    )
     return res
 
 
@@ -1953,7 +2038,6 @@ def _weapon_prof_group(weapon) -> str:
     elif s in {"black_powder", "black__powder", "blackpowder","black-powder"}:
         s = "black_powder"
 
-    print(f"[DBG] _weapon_prof_group: id={getattr(weapon,'id',None)} name={getattr(weapon,'name','?')} raw='{raw}' → '{s or 'simple'}'")
     return s or "simple"
 
 
@@ -2003,7 +2087,6 @@ def _prof_from_group(prof_by_code, group):
     key = g if g.startswith("weapon:") else f"weapon:{g}"
     r = prof_by_code.get(key)
     if not r:
-        print(f"[DBG] _prof_from_group: MISSING key='{key}' → Untrained")
         return {"name": "Untrained", "bonus": 0, "is_proficient": False}
 
     name = (r.get("tier_name") or r.get("name") or "Untrained")
@@ -2020,10 +2103,6 @@ def _prof_from_group(prof_by_code, group):
     # 👇 take the numeric maximum; fixes cases where 'bonus' is 0 but 'modifier' has the real value
     bonus = max(_to_int(raw_bonus), _to_int(raw_modifier))
 
-    print(
-        f"[DBG] _prof_from_group: key='{key}' "
-        f"tier='{name}' raw_bonus={raw_bonus!r} raw_modifier={raw_modifier!r} → use bonus={bonus} src={r.get('source')}"
-    )
 
     return {
         "name": name,
@@ -6187,22 +6266,10 @@ class AdvanceForm(forms.Form):
 @login_required
 def character_detail(request, pk):
     # ── 1) Load character & basic sheet context ─────────────────────────────
-    character = get_object_or_404(Character, pk=pk)
-    CharacterFeature = apps.get_model("characters", "CharacterFeature")
+    character, can_edit, denied = _load_character_and_perms(request, pk)
+    if denied:
+        return denied
 
-    is_gm_for_campaign = False
-    if character.campaign_id:
-        is_gm_for_campaign = CampaignMembership.objects.filter(
-            campaign=character.campaign, user=request.user, role="gm"
-        ).exists()
-    active_tab = (request.GET.get("tab") or request.POST.get("tab") or "summary").strip().lower()
-    # NEW: allow explicitly shared viewers
-    is_shared_viewer = CharacterViewer.objects.filter(character=character, user=request.user).exists()
-
-    if not (request.user.id == character.user_id or is_gm_for_campaign or is_shared_viewer):
-        return HttpResponseForbidden("You don’t have permission to view this character.")
-
-    can_edit = (request.user.id == character.user_id) or is_gm_for_campaign
     # Handle level-up POSTs by delegating to the dedicated view
     if request.method == "POST" and "level_up_submit" in request.POST:
         return character_level_up(request, pk)
@@ -6742,8 +6809,7 @@ def character_detail(request, pk):
             key=key,
             defaults={"note": reason},
         )
-        print("[DBG] SAVE_PROF_TIER", dict(request.POST))
-        print("[DBG] saving key", key, "tier_pk", tier_pk, "reason", reason)
+
 
         messages.success(request, "Proficiency tier override saved.")
         return redirect("characters:character_detail", pk=pk)
@@ -7084,53 +7150,10 @@ def character_detail(request, pk):
 
 
 
-
-    def _starting_skills_cap_for(cls_obj):
-        expr = (getattr(cls_obj, "starting_skills_formula", "") or "").strip()
-        if not expr:
-            return 0
-
-        def _abil(score: int) -> int:
-            return (score - 10) // 2
-
-        # IMPORTANT: short names -> MODIFIERS
-        ctx = {
-            # modifiers (primary names)
-            "strength": _abil(character.strength), "dexterity": _abil(character.dexterity),
-            "constitution": _abil(character.constitution), "intelligence": _abil(character.intelligence),
-            "wisdom": _abil(character.wisdom), "charisma": _abil(character.charisma),
-
-            # explicit *_mod aliases (same values as above)
-            "str_mod": _abil(character.strength), "dex_mod": _abil(character.dexterity),
-            "con_mod": _abil(character.constitution), "int_mod": _abil(character.intelligence),
-            "wis_mod": _abil(character.wisdom), "cha_mod": _abil(character.charisma),
-
-            # scores (only if you want them available explicitly)
-            "strength_score": character.strength, "dexterity_score": character.dexterity,
-            "constitution_score": character.constitution, "intelligence_score": character.intelligence,
-            "wisdom_score": character.wisdom, "charisma_score": character.charisma,
-
-            # math/helpers
-            "floor": math.floor, "ceil": math.ceil, "min": min, "max": max,
-            "int": int, "round": round,
-        }
-
-        # <class>_level tokens (wizard_level, fighter_level, ...)
-        for prog in character.class_progress.select_related('character_class'):
-            token = re.sub(r'[^a-z0-9_]', '', (prog.character_class.name or '')
-                        .strip().lower().replace(' ', '_'))
-            if token:
-                ctx[f"{token}_level"] = int(prog.levels or 0)
-
-        try:
-            val = eval(_normalize_formula(expr), {"__builtins__": {}}, ctx)
-            return max(0, int(val))
-        except Exception:
-            return 0
-
     if show_starting_skill_picker:
         # compute cap for the PREVIEWED class (GET)
-        starting_skill_max = _starting_skills_cap_for(preview_cls)
+        starting_skill_max = _starting_skills_cap_for(character, preview_cls, class_progress)
+
 
         ct_skill = ContentType.objects.get_for_model(Skill)
         ct_sub   = ContentType.objects.get_for_model(SubSkill)
@@ -7317,7 +7340,6 @@ def character_detail(request, pk):
         return _spell_redirect
 
     # --- NEW: Martial Mastery tab (points + slots + learn/unlearn) -----------
-    mm_ctx = build_martial_mastery_context(character, class_progress)
     
     # --- Spell slots-left editor (separate from prepared/known/learn) --------------
     if request.method == "POST" and request.POST.get("spells_op") == "save_slots_left" and can_edit:
@@ -9313,7 +9335,6 @@ def character_detail(request, pk):
                     }
 
     # (optional) quick sanity log
-    print("[DBG] dodge row →", prof_by_code.get("dodge"))
     # === NEW: Split DC into Martial and Spellcaster using multiclass equalisation ===
     def _tags_lower(cls_obj):
         try:
@@ -9453,7 +9474,6 @@ def character_detail(request, pk):
 
     # write/inject group rows into prof_by_code (so later code sees them)
     # DEBUG: what tiers did we derive from classes?
-    print("[DBG] group_best →", {k: (getattr(v, "name", None), getattr(v, "bonus", None)) for k, v in group_best.items()})
 
     # write/inject group rows into prof_by_code (so later code sees them)
     for gkey, tier in group_best.items():
@@ -9534,9 +9554,7 @@ def character_detail(request, pk):
             weapon_group=gname,     # <- group only, no specific item
             weapon_item_id=None
         )
-        print("[DBG] prof_by_code weapon groups →",
-      {k: {"tier": v.get("tier_name"), "mod": v.get("modifier"), "src": v.get("source")}
-       for k, v in prof_by_code.items() if k.startswith("weapon:")})
+
         # If row missing OR still Untrained, use class-derived values
         if (gcode not in prof_by_code) or _is_untrained_name(prof_by_code[gcode].get("tier_name","Untrained")):
             prof_by_code[gcode] = {
@@ -9558,9 +9576,7 @@ def character_detail(request, pk):
             except ValueError:
                 pass
     # DEBUG: what does the table say for each weapon group right now?
-    print("[DBG] prof_by_code weapon groups →",
-          {k: (r.get("tier_name"), r.get("modifier")) for k, r in prof_by_code.items() if k.startswith("weapon:")})
-    # Keep list form for template, and a **fresh** by_code after tier overrides
+  
     proficiency_summary = list(prof_by_code.values())
     by_code = {r["type_code"]: r for r in proficiency_summary}
 
@@ -9978,10 +9994,8 @@ def character_detail(request, pk):
 
     for code in ("armor","dodge","reflex","fortitude","will","perception","initiative","weapon","dc"):
         tier_pk = overrides.get(f"prof_tier:{code}")
-        print("DEBUG TIER APPLY", code, "tier_pk=", tier_pk, "type=", type(tier_pk))
-        if tier_pk and str(tier_pk).isdigit():
-            print("DEBUG lookups:",
-                "in ProficiencyLevel?", ProficiencyLevel.objects.filter(pk=int(tier_pk)).exists())
+
+
 
         if tier_pk and str(tier_pk).isdigit():
             pl = tier_rows.get(int(tier_pk))
@@ -10055,12 +10069,9 @@ def character_detail(request, pk):
         half_main = half_lvl if bool(main_prof.get("is_proficient")) else 0
         prof_weapon_for_left = int(main_prof.get("bonus", main_prof.get("modifier", 0)))
         group_note = str(main_prof.get("name", ""))  # note for UI if you show it
-        print(f"[DBG] left-card main weapon: id={getattr(main_w,'id',None)} name={getattr(main_w,'name','?')} "
-            f"group='{group}' → prof_bonus={int(main_prof.get('bonus',0))} "
-            f"half={half_main} is_prof={main_prof.get('is_proficient')}")
+
 
         def _half_weapon():
-            print(f"[DBG] left-card no primary: using generic 'weapon' prof={prof_weapon_for_left} half={hl_if_trained('weapon')}")
             return half_main
     else:
         # No primary weapon; fall back to the generic "weapon" code (unchanged)
@@ -11023,6 +11034,9 @@ def character_detail(request, pk):
             "name": w.name,
             "damage_die": w.damage,
             "range_type": w.range_type,
+            "traits_display":  _weapon_traits_display(w),
+
+
             "traits": math_["traits"],
             "base": math_["base"],
             "hit_str": math_["hit_str"],
@@ -11043,9 +11057,7 @@ def character_detail(request, pk):
 
         half_w = half_lvl if w_prof["is_proficient"] else 0
         math_ = _weapon_math_for(w, str_mod, dex_mod, int(w_prof["bonus"]), half_w)
-        print(f"[DBG] attacks_detailed slot={label} name={w.name} group={group_code} "
-        f"tier={w_prof['name']} bonus={int(w_prof['bonus'])} half={half_w} "
-        f"→ hit_best={math_['hit_best']} dmg_best={math_['dmg_best']} rule={math_['rule']}")
+
   
     # Dice roller: selectable roll targets + saved roll modifiers (small buckets)
     # ─────────────────────────────────────────────────────────────────────────────
@@ -11403,30 +11415,7 @@ def character_detail(request, pk):
     spell_dc_main = derived.get("spell_dc_main")
     # === Spell table data (Known + Prepared counts), grouped by rank ===
     # === Spell table data (Known + Prepared counts), grouped by rank ===
-    scx = _spellcasting_context(character)
-    rows_by_rank = {r: [] for r in scx["rank_range"]}
 
-    # Prepared counts per (origin, rank)
-    prep = scx["prepared_counts"]  # e.g. {'arcane': {1: 2, 2: 1}, ...}
-
-    # Known spells (use the spell's own origin; CharacterKnownSpell may not store origin)
-    for ks in character.known_spells.select_related("spell").all():
-        sp = ks.spell
-        origin_code = (getattr(sp, "origin", "") or "").strip().lower()
-        rank = int(getattr(ks, "rank", getattr(sp, "level", 0)) or 0)
-        prepared_count = int(prep.get(origin_code, {}).get(rank, 0))
-
-        rows_by_rank.setdefault(rank, []).append({
-            "name":           sp.name,
-            "origin":         origin_code,
-            "rank":           rank,
-            "classification": getattr(sp, "classification", "") or "",
-            "tags":           getattr(sp, "tags", "") or "",
-            "prepared_count": prepared_count,
-        })
-
-    # Helper list for the template (avoids dict indexing hassles)
-    spell_rank_blocks = [{"rank": r, "rows": rows_by_rank.get(r, [])} for r in scx["rank_range"]]
 
     show_spellcasting_tab = is_spellcaster or bool(spell_selection_blocks)
     # --- Manual caps adjustment (with reason) ------------------------------------
@@ -12276,12 +12265,7 @@ def character_detail(request, pk):
             prestige_feats.append(cf)
 
         # Optional debug – remove when you’re happy
-        print("DEBUG prestige preview", {
-            "char_id": character.id,
-            "prestige_cls_id": prestige_cls.id,
-            "p_level": p_level,
-            "feat_ids": [f.id for f in prestige_feats],
-        })
+
 
 
             
@@ -12308,7 +12292,6 @@ def character_detail(request, pk):
         Model = ClassFeat
         manager = getattr(Model, "all_objects", None) or Model._base_manager or Model.objects
         return manager.only("id", "name").order_by("name")
-    all_feats = list(_all_feats_qs())
 
     # Build rows for “Manually Added Feats”
     feat_ct = ContentType.objects.get_for_model(ClassFeat)
@@ -12442,7 +12425,6 @@ def character_detail(request, pk):
 
 
 
-    all_feats = list(_all_feats_qs())
     if request.method == "POST" and request.POST.get("feats_op"):
         op = request.POST["feats_op"]
         feat_ct = ContentType.objects.get_for_model(ClassFeat)
@@ -12739,12 +12721,10 @@ def character_detail(request, pk):
 
         # — Spellcasting —
         "show_spellcasting_tab": show_spellcasting_tab,
-        "spellcasting_ctx": scx,                    # use the precomputed context
-        "spell_rank_range": scx["rank_range"],
+
         "spellcasting_blocks": spellcasting_blocks,
         "spell_selection_blocks": spell_selection_blocks,
-        "spell_table_by_rank": rows_by_rank,
-        "spell_rank_blocks": spell_rank_blocks,
+
         "spell_slots_editors": spell_slots_editors,
         "spell_slot_features": spell_slot_features,
         "spell_dc_rows": spell_dc_rows,
@@ -12871,17 +12851,12 @@ def character_level_up(request, pk):
     # ── (A) Copy the SAME permission logic from character_detail ─────────────
     # PASTE: from character_detail — the block that loads `character`, computes
     # is_gm_for_campaign, enforces permission, and sets `can_edit`.
-    character = get_object_or_404(Character, pk=pk)
-    is_gm_for_campaign = False
+    character, can_edit, denied = _load_character_and_perms(request, pk)
+    if denied:
+        return denied
+    if not can_edit:
+        return HttpResponseForbidden("Not allowed.")
 
-        
-    if character.campaign_id:
-        is_gm_for_campaign = CampaignMembership.objects.filter(
-            campaign=character.campaign, user=request.user, role="gm"
-        ).exists()
-    if not (request.user.id == character.user_id or is_gm_for_campaign):
-        return HttpResponseForbidden("You don’t have permission to view this character.")
-    can_edit = (request.user.id == character.user_id) or is_gm_for_campaign
     try:
         from django.http import QueryDict
     except Exception:
@@ -12893,48 +12868,7 @@ def character_level_up(request, pk):
 
     # ── (B) Local helpers needed by the POST branch (copy verbatim) ──────────
     # PASTE the THREE helper defs from character_detail that the level-up POST uses:
-    def _starting_skills_cap_for(cls_obj):
-        expr = (getattr(cls_obj, "starting_skills_formula", "") or "").strip()
-        if not expr:
-            return 0
 
-        def _abil(score: int) -> int:
-            return (score - 10) // 2
-
-        # IMPORTANT: short names -> MODIFIERS
-        ctx = {
-            # modifiers (primary names)
-            "strength": _abil(character.strength), "dexterity": _abil(character.dexterity),
-            "constitution": _abil(character.constitution), "intelligence": _abil(character.intelligence),
-            "wisdom": _abil(character.wisdom), "charisma": _abil(character.charisma),
-
-            # explicit *_mod aliases (same values as above)
-            "str_mod": _abil(character.strength), "dex_mod": _abil(character.dexterity),
-            "con_mod": _abil(character.constitution), "int_mod": _abil(character.intelligence),
-            "wis_mod": _abil(character.wisdom), "cha_mod": _abil(character.charisma),
-
-            # scores (only if you want them available explicitly)
-            "strength_score": character.strength, "dexterity_score": character.dexterity,
-            "constitution_score": character.constitution, "intelligence_score": character.intelligence,
-            "wisdom_score": character.wisdom, "charisma_score": character.charisma,
-
-            # math/helpers
-            "floor": math.floor, "ceil": math.ceil, "min": min, "max": max,
-            "int": int, "round": round,
-        }
-
-        # <class>_level tokens (wizard_level, fighter_level, ...)
-        for prog in character.class_progress.select_related('character_class'):
-            token = re.sub(r'[^a-z0-9_]', '', (prog.character_class.name or '')
-                        .strip().lower().replace(' ', '_'))
-            if token:
-                ctx[f"{token}_level"] = int(prog.levels or 0)
-
-        try:
-            val = eval(_normalize_formula(expr), {"__builtins__": {}}, ctx)
-            return max(0, int(val))
-        except Exception:
-            return 0
     def _active_subclass_for_group(character, grp, level_form=None, base_feats=None):
         """
         Returns the chosen Subclass for `grp` using (in order):
@@ -13550,18 +13484,7 @@ def character_level_up(request, pk):
             qs = ClassFeat.objects.none()  # ✅ FIX: define qs before the debug print
 
             dbg = ClassFeat.objects.filter(name__iexact="Blaster").first()
-            if dbg:
-                print("DEBUG Blaster:",
-                    "id=", dbg.pk,
-                    "feat_type=", dbg.feat_type,
-                    "class_name=", dbg.class_name,
-                    "tags=", dbg.tags,
-                    "lvl=", dbg.level_prerequisite,
-                    "owned=", (dbg.pk in owned_feat_ids),
-                    "in_membership_q=", qs.filter(pk=dbg.pk).exists(),
-                    "req_ok=", (parse_req_level(dbg.level_prerequisite) <= cls_after),
-                    "posted_cls=", posted_cls.name,
-                    "cls_after=", cls_after)
+
 
 
             eligible_ids = []

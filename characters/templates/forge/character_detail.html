@@ -925,7 +925,13 @@ data-key="prof:{{ r.code|lower }}"
                 <tr>
                   <td>{{ a.slot }}</td>
                   <td>{{ a.name }} <small class="text-muted">{{ a.damage_die }}</small></td>
-                  <td><small>{{ a.traits|join:", " }}</small></td>
+<td>
+  <small>
+{{ a.traits_display|join:", " }}
+
+  </small>
+</td>
+
 <td>
   {% if a.show_choice_hit %}
     {% if a.hit_dex > a.hit_str %}
@@ -1426,29 +1432,43 @@ data-key="prof:{{ r.code|lower }}"
   </div>
 
   <div class="card-body">
-    <div class="row g-2">
-      <div class="col-6">
-        <label class="form-label small mb-1">Damage done</label>
-        <input id="dr-damage" type="number" class="form-control" value="0" min="0">
+        <div class="row g-2">
+      <div class="col-6" style="display: none;">
+        <label class="form-label small mb-1">Armor step (ceil(damage/10))</label>
+        <input id="dr-step" type="number" class="form-control" value="0" readonly>
       </div>
 
       <div class="col-6">
-        <label class="form-label small mb-1">Ward </label>
-        <input id="dr-ward" type="number" class="form-control" value="0" min="0">
+        <label class="form-label small mb-1">Flat reduction</label>
+        <input id="dr-flat-reduction" type="number" class="form-control" value="0" readonly>
       </div>
 
       <div class="col-6">
-        <label class="form-label small mb-1">Armor</label>
-        <input id="dr-armor" type="number" class="form-control" value="0" min="0">
+        <label class="form-label small mb-1">Armor reduction</label>
+        <input id="dr-armor-reduction" type="number" class="form-control" value="0" readonly>
       </div>
 
-      <div class="col-6 d-flex align-items-end">
-        <div class="form-check">
-          <input id="dr-armor-enabled" class="form-check-input" type="checkbox" checked>
-          <label class="form-check-label small" for="dr-armor-enabled">Apply armor</label>
-        </div>
+      <div class="col-6">
+        <label class="form-label small mb-1">Ward reduction</label>
+        <input id="dr-ward-reduction" type="number" class="form-control" value="0" readonly>
+      </div>
+
+      <div class="col-6">
+        <label class="form-label small mb-1">Resistance reduction</label>
+        <input id="dr-resistance-reduction" type="number" class="form-control" value="0" readonly>
+      </div>
+
+      <div class="col-6">
+        <label class="form-label small mb-1">Total reduction</label>
+        <input id="dr-total-reduction" type="number" class="form-control" value="0" readonly>
+      </div>
+
+      <div class="col-6">
+        <label class="form-label small mb-1">Final damage</label>
+        <input id="dr-final" type="number" class="form-control fw-semibold" value="0" readonly>
       </div>
     </div>
+
 
     <hr class="my-3">
 
@@ -1520,14 +1540,20 @@ data-key="prof:{{ r.code|lower }}"
     const btnRollPool     = document.getElementById("btn-roll-pool");
     const btnClearPool    = document.getElementById("btn-clear-pool");
 // damage reduction
+// damage reduction
 const drDamageIn        = document.getElementById("dr-damage");
+const drFlatIn          = document.getElementById("dr-flat");
 const drArmorIn         = document.getElementById("dr-armor");
 const drWardIn          = document.getElementById("dr-ward");
 const drArmorEnabledCb  = document.getElementById("dr-armor-enabled");
+const drResistEnabledCb = document.getElementById("dr-resistance-enabled");
 const drResetBtn        = document.getElementById("dr-reset");
 
 const drStepOut         = document.getElementById("dr-step");
+const drFlatRedOut      = document.getElementById("dr-flat-reduction");
 const drArmorRedOut     = document.getElementById("dr-armor-reduction");
+const drWardRedOut      = document.getElementById("dr-ward-reduction");
+const drResistRedOut    = document.getElementById("dr-resistance-reduction");
 const drTotalRedOut     = document.getElementById("dr-total-reduction");
 const drFinalOut        = document.getElementById("dr-final");
 const drPctEl           = document.getElementById("dr-percent");
@@ -1796,56 +1822,89 @@ function clampInt(v) {
   if (!Number.isFinite(n)) return 0;
   return Math.max(0, Math.trunc(n));
 }
-
-function computeDamageReduction(damage, armor, ward, armorApplies) {
+function computeDamageReduction(damage, flat, armor, ward, armorApplies, resistApplies) {
   const dmg = clampInt(damage);
+  const flt = clampInt(flat);
   const arm = clampInt(armor);
   const w   = clampInt(ward);
 
-  const step = dmg > 0 ? Math.ceil(dmg / 10) : 0;          // per 1 armor/ward
-  const armorReduction = armorApplies ? (arm * step) : 0;
-  const wardReduction  = w * step;                         // ✅ Ward scales like Armor
+  // Order: Flat DR -> Armor -> Ward -> Resistance
+  let remaining = dmg;
 
-  const rawReduction   = armorReduction + wardReduction;
-  const totalReduction = Math.min(dmg, rawReduction);       // cap at damage
-  const finalDamage    = Math.max(0, dmg - totalReduction);
+  const flatReduction = Math.min(remaining, flt);
+  remaining = Math.max(0, remaining - flatReduction);
+  const afterFlat = remaining;
 
+  const stepArmor = remaining > 0 ? Math.ceil(remaining / 10) : 0;
+  const armorReductionRaw = armorApplies ? (arm * stepArmor) : 0;
+  const armorReduction = Math.min(remaining, armorReductionRaw);
+  remaining = Math.max(0, remaining - armorReduction);
+  const afterArmor = remaining;
+
+  const stepWard = remaining > 0 ? Math.ceil(remaining / 10) : 0;
+  const wardReductionRaw = w * stepWard;
+  const wardReduction = Math.min(remaining, wardReductionRaw);
+  remaining = Math.max(0, remaining - wardReduction);
+  const afterWard = remaining;
+
+  const finalDamage = resistApplies ? Math.floor(afterWard / 2) : afterWard;
+  const resistanceReduction = afterWard - finalDamage;
+
+  const totalReduction = dmg - finalDamage;
   const pct = dmg > 0 ? (totalReduction / dmg) * 100 : 0;
 
-  return { dmg, arm, w, step, armorReduction, wardReduction, totalReduction, finalDamage, pct };
+  return {
+    dmg, flt, arm, w,
+    armorApplies, resistApplies,
+    afterFlat, afterArmor, afterWard,
+    stepArmor, stepWard,
+    flatReduction, armorReduction, wardReduction, resistanceReduction,
+    totalReduction, finalDamage, pct
+  };
 }
+
 
 
 function renderDamageReduction() {
   // If card not present (future reuse), bail safely
   if (!drDamageIn) return;
 
-  const armorApplies = !!drArmorEnabledCb?.checked;
+  const armorApplies  = !!drArmorEnabledCb?.checked;
+  const resistApplies = !!drResistEnabledCb?.checked;
+
   const out = computeDamageReduction(
     drDamageIn.value,
+    drFlatIn.value,
     drArmorIn.value,
     drWardIn.value,
-    armorApplies
+    armorApplies,
+    resistApplies
   );
 
-  drStepOut.value     = out.step;
-  drArmorRedOut.value = out.armorReduction;
-  drTotalRedOut.value = out.totalReduction;
-  drFinalOut.value    = out.finalDamage;
+  drStepOut.value       = out.stepArmor;
+  drFlatRedOut.value    = out.flatReduction;
+  drArmorRedOut.value   = out.armorReduction;
+  drWardRedOut.value    = out.wardReduction;
+  drResistRedOut.value  = out.resistanceReduction;
+  drTotalRedOut.value   = out.totalReduction;
+  drFinalOut.value      = out.finalDamage;
 
   const pctRounded = Math.round(out.pct * 10) / 10;
   drPctEl.textContent = `${pctRounded}%`;
 
-const armorTerm = armorApplies
-  ? `armor(${out.arm}) * ceil(${out.dmg}/10)=${out.step} => ${out.armorReduction}`
-  : `armor ignored`;
+  const flatTerm   = `flat(${out.flt}) => ${out.flatReduction} (rem ${out.afterFlat})`;
+  const armorTerm  = armorApplies
+    ? `armor(${out.arm}) * ceil(${out.afterFlat}/10)=${out.stepArmor} => ${out.armorReduction} (rem ${out.afterArmor})`
+    : `armor ignored (rem ${out.afterFlat})`;
+  const wardTerm   = `ward(${out.w}) * ceil(${out.afterArmor}/10)=${out.stepWard} => ${out.wardReduction} (rem ${out.afterWard})`;
+  const resistTerm = resistApplies
+    ? `resistance(½) => ${out.resistanceReduction} (final ${out.finalDamage})`
+    : `resistance ignored (final ${out.finalDamage})`;
 
-const wardTerm = `ward(${out.w}) * ceil(${out.dmg}/10)=${out.step} => ${out.wardReduction}`;
-
-drBreakEl.textContent =
-  `damage(${out.dmg}) | ${armorTerm} | ${wardTerm} => raw(${out.armorReduction + out.wardReduction}) | capped(${out.totalReduction}) | final(${out.finalDamage})`;
-
+  drBreakEl.textContent =
+    `damage(${out.dmg}) | ${flatTerm} | ${armorTerm} | ${wardTerm} | ${resistTerm} | total(${out.totalReduction})`;
 }
+
 
     // ---------- Main render ----------
     function renderAll() {
@@ -1893,16 +1952,20 @@ renderDamageReduction();
       renderAll();
     });
 // Damage reduction events
-[drDamageIn, drArmorIn, drWardIn].forEach(el => el && el.addEventListener("input", () => renderDamageReduction()));
-drArmorEnabledCb && drArmorEnabledCb.addEventListener("change", () => renderDamageReduction());
+[drDamageIn, drFlatIn, drArmorIn, drWardIn].forEach(el => el && el.addEventListener("input", () => renderDamageReduction()));
+drArmorEnabledCb  && drArmorEnabledCb.addEventListener("change", () => renderDamageReduction());
+drResistEnabledCb && drResistEnabledCb.addEventListener("change", () => renderDamageReduction());
 
 drResetBtn && drResetBtn.addEventListener("click", () => {
   drDamageIn.value = 0;
+  drFlatIn.value = 0;
   drArmorIn.value = 0;
   drWardIn.value = 0;
   drArmorEnabledCb.checked = true;
+  drResistEnabledCb.checked = false;
   renderDamageReduction();
 });
+
 
     rollBaseInput.addEventListener("input", () => renderAll());
     poolBaseInput.addEventListener("input", () => renderAll());
@@ -2534,12 +2597,8 @@ fd.append("roll_code", bucket);
             {% csrf_token %}
             <input type="hidden" name="inventory_op" value="get_weapon">
 
-            <select name="weapon_id" class="form-select form-select-sm" required style="max-width:420px">
-              <option value="">— Select a weapon —</option>
-              {% for w in weapons_all %}
-                <option value="{{ w.id }}">{{ w.name }} ({{ w.damage }})</option>
-              {% endfor %}
-            </select>
+<select name="weapon_id" id="get-weapon-select" class="form-select form-select-sm"></select>
+
 
             <input name="item_qty" type="number" class="form-control form-control-sm"
                    value="1" min="1" style="width:90px">
@@ -5997,6 +6056,7 @@ window.initFeatTable = function(opts){
   initFeatTable({ tableId: "class-feats-table",   searchId: "class-feat-filter"   });
 })();
   </script>
+
 
   <script>
     

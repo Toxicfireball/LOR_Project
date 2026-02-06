@@ -26,7 +26,7 @@ urlpatterns = [
 if settings.DEBUG:
     # Serve media during development
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
-
+    urlpatterns = [path("__debug__/", include("debug_toolbar.urls"))] + urlpatterns
     # Dev reload tool only in DEBUG (avoid import crash in prod)
     urlpatterns += [path("__reload__/", include("django_browser_reload.urls"))]
 else:
