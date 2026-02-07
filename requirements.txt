@@ -38,4 +38,4 @@ tzdata==2025.1
 urllib3==2.4.0
 webencodings==0.5.1
 whitenoise==6.9.0
-django_toolbar==6.2.0
+debug_toolbar==6.2.0
