@@ -14651,3 +14651,39 @@ def character_share_remove_viewer(request, pk, user_id):
     CharacterViewer.objects.filter(character=character, user_id=user_id).delete()
     messages.success(request, "Viewer removed.")
     return redirect("characters:character_detail", pk=pk)
+
+
+
+# characters/views.py
+from collections import OrderedDict, defaultdict
+from django.shortcuts import render
+
+from .models import ModelChangeLog
+
+
+def public_changelog(request):
+    qs = (
+        ModelChangeLog.objects
+        .filter(is_published=True)
+        .select_related("category", "changed_by", "content_type")
+        .order_by("-published_at", "-occurred_at")
+    )
+
+    grouped = OrderedDict()
+    for e in qs:
+        group_key = e.publish_group.strip() if e.publish_group else ""
+        if not group_key:
+            # fallback: group by date
+            dt = (e.published_at or e.occurred_at).date()
+            group_key = dt.isoformat()
+
+        if group_key not in grouped:
+            grouped[group_key] = defaultdict(list)
+
+        cat = e.category.name if e.category else "Uncategorised"
+        grouped[group_key][cat].append(e)
+
+    # convert defaultdicts to plain dicts for templates
+    grouped = OrderedDict((k, dict(v)) for k, v in grouped.items())
+
+    return render(request, "characters/changelog_list.html", {"grouped": grouped})

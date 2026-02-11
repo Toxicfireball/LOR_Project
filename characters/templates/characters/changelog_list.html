@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Changelog{% endblock %}
+
+{% block content %}
+<h1>Changelog</h1>
+
+{% for group, categories in grouped.items %}
+  <h2 style="margin-top:1.25rem;">{{ group }}</h2>
+
+  {% for category, entries in categories.items %}
+    <h3 style="margin-top:1rem;">{{ category }}</h3>
+
+    <ul style="padding-left:1.25rem;">
+      {% for e in entries %}
+        <li style="margin-bottom:.75rem;">
+          <div>
+            <strong>{{ e.public_title|default:e.object_repr }}</strong>
+            <span style="opacity:.7;">({{ e.published_at|default:e.occurred_at }})</span>
+          </div>
+
+          {% if e.public_summary %}
+            <div>{{ e.public_summary|linebreaksbr }}</div>
+          {% endif %}
+
+          {% if e.public_body %}
+            <div style="margin-top:.25rem;">{{ e.public_body|linebreaksbr }}</div>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% endfor %}
+
+{% empty %}
+  <p>No published changes yet.</p>
+{% endfor %}
+{% endblock %}

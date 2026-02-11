@@ -32,26 +32,28 @@ DEBUG = ENVIRONMENT == "local"
 # ─── INSTALLED APPS ─────────────────────────────────────────────────────────────
 INSTALLED_APPS = [
     # Django
-    "nested_admin", 
-    'django.contrib.admin',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.sessions',
-    'django.contrib.messages',
-    'django.contrib.staticfiles',
-    'django_select2',
-    "accounts.apps.AccountsConfig",   # ✅ keep this
+    "nested_admin",
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+
+    "django_select2",
+    "accounts.apps.AccountsConfig",
     "debug_toolbar",
-    # Tailwind + theme
-    'tailwind',
-    'theme',
+
+    "tailwind",
+    "theme",
     "glossary",
-    # Your apps
-    'home',
-    'campaigns',
-    'characters.apps.CharactersConfig',
+
+    "home",
+    "campaigns",
+    "characters.apps.CharactersConfig",  # keep ONLY once
     "django_summernote",
 ]
+
 
 X_FRAME_OPTIONS = "SAMEORIGIN"
 TAILWIND_APP_NAME = "theme"
@@ -105,6 +107,8 @@ MIDDLEWARE = [
     "characters.middleware.LogSlowQueriesMiddleware",
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+        "characters.middleware.AuditUserMiddleware",
+
     'django.middleware.common.CommonMiddleware',
     "debug_toolbar.middleware.DebugToolbarMiddleware",
     'django.middleware.csrf.CsrfViewMiddleware',

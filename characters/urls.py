@@ -87,6 +87,7 @@ path(
     path("loremaster/id/<int:pk>/", views.LoremasterDetailView.as_view(), name="loremaster_detail_by_pk"),
 
     # Rulebooks
+    path("changelog/", views.public_changelog, name="public_changelog"),
 
 path("codex/prestige/<slug:code>/", views.prestige_class_detail, name="prestige_class_detail"),
 

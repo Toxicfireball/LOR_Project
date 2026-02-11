@@ -6,6 +6,7 @@ class CharactersConfig(AppConfig):
 
     def ready(self):
         try:
+            from . import audit_signals  # noqa
             from django_summernote.fields import SummernoteTextField
             orig = SummernoteTextField.to_python
 

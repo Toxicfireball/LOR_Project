@@ -3,6 +3,30 @@ import logging
 from django.db import connection
 
 log = logging.getLogger("perf.sql")
+# characters/middleware.py
+from .audit_context import set_current_request, clear_current_request
+
+
+class AuditUserMiddleware:
+    """
+    Captures request.user + request.path so model signals can attach 'changed_by'.
+    """
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        user = getattr(request, "user", None)
+        if getattr(user, "is_authenticated", False):
+            set_current_request(user, request.path)
+        else:
+            set_current_request(None, request.path)
+
+        try:
+            return self.get_response(request)
+        finally:
+            clear_current_request()
+
+
 
 class _QueryTimer:
     def __init__(self, out):

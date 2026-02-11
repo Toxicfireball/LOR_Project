@@ -1512,6 +1512,147 @@ class Armor(models.Model):
     def group_code(self) -> str:
             return "unarmored" if self.type == self.TYPE_CLOTHING else self.type
 
+# characters/models.py
+
+from django.conf import settings
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
+from django.db import models
+from django.db.models import Q
+from django.utils import timezone
+
+
+class ChangeCategory(models.Model):
+    name = models.CharField(max_length=80, unique=True)
+    slug = models.SlugField(max_length=80, unique=True)
+    public_intro = models.TextField(
+        blank=True,
+        help_text="Shown on the public changelog page above entries in this category.",
+    )
+    sort_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ("sort_order", "name")
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class AuditTrackedModel(models.Model):
+    """
+    Admin-controlled switchboard: you pick which *characters* models are tracked.
+    """
+    content_type = models.OneToOneField(
+        ContentType,
+        on_delete=models.CASCADE,
+        related_name="characters_audit_tracking",
+        limit_choices_to=Q(app_label="characters"),
+    )
+
+    enabled = models.BooleanField(default=True)
+
+    track_creates = models.BooleanField(default=True)
+    track_updates = models.BooleanField(default=True)
+    track_deletes = models.BooleanField(default=True)
+    track_m2m = models.BooleanField(default=False)
+
+    include_fields = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Optional list of field names to include. If blank/null, includes all concrete fields (minus exclude_fields).",
+    )
+    exclude_fields = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Field names to ignore (ex: ['updated_at', 'last_seen']).",
+    )
+
+    def __str__(self) -> str:
+        return f"{self.content_type.app_label}.{self.content_type.model}"
+
+
+class ModelChangeLog(models.Model):
+    ACTION_CREATE = "create"
+    ACTION_UPDATE = "update"
+    ACTION_DELETE = "delete"
+    ACTION_M2M = "m2m"
+
+    ACTION_CHOICES = (
+        (ACTION_CREATE, "Create"),
+        (ACTION_UPDATE, "Update"),
+        (ACTION_DELETE, "Delete"),
+        (ACTION_M2M, "M2M Change"),
+    )
+
+    occurred_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.CASCADE,
+        related_name="characters_change_logs",
+        limit_choices_to=Q(app_label="characters"),
+    )
+    object_id = models.PositiveIntegerField(db_index=True)
+    content_object = GenericForeignKey("content_type", "object_id")
+
+    object_repr = models.CharField(max_length=200, blank=True)
+    action = models.CharField(max_length=12, choices=ACTION_CHOICES, db_index=True)
+
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="characters_change_logs",
+    )
+    request_path = models.CharField(max_length=255, blank=True)
+
+    # Editable in admin (you can add later), but also can be captured at edit-time if you add the optional mixin later.
+    reason = models.CharField(max_length=255, blank=True)
+
+    # Field-level diffs:
+    # {
+    #   "field_name": {"before": <value>, "after": <value>},
+    #   ...
+    # }
+    changes = models.JSONField(default=dict, blank=True)
+
+    # Publishing controls (public “patch notes”)
+    is_published = models.BooleanField(default=False, db_index=True)
+    published_at = models.DateTimeField(null=True, blank=True)
+
+    publish_group = models.CharField(
+        max_length=120,
+        blank=True,
+        help_text="Public heading/group (ex: 'Patch 0.9.1' or 'Feb 2026'). Leave blank to group by date.",
+    )
+    category = models.ForeignKey(
+        ChangeCategory,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="entries",
+    )
+    public_title = models.CharField(max_length=200, blank=True)
+    public_summary = models.TextField(blank=True)
+    public_body = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ("-occurred_at",)
+        indexes = [
+            models.Index(fields=("content_type", "object_id", "occurred_at")),
+            models.Index(fields=("is_published", "published_at")),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.is_published and self.published_at is None:
+            self.published_at = timezone.now()
+        if not self.is_published:
+            self.published_at = None
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"{self.content_type.app_label}.{self.content_type.model}#{self.object_id} {self.action}"
 
 class SpecialItem(models.Model):
     ITEM_TYPE_CHOICES = [
