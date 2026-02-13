@@ -1,4 +1,4 @@
-`import os
+import os
 import json
 from django.core.management.base import BaseCommand
 from oauth2client.service_account import ServiceAccountCredentials
