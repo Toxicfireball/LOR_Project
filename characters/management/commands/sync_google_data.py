@@ -1,4 +1,4 @@
-import os
+`import os
 import json
 from django.core.management.base import BaseCommand
 from oauth2client.service_account import ServiceAccountCredentials
@@ -279,19 +279,27 @@ class Command(BaseCommand):
                             if len(sample) < 5:
                                 sample.append(('created', obj.id, name_sheet, row_level))
                         else:
-                            # Use instance saves so Django signals fire (audit logging)
+                            # Use instance saves so Django signals fire (audit logging),
+                            # BUT skip saving if nothing changed (prevents empty audit entries).
                             objs = Spell.objects.in_bulk(ids)
-                            update_fields = ["name", *fields.keys()]
 
                             for sid, obj in objs.items():
-                                obj.name = name_sheet
-                                for k, v in fields.items():
-                                    setattr(obj, k, v)
-                                obj.save(update_fields=update_fields)
-                                updated += 1
+                                changed_fields = []
 
-                            if len(sample) < 5:
-                                sample.append(('updated', ids[0], name_sheet, row_level))
+                                if obj.name != name_sheet:
+                                    obj.name = name_sheet
+                                    changed_fields.append("name")
+
+                                for k, v in fields.items():
+                                    if getattr(obj, k) != v:
+                                        setattr(obj, k, v)
+                                        changed_fields.append(k)
+
+                                if changed_fields:
+                                    obj.save(update_fields=changed_fields)
+                                    updated += 1
+                                # else: do nothing (no DB write, no audit log spam)
+
 
                 print(f"📦 Spells → created: {created}, updated rows: {updated}", flush=True)
                 if sample:
@@ -498,16 +506,27 @@ class Command(BaseCommand):
                             if len(sample_debug) < 5:
                                 sample_debug.append((feat_name, 'created', obj.id, fields['feat_type']))
                         else:
-                            # Use instance saves so Django signals fire (audit logging)
+                            # Use instance saves so Django signals fire (audit logging),
+                            # BUT skip saving if nothing changed (prevents empty audit entries).
                             objs = ClassFeat.objects.in_bulk(ids)
-                            update_fields = ["name", *fields.keys()]
 
                             for fid, obj in objs.items():
-                                obj.name = feat_name
+                                changed_fields = []
+
+                                if obj.name != feat_name:
+                                    obj.name = feat_name
+                                    changed_fields.append("name")
+
                                 for k, v in fields.items():
-                                    setattr(obj, k, v)
-                                obj.save(update_fields=update_fields)
-                                updated += 1
+                                    if getattr(obj, k) != v:
+                                        setattr(obj, k, v)
+                                        changed_fields.append(k)
+
+                                if changed_fields:
+                                    obj.save(update_fields=changed_fields)
+                                    updated += 1
+                                # else: do nothing
+
 
                             if verbosity >= 2 and len(ids) > 1:
                                 print(f"🔁 De-dup group for '{feat_name}': updated {len(ids)} rows (ids={ids})", flush=True)
@@ -652,3 +671,4 @@ class Command(BaseCommand):
 
         finally:
             clear_current_request()
+`
