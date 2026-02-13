@@ -671,4 +671,3 @@ class Command(BaseCommand):
 
         finally:
             clear_current_request()
-`
