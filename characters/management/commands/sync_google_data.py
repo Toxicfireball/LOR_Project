@@ -220,12 +220,27 @@ class Command(BaseCommand):
                 sample = []
 
                 spell_book = client.open_by_key("1tUP5rXleImOKnrOVGBnmxNHHDAyU0HHxeuODgLDX8SM")
+
+                def normalize_tab_name(s: str) -> str:
+                    # normalize whitespace + invisible chars in the TAB title
+                    s2 = _clean_invisible_spaces(s or "")
+                    return " ".join(s2.split()).strip().lower()
+
+                valid_tabs = set(_LEVEL_MAP.keys())
+
                 for sheet in spell_book.worksheets():
-                    title = (sheet.title or '').strip().lower()
-                    tab_level = _LEVEL_MAP.get(title, 0)
+                    title_key = normalize_tab_name(sheet.title)
+
+                    # IMPORTANT: skip any worksheet not explicitly mapped to a spell level
+                    if title_key not in valid_tabs:
+                        print(f"⏭️ Skipping non-level worksheet: {sheet.title!r}", flush=True)
+                        continue
+
+                    tab_level = _LEVEL_MAP[title_key]
 
                     print(f"📘 Processing sheet: {sheet.title!r} → level={tab_level}", flush=True)
                     raw_rows = sheet.get_all_records(default_blank="", head=1)
+
                     print(f"🔢 Found {len(raw_rows)} rows", flush=True)
                     if raw_rows:
                         headers = [h.strip() for h in raw_rows[0].keys()]
@@ -296,9 +311,16 @@ class Command(BaseCommand):
                                         changed_fields.append(k)
 
                                 if changed_fields:
+                                    if "level" in changed_fields:
+                                        print(
+                                            f"🔧 LEVEL CHANGE from tab={sheet.title!r}: spell id={obj.id} name={name_sheet!r} "
+                                            f"{getattr(obj, 'level', None)}",
+                                            flush=True
+                                        )
                                     obj.save(update_fields=changed_fields)
                                     updated += 1
-                                # else: do nothing (no DB write, no audit log spam)
+                                # else: do nothing
+
 
 
                 print(f"📦 Spells → created: {created}, updated rows: {updated}", flush=True)
@@ -523,6 +545,12 @@ class Command(BaseCommand):
                                         changed_fields.append(k)
 
                                 if changed_fields:
+                                    if "level" in changed_fields:
+                                        print(
+                                            f"🔧 LEVEL CHANGE from tab={sheet.title!r}: spell id={obj.id} name={name_sheet!r} "
+                                            f"{getattr(obj, 'level', None)}",
+                                            flush=True
+                                        )
                                     obj.save(update_fields=changed_fields)
                                     updated += 1
                                 # else: do nothing
