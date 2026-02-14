@@ -118,6 +118,8 @@ MIDDLEWARE = [
 ]
 
 import os
+USE_TZ = True
+TIME_ZONE = "Asia/Singapore"
 
 # after load_dotenv…
 NODE_BIN_PATH = os.environ.get("NODE_BIN_PATH", "node")
