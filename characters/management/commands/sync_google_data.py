@@ -167,6 +167,19 @@ class Command(BaseCommand):
                         return ''
                     s2 = _clean_invisible_spaces(s)
                     return " ".join(s2.split()).strip()
+                INVALID_SPELL_NAMES = {"n/a", "#n/a", "na", "null", "none", "-", "--", "—"}
+
+                def is_valid_spell_name(name: str) -> bool:
+                    if not name:
+                        return False
+                    n = canonical_spell_name(name).lower()
+                    if not n:
+                        return False
+                    if n in INVALID_SPELL_NAMES:
+                        return False
+                    if n.startswith("#"):  # spreadsheet error tokens
+                        return False
+                    return True
 
                 def get_spell_name_from_row(row: dict) -> str:
                     for k in ('Spell Name', 'Spell', 'Name', 'Spellname', '', 'Unnamed: 0'):
@@ -242,18 +255,26 @@ class Command(BaseCommand):
                     raw_rows = sheet.get_all_records(default_blank="", head=1)
 
                     print(f"🔢 Found {len(raw_rows)} rows", flush=True)
-                    if raw_rows:
-                        headers = [h.strip() for h in raw_rows[0].keys()]
-                        print(f"🧾 Sheet headers: {headers}", flush=True)
+                    if not raw_rows:
+                        continue
+
+                    # determine the spell-name column = FIRST column in the sheet, even if it's named "w"
+                    first_header = list(raw_rows[0].keys())[0]
+                    name_col = first_header.strip() if isinstance(first_header, str) else first_header
+
+                    headers = [(h.strip() if isinstance(h, str) else h) for h in raw_rows[0].keys()]
+                    print(f"🧾 Sheet headers: {headers}", flush=True)
+                    print(f"🧾 Using name column: {name_col!r}", flush=True)
 
                     for raw in raw_rows:
                         # normalize header keys
                         row = {(k.strip() if isinstance(k, str) else k): v for k, v in raw.items()}
 
                         # 1) get the spell name from the row
-                        name_sheet = get_spell_name_from_row(row)
-                        if not name_sheet:
-                            continue  # skip nameless rows
+                        # 1) spell name MUST come from the first column only (name_col)
+                        name_sheet = canonical_spell_name(safe_str(row.get(name_col)))
+                        if not is_valid_spell_name(name_sheet):
+                            continue  # skip blank / N/A / error rows
 
                         # 2) canonical key for matching against DB
                         key = canonical_spell_name(name_sheet).lower()
