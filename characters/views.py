@@ -14734,14 +14734,51 @@ def public_changelog(request):
 
 # characters/views.py
 from collections import OrderedDict
+import json
+import re
+import html as _html
 
+from django.utils.html import strip_tags
 from django.db.models import Count
 from django.http import Http404
 from django.shortcuts import render
 
 from .models import PatchNote, PatchChange
 
+def _is_blank(v) -> bool:
+    if v is None:
+        return True
+    if isinstance(v, str):
+        return not v.strip()
+    return False
 
+def _display_val(v) -> str:
+    """
+    Convert values into clean, readable text:
+    - strips HTML tags
+    - unescapes entities like &nbsp;
+    - normalizes whitespace
+    """
+    if v is None:
+        return ""
+    if isinstance(v, (dict, list, tuple)):
+        return json.dumps(v, ensure_ascii=False)
+    if isinstance(v, bool):
+        return "True" if v else "False"
+
+    s = str(v)
+
+    # Unescape HTML entities (&nbsp;, &lt; etc)
+    s = _html.unescape(s)
+
+    # Remove HTML tags (<p>, <br>, etc.)
+    s = strip_tags(s)
+
+    # Normalize NBSP and whitespace
+    s = s.replace("\xa0", " ")
+    s = re.sub(r"[ \t]+", " ", s)
+    s = re.sub(r"\n{3,}", "\n\n", s)
+    return s.strip()
 def public_changelog(request):
     patches = (
         PatchNote.objects
@@ -14798,47 +14835,64 @@ def public_changelog_patch(request, slug: str):
         cl = pc.change_log
         raw_changes = cl.changes or {}
 
-        # Filter change rows:
         rows = []
         removed_flags = []
 
-        # If the whole object was deleted, just say removed.
+        # Only collapse when the whole object is deleted OR every change is a removal
         removed_only = (cl.action == "delete")
 
         if not removed_only and isinstance(raw_changes, dict):
             for field, diff in raw_changes.items():
-                before = diff.get("before")
-                after  = diff.get("after")
+                before_raw = diff.get("before")
+                after_raw  = diff.get("after")
+
+                before = _display_val(before_raw)
+                after  = _display_val(after_raw)
+
+                before_blank = _is_blank(before)
+                after_blank  = _is_blank(after)
 
                 # Skip empty -> empty
-                if _is_blank(before) and _is_blank(after):
+                if before_blank and after_blank:
                     continue
 
-                # Skip unchanged
+                # Skip unchanged (after cleaning)
                 if before == after:
                     continue
 
-                removed = (not _is_blank(before) and _is_blank(after))
+                removed = (not before_blank and after_blank)
                 removed_flags.append(removed)
 
                 rows.append({
                     "field": field,
-                    "before": before if not _is_blank(before) else "—",
-                    "after":  after  if not _is_blank(after)  else "—",
+                    "before": before if not before_blank else "—",
+                    "after":  after  if not after_blank  else "—",
+                    "removed": removed,
                 })
 
-            # If every remaining change is a removal (after is blank), show a single "Removed" line
+            # If ALL remaining displayed diffs are removals: show single Removed line
             if rows and all(removed_flags):
                 removed_only = True
                 rows = []
 
+        # IMPORTANT: do NOT collapse create/add into a single "Added" line.
+        # We still show the table (rows) with Before as — and After filled.
+
+        is_create = (cl.action == "create")
+
+        # NEW RULE: if Added (create), do NOT show details at all
+        if is_create:
+            rows = []
+            removed_only = False
+
         grouped[cat].append({
             "pc": pc,
-            "removed_only": removed_only,
             "rows": rows,
+            "removed_only": removed_only,
+            "is_create": is_create,
         })
     return render(
-        request,
-        "characters/patch_notes_detail.html",
-        {"patch": patch, "grouped": grouped},
-    )
+    request,
+    "characters/patch_notes_detail.html",
+    {"patch": patch, "grouped": grouped},
+)
