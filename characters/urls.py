@@ -88,6 +88,7 @@ path(
 
     # Rulebooks
     path("changelog/", views.public_changelog, name="public_changelog"),
+    path("changelog/<slug:slug>/", views.public_changelog_patch, name="public_changelog_patch"),
 
 path("codex/prestige/<slug:code>/", views.prestige_class_detail, name="prestige_class_detail"),
 

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load tz %}
 {% block title %}Dashboard{% endblock %}
 
 {% block content %}
@@ -10,6 +11,54 @@
       <a class="underline font-medium" href="{% url 'accounts:request_verification' %}">Send verification link</a>
     </div>
   {% endif %}
+{% if latest_patch %}
+  <div class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <div class="p-5 bg-gradient-to-r from-slate-900 to-slate-700 text-white">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <div class="text-xs uppercase tracking-wider text-slate-200">Latest Patch</div>
+          <div class="mt-1 text-2xl font-semibold leading-tight">{{ latest_patch.title }}</div>
+
+          <div class="mt-2 text-sm text-slate-200">
+            {% if latest_patch.published_at %}
+              Published {{ latest_patch.published_at|localtime|date:"M j, Y H:i" }}
+            {% else %}
+              Updated {{ latest_patch.updated_at|localtime|date:"M j, Y H:i" }}
+            {% endif %}
+          </div>
+
+          {% if latest_patch.summary %}
+            <div class="mt-3 text-sm text-slate-100/90">
+              {{ latest_patch.summary }}
+            </div>
+          {% endif %}
+        </div>
+
+        <div class="flex shrink-0 gap-2">
+          <a href="{% url 'characters:public_changelog_patch' latest_patch.slug %}"
+             class="inline-flex items-center rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100">
+            View patch
+          </a>
+          <a href="{% url 'characters:public_changelog' %}"
+             class="inline-flex items-center rounded-lg border border-white/30 px-4 py-2 text-sm font-semibold text-white hover:bg-white/10">
+            All patches
+          </a>
+        </div>
+      </div>
+    </div>
+
+    {% if latest_patch_counts %}
+      <div class="p-5 grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {% for cat, n in latest_patch_counts.items %}
+          <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+            <div class="text-xs uppercase tracking-wide text-slate-500">{{ cat }}</div>
+            <div class="mt-1 text-2xl font-semibold text-slate-900">{{ n }}</div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+{% endif %}
 
   <div class="flex items-center justify-between mb-6">
     <h1 class="text-2xl font-semibold">Welcome, {{ user.username }}</h1>

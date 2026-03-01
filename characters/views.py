@@ -14661,29 +14661,184 @@ from django.shortcuts import render
 from .models import ModelChangeLog
 
 
+
+# characters/views.py
+import datetime
+from collections import OrderedDict, defaultdict
+
+from django.db.models import Q
+from django.http import Http404
+from django.shortcuts import render
+from django.utils import timezone
+from django.utils.text import slugify
+
+from .models import ModelChangeLog
+
+from collections import OrderedDict, defaultdict
+from django.utils.dateparse import parse_date
+from django.db.models import Q
+
+
+def _entry_dt(e):
+    return e.published_at or e.occurred_at
+
+
+def _group_key_for_entry(e) -> str:
+    # Prefer explicit publish_group (e.g. "Patch 0.9.3")
+    if e.publish_group and e.publish_group.strip():
+        return e.publish_group.strip()
+
+    # Fallback: group by LOCAL date (prevents UTC date-boundary weirdness)
+    return timezone.localdate(_entry_dt(e)).isoformat()
+
+
+def _build_patch_index(qs):
+    """
+    Returns a list of patches ordered newest-first.
+    Each patch has: key, slug, title, published_dt, total, category_counts.
+    """
+    patches = OrderedDict()
+
+    for e in qs:
+        key = _group_key_for_entry(e)
+        dt = _entry_dt(e)
+
+        if key not in patches:
+            patches[key] = {
+                "key": key,
+                "slug": slugify(key) or key,
+                "title": key,
+                "published_dt": dt,
+                "total": 0,
+                "category_counts": defaultdict(int),
+            }
+
+        p = patches[key]
+        p["total"] += 1
+
+        if dt and (p["published_dt"] is None or dt > p["published_dt"]):
+            p["published_dt"] = dt
+
+        cat_name = e.category.name if e.category else "Uncategorised"
+        p["category_counts"][cat_name] += 1
+
+    return list(patches.values())
+
+
 def public_changelog(request):
-    qs = (
-        ModelChangeLog.objects
+    patches = PatchNote.objects.filter(is_published=True).order_by("-published_at", "-created_at")
+    latest = patches.first()
+    return render(request, "characters/patch_notes_list.html", {"latest": latest, "patches": patches})
+
+
+
+# characters/views.py
+from collections import OrderedDict
+
+from django.db.models import Count
+from django.http import Http404
+from django.shortcuts import render
+
+from .models import PatchNote, PatchChange
+
+
+def public_changelog(request):
+    patches = (
+        PatchNote.objects
         .filter(is_published=True)
-        .select_related("category", "changed_by", "content_type")
-        .order_by("-published_at", "-occurred_at")
+        .order_by("-published_at", "-created_at")
+    )
+    latest = patches.first()
+    return render(
+        request,
+        "characters/patch_notes_list.html",
+        {"latest": latest, "patches": patches},
+    )
+def _is_blank(v) -> bool:
+    if v is None:
+        return True
+    if isinstance(v, str):
+        return not v.strip()
+    return False
+
+def public_changelog_patch(request, slug: str):
+    patch = (
+        PatchNote.objects
+        .filter(is_published=True, slug=slug)
+        .first()
+    )
+
+
+    
+    if not patch:
+        raise Http404("Patch not found")
+
+    changes = (
+        PatchChange.objects
+        .filter(patch=patch)
+        .select_related(
+            "category",
+            "change_log",
+            "change_log__content_type",
+        )
+        .order_by(
+            "category__sort_order",
+            "category__name",
+            "sort_order",
+            "id",
+        )
     )
 
     grouped = OrderedDict()
-    for e in qs:
-        group_key = e.publish_group.strip() if e.publish_group else ""
-        if not group_key:
-            # fallback: group by date
-            dt = (e.published_at or e.occurred_at).date()
-            group_key = dt.isoformat()
 
-        if group_key not in grouped:
-            grouped[group_key] = defaultdict(list)
+    for pc in changes:
+        cat = pc.category.name if pc.category else "Uncategorised"
+        grouped.setdefault(cat, [])
 
-        cat = e.category.name if e.category else "Uncategorised"
-        grouped[group_key][cat].append(e)
+        cl = pc.change_log
+        raw_changes = cl.changes or {}
 
-    # convert defaultdicts to plain dicts for templates
-    grouped = OrderedDict((k, dict(v)) for k, v in grouped.items())
+        # Filter change rows:
+        rows = []
+        removed_flags = []
 
-    return render(request, "characters/changelog_list.html", {"grouped": grouped})
+        # If the whole object was deleted, just say removed.
+        removed_only = (cl.action == "delete")
+
+        if not removed_only and isinstance(raw_changes, dict):
+            for field, diff in raw_changes.items():
+                before = diff.get("before")
+                after  = diff.get("after")
+
+                # Skip empty -> empty
+                if _is_blank(before) and _is_blank(after):
+                    continue
+
+                # Skip unchanged
+                if before == after:
+                    continue
+
+                removed = (not _is_blank(before) and _is_blank(after))
+                removed_flags.append(removed)
+
+                rows.append({
+                    "field": field,
+                    "before": before if not _is_blank(before) else "—",
+                    "after":  after  if not _is_blank(after)  else "—",
+                })
+
+            # If every remaining change is a removal (after is blank), show a single "Removed" line
+            if rows and all(removed_flags):
+                removed_only = True
+                rows = []
+
+        grouped[cat].append({
+            "pc": pc,
+            "removed_only": removed_only,
+            "rows": rows,
+        })
+    return render(
+        request,
+        "characters/patch_notes_detail.html",
+        {"patch": patch, "grouped": grouped},
+    )

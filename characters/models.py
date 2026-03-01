@@ -1652,8 +1652,73 @@ class ModelChangeLog(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self) -> str:
-        return f"{self.content_type.app_label}.{self.content_type.model}#{self.object_id} {self.action}"
+        obj = (self.object_repr or "").strip() or f"#{self.object_id}"
+        if self.content_type_id:
+            model = f"{self.content_type.app_label}.{self.content_type.model}"
+        else:
+            model = "unknown.unknown"
+        action = self.get_action_display() if hasattr(self, "get_action_display") else (self.action or "")
+        return f"{obj} — {model} — {action}"
 
+from django.utils.text import slugify
+
+class PatchNote(models.Model):
+    title = models.CharField(max_length=160, unique=True)
+    slug = models.SlugField(max_length=180, unique=True, blank=True)
+    summary = models.TextField(blank=True)
+    body = models.TextField(blank=True)  # extra patch-level notes (can be rich text later)
+
+    is_published = models.BooleanField(default=False, db_index=True)
+    published_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-published_at", "-created_at")
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = slugify(self.title)[:180] or str(self.pk or "")
+        if self.is_published and self.published_at is None:
+            self.published_at = timezone.now()
+        if not self.is_published:
+            self.published_at = None
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.title
+
+
+
+
+class PatchChange(models.Model):
+    """
+    A selected audit entry placed into a patch + category, with a per-patch reason.
+    """
+    patch = models.ForeignKey(PatchNote, on_delete=models.CASCADE, related_name="patch_changes")
+    category = models.ForeignKey(
+        ChangeCategory,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="patch_changes",
+    )
+    change_log = models.ForeignKey(ModelChangeLog, on_delete=models.PROTECT, related_name="patch_links")
+
+    reason = models.CharField(max_length=255, blank=True)
+    note = models.TextField(blank=True)
+    sort_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        unique_together = (("patch", "change_log"),)
+        ordering = ("sort_order", "id")
+
+    def clean(self):
+        super().clean()
+    # no patch-specific category validation; categories are global
+    def __str__(self):
+        return f"{self.patch.title}: {self.change_log}"
 class SpecialItem(models.Model):
     ITEM_TYPE_CHOICES = [
         ("weapon",     "Weapon"),

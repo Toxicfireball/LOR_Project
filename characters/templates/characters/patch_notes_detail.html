@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% load tz %}
+{% block title %}{{ patch.title }} – Patch Notes{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto px-4 py-8">
+  <a class="text-sm text-gray-500 hover:text-gray-800" href="{% url 'characters:public_changelog' %}">
+    ← All patches
+  </a>
+
+  <div class="mt-3">
+    <h1 class="text-3xl font-bold">{{ patch.title }}</h1>
+    {% if patch.published_at %}
+      <div class="mt-1 text-sm text-gray-500">
+        Published {{ patch.published_at|localtime|date:"j M Y, H:i" }}
+      </div>
+    {% endif %}
+    {% if patch.summary %}
+      <div class="mt-3 text-sm text-gray-700">{{ patch.summary }}</div>
+    {% endif %}
+    {% if patch.body %}
+      <div class="mt-4 text-sm text-gray-800 whitespace-pre-line">{{ patch.body }}</div>
+    {% endif %}
+  </div>
+{% for cat, entries in grouped.items %}
+  <section class="mt-10">
+    <h2 class="text-2xl font-semibold">{{ cat }}</h2>
+
+    <div class="mt-4 space-y-4">
+      {% for item in entries %}
+        {% with pc=item.pc %}
+          <div class="rounded-2xl border bg-white/50 overflow-hidden">
+            <div class="px-6 py-4 border-b">
+              <div class="flex items-start justify-between gap-4">
+                <div class="font-semibold text-lg">
+                  {% if pc.change_log.public_title %}
+                    {{ pc.change_log.public_title }}
+                  {% else %}
+                    {{ pc.change_log.object_repr }}
+                  {% endif %}
+                </div>
+                <div class="text-xs text-gray-500 whitespace-nowrap">
+                  {{ pc.change_log.occurred_at|localtime|date:"j M Y, H:i" }}
+                </div>
+              </div>
+
+              {% if pc.reason %}
+                <div class="mt-2 text-sm text-gray-700">
+                  <span class="font-semibold">Reason:</span> {{ pc.reason }}
+                </div>
+              {% endif %}
+
+              {% if pc.note %}
+                <div class="mt-1 text-sm text-gray-700 whitespace-pre-line">{{ pc.note }}</div>
+              {% endif %}
+            </div>
+
+            <div class="px-6 py-4">
+              {% if item.removed_only %}
+                <div class="text-sm font-semibold text-gray-800">Removed.</div>
+
+              {% elif item.rows %}
+                <div class="overflow-x-auto">
+                  <table class="w-full text-sm border-collapse">
+                    <thead>
+                      <tr class="text-left text-gray-600">
+                        <th class="py-2 pr-4">Field</th>
+                        <th class="py-2 pr-4">Before</th>
+                        <th class="py-2">After</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for row in item.rows %}
+                        <tr class="border-t">
+                          <td class="py-2 pr-4 font-medium">{{ row.field }}</td>
+                          <td class="py-2 pr-4">
+                            <code class="whitespace-pre-wrap break-words">{{ row.before }}</code>
+                          </td>
+                          <td class="py-2">
+                            <code class="whitespace-pre-wrap break-words">{{ row.after }}</code>
+                          </td>
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+
+              {% else %}
+                <div class="text-sm text-gray-500">No meaningful field changes recorded.</div>
+              {% endif %}
+
+              {% if pc.change_log.public_summary %}
+                <div class="mt-3 text-sm text-gray-700 whitespace-pre-line">
+                  {{ pc.change_log.public_summary }}
+                </div>
+              {% endif %}
+
+              {% if pc.change_log.public_body %}
+                <div class="mt-3 text-sm text-gray-800">
+                  {{ pc.change_log.public_body|safe }}
+                </div>
+              {% endif %}
+            </div>
+          </div>
+        {% endwith %}
+      {% endfor %}
+    </div>
+  </section>
+{% endfor %}
+</div>
+{% endblock %}
