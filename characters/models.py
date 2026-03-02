@@ -1389,6 +1389,38 @@ class ClassProficiencyProgress(models.Model):
     class Meta:
         ordering = ["character_class", "proficiency_type", "at_level"]
 
+    def __str__(self):
+        cls = self.character_class.name if self.character_class_id else "Unknown Class"
+
+        # human label for proficiency_type (falls back safely)
+        try:
+            ptype = self.get_proficiency_type_display()
+        except Exception:
+            ptype = self.proficiency_type or "unknown"
+
+        bits = []
+        if self.armor_group:
+            try:
+                bits.append(f"Armor Group: {self.get_armor_group_display()}")
+            except Exception:
+                bits.append(f"Armor Group: {self.armor_group}")
+
+        if self.weapon_group:
+            try:
+                bits.append(f"Weapon Group: {self.get_weapon_group_display()}")
+            except Exception:
+                bits.append(f"Weapon Group: {self.weapon_group}")
+
+        if self.armor_item_id:
+            bits.append(f"Armor: {self.armor_item}")
+
+        if self.weapon_item_id:
+            bits.append(f"Weapon: {self.weapon_item}")
+
+        ctx = f" ({', '.join(bits)})" if bits else ""
+        tier = getattr(self.tier, "name", None) or str(self.tier_id) or "?"
+
+        return f"{cls} — {ptype}{ctx} @L{self.at_level} → {tier}"
 
     def clean(self):
         # keep this no-op, that’s fine

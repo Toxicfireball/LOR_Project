@@ -8,121 +8,178 @@
   <h1 class="text-2xl font-bold mb-4">Martial Masteries</h1>
 
   <!-- Filter bar (checkbox-style) -->
-<div class="bg-white rounded-lg shadow mb-3 md:sticky md:top-16 md:z-40 md:max-h-[70vh] md:overflow-y-auto">
-    <form id="filters" class="p-4">
-      <div class="flex flex-wrap items-end gap-4">
+<!-- Filter bar: compact header + collapsible panel -->
+<div class="bg-white rounded-lg shadow mb-3 md:sticky md:top-16 md:z-40">
+  <form id="filters" class="divide-y">
 
-        <!-- Search -->
-        <div class="min-w-[16rem]">
-          <label class="block text-sm font-medium">Search</label>
-          <input name="q" type="text" placeholder="Name / text…"
-                 class="mt-1 w-full border rounded px-3 py-2" />
-        </div>
+    <!-- Compact sticky header row -->
+    <div class="p-3 flex flex-wrap items-center gap-2">
+      <!-- Search always visible -->
+      <div class="flex-1 min-w-[14rem]">
+        <label for="q" class="sr-only">Search</label>
+        <input id="q" name="q" type="text" placeholder="Search name / text…"
+               class="w-full border rounded px-3 py-2 text-sm" />
+      </div>
 
-        <!-- Range -->
-        <div>
+      <!-- Toggle -->
+      <button id="toggle-filters" type="button"
+              class="inline-flex items-center gap-2 px-3 py-2 text-sm border rounded hover:bg-gray-50"
+              aria-expanded="false" aria-controls="filters-panel">
+        Filters
+        <span id="filters-count"
+              class="hidden text-xs px-2 py-0.5 rounded-full bg-gray-900 text-white"></span>
+      </button>
+
+      <!-- Apply -->
+      <button id="apply" type="submit"
+              class="px-3 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-500">
+        Apply
+      </button>
+
+      <!-- Clear -->
+      <button id="clear-filters" type="button"
+              class="px-3 py-2 text-sm border rounded hover:bg-gray-50">
+        Clear
+      </button>
+    </div>
+
+    <!-- Collapsible panel -->
+    <div id="filters-panel" class="hidden p-3 md:max-h-[70vh] md:overflow-y-auto">
+
+      <!-- Primary filters (compact) -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+
+        <!-- Range (pill toggles) -->
+        <div class="lg:col-span-4">
           <div class="text-sm font-medium">Range</div>
-          <div class="mt-1 flex flex-wrap gap-3">
+          <div class="mt-2 flex flex-wrap gap-2">
             {% for r in range_choices %}
-            <label class="inline-flex items-center gap-2">
-              <input type="checkbox" name="range" value="{{ r.code }}" />
-              <span>{{ r.label }}</span>
+            <label class="inline-flex items-center">
+              <input type="checkbox" name="range" value="{{ r.code }}" class="sr-only peer" />
+              <span class="px-2 py-1 text-xs rounded-full border bg-white
+                           peer-checked:bg-gray-900 peer-checked:text-white peer-checked:border-gray-900">
+                {{ r.label }}
+              </span>
             </label>
             {% endfor %}
           </div>
         </div>
 
-        <!-- Action (checkbox multi) -->
-        <div>
+        <!-- Action (pill toggles) -->
+        <div class="lg:col-span-4">
           <div class="text-sm font-medium">Action</div>
-          <div class="mt-1 flex flex-wrap gap-3 max-w-[22rem]">
+          <div class="mt-2 flex flex-wrap gap-2">
             {% for code,label in action_choices %}
-            <label class="inline-flex items-center gap-2">
-              <input type="checkbox" name="action" value="{{ code }}" />
-              <span>{{ label }}</span>
+            <label class="inline-flex items-center">
+              <input type="checkbox" name="action" value="{{ code }}" class="sr-only peer" />
+              <span class="px-2 py-1 text-xs rounded-full border bg-white
+                           peer-checked:bg-gray-900 peer-checked:text-white peer-checked:border-gray-900">
+                {{ label }}
+              </span>
             </label>
             {% endfor %}
           </div>
         </div>
 
         <!-- Flags -->
-        <div class="flex flex-col gap-2">
-          <label class="inline-flex items-center gap-2">
-            <input type="checkbox" name="rare" />
-            <span>Rare only</span>
-          </label>
-          <label class="inline-flex items-center gap-2">
-            <input type="checkbox" name="ability_gated" />
-            <span>Ability-gated only</span>
-          </label>
+        <div class="lg:col-span-2">
+          <div class="text-sm font-medium">Flags</div>
+          <div class="mt-2 space-y-2">
+            <label class="flex items-center gap-2 text-sm">
+              <input type="checkbox" name="rare" class="h-4 w-4 rounded border-gray-300" />
+              <span>Rare only</span>
+            </label>
+            <label class="flex items-center gap-2 text-sm">
+              <input type="checkbox" name="ability_gated" class="h-4 w-4 rounded border-gray-300" />
+              <span>Ability-gated only</span>
+            </label>
+          </div>
         </div>
 
         <!-- Numeric -->
-        <div>
-          <label class="block text-sm font-medium">Min Level</label>
-          <input name="level_min" type="number" min="0" class="mt-1 w-28 border rounded px-3 py-2" />
-        </div>
-        <div>
-          <label class="block text-sm font-medium">Max Level</label>
-          <input name="level_max" type="number" min="0" class="mt-1 w-28 border rounded px-3 py-2" />
-        </div>
-        <div>
-          <label class="block text-sm font-medium">Max Cost</label>
-          <input name="cost_max" type="number" min="0" class="mt-1 w-28 border rounded px-3 py-2" />
+        <div class="lg:col-span-2">
+          <div class="text-sm font-medium">Limits</div>
+          <div class="mt-2 grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-xs text-gray-600">Min Lvl</label>
+              <input name="level_min" type="number" min="0"
+                     class="mt-1 w-full border rounded px-2 py-1.5 text-sm" />
+            </div>
+            <div>
+              <label class="block text-xs text-gray-600">Max Lvl</label>
+              <input name="level_max" type="number" min="0"
+                     class="mt-1 w-full border rounded px-2 py-1.5 text-sm" />
+            </div>
+            <div class="col-span-2">
+              <label class="block text-xs text-gray-600">Max Cost</label>
+              <input name="cost_max" type="number" min="0"
+                     class="mt-1 w-full border rounded px-2 py-1.5 text-sm" />
+            </div>
+          </div>
         </div>
 
-        <!-- Apply -->
-        <div class="ml-auto">
-          <button id="apply" type="submit"
-                  class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-500">
-            Apply
-          </button>
-        </div>
       </div>
 
-      <!-- Secondary filters row: Classes / Damage / Traits as checkbox lists -->
-      <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-        <!-- Classes -->
-        <div>
-          <div class="text-sm font-medium mb-1">Classes</div>
-          <div class="border rounded p-2 max-h-40 overflow-auto space-y-1">
-            {% for c in classes %}
-            <label class="flex items-center gap-2">
-              <input type="checkbox" name="class" value="{{ c.id }}" />
-              <span class="text-sm">{{ c.name }}</span>
-            </label>
-            {% endfor %}
-          </div>
-        </div>
+      <!-- Advanced filters (collapsible) -->
+      <details class="mt-4 group">
+        <summary class="cursor-pointer select-none text-sm font-medium text-gray-800 flex items-center gap-2">
+          Advanced filters
+          <span class="text-xs text-gray-500">(Classes / Damage / Traits)</span>
+        </summary>
 
-        <!-- Damage types -->
-        <div>
-          <div class="text-sm font-medium mb-1">Damage Types</div>
-          <div class="border rounded p-2 max-h-40 overflow-auto space-y-1">
-            {% for d in damage_choices %}
-            <label class="flex items-center gap-2">
-              <input type="checkbox" name="damage" value="{{ d.code }}" />
-              <span class="text-sm">{{ d.label }}</span>
-            </label>
-            {% endfor %}
-          </div>
-        </div>
+        <div class="mt-3 grid grid-cols-1 md:grid-cols-3 gap-4">
 
-        <!-- Weapon traits -->
-        <div>
-          <div class="text-sm font-medium mb-1">Weapon Traits</div>
-          <div class="border rounded p-2 max-h-40 overflow-auto space-y-1">
-            {% for t in traits %}
-            <label class="flex items-center gap-2">
-              <input type="checkbox" name="trait" value="{{ t.id }}" />
-              <span class="text-sm">{{ t.name }}</span>
-            </label>
-            {% endfor %}
+          <!-- Classes -->
+          <div>
+            <div class="text-sm font-medium mb-1">Classes</div>
+            <div class="border rounded p-2 max-h-48 overflow-auto">
+              <div class="grid grid-cols-2 gap-x-3 gap-y-1">
+                {% for c in classes %}
+                <label class="flex items-center gap-2">
+                  <input type="checkbox" name="class" value="{{ c.id }}" class="h-4 w-4 rounded border-gray-300" />
+                  <span class="text-sm">{{ c.name }}</span>
+                </label>
+                {% endfor %}
+              </div>
+            </div>
           </div>
+
+          <!-- Damage types -->
+          <div>
+            <div class="text-sm font-medium mb-1">Damage Types</div>
+            <div class="border rounded p-2 max-h-48 overflow-auto">
+              <div class="grid grid-cols-2 gap-x-3 gap-y-1">
+                {% for d in damage_choices %}
+                <label class="flex items-center gap-2">
+                  <input type="checkbox" name="damage" value="{{ d.code }}" class="h-4 w-4 rounded border-gray-300" />
+                  <span class="text-sm">{{ d.label }}</span>
+                </label>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+
+          <!-- Weapon traits -->
+          <div>
+            <div class="text-sm font-medium mb-1">Weapon Traits</div>
+            <div class="border rounded p-2 max-h-48 overflow-auto">
+              <div class="grid grid-cols-2 gap-x-3 gap-y-1">
+                {% for t in traits %}
+                <label class="flex items-center gap-2">
+                  <input type="checkbox" name="trait" value="{{ t.id }}" class="h-4 w-4 rounded border-gray-300" />
+                  <span class="text-sm">{{ t.name }}</span>
+                </label>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+
         </div>
-      </div>
-    </form>
-  </div>
+      </details>
+
+    </div>
+  </form>
+</div>
 
   <!-- Results table -->
   <div class="bg-white rounded-lg shadow overflow-x-auto">
@@ -150,9 +207,12 @@
 </div>
 
 <script>
-  const $f = document.getElementById('filters');
-  const $tbody = document.getElementById('results-body');
-
+const $f      = document.getElementById('filters');
+const $tbody  = document.getElementById('results-body');
+const $panel  = document.getElementById('filters-panel');
+const $toggle = document.getElementById('toggle-filters');
+const $count  = document.getElementById('filters-count');
+const $clear  = document.getElementById('clear-filters');
   function asParams(form) {
     const fd = new FormData(form);
     const p  = new URLSearchParams();
@@ -219,7 +279,45 @@
       };
     }
   }
+const FILTER_OPEN_KEY = 'mm_filters_open';
 
+function setPanelOpen(open) {
+  $panel.classList.toggle('hidden', !open);
+  $toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  try { localStorage.setItem(FILTER_OPEN_KEY, open ? '1' : '0'); } catch {}
+}
+
+function isPanelOpen() {
+  return !$panel.classList.contains('hidden');
+}
+
+function countActiveFilters(form) {
+  let n = 0;
+  for (const el of form.elements) {
+    if (!el.name) continue;
+
+    if (el.type === 'checkbox' || el.type === 'radio') {
+      if (el.checked) n++;
+      continue;
+    }
+
+    // text/number/select/etc
+    const v = (el.value ?? '').toString().trim();
+    if (v !== '') n++;
+  }
+  return n;
+}
+
+function syncFilterCount() {
+  const n = countActiveFilters($f);
+  if (n > 0) {
+    $count.textContent = String(n);
+    $count.classList.remove('hidden');
+  } else {
+    $count.textContent = '';
+    $count.classList.add('hidden');
+  }
+}
   async function load() {
     $tbody.innerHTML = `<tr><td colspan="8" class="px-3 py-6 text-center text-gray-500">Loading…</td></tr>`;
     const qs = asParams($f);
@@ -229,7 +327,38 @@
     renderRows(data.results || []);
   }
 
-  $f.addEventListener('submit', (e) => { e.preventDefault(); load(); });
-  document.addEventListener('DOMContentLoaded', load);
+$toggle.addEventListener('click', () => {
+  setPanelOpen(!isPanelOpen());
+});
+
+$clear.addEventListener('click', () => {
+  $f.reset();
+  syncFilterCount();
+  load();
+});
+
+// keep count live
+$f.addEventListener('input', syncFilterCount);
+$f.addEventListener('change', syncFilterCount);
+
+$f.addEventListener('submit', (e) => {
+  e.preventDefault();
+  load();
+
+  // On mobile, auto-collapse after apply (keeps UI tight)
+  if (window.matchMedia('(max-width: 767px)').matches) {
+    setPanelOpen(false);
+  }
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+  // restore last open/closed state
+  let open = false;
+  try { open = localStorage.getItem(FILTER_OPEN_KEY) === '1'; } catch {}
+  setPanelOpen(open);
+
+  syncFilterCount();
+  load();
+});
 </script>
 {% endblock %}

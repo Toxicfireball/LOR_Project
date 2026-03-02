@@ -368,9 +368,56 @@
 <h2 class="text-2xl font-semibold mb-2">Subclasses</h2>
 {% for group in subclass_groups %}
   <h3 class="text-xl font-medium mt-4">{{ group.name }}</h3>
+
+  {# --- How this umbrella works --- #}
+  {% if group.system_type == "linear" %}
+    <p class="text-sm text-gray-600 mt-1">
+      Pick one path in this umbrella when your class tells you to. After that, your subclass features are automatic:
+      you gain the features listed under the class levels shown below.
+    </p>
+
+  {% elif group.system_type == "modular_linear" %}
+    <p class="text-sm text-gray-600 mt-1">
+      Tier-based picks. As you level up, new tiers unlock. When a tier unlocks, you choose subclass features from the list.
+      Each subclass track must be taken in order (Tier 2 requires Tier 1 of the same subclass). You can mix between tracks.
+    </p>
+
+    {% with tls=group.tier_levels.all %}
+      {% if tls %}
+        <p class="text-xs text-gray-500 mt-1">
+          Tiers unlock at:
+          {% for tl in tls %}
+            Tier {{ tl.tier }} → L{{ tl.unlock_level }}{% if not forloop.last %}, {% endif %}
+          {% endfor %}
+        </p>
+      {% endif %}
+    {% endwith %}
+
+  {% elif group.system_type == "modular_mastery" %}
+    <p class="text-sm text-gray-600 mt-1">
+      Module-based progression. You pick modules over time. Every {{ group.modules_per_mastery }} modules taken in the same subclass
+      increases your Mastery rank by 1. Higher-rank modules require higher Mastery.
+    </p>
+
+    {% with mus=group.mastery_unlocks.all %}
+      {% if mus %}
+        <p class="text-xs text-gray-500 mt-1">
+          Mastery ranks unlock at:
+          {% for mu in mus %}
+            Rank {{ mu.rank }} → L{{ mu.unlock_level }} (needs {{ mu.modules_required }} modules){% if not forloop.last %}, {% endif %}
+          {% endfor %}
+        </p>
+      {% endif %}
+    {% endwith %}
+  {% endif %}
+
   <div class="ml-4">
     {% for sub in group.subclasses.all %}
       <details class="mb-4 border rounded bg-white">
+        <summary class="px-4 py-2 font-semibold cursor-pointer">{{ sub.name }}</summary>
+        <div class="px-4 py-3">
+          <p class="italic mb-3">{{ sub.description }}</p>
+          
         <summary class="px-4 py-2 font-semibold cursor-pointer">{{ sub.name }}</summary>
         <div class="px-4 py-3">
           <p class="italic mb-3">{{ sub.description }}</p>
