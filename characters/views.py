@@ -88,12 +88,17 @@ def _load_character_and_perms(request, pk):
         ).exists()
 
     is_shared_viewer = CharacterViewer.objects.filter(character=character, user=request.user).exists()
-    if not (request.user.id == character.user_id or is_gm_for_campaign or is_shared_viewer):
+    is_admin_viewer  = bool(getattr(request.user, "is_staff", False) or getattr(request.user, "is_superuser", False))
+
+    if not (is_admin_viewer or request.user.id == character.user_id or is_gm_for_campaign or is_shared_viewer):
         return None, None, HttpResponseForbidden("You don’t have permission to view this character.")
 
-    can_edit = (request.user.id == character.user_id) or is_gm_for_campaign
+    can_edit = (
+        request.user.id == character.user_id
+        or is_gm_for_campaign
+        or getattr(request.user, "is_superuser", False)
+    )
     return character, can_edit, None
-
 def _matches_term(text: str, text_lower: str, term: GlossaryTerm) -> bool:
     """
     Returns True if ANY of (term.term + aliases) appear in text,
