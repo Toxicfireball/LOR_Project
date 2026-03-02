@@ -4896,7 +4896,108 @@ tierClearBtn.value = (code || "").toLowerCase();
     </div>
   {% endif %}
 </div>
+{# UNIVERSAL FIELDS (show for BOTH base + prestige) #}
+<div id="universal-fields">
+  {% if form.general_feat %}
+                  <div class="mb-3">
+                    <label class="form-label">{{ form.general_feat.label }}</label>
+                    <input type="text" id="general-feat-filter" class="form-control mb-2" placeholder="Filter feats…">
+                    <table id="general-feats-table" class="table table-bordered">
+                      <thead>
+                        <tr>
+                          <th></th>
+                          <th data-sort="1">Feat</th>
+                          <th data-sort="2">Description</th>
+                          <th data-sort="3">Level</th>
+                          <th data-sort="4">
+                            Requirements
+                            <div class="dropdown d-inline ms-1" data-bs-auto-close="outside">
+                              <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown" data-bs-display="static">▾</button>
+                              <div class="dropdown-menu p-3 excel-menu" data-col="4" data-split="1" style="width:260px;"></div>
+                            </div>
+                          </th>
+                          <th data-sort="5">
+                            Tags
+                            <div class="dropdown d-inline ms-1" data-bs-auto-close="outside">
+                              <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown" data-bs-display="static">▾</button>
+                              <div class="dropdown-menu p-3 excel-menu" data-col="5" data-split="1" style="width:260px;"></div>
+                            </div>
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for feat in form.general_feat.field.queryset %}
+                          <tr>
+                            <td>
+                              <input
+                                type="radio"
+                                name="{{ form.general_feat.html_name }}"
+                                value="{{ feat.pk }}"
+                                {% if form.general_feat.value|stringformat:"s" == feat.pk|stringformat:"s" %}checked{% endif %}
+                                {% if form.general_feat.field.required %}required{% endif %}
+                              >
+                            </td>
+                            <td class="feat-name">{{ feat.name }}</td>
+                            <td class="feat-desc summernote-content">{{ feat.description|default:"(no description)"|safe }}</td>
+                            <td class="feat-level">{{ feat.level_prerequisite|default:"None" }}</td>
+                            <td class="feat-reqs">{{ feat.prerequisites|default:"—" }}</td>
+                            <td class="feat-tags">{{ feat.tags|default:"None" }}</td>
+                          </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                    {% for err in form.general_feat.errors %}
+                      <div class="text-danger">{{ err }}</div>
+                    {% endfor %}
+                  </div>  {% endif %}
 
+  {% if form.asi_mode %}
+                  <div class="mb-4">
+                    <label class="form-label d-block">Ability Score Increase</label>
+
+                    <input type="hidden" name="{{ form.asi_mode.html_name }}" id="id_asi_mode" value="{{ form.asi_mode.value|default:'' }}">
+                    <input type="hidden" name="{{ form.asi_a.html_name }}"    id="id_asi_a"    value="{{ form.asi_a.value|default:'' }}">
+                    <input type="hidden" name="{{ form.asi_b.html_name }}"    id="id_asi_b"    value="{{ form.asi_b.value|default:'' }}">
+
+                    <div class="table-responsive">
+                      <table class="table table-bordered align-middle" id="asi-table">
+                        <thead>
+                          <tr>
+                            <th>Ability</th>
+                            <th>Current</th>
+                            <th>+1</th>
+                            <th>+1</th>
+                            <th>Result</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                        {% for label,val in ability_map.items %}
+                          {% with key=label|lower %}
+                          <tr data-key="{{ key }}" data-base="{{ val }}">
+                            <td class="fw-semibold">{{ label }}</td>
+                            <td class="asi-current">{{ val }}</td>
+                            <td class="text-center">
+                              <input type="checkbox" class="form-check-input asi-slot" data-slot="A" aria-label="+1 Slot A to {{ label }}">
+                            </td>
+                            <td class="text-center">
+                              <input type="checkbox" class="form-check-input asi-slot" data-slot="B" aria-label="+1 Slot B to {{ label }}">
+                            </td>
+                            <td class="asi-result">{{ val }}</td>
+                          </tr>
+                          {% endwith %}
+                        {% endfor %}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div class="small" id="asi-help"></div>
+                    <div class="small mt-2"><strong>Preview:</strong> <span id="asi-preview">—</span></div>
+
+                    {% for err in form.non_field_errors %}
+                      <div class="text-danger mt-2">{{ err }}</div>
+                    {% endfor %}
+                  </div>  {% endif %}
+</div>
 
 
               <!-- Base-only fields wrapper -->
@@ -4948,107 +5049,8 @@ tierClearBtn.value = (code || "").toLowerCase();
                   {% endwith %}
                 {% endif %}
 
-                {% if form.general_feat %}
-                  <div class="mb-3">
-                    <label class="form-label">{{ form.general_feat.label }}</label>
-                    <input type="text" id="general-feat-filter" class="form-control mb-2" placeholder="Filter feats…">
-                    <table id="general-feats-table" class="table table-bordered">
-                      <thead>
-                        <tr>
-                          <th></th>
-                          <th data-sort="1">Feat</th>
-                          <th data-sort="2">Description</th>
-                          <th data-sort="3">Level</th>
-                          <th data-sort="4">
-                            Requirements
-                            <div class="dropdown d-inline ms-1" data-bs-auto-close="outside">
-                              <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown" data-bs-display="static">▾</button>
-                              <div class="dropdown-menu p-3 excel-menu" data-col="4" data-split="1" style="width:260px;"></div>
-                            </div>
-                          </th>
-                          <th data-sort="5">
-                            Tags
-                            <div class="dropdown d-inline ms-1" data-bs-auto-close="outside">
-                              <button class="btn btn-sm btn-outline-secondary px-2 py-0" type="button" data-bs-toggle="dropdown" data-bs-display="static">▾</button>
-                              <div class="dropdown-menu p-3 excel-menu" data-col="5" data-split="1" style="width:260px;"></div>
-                            </div>
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {% for feat in form.general_feat.field.queryset %}
-                          <tr>
-                            <td>
-                              <input
-                                type="radio"
-                                name="{{ form.general_feat.html_name }}"
-                                value="{{ feat.pk }}"
-                                {% if form.general_feat.value|stringformat:"s" == feat.pk|stringformat:"s" %}checked{% endif %}
-                                {% if form.general_feat.field.required %}required{% endif %}
-                              >
-                            </td>
-                            <td class="feat-name">{{ feat.name }}</td>
-                            <td class="feat-desc summernote-content">{{ feat.description|default:"(no description)"|safe }}</td>
-                            <td class="feat-level">{{ feat.level_prerequisite|default:"None" }}</td>
-                            <td class="feat-reqs">{{ feat.prerequisites|default:"—" }}</td>
-                            <td class="feat-tags">{{ feat.tags|default:"None" }}</td>
-                          </tr>
-                        {% endfor %}
-                      </tbody>
-                    </table>
-                    {% for err in form.general_feat.errors %}
-                      <div class="text-danger">{{ err }}</div>
-                    {% endfor %}
-                  </div>
-                {% endif %}
 
-                {% if form.asi_mode %}
-                  <div class="mb-4">
-                    <label class="form-label d-block">Ability Score Increase</label>
 
-                    <input type="hidden" name="{{ form.asi_mode.html_name }}" id="id_asi_mode" value="{{ form.asi_mode.value|default:'' }}">
-                    <input type="hidden" name="{{ form.asi_a.html_name }}"    id="id_asi_a"    value="{{ form.asi_a.value|default:'' }}">
-                    <input type="hidden" name="{{ form.asi_b.html_name }}"    id="id_asi_b"    value="{{ form.asi_b.value|default:'' }}">
-
-                    <div class="table-responsive">
-                      <table class="table table-bordered align-middle" id="asi-table">
-                        <thead>
-                          <tr>
-                            <th>Ability</th>
-                            <th>Current</th>
-                            <th>+1</th>
-                            <th>+1</th>
-                            <th>Result</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                        {% for label,val in ability_map.items %}
-                          {% with key=label|lower %}
-                          <tr data-key="{{ key }}" data-base="{{ val }}">
-                            <td class="fw-semibold">{{ label }}</td>
-                            <td class="asi-current">{{ val }}</td>
-                            <td class="text-center">
-                              <input type="checkbox" class="form-check-input asi-slot" data-slot="A" aria-label="+1 Slot A to {{ label }}">
-                            </td>
-                            <td class="text-center">
-                              <input type="checkbox" class="form-check-input asi-slot" data-slot="B" aria-label="+1 Slot B to {{ label }}">
-                            </td>
-                            <td class="asi-result">{{ val }}</td>
-                          </tr>
-                          {% endwith %}
-                        {% endfor %}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    <div class="small" id="asi-help"></div>
-                    <div class="small mt-2"><strong>Preview:</strong> <span id="asi-preview">—</span></div>
-
-                    {% for err in form.non_field_errors %}
-                      <div class="text-danger mt-2">{{ err }}</div>
-                    {% endfor %}
-                  </div>
-                {% endif %}
                 {% if form.class_feat_pick %}
                   <div class="mb-4">
                     <label class="form-label">{{ form.class_feat_pick.label }}</label>

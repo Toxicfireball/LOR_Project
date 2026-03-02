@@ -6,6 +6,8 @@ from .forms import PendingBackgroundRequestForm
 from django.db.models import Q, F
 from django.db.models.functions import Cast
 from django.db.models import Case, When, IntegerField
+from django.db import transaction
+
 # Create your views here.
 from django.db.models.functions import Trim
 from types import SimpleNamespace
@@ -7036,7 +7038,7 @@ def character_detail(request, pk):
         .filter(character=character, racial_feature__isnull=False)
         .select_related("racial_feature", "subclass")
         .order_by("level", "racial_feature__name")
-)
+  ) 
     # Ability scores now support the same Formula/Final override pattern as Skills.
     # Keys: "ability:<name>", e.g., "ability:strength"
     abilities = []
@@ -7145,7 +7147,7 @@ def character_detail(request, pk):
     preview_cls.subclass_groups
         .order_by('name')
         .prefetch_related('subclasses', 'tier_levels')
-)
+  )
     cls_level_after = _class_level_after_pick(character, preview_cls)
     cls_level_after_post = cls_level_after
     show_starting_skill_picker = (cls_level_after == 1)  # only at first level in this class
@@ -7476,9 +7478,12 @@ def character_detail(request, pk):
             row = f.spell_slot_rows.filter(level=cls_level_after).first()
             # attach so the template can render it
             f.spell_row_next = row
-    # universal‐level trigger (only informs the form)
-    uni = UniversalLevelFeature.objects.filter(level=next_level).first()
+    # universal‐level trigger (combine all rows for that level)
+    uni_qs = UniversalLevelFeature.objects.filter(level=next_level)
+    uni = uni_qs.first()
 
+    grants_general_feat = any(getattr(u, "grants_general_feat", False) for u in uni_qs)
+    grants_asi          = any(getattr(u, "grants_asi", False) for u in uni_qs)
     # only real ClassFeature instances go here
     to_choose = base_feats.copy()
 
@@ -8255,6 +8260,77 @@ def character_detail(request, pk):
         uni=uni,
         initial=initial,
     )
+    # Ensure universal pickers exist even if UniversalLevelFeature has multiple rows
+    if grants_general_feat and "general_feat" not in level_form.fields:
+        general_qs = (
+            ClassFeat.objects
+            .filter(feat_type__iexact="General")
+            .order_by("name")
+        )
+        level_form.fields["general_feat"] = forms.ModelChoiceField(
+            queryset=general_qs,
+            required=True,
+            label="General Feat",
+            empty_label="— Select a general feat —",
+        )
+
+    if grants_asi:
+        level_form.fields.setdefault("asi_mode", forms.CharField(required=True))
+        level_form.fields.setdefault("asi_a",    forms.CharField(required=False))
+        level_form.fields.setdefault("asi_b",    forms.CharField(required=False))
+
+    # ─────────────────────────────────────────────────────────────
+    # FORCE universal progression pickers onto the form (base OR prestige)
+    # Template only renders these sections if the fields exist.
+    next_level = int(character.level or 0) + 1
+
+    # General feat (universal)
+    if uni and getattr(uni, "grants_general_feat", False) and "general_feat" not in level_form.fields:
+        general_qs = (
+            ClassFeat.objects
+            .filter(feat_type__iexact="General")
+            .filter(Q(level_prerequisite__isnull=True) | Q(level_prerequisite__lte=next_level))
+            .order_by("name")
+        )
+        level_form.fields["general_feat"] = forms.ModelChoiceField(
+            queryset=general_qs,
+            required=True,
+            label="General Feat",
+            empty_label="— Select a general feat —",
+        )
+
+    # Ability score increase (universal) – these are hidden inputs filled by JS
+    if uni and getattr(uni, "grants_asi", False):
+        level_form.fields.setdefault("asi_mode", forms.CharField(required=True))
+        level_form.fields.setdefault("asi_a",    forms.CharField(required=False))
+        level_form.fields.setdefault("asi_b",    forms.CharField(required=False))
+    # ─────────────────────────────────────────────────────────────
+    # FORCE universal progression pickers onto the form (base OR prestige)
+    # Template only renders these sections if the fields exist.
+    next_level = int(character.level or 0) + 1
+
+    # General feat (universal)
+    if uni and getattr(uni, "grants_general_feat", False) and "general_feat" not in level_form.fields:
+        general_qs = (
+            ClassFeat.objects
+            .filter(feat_type__iexact="General")
+            .filter(Q(level_prerequisite__isnull=True) | Q(level_prerequisite__lte=next_level))
+            .order_by("name")
+        )
+        level_form.fields["general_feat"] = forms.ModelChoiceField(
+            queryset=general_qs,
+            required=True,
+            label="General Feat",
+            empty_label="— Select a general feat —",
+        )
+
+    # Ability score increase (universal) – these are hidden inputs filled by JS
+    if uni and getattr(uni, "grants_asi", False):
+        level_form.fields.setdefault("asi_mode", forms.CharField(required=True))
+        level_form.fields.setdefault("asi_a",    forms.CharField(required=False))
+        level_form.fields.setdefault("asi_b",    forms.CharField(required=False))
+    # ─────────────────────────────────────────────────────────────
+
 
 
 
@@ -13019,7 +13095,11 @@ def character_level_up(request, pk):
         for f in base_feats
     )
 
-    uni = UniversalLevelFeature.objects.filter(level=next_level).first()
+    uni_qs = UniversalLevelFeature.objects.filter(level=next_level)
+    uni = uni_qs.first()
+
+    grants_general_feat = any(getattr(u, "grants_general_feat", False) for u in uni_qs)
+    grants_asi          = any(getattr(u, "grants_asi", False) for u in uni_qs)
     target_cls = posted_cls
     cls_after  = cls_level_for_validate
     cls_name   = target_cls.name
@@ -13134,36 +13214,149 @@ def character_level_up(request, pk):
             if not counts_as:
                 messages.error(request, "Pick a valid counts-as class for this prestige level.")
                 return redirect("characters:character_detail", pk=pk)
+        # --- Universal progression for THIS character level (applies even on prestige levels) ---
+        uni_qs = UniversalLevelFeature.objects.filter(level=next_level)
+        grants_general_feat = any(getattr(u, "grants_general_feat", False) for u in uni_qs)
+        grants_asi          = any(getattr(u, "grants_asi", False) for u in uni_qs)
+
+        picked_general_feat = None
+        if grants_general_feat:
+            raw_gf = (post.get("general_feat") or "").strip()
+            if not raw_gf.isdigit():
+                messages.error(request, "This level grants a General Feat. Please select one.")
+                return redirect("characters:character_detail", pk=pk)
+            picked_general_feat = ClassFeat.objects.filter(
+                pk=int(raw_gf),
+                feat_type__iexact="General",
+            ).first()
+            if not picked_general_feat:
+                messages.error(request, "Invalid General Feat selection.")
+                return redirect("characters:character_detail", pk=pk)
+
+        asi_payload = None
+        if grants_asi:
+            mode = (post.get("asi_mode") or "").strip()
+            a    = (post.get("asi_a") or "").strip().lower()
+            b    = (post.get("asi_b") or "").strip().lower()
+
+            if not mode or not a:
+                messages.error(request, "This level grants an Ability Score Increase. Please choose your ASI.")
+                return redirect("characters:character_detail", pk=pk)
+
+            valid_fields = {"strength","dexterity","constitution","intelligence","wisdom","charisma"}
+            if a not in valid_fields or (b and b not in valid_fields):
+                messages.error(request, "Invalid Ability Score field(s).")
+                return redirect("characters:character_detail", pk=pk)
+
+            asi_payload = (mode, a, b)
 
 
-        PrestigeChoice.objects.create(
-            character=character,
-            prestige_class=prestige_cls,
-            prestige_level=p_level,    # numeric prestige level (1, 2, 3, …)
-            char_level_at_gain=next_level,  # NEW: which character level this was
-            counts_as=counts_as,
-        )
+        # ── Universal grants at THIS character level (works even when prestige) ──
+        uni_qs = UniversalLevelFeature.objects.filter(level=next_level)
+        needs_general_feat = uni_qs.filter(grants_general_feat=True).exists()
+        needs_asi          = uni_qs.filter(grants_asi=True).exists()
 
-        # 7) Grant prestige features attached to this prestige level
-        feats = PrestigeFeature.objects.filter(
-            prestige_class=prestige_cls,
-            at_prestige_level=p_level,
-        )
+        chosen_general = None
+        if needs_general_feat:
+            gf_id = (request.POST.get("general_feat") or "").strip()
+            if not gf_id.isdigit():
+                messages.error(request, "This level grants a General Feat. Select one.")
+                return redirect("characters:character_detail", pk=pk)
 
-        granted = 0
-        for pf in feats:
-            cf = getattr(pf, "grants_class_feature", None)
-            if cf:
-                CharacterFeature.objects.get_or_create(
+            chosen_general = ClassFeat.objects.filter(
+                pk=int(gf_id),
+                feat_type__iexact="General",
+            ).first()
+
+            if not chosen_general or not _feat_matches_character_race(getattr(chosen_general, "race", ""), character):
+                messages.error(request, "Invalid General Feat selection for this character.")
+                return redirect("characters:character_detail", pk=pk)
+
+        asi_mode = None
+        asi_a = asi_b = None
+        if needs_asi:
+            asi_mode = (request.POST.get("asi_mode") or "").strip()
+            asi_a = (request.POST.get("asi_a") or "").strip().lower()
+            asi_b = (request.POST.get("asi_b") or "").strip().lower()
+
+            if not asi_mode or not asi_a:
+                messages.error(request, "This level grants an Ability Score Increase. Choose it.")
+                return redirect("characters:character_detail", pk=pk)
+
+            valid_fields = {"strength","dexterity","constitution","intelligence","wisdom","charisma"}
+            if asi_a not in valid_fields or (asi_b and asi_b not in valid_fields):
+                messages.error(request, "Invalid Ability Score selection.")
+                return redirect("characters:character_detail", pk=pk)
+
+        with transaction.atomic():
+            # 6) Save prestige level choice
+            PrestigeChoice.objects.create(
+                character=character,
+                prestige_class=prestige_cls,
+                prestige_level=p_level,            # 1,2,3...
+                char_level_at_gain=next_level,     # character level gained at
+                counts_as=counts_as,
+            )
+
+            # 7) Grant prestige features
+            feats = PrestigeFeature.objects.filter(
+                prestige_class=prestige_cls,
+                at_prestige_level=p_level,
+            )
+
+            granted = 0
+            for pf in feats:
+                cf = getattr(pf, "grants_class_feature", None)
+                if cf:
+                    CharacterFeature.objects.get_or_create(
+                        character=character,
+                        feature=cf,
+                        defaults={"level": next_level},
+                    )
+                    granted += 1
+
+            # Apply ASI (if any) BEFORE saving
+            if needs_asi and asi_mode:
+                if asi_mode == "1+1":
+                    if not asi_b or asi_b == asi_a:
+                        messages.error(request, "ASI mode 1+1 requires two different abilities.")
+                        raise ValueError("Invalid ASI 1+1 payload")
+                    setattr(character, asi_a, getattr(character, asi_a) + 1)
+                    setattr(character, asi_b, getattr(character, asi_b) + 1)
+
+                elif asi_mode == "1":
+                    setattr(character, asi_a, getattr(character, asi_a) + 1)
+
+                elif asi_mode == "2":
+                    if asi_b and asi_b != asi_a:
+                        setattr(character, asi_a, getattr(character, asi_a) + 1)
+                        setattr(character, asi_b, getattr(character, asi_b) + 1)
+                    else:
+                        setattr(character, asi_a, getattr(character, asi_a) + 2)
+
+                else:
+                    messages.error(request, "Invalid ASI mode.")
+                    raise ValueError("Invalid ASI mode")
+
+            # 8) Bump character level (save ONCE)
+            character.level = next_level
+            character.save()  # saves level + ASI changes
+
+            # Persist General Feat
+            if chosen_general is not None:
+                CharacterFeat.objects.get_or_create(
                     character=character,
-                    feature=cf,
+                    feat=chosen_general,
                     defaults={"level": next_level},
                 )
-                granted += 1
 
-        # 8) Bump character level
-        character.level = next_level
-        character.save(update_fields=["level"])
+            # Keep your “ASI happened” marker (matches your base-class path)
+            if needs_asi and asi_mode:
+                CharacterFeature.objects.create(
+                    character=character,
+                    feature=None,
+                    level=next_level
+                )
 
         messages.success(
             request,
@@ -13171,7 +13364,6 @@ def character_level_up(request, pk):
             + (f"Granted {granted} feature(s)." if granted else "No mapped features configured for this prestige level.")
         )
         return redirect("characters:character_detail", pk=pk)
-
 
 
 
@@ -13193,8 +13385,11 @@ def character_level_up(request, pk):
     request.POST = post
 
     next_level = character.level + 1
-    uni = UniversalLevelFeature.objects.filter(level=next_level).first()
+    uni_qs = UniversalLevelFeature.objects.filter(level=next_level)
+    uni = uni_qs.first()
 
+    grants_general_feat = any(getattr(u, "grants_general_feat", False) for u in uni_qs)
+    grants_asi          = any(getattr(u, "grants_asi", False) for u in uni_qs)
     level_form = LevelUpForm(
         post,  # ← the normalized POST you constructed above
         character=character,
@@ -13203,7 +13398,27 @@ def character_level_up(request, pk):
         grants_class_feat=_grants_class_feat_at,
         uni=uni,  # ensures general_feat / ASI fields are present
     )
+    # FORCE universal pickers onto the *bound* form too (otherwise cleaned_data never has them)
+    next_level = int(character.level or 0) + 1
 
+    if uni and getattr(uni, "grants_general_feat", False) and "general_feat" not in level_form.fields:
+        general_qs = (
+            ClassFeat.objects
+            .filter(feat_type__iexact="General")
+            .filter(Q(level_prerequisite__isnull=True) | Q(level_prerequisite__lte=next_level))
+            .order_by("name")
+        )
+        level_form.fields["general_feat"] = forms.ModelChoiceField(
+            queryset=general_qs,
+            required=True,
+            label="General Feat",
+            empty_label="— Select a general feat —",
+        )
+
+    if uni and getattr(uni, "grants_asi", False):
+        level_form.fields.setdefault("asi_mode", forms.CharField(required=True))
+        level_form.fields.setdefault("asi_a",    forms.CharField(required=False))
+        level_form.fields.setdefault("asi_b",    forms.CharField(required=False))
 
 
     CharacterClassModel  = apps.get_model("characters", "CharacterClass")   # ← alias to avoid shadowing
