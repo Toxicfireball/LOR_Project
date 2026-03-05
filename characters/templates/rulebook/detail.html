@@ -30,4 +30,10 @@
     <p class="text-gray-500 italic">No pages yet.</p>
   {% endif %}
 </div>
+
+{% endblock %}
+{% block extra_js %}
+<script>
+  window.__GLOSSARY_RULEBOOK_ID__ = {{ page.rulebook.pk }};
+</script>
 {% endblock %}

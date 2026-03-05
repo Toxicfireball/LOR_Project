@@ -1,7 +1,8 @@
 (function () {
   if (window.__glossaryTooltipsInitialized) return;
   window.__glossaryTooltipsInitialized = true;
-  window.__GLOSSARY_BUILD__ = "bubble-v5";
+
+  window.__GLOSSARY_BUILD__ = "bubble-v6-links";
   console.log("glossary_tooltips:", window.__GLOSSARY_BUILD__);
 
   const SKIP_TAGS = new Set(["SCRIPT","STYLE","NOSCRIPT","CODE","PRE","TEXTAREA","INPUT","KBD","SAMP"]);
@@ -10,6 +11,7 @@
 
   // ---- one floating bubble (no HTML injection) ------------------------------
   const bubble = document.createElement("div");
+  bubble.className = "glossary-bubble";
   Object.assign(bubble.style, {
     position: "fixed",
     zIndex: "99999",
@@ -21,17 +23,76 @@
     boxShadow: "0 10px 15px -3px rgba(0,0,0,.1), 0 4px 6px -4px rgba(0,0,0,.1)",
     fontSize: "14px",
     lineHeight: "1.25rem",
-    pointerEvents: "none",
+    pointerEvents: "auto", // IMPORTANT: allow clicks
     display: "none",
     whiteSpace: "pre-wrap"
   });
-  document.addEventListener("DOMContentLoaded", () => document.body.appendChild(bubble));
 
-  function showBubble(el, text) {
-    if (!text) return;
-    bubble.textContent = text; // NO innerHTML
-    bubble.style.display = "block";
+  document.addEventListener("DOMContentLoaded", () => {
+    document.body.appendChild(bubble);
+  });
 
+  let hideTimer = null;
+  function cancelHide() {
+    if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+  }
+  function scheduleHide() {
+    cancelHide();
+    hideTimer = setTimeout(hideBubble, 150);
+  }
+
+  // Keep bubble open if hovered
+  bubble.addEventListener("mouseenter", cancelHide);
+  bubble.addEventListener("mouseleave", scheduleHide);
+
+  function setBubbleContent(defn, url, searchUrl) {
+    // No innerHTML. Build DOM nodes safely.
+    bubble.replaceChildren();
+
+    const defDiv = document.createElement("div");
+    defDiv.textContent = defn || "";
+    bubble.appendChild(defDiv);
+
+    const actions = [];
+
+    if (url) {
+      actions.push({
+        href: url,
+        text: "Open in rulebook glossary"
+      });
+    }
+    if (searchUrl) {
+      actions.push({
+        href: searchUrl,
+        text: "Find in rulebooks"
+      });
+    }
+
+    if (actions.length) {
+      const row = document.createElement("div");
+      row.style.marginTop = "6px";
+      row.style.display = "flex";
+      row.style.gap = "12px";
+      row.style.flexWrap = "wrap";
+      row.style.fontSize = "12px";
+
+      actions.forEach(act => {
+        const a = document.createElement("a");
+        a.href = act.href;
+        a.textContent = act.text;
+        a.target = "_blank";
+        a.rel = "noopener";
+        a.style.textDecoration = "underline";
+        a.style.cursor = "pointer";
+        a.style.color = "#93C5FD"; // readable on dark bg
+        row.appendChild(a);
+      });
+
+      bubble.appendChild(row);
+    }
+  }
+
+  function positionBubbleAround(el) {
     const r = el.getBoundingClientRect();
     const vw = window.innerWidth || document.documentElement.clientWidth;
     const vh = window.innerHeight || document.documentElement.clientHeight;
@@ -40,49 +101,80 @@
     const belowTop = r.bottom + margin;
     const bottomSpace = vh - r.bottom;
 
-    // position
+    // display must be block before offsetHeight/Width are reliable
     if (bottomSpace < 120) {
       bubble.style.top = Math.max(8, r.top - bubble.offsetHeight - margin) + "px"; // above
     } else {
       bubble.style.top = belowTop + "px"; // below
     }
+
     const left = Math.max(8, Math.min(r.left, vw - bubble.offsetWidth - 8));
     bubble.style.left = left + "px";
   }
-  function hideBubble() { bubble.style.display = "none"; }
+
+  function showBubble(el, defn, url, searchUrl) {
+    if (!defn) return;
+    cancelHide();
+
+    setBubbleContent(defn, url, searchUrl);
+    bubble.style.display = "block";
+    positionBubbleAround(el);
+  }
+
+  function hideBubble() {
+    bubble.style.display = "none";
+  }
 
   // ---- load terms -----------------------------------------------------------
-async function loadTerms() {
-  try {
-    const ver = Math.floor(Date.now() / (15 * 60 * 1000)); // changes every 15 min
-    const res = await fetch(`/glossary.json?v=${ver}`, {
-      credentials: "same-origin",
-      cache: "no-store" // avoid stale browser cache
-    });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch { return null; }
-}
+  async function loadTerms() {
+    try {
+      const ver = Math.floor(Date.now() / (15 * 60 * 1000)); // changes every 15 min
+      const rb = window.__GLOSSARY_RULEBOOK_ID__;
 
+      const qs = new URLSearchParams({ v: String(ver) });
+      if (rb !== undefined && rb !== null && String(rb).trim() !== "") {
+        qs.set("rb", String(rb));
+      }
+
+      const res = await fetch(`/glossary.json?${qs.toString()}`, {
+        credentials: "same-origin",
+        cache: "no-store" // avoid stale browser cache
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
+  }
 
   function buildMatchers(data) {
     const matchers = [];
     (data.terms || []).forEach(item => {
       const defn = item.defn || "";
+      const url = item.url || "";
+      const searchUrl = item.search_url || ""; // optional
       const flags = item.cs ? "g" : "gi";
+
       (item.aliases || []).forEach(word => {
         if (!word) return;
         const esc = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         const pat = item.ww ? `\\b${esc}\\b` : esc;
-        matchers.push({ re: new RegExp(pat, flags), defn });
+        matchers.push({
+          re: new RegExp(pat, flags),
+          defn,
+          url,
+          searchUrl
+        });
       });
     });
+
     // longest first
-    matchers.sort((a,b) => {
-      const aa = a.re.source.replace(/\\b/g,"");
-      const bb = b.re.source.replace(/\\b/g,"");
+    matchers.sort((a, b) => {
+      const aa = a.re.source.replace(/\\b/g, "");
+      const bb = b.re.source.replace(/\\b/g, "");
       return bb.length - aa.length;
     });
+
     return matchers;
   }
 
@@ -96,43 +188,67 @@ async function loadTerms() {
 
     // collect hits
     const hits = [];
-    matchers.forEach(({ re, defn }) => {
+    matchers.forEach(({ re, defn, url, searchUrl }) => {
       re.lastIndex = 0;
       let m, perTerm = 0;
+
       while ((m = re.exec(original)) && counters.total < MAX_TOTAL) {
         if (perTerm >= MAX_PER_TERM) break;
-        hits.push({ start: m.index, end: m.index + m[0].length, text: m[0], defn });
-        perTerm++; counters.total++;
+        hits.push({
+          start: m.index,
+          end: m.index + m[0].length,
+          text: m[0],
+          defn,
+          url,
+          searchUrl
+        });
+        perTerm++;
+        counters.total++;
       }
     });
+
     if (!hits.length) return;
 
     // order + de-overlap
-    hits.sort((a,b) => (a.start - b.start) || (b.end - b.start) - (a.end - a.start));
+    hits.sort((a, b) => (a.start - b.start) || (b.end - b.start) - (a.end - a.start));
     const kept = [];
     let lastEnd = -1;
     for (const h of hits) {
-      if (h.start >= lastEnd) { kept.push(h); lastEnd = h.end; }
+      if (h.start >= lastEnd) {
+        kept.push(h);
+        lastEnd = h.end;
+      }
     }
 
     const frag = document.createDocumentFragment();
+
     for (const h of kept) {
       if (h.start > cursor) {
         frag.appendChild(document.createTextNode(original.slice(cursor, h.start)));
       }
+
       const span = document.createElement("span");
       span.className = "glossary-term";
-      span.dataset.tip = h.defn; // store plain text
+      span.dataset.tip = h.defn || "";
+      span.dataset.url = h.url || "";
+      span.dataset.searchUrl = h.searchUrl || "";
       span.appendChild(document.createTextNode(h.text));
 
       // hover/touch handlers
-      span.addEventListener("mouseenter", () => showBubble(span, span.dataset.tip));
-      span.addEventListener("mouseleave", hideBubble);
-      span.addEventListener("touchstart", (e) => { e.stopPropagation(); showBubble(span, span.dataset.tip); }, { passive: true });
+      span.addEventListener("mouseenter", () => {
+        showBubble(span, span.dataset.tip, span.dataset.url, span.dataset.searchUrl);
+      });
+      span.addEventListener("mouseleave", scheduleHide);
+
+      span.addEventListener("touchstart", (e) => {
+        e.stopPropagation();
+        showBubble(span, span.dataset.tip, span.dataset.url, span.dataset.searchUrl);
+      }, { passive: true });
 
       frag.appendChild(span);
       cursor = h.end;
     }
+
     if (cursor < original.length) {
       frag.appendChild(document.createTextNode(original.slice(cursor)));
     }
@@ -148,13 +264,16 @@ async function loadTerms() {
         acceptNode(node) {
           const v = node.nodeValue;
           if (!v || !v.trim()) return NodeFilter.FILTER_REJECT;
+
           const p = node.parentNode;
           if (!p) return NodeFilter.FILTER_REJECT;
+
           if (p.nodeType === 1) {
             if (p.classList && p.classList.contains("glossary-term")) return NodeFilter.FILTER_REJECT;
             if (p.closest && p.closest("[data-glossary-skip]")) return NodeFilter.FILTER_REJECT;
             if (p.isContentEditable) return NodeFilter.FILTER_REJECT;
           }
+
           if (SKIP_TAGS.has(p.nodeName)) return NodeFilter.FILTER_REJECT;
           return NodeFilter.FILTER_ACCEPT;
         }
@@ -162,7 +281,8 @@ async function loadTerms() {
     );
 
     const textNodes = [];
-    let n; while ((n = walker.nextNode())) textNodes.push(n);
+    let n;
+    while ((n = walker.nextNode())) textNodes.push(n);
 
     const counters = { total: 0 };
     textNodes.forEach(node => {
@@ -171,7 +291,13 @@ async function loadTerms() {
     });
 
     // hide bubble on outside tap/scroll
-    document.addEventListener("touchstart", hideBubble, { passive: true });
+    document.addEventListener("touchstart", (e) => {
+      // If tap is inside bubble or on a glossary term, don't hide (so links work)
+      if (bubble.contains(e.target)) return;
+      if (e.target && e.target.closest && e.target.closest(".glossary-term")) return;
+      hideBubble();
+    }, { passive: true });
+
     document.addEventListener("scroll", hideBubble, { passive: true });
   }
 
@@ -181,4 +307,5 @@ async function loadTerms() {
     const matchers = buildMatchers(data);
     scanAndWrap(matchers);
   })();
+
 })();
