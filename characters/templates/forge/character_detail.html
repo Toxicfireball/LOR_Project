@@ -264,29 +264,78 @@
   <!-- FORM 1: HP / Temp HP / HP Max -->
   <form method="post" action="{% url 'characters:character_detail' character.pk %}" class="mb-0">
     {% csrf_token %}
+    <input type="hidden" name="save_core_stats_submit" value="1">
+
     <ul class="list-group list-group-flush">
 
+      <li class="list-group-item">
+        <div class="d-flex justify-content-between align-items-center">
+          <span>HP</span>
+          <span class="d-flex align-items-center gap-2">
+            <input
+              name="HP"
+              type="number"
+              class="form-control form-control-sm"
+              style="width:90px"
+              value="{{ hp_current }}"
+              min="0"
+            >
+            <span>/</span>
+            <strong>{{ hp_max }}</strong>
+          </span>
+        </div>
+
+        <div class="small text-muted mt-2">
+          Calculated max HP: <strong>{{ hp_max_calc }}</strong>
+          {% if hp_max_is_overridden %}
+            <span class="badge text-bg-warning ms-2">Override active</span>
+          {% else %}
+            <span class="badge text-bg-success ms-2">Using calculated</span>
+          {% endif %}
+        </div>
+      </li>
+
       <li class="list-group-item d-flex justify-content-between align-items-center">
-        <span>HP</span>
+        <span>Max HP Override</span>
         <span class="d-flex align-items-center gap-2">
-          <input name="HP" type="number" class="form-control form-control-sm" style="width:90px"
-                 value="{{ hp_current }}" min="0">
-          <span>/</span>
-          <input name="hp_max" type="number" class="form-control form-control-sm" style="width:90px"
-                 value="{{ hp_max }}" min="0">
+          <input
+            name="hp_max"
+            type="number"
+            class="form-control form-control-sm"
+            style="width:90px"
+            value="{{ hp_max_override_value }}"
+            placeholder="{{ hp_max_calc }}"
+            min="0"
+          >
         </span>
       </li>
 
       <li class="list-group-item d-flex justify-content-between align-items-center">
         <span>Temp HP</span>
         <span class="d-flex align-items-center gap-2">
-          <input name="temp_HP" type="number" class="form-control form-control-sm" style="width:90px"
-                 value="{{ temp_hp|default:0 }}" min="0">
+          <input
+            name="temp_HP"
+            type="number"
+            class="form-control form-control-sm"
+            style="width:90px"
+            value="{{ temp_hp|default:0 }}"
+            min="0"
+          >
         </span>
       </li>
 
-      <li class="list-group-item d-flex justify-content-end">
-        <button class="btn btn-sm btn-primary" name="save_core_stats_submit" value="1">Save</button>
+      <li class="list-group-item d-flex justify-content-end gap-2">
+        {% if hp_max_is_overridden %}
+          <button
+            class="btn btn-sm btn-outline-secondary"
+            type="submit"
+            name="hp_max_auto"
+            value="on"
+          >
+            Use Calculated
+          </button>
+        {% endif %}
+        <button class="btn btn-sm btn-primary" type="submit">Save</button>
       </li>
 
     </ul>
@@ -352,17 +401,7 @@
 
 
 
-      <li class="list-group-item d-flex justify-content-between align-items-center">
-        <span>Temp HP</span>
-        <span class="d-flex align-items-center gap-2">
-          <input name="temp_HP" type="number" class="form-control form-control-sm" style="width:90px"
-                 value="{{ temp_hp|default:0 }}" min="0">
-        </span>
-      </li>
 
-      <li class="list-group-item d-flex justify-content-end">
-        <button class="btn btn-sm btn-primary" name="save_core_stats_submit" value="1">Save</button>
-      </li>
 
 <li class="list-group-item d-flex justify-content-between align-items-center">
   <span>Armor</span>

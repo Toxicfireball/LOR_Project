@@ -7610,22 +7610,22 @@ def character_detail(request, pk):
             # Keep existing behavior for current HP and Temp HP
             _save_num("HP")
             _save_num("temp_HP")
-            # --- NEW: Speed (blank = use race default) ---
-            speed_raw = (request.POST.get("speed") or "").strip()
-            if speed_raw == "":
-                # Clear to None so UI falls back to race_speed placeholder
-                if character.speed is not None:
-                    character.speed = None
-                    character.save(update_fields=["speed"])
-            else:
-                try:
-                    speed_val = max(0, int(speed_raw))
-                except ValueError:
-                    messages.error(request, "Speed must be a whole number.")
-                    return redirect('characters:character_detail', pk=pk)
-                if character.speed != speed_val:
-                    character.speed = speed_val
-                    character.save(update_fields=["speed"])
+            # Only touch speed if this form actually posted a speed field
+            if "speed" in request.POST:
+                speed_raw = (request.POST.get("speed") or "").strip()
+                if speed_raw == "":
+                    if character.speed is not None:
+                        character.speed = None
+                        character.save(update_fields=["speed"])
+                else:
+                    try:
+                        speed_val = max(0, int(speed_raw))
+                    except ValueError:
+                        messages.error(request, "Speed must be a whole number.")
+                        return redirect('characters:character_detail', pk=pk)
+                    if character.speed != speed_val:
+                        character.speed = speed_val
+                        character.save(update_fields=["speed"])
 
             # --- NEW: hp_max supports "Auto" (no override) ---
             hp_auto = (request.POST.get("hp_max_auto") == "on")   # checkbox from the form
@@ -9834,7 +9834,7 @@ def character_detail(request, pk):
     prof_weapon     = prof_by_code.get("weapon",    {"modifier": 0})["modifier"]
 
     # HP / Temp HP
-    hp_max_base = _character_hp_max(character, class_progress)
+    hp_max_calc = _character_hp_max(character, class_progress)
 
     def _int_or_zero(v):
         try:
@@ -9853,8 +9853,21 @@ def character_detail(request, pk):
     hp_current = _int_or_zero(_pick_override("HP", getattr(character, "HP", 0)))
     temp_hp    = _int_or_zero(_pick_override("temp_HP", getattr(character, "temp_HP", 0)))
 
-    # Max HP should follow the formula unless there is an explicit override
-    hp_max = _int_or_zero(_pick_override("hp_max", hp_max_base))
+    raw_hp_max_override = overrides.get("hp_max", None)
+    hp_max_override_value = ""
+    hp_max_is_overridden = False
+
+    if raw_hp_max_override is not None and not (
+        isinstance(raw_hp_max_override, str) and raw_hp_max_override.strip() == ""
+    ):
+        try:
+            hp_max_override_value = int(raw_hp_max_override)
+            hp_max_is_overridden = True
+        except (TypeError, ValueError):
+            hp_max_override_value = ""
+            hp_max_is_overridden = False
+
+    hp_max = int(hp_max_override_value) if hp_max_is_overridden else hp_max_calc
 
 
 
@@ -12786,9 +12799,12 @@ def character_detail(request, pk):
         'armor_total': derived["armor_total"],
         'defense_rows': defense_rows,
         'defense_totals': defense_totals,
-        'hp_current': hp_current,
-        'hp_max': hp_max,
-        'temp_hp': temp_hp,
+'hp_current': hp_current,
+'hp_max': hp_max,
+'hp_max_calc': hp_max_calc,
+'hp_max_override_value': hp_max_override_value,
+'hp_max_is_overridden': hp_max_is_overridden,
+'temp_hp': temp_hp,
 
         # — Combat —
         'combat_blocks': combat_blocks,
