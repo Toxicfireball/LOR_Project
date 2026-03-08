@@ -2371,26 +2371,61 @@ def _class_level(char: Character, cls: CharacterClass) -> int:
         char.class_progress.filter(character_class=cls).values_list("levels", flat=True).first()
         or 0
     )
-
 def _active_spell_tables(char: Character):
     """
-    Returns all spell_table features that actually apply to the character
-    (class has at least 1 level, and any level_required is met).
+    Return spell_table features the character actually owns.
+    This respects subclass-specific spell tables.
     """
-    features = []
-    for cp in char.class_progress.select_related("character_class"):
-        lvl = int(cp.levels or 0)
+    class_levels = {
+        int(cp.character_class_id): (cp.character_class, int(cp.levels or 0))
+        for cp in char.class_progress.select_related("character_class")
+        if int(cp.levels or 0) > 0
+    }
+
+    owned_rows = (
+        CharacterFeature.objects
+        .filter(
+            character=char,
+            feature__kind="spell_table",
+            feature__character_class_id__in=class_levels.keys(),
+        )
+        .select_related("feature", "feature__character_class", "subclass")
+        .prefetch_related("feature__subclasses", "feature__spell_slot_rows")
+        .order_by("feature__character_class__name", "feature__id", "id")
+    )
+
+    out = []
+    seen = set()
+
+    for cf in owned_rows:
+        f = cf.feature
+        cls = f.character_class
+        if not cls:
+            continue
+
+        cls_info = class_levels.get(int(cls.id))
+        if not cls_info:
+            continue
+
+        _, lvl = cls_info
         if lvl <= 0:
             continue
-        tables = ClassFeature.objects.filter(
-            character_class=cp.character_class,
-            kind="spell_table"
-        )
-        for f in tables:
-            if f.level_required and lvl < f.level_required:
-                continue
-            features.append((f, cp.character_class, lvl))
-    return features
+
+        if f.level_required and lvl < int(f.level_required):
+            continue
+
+        allowed_sub_ids = set(f.subclasses.values_list("id", flat=True))
+        if allowed_sub_ids and cf.subclass_id not in allowed_sub_ids:
+            continue
+
+        key = (f.id, cf.subclass_id)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        out.append((f, cls, lvl))
+
+    return out
 
 def _slot_totals_by_origin_and_rank(char):
     out = {o: {r: 0 for r in RANKS} for o in ORIGINS}
@@ -6504,37 +6539,55 @@ def character_detail(request, pk):
         return default
     def _effective_spell_slots_by_rank(character, class_progress):
         """
-        Sum spell slots by rank using EFFECTIVE (counts-as) class levels.
-        Returns {rank: total_slots}.
+        Sum spell slots by rank using EFFECTIVE class levels,
+        but only for spell_table features the character actually owns.
         """
         from collections import defaultdict
-        ClassFeature = apps.get_model("characters", "ClassFeature")
 
         totals = defaultdict(int)
-        eff_levels, classes_by_id = _effective_class_levels(character, class_progress)
+        eff_levels, _classes_by_id = _effective_class_levels(character, class_progress)
 
-        for class_id, eff_lvl in eff_levels.items():
-            if not eff_lvl:
-                continue
-            cls = classes_by_id.get(class_id)
+        owned_rows = (
+            CharacterFeature.objects
+            .filter(character=character, feature__kind="spell_table")
+            .select_related("feature", "feature__character_class", "subclass")
+            .prefetch_related("feature__subclasses", "feature__spell_slot_rows")
+        )
+
+        seen = set()
+
+        for cf in owned_rows:
+            ft = cf.feature
+            cls = ft.character_class
             if not cls:
                 continue
 
-            # All spell-table features for this class, at the *effective* level
-            for ft in ClassFeature.objects.filter(kind="spell_table", character_class=cls).distinct():
-                row = ft.spell_slot_rows.filter(level=int(eff_lvl)).first()
-                if not row:
-                    continue
-                vec = [
-                    row.slot1, row.slot2, row.slot3, row.slot4, row.slot5,
-                    row.slot6, row.slot7, row.slot8, row.slot9, row.slot10
-                ]
-                for r, n in enumerate(vec, start=1):
-                    if n:
-                        totals[r] += int(n or 0)
+            eff_lvl = int(eff_levels.get(int(cls.id), 0) or 0)
+            if eff_lvl <= 0:
+                continue
+
+            allowed_sub_ids = set(ft.subclasses.values_list("id", flat=True))
+            if allowed_sub_ids and cf.subclass_id not in allowed_sub_ids:
+                continue
+
+            key = (ft.id, cf.subclass_id)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            row = ft.spell_slot_rows.filter(level=eff_lvl).first()
+            if not row:
+                continue
+
+            vec = [
+                row.slot1, row.slot2, row.slot3, row.slot4, row.slot5,
+                row.slot6, row.slot7, row.slot8, row.slot9, row.slot10,
+            ]
+            for r, n in enumerate(vec, start=1):
+                if n:
+                    totals[r] += int(n or 0)
 
         return dict(totals)
-
 
 
 
@@ -7304,11 +7357,8 @@ def character_detail(request, pk):
 
     auto_feats = [
         f for f in base_feats
-        if isinstance(f, ClassFeature) and (
-            f.scope == 'class_feat' or getattr(f, "kind", "") == "spell_table"
-        )
+        if isinstance(f, ClassFeature) and _is_auto_granted_feature(f)
     ]
-
 
     # Use ONLY these for slot-table display. Do NOT condense to a single 'largest' table.
     # ── Expose all Class Features that are spell slot tables (with descriptions) ─────
@@ -14087,7 +14137,7 @@ def character_level_up(request, pk):
             )
             auto_feats_post = [
                 f for f in cl_next.features.all()
-                if (getattr(f, "scope", "") == "class_feat" or getattr(f, "kind", "") == "spell_table")
+                if _is_auto_granted_feature(f)
             ]
         except ClassLevel.DoesNotExist:
             auto_feats_post = []
@@ -14898,7 +14948,32 @@ from collections import OrderedDict, defaultdict
 from django.utils.dateparse import parse_date
 from django.db.models import Q
 
+def _is_subclass_bound_feature(f) -> bool:
+    scope = (getattr(f, "scope", "") or "").strip().lower()
 
+    try:
+        has_subclasses = f.subclasses.exists()
+    except Exception:
+        has_subclasses = False
+
+    return bool(
+        scope in {"subclass_feat", "subclass_choice"}
+        or getattr(f, "subclass_group_id", None)
+        or has_subclasses
+    )
+
+
+def _is_auto_granted_feature(f) -> bool:
+    scope = (getattr(f, "scope", "") or "").strip().lower()
+    kind = (getattr(f, "kind", "") or "").strip().lower()
+
+    if scope == "class_feat":
+        return True
+
+    if kind == "spell_table" and not _is_subclass_bound_feature(f):
+        return True
+
+    return False
 def _entry_dt(e):
     return e.published_at or e.occurred_at
 
