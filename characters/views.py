@@ -2088,7 +2088,50 @@ def _effective_class_levels(character, class_progress):
                 classes_by_id[ch.counts_as_id] = ch.counts_as
 
         return dict(levels), classes_by_id
+def _character_hp_max(character, class_progress=None):
+    """
+    Canonical max HP:
+    race HP + sum((class hit die + CON mod) * effective class levels)
 
+    This preserves your existing multiclass / prestige-counts-as behavior.
+    """
+    def _to_int(v):
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return 0
+
+    con_mod = (_to_int(getattr(character, "constitution", 0)) - 10) // 2
+
+    race = getattr(character, "race", None)
+    race_hp = 0
+    for candidate in (
+        getattr(race, "starting_hp", None),
+        getattr(race, "race_hp", None),
+        getattr(character, "race_hp", None),
+    ):
+        if candidate not in (None, ""):
+            race_hp = _to_int(candidate)
+            break
+
+    if class_progress is None:
+        class_progress = list(
+            character.class_progress.select_related("character_class").all()
+        )
+    else:
+        class_progress = list(class_progress)
+
+    eff_levels, classes_by_id = _effective_class_levels(character, class_progress)
+
+    hp_from_classes = 0
+    for class_id, eff_lvl in eff_levels.items():
+        cls = classes_by_id.get(class_id)
+        if not cls:
+            continue
+        hit_die = _to_int(getattr(cls, "hit_die", 0))
+        hp_from_classes += (hit_die + con_mod) * _to_int(eff_lvl)
+
+    return race_hp + hp_from_classes
 def _prof_from_group(prof_by_code, group):
     g = (group or "").strip().lower().replace(" ", "_").replace("-", "_")
     key = g if g.startswith("weapon:") else f"weapon:{g}"
@@ -6324,63 +6367,7 @@ def character_detail(request, pk):
         .exclude(id__in=existing_ids)
         .order_by("username", "email")
     )
-    # --- CORE STATS SAVE: HP / HP Max / Temp HP ------------------------------------
-    if request.method == "POST" and can_edit and request.POST.get("save_core_stats_submit") == "1":
-        def _read_int(name, allow_blank=True):
-            raw = request.POST.get(name, "")
-            if raw == "" and allow_blank:
-                return None
-            try:
-                return int(raw)
-            except (TypeError, ValueError):
-                return None
 
-        new_hp      = _read_int("HP")
-        new_hp_max  = _read_int("hp_max")
-        new_temp_hp = _read_int("temp_HP")
-
-        # clamp if both provided
-        if new_hp is not None and new_hp < 0:
-            new_hp = 0
-        if new_hp_max is not None and new_hp_max < 0:
-            new_hp_max = 0
-        if new_temp_hp is not None and new_temp_hp < 0:
-            new_temp_hp = 0
-        if new_hp is not None and new_hp_max is not None and new_hp > new_hp_max:
-            new_hp = new_hp_max
-
-        # Save to model fields if they exist; otherwise fall back to CharacterFieldOverride
-        to_update = []
-
-        if hasattr(character, "HP") and new_hp is not None:
-            character.HP = new_hp
-            to_update.append("HP")
-        elif new_hp is not None:
-            CharacterFieldOverride.objects.update_or_create(
-                character=character, key="HP", defaults={"value": str(new_hp)}
-            )
-
-        if hasattr(character, "hp_max") and new_hp_max is not None:
-            character.hp_max = new_hp_max
-            to_update.append("hp_max")
-        elif new_hp_max is not None:
-            CharacterFieldOverride.objects.update_or_create(
-                character=character, key="hp_max", defaults={"value": str(new_hp_max)}
-            )
-
-        if hasattr(character, "temp_HP") and new_temp_hp is not None:
-            character.temp_HP = new_temp_hp
-            to_update.append("temp_HP")
-        elif new_temp_hp is not None:
-            CharacterFieldOverride.objects.update_or_create(
-                character=character, key="temp_HP", defaults={"value": str(new_temp_hp)}
-            )
-
-        if to_update:
-            character.save(update_fields=to_update)
-
-        messages.success(request, "HP updated.")
-        return redirect("characters:character_detail", pk=pk)
     if request.method == "POST" and request.POST.get("feats_op"):
         if not can_edit:
             return HttpResponseForbidden("You don’t have permission to edit this character.")
@@ -9846,38 +9833,9 @@ def character_detail(request, pk):
     prof_will       = prof_by_code.get("will",      {"modifier": 0})["modifier"]
     prof_weapon     = prof_by_code.get("weapon",    {"modifier": 0})["modifier"]
 
-    # HP/Temp HP resilient to model differences
-    # replace the three lines that compute hp_current/hp_max/temp_hp
-    # HP per spec: race_hp + (class hit die + CON mod) * level
-    # primary_cp already computed earlier as the class with the most levels
-    race_hp = int(getattr(character, "race_hp", 0) or 0)  # uses Character.race_hp if present
-    # === HP calculation (spec): race starting HP + ((CON mod + class hit die) × level) ===
-    # Try a few common places race "starting HP" might live.
-    # === HP calculation (spec): race starting HP + Σ_over_classes((hit die + CON mod) × effective levels) ===
-    race_starting_hp = (
-        int(getattr(getattr(character, "race", None), "starting_hp", 0) or 0)
-        or int(getattr(character, "race_hp", 0) or 0)
-    )
+    # HP / Temp HP
+    hp_max_base = _character_hp_max(character, class_progress)
 
-    # Use effective class levels so prestige counts-as contributes the counted class's hit die
-    eff_levels, classes_by_id = _effective_class_levels(character, class_progress)
-
-    hp_from_classes = 0
-    for class_id, eff_lvl in eff_levels.items():
-        cls = classes_by_id.get(class_id)
-        if not cls:
-            continue
-        hd = int(getattr(cls, "hit_die", 0) or 0)
-        hp_from_classes += (hd + con_mod) * int(eff_lvl)
-
-    hp_max_base = race_starting_hp + hp_from_classes
-    try:
-        hp_max = int(overrides.get("hp_max", hp_max_base))
-    except (TypeError, ValueError):
-        hp_max = hp_max_base
-
-
-    # Current HP / Temp HP respect manual overrides, else fall back to model fields
     def _int_or_zero(v):
         try:
             return int(v)
@@ -9885,7 +9843,6 @@ def character_detail(request, pk):
             return 0
 
     def _pick_override(key, fallback):
-        # treat None and "" as missing; keep "0"
         v = overrides.get(key, None)
         if v is None:
             return fallback
@@ -9896,8 +9853,8 @@ def character_detail(request, pk):
     hp_current = _int_or_zero(_pick_override("HP", getattr(character, "HP", 0)))
     temp_hp    = _int_or_zero(_pick_override("temp_HP", getattr(character, "temp_HP", 0)))
 
-    hp_max_sys = hp_max  # whatever you currently compute
-    hp_max = _int_or_zero(_pick_override("hp_max", hp_max_sys))
+    # Max HP should follow the formula unless there is an explicit override
+    hp_max = _int_or_zero(_pick_override("hp_max", hp_max_base))
 
 
 
@@ -13389,8 +13346,12 @@ def character_level_up(request, pk):
                     raise ValueError("Invalid ASI mode")
 
             # 8) Bump character level (save ONCE)
+            # 8) Bump character level (save ONCE)
             character.level = next_level
             character.save()  # saves level + ASI changes
+
+            # HP max must be recalculated from formula after level-up
+            CharacterFieldOverride.objects.filter(character=character, key="hp_max").delete()
 
             # Persist General Feat
             if chosen_general is not None:
@@ -14238,13 +14199,15 @@ def character_level_up(request, pk):
 
             character.save()
 
-
             # keep your audit row that “an ASI happened this level”
             CharacterFeature.objects.create(
                 character=character,
                 feature=None,
                 level=next_level
             )
+
+        # HP max must be recalculated from formula after level-up
+        CharacterFieldOverride.objects.filter(character=character, key="hp_max").delete()
 
         chosen_subclass_by_group = {}
         # E) subclass choices & feature options

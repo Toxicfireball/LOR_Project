@@ -11,7 +11,27 @@ from collections import defaultdict
 
 from django.contrib.auth import get_user_model
 from characters.audit_context import set_current_request, clear_current_request
+SYNC_LOCK_KEY = 84261741  # any fixed integer is fine
 
+
+def acquire_sync_lock() -> bool:
+    engine = (connection.settings_dict.get("ENGINE") or "").lower()
+    if "postgresql" not in engine:
+        return True  # no-op outside postgres
+
+    with connection.cursor() as cur:
+        cur.execute("SELECT pg_try_advisory_lock(%s)", [SYNC_LOCK_KEY])
+        row = cur.fetchone()
+        return bool(row and row[0])
+
+
+def release_sync_lock() -> None:
+    engine = (connection.settings_dict.get("ENGINE") or "").lower()
+    if "postgresql" not in engine:
+        return
+
+    with connection.cursor() as cur:
+        cur.execute("SELECT pg_advisory_unlock(%s)", [SYNC_LOCK_KEY])
 
 def get_feat_name_from_row(row: dict) -> str:
     """
@@ -134,7 +154,12 @@ class Command(BaseCommand):
         bot = User.objects.filter(username="gsheet_bot").first()
         set_current_request(bot, "/mgmt/sync_google_sheets")
 
+        got_lock = False
         try:
+            got_lock = acquire_sync_lock()
+            if not got_lock:
+                self.stderr.write("⛔ Another sync_google_sheets process is already running. Exiting.")
+                return
             # Google creds
             json_creds = os.environ.get("GOOGLE_SHEETS_CREDENTIALS_JSON")
             if not json_creds:
@@ -350,6 +375,7 @@ class Command(BaseCommand):
                         print(f"   • {tag:<7} id={sid} name={nm!r} level={lv}", flush=True)
 
                 # De-dup (case/space/nbps-insensitive): keep the exact sheet display name
+                # De-dup (case/space/NBSP-insensitive): keep the exact sheet display name
                 post = list(Spell.objects.all().values('id', 'name'))
                 dedupe_groups = _dd(list)
                 for r in post:
@@ -358,46 +384,52 @@ class Command(BaseCommand):
                         dedupe_groups[k].append(r['id'])
 
                 kept = deleted_dups = protected_dups = 0
-
-                do_dedupe = bool(options.get('dedupe_spells'))
+                planned = []
                 dry_run = bool(options.get('dry_run'))
 
-                if not do_dedupe:
-                    print("ℹ️  Skipping spell de-dupe (use --dedupe-spells to enable).", flush=True)
-                else:
-                    kept = deleted_dups = protected_dups = 0
-                    planned = []
-                    for k, ids in dedupe_groups.items():
-                        if len(ids) <= 1:
-                            continue
-                        rows = list(Spell.objects.filter(id__in=ids).values('id', 'name'))
-                        keep_id = None
-                        want_name = spell_display_by_key.get(k)
-                        if want_name:
-                            for r in rows:
-                                if r['name'] == want_name:
-                                    keep_id = r['id']
-                                    break
-                        if keep_id is None:
-                            keep_id = min(ids)
-                        drop = [i for i in ids if i != keep_id]
-                        kept += 1
-                        if dry_run:
-                            planned.extend(drop)
-                        else:
-                            for sid in drop:
-                                try:
-                                    Spell.objects.filter(id=sid).delete()
-                                    deleted_dups += 1
-                                except ProtectedError:
-                                    protected_dups += 1
+                for k, ids in dedupe_groups.items():
+                    if len(ids) <= 1:
+                        continue
 
-                    if dry_run and planned:
-                        print(f"🧪 DRY RUN: would delete duplicate spell ids={planned[:50]}{' ...' if len(planned)>50 else ''}", flush=True)
-                    elif kept or deleted_dups or protected_dups:
-                        print(f"🧹 Spell de-dupe: kept {kept}, deleted {deleted_dups}, protected {protected_dups}", flush=True)
+                    rows = list(Spell.objects.filter(id__in=ids).values('id', 'name'))
+
+                    keep_id = None
+                    want_name = spell_display_by_key.get(k)
+
+                    if want_name:
+                        for r in rows:
+                            if r['name'] == want_name:
+                                keep_id = r['id']
+                                break
+
+                    if keep_id is None:
+                        keep_id = min(ids)
+
+                    drop_ids = [i for i in ids if i != keep_id]
+                    kept += 1
+
+                    if dry_run:
+                        planned.extend(drop_ids)
                     else:
-                        print("👍 No spell duplicates after de-dupe.", flush=True)
+                        for sid in drop_ids:
+                            try:
+                                Spell.objects.filter(id=sid).delete()
+                                deleted_dups += 1
+                            except ProtectedError:
+                                protected_dups += 1
+
+                if dry_run and planned:
+                    print(
+                        f" DRY RUN: would delete duplicate spell ids={planned[:50]}{' ...' if len(planned) > 50 else ''}",
+                        flush=True
+                    )
+                elif kept or deleted_dups or protected_dups:
+                    print(
+                        f" Spell de-dupe: kept {kept}, deleted {deleted_dups}, protected {protected_dups}",
+                        flush=True
+                    )
+                else:
+                    print(" No spell duplicates after de-dupe.", flush=True)
 
                 # ── Deletion pass (SAFE): remove spells NOT present in the sheet ──
                 del_missing_spells = bool(options.get('delete_missing_spells'))
@@ -405,9 +437,9 @@ class Command(BaseCommand):
                 min_spell_rows = int(options.get('min_spell_rows', 150))
 
                 if not del_missing_spells:
-                    print("ℹ️  Skipping deletion of missing spells (use --delete-missing-spells to enable).", flush=True)
+                    print("ℹ  Skipping deletion of missing spells (use --delete-missing-spells to enable).", flush=True)
                 else:
-                    print("🧮 Building deletion set (spells missing from sheet)...", flush=True)
+                    print(" Building deletion set (spells missing from sheet)...", flush=True)
                     total_db_spells = Spell.objects.count()
                     print(f"   • sheet spell keys: {len(spell_keys)}", flush=True)
                     print(f"   • current DB spells: {total_db_spells}", flush=True)
@@ -719,4 +751,6 @@ class Command(BaseCommand):
                 self.stderr.write(str(e))
 
         finally:
+            if got_lock:
+                release_sync_lock()
             clear_current_request()
