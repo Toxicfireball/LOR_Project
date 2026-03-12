@@ -619,9 +619,8 @@ from django.http import HttpResponseForbidden, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.contrib import messages
 
-from .models import Campaign, EnemyType, EnemyTag
+from .models import Campaign, EnemyType, EnemyTag, EnemyCategory
 from .forms import EnemyTypeForm, EnemyAbilityInlineFormSet, EnemyDamageResistanceFormSet
-
 @login_required
 def enemy_type_editor(request, campaign_id, enemy_type_id=None):
     campaign = get_object_or_404(Campaign, id=campaign_id)
@@ -629,23 +628,25 @@ def enemy_type_editor(request, campaign_id, enemy_type_id=None):
         return HttpResponseForbidden("GM only.")
 
     instance = None
-    if enemy_type_id:
-        instance = get_object_or_404(EnemyType, id=enemy_type_id)
+    if enemy_type_id is not None:
+        # campaign UI may edit ONLY campaign-owned types
+        instance = get_object_or_404(
+            EnemyType,
+            id=enemy_type_id,
+            campaign=campaign,
+        )
 
     if request.method == "POST":
         form = EnemyTypeForm(request.POST, instance=instance, campaign=campaign)
-        # bind formsets to the instance if it exists, else bind to a temporary object
+
         temp_parent = instance or EnemyType(campaign=campaign)
         ab_formset = EnemyAbilityInlineFormSet(request.POST, instance=temp_parent, prefix="ab")
         dr_formset = EnemyDamageResistanceFormSet(request.POST, instance=temp_parent, prefix="dr")
 
-        if not form.is_valid():
-            messages.error(request, "Fix the enemy fields.")
-        else:
+        if form.is_valid():
             with transaction.atomic():
                 saved = form.save(commit=True)
 
-                # rebind formsets to the real saved instance (so saves work)
                 ab_formset = EnemyAbilityInlineFormSet(request.POST, instance=saved, prefix="ab")
                 dr_formset = EnemyDamageResistanceFormSet(request.POST, instance=saved, prefix="dr")
 
@@ -654,25 +655,21 @@ def enemy_type_editor(request, campaign_id, enemy_type_id=None):
                     dr_formset.save()
                     messages.success(request, f"Saved '{saved.name}'.")
                     return redirect("campaigns:campaign_detail", campaign_id=campaign.id)
-                else:
-                    messages.error(request, "Fix ability/resistance rows.")
-                    instance = saved  # keep showing the saved object
 
+                messages.error(request, "Fix the ability or resistance rows.")
+        else:
+            messages.error(request, "Fix the enemy fields.")
     else:
         form = EnemyTypeForm(instance=instance, campaign=campaign)
         ab_formset = EnemyAbilityInlineFormSet(instance=instance, prefix="ab")
         dr_formset = EnemyDamageResistanceFormSet(instance=instance, prefix="dr")
 
-    tags = EnemyTag.objects.all().order_by("name")
-    return render(request, "campaigns/enemy_type_editor.html", {
+    return render(request, "campaigns/enemytype_form.html", {
         "campaign": campaign,
         "form": form,
         "formset": ab_formset,
         "dr_formset": dr_formset,
-        "tags": tags,
     })
-
-
 @login_required
 def create_encounter(request, campaign_id):
     campaign = get_object_or_404(Campaign, id=campaign_id)
@@ -1054,10 +1051,8 @@ def record_enemy_to_pc_damage(request, campaign_id, encounter_id):
     )
     messages.success(request, f"{attacker_ee.display_name} hit {victim.name} for {amount}.")
     return redirect("campaigns:encounter_detail", campaign_id=campaign.id, encounter_id=enc.id)
-
-
 @login_required
-def delete_enemy_type(request, campaign_id, et_id):
+def delete_enemy_type(request, campaign_id, enemy_type_id):
     campaign = get_object_or_404(Campaign, id=campaign_id)
     if not _is_gm(request.user, campaign):
         return HttpResponseForbidden("GM only.")
@@ -1066,25 +1061,53 @@ def delete_enemy_type(request, campaign_id, et_id):
 
     et = get_object_or_404(
         EnemyType,
-        id=et_id,
-        # allow deleting either global or this campaign's types; restrict global deletion to GMs here
-        # who are in this campaign (adjust policy if you want stricter)
+        id=enemy_type_id,
+        campaign=campaign,
     )
 
-    # block deletion if used by any EncounterEnemy
-    in_use = EncounterEnemy.objects.filter(enemy_type=et).exists()
-    if in_use:
+    if EncounterEnemy.objects.filter(enemy_type=et).exists():
         messages.error(request, f"Cannot delete '{et.name}' – it is used in one or more encounters.")
-        return redirect(f"{reverse('campaigns:campaign_detail', args=[campaign.id])}#encounters")
+        return redirect("campaigns:campaign_detail", campaign_id=campaign.id)
 
     et.delete()
     messages.success(request, f"Enemy Type '{et.name}' deleted.")
-    return redirect(f"{reverse('campaigns:campaign_detail', args=[campaign.id])}#encounters")
-
-# campaigns/views.py
+    return redirect("campaigns:campaign_detail", campaign_id=campaign.id)
 
 from django.utils import timezone
 from .models import PartyItem
+
+def codex_monsters_npcs(request):
+    q = (request.GET.get("q") or "").strip()
+    kind = (request.GET.get("kind") or "").strip()
+    category_slug = (request.GET.get("category") or "").strip()
+
+    items = (
+        EnemyType.objects
+        .filter(campaign__isnull=True)
+        .select_related("category")
+        .prefetch_related("tags", "abilities")
+        .order_by("kind", "category__name", "level", "name")
+    )
+
+    if q:
+        items = items.filter(name__icontains=q)
+
+    if kind in {"monster", "npc"}:
+        items = items.filter(kind=kind)
+
+    if category_slug:
+        items = items.filter(category__slug=category_slug)
+
+    categories = EnemyCategory.objects.order_by("name")
+
+    return render(request, "campaigns/codex_monsters_npcs.html", {
+        "items": items,
+        "categories": categories,
+        "q": q,
+        "kind": kind,
+        "category_slug": category_slug,
+    })
+
 
 @login_required
 def claim_party_item(request, campaign_id, pi_id):

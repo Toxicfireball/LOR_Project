@@ -4,6 +4,20 @@ from django.contrib.auth.models import User
 from django.contrib.contenttypes.models import ContentType   # NEW
 from django.contrib.contenttypes.fields import GenericForeignKey  # NEW
 from django.db.models import Q  
+
+
+class EnemyCategory(models.Model):
+    name = models.CharField(max_length=64, unique=True)
+    slug = models.SlugField(max_length=64, unique=True)
+    description = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name_plural = "Enemy categories"
+
+    def __str__(self):
+        return self.name
+
 class Campaign(models.Model):
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True)
@@ -119,13 +133,40 @@ class EnemyTag(models.Model):
 
 class EnemyType(models.Model):
     """Reusable enemy/monster blueprint."""
-    # NEW: scope (None => Global; set => Campaign-specific)
-    CATEGORY = (("monster", "Monster"), ("npc", "NPC"))
-    campaign = models.ForeignKey(
-        Campaign, null=True, blank=True, on_delete=models.CASCADE,
-        related_name="enemy_types", help_text="Leave blank for Global"
+
+    KIND_CHOICES = (
+        ("monster", "Monster"),
+        ("npc", "NPC"),
     )
-    category = models.CharField(max_length=8, choices=CATEGORY, default="monster", db_index=True)
+
+    campaign = models.ForeignKey(
+        Campaign,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="enemy_types",
+        help_text="Leave blank for Global",
+    )
+
+    # fixed record type
+    kind = models.CharField(
+        max_length=8,
+        choices=KIND_CHOICES,
+        default="monster",
+        db_index=True,
+    )
+
+    # flexible admin-managed category
+    category = models.ForeignKey(
+        "EnemyCategory",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="enemy_types",
+    )
+
+    # flexible, unlimited category types
+
     # name is no longer globally unique (uniqueness handled via constraints below)
     name = models.CharField(max_length=120)
     level = models.PositiveIntegerField(default=0)
@@ -214,7 +255,7 @@ class EnemyType(models.Model):
 
     def __str__(self):
         scope = self.campaign.name if self.campaign_id else "Global"
-        return f"{self.name} ({scope})"
+        return f"{self.name} [{self.get_kind_display()}] ({scope})"
 
 class EnemyDamageResistance(models.Model):
     MODE_CHOICES = (

@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Monsters and NPCs{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 py-8 space-y-6">
+  <div>
+    <h1 class="text-3xl font-bold">Monsters and NPCs</h1>
+    <p class="text-sm text-gray-600 mt-1">
+      Global entries only.
+    </p>
+  </div>
+
+  <form method="get" class="bg-white border border-gray-200 rounded-xl p-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+    <input
+      type="text"
+      name="q"
+      value="{{ q }}"
+      placeholder="Search by name..."
+      class="rounded-md border border-gray-300 px-3 py-2 text-sm"
+    />
+
+    <select name="kind" class="rounded-md border border-gray-300 px-3 py-2 text-sm">
+      <option value="">All types</option>
+      <option value="monster" {% if kind == "monster" %}selected{% endif %}>Monsters</option>
+      <option value="npc" {% if kind == "npc" %}selected{% endif %}>NPCs</option>
+    </select>
+
+    <select name="category" class="rounded-md border border-gray-300 px-3 py-2 text-sm">
+      <option value="">All categories</option>
+      {% for c in categories %}
+        <option value="{{ c.slug }}" {% if category_slug == c.slug %}selected{% endif %}>{{ c.name }}</option>
+      {% endfor %}
+    </select>
+
+    <button class="rounded-md bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700">
+      Filter
+    </button>
+  </form>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    {% for item in items %}
+      <div class="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <h2 class="text-lg font-semibold">{{ item.name }}</h2>
+            <div class="text-sm text-gray-500">
+              {{ item.get_kind_display }}
+              {% if item.category %}• {{ item.category.name }}{% endif %}
+              • Level {{ item.level }}
+              • HP {{ item.hp }}
+              • Armor {{ item.armor }}
+              • Dodge {{ item.dodge }}
+              • Initiative {{ item.initiative }}
+            </div>
+          </div>
+        </div>
+
+        {% if item.tags.all %}
+          <div class="mt-2 flex flex-wrap gap-2">
+            {% for tag in item.tags.all %}
+              <span class="inline-flex items-center rounded-full bg-gray-50 px-2.5 py-1 text-xs text-gray-700 border border-gray-200">
+                {{ tag.name }}
+              </span>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        {% if item.description %}
+          <div class="mt-4 text-sm text-gray-700 whitespace-pre-line">
+            {{ item.description }}
+          </div>
+        {% endif %}
+
+        {% if item.abilities.all %}
+          <div class="mt-4 border-t border-gray-200 pt-4">
+            <div class="text-sm font-semibold text-gray-900 mb-2">Abilities</div>
+            <div class="space-y-2">
+              {% for ab in item.abilities.all %}
+                <div class="text-sm">
+                  <span class="font-medium">{{ ab.title|default:"Untitled Ability" }}</span>
+                  <span class="text-gray-500">
+                    ({{ ab.get_ability_type_display }}{% if ab.ability_type == "active" %}, {{ ab.get_action_cost_display }}{% endif %})
+                  </span>
+                  <div class="text-gray-700 mt-1">{{ ab.description }}</div>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        {% endif %}
+      </div>
+    {% empty %}
+      <div class="col-span-full bg-white border border-gray-200 rounded-xl p-6 text-gray-600">
+        Nothing found.
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

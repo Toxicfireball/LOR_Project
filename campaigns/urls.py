@@ -27,9 +27,6 @@ urlpatterns = [
     path("<int:campaign_id>/bg/<int:pb_id>/reject/",  views.reject_pending_bg,  name="reject_pending_bg"),
 
     path("<int:campaign_id>/enemies/add-ability/", views.add_enemy_ability, name="add_enemy_ability"),
-    path("<int:campaign_id>/enemy-types/<int:et_id>/edit/", views.edit_enemy_type, name="edit_enemy_type"),
-    path("<int:campaign_id>/enemies/<int:et_id>/delete/", views.delete_enemy_type, name="delete_enemy_type"),
-    path("<int:campaign_id>/enemies/new/", views.new_enemy_type, name="new_enemy_type"),
 
     # Encounters
     path("<int:campaign_id>/encounters/create/", views.create_encounter, name="create_encounter"),
@@ -54,8 +51,12 @@ urlpatterns = [
         name="record_enemy_to_pc_damage",   # <-- NEW: fixes NoReverseMatch
     ),
     path("<int:campaign_id>/encounters/<int:encounter_id>/enemy_note", views.update_enemy_note, name="update_enemy_note"),
-   path("<int:campaign_id>/enemies/new/", views.enemy_type_editor, name="enemy_type_new"),
-    path("<int:campaign_id>/enemies/<int:enemy_type_id>/edit/", views.enemy_type_editor, name="enemy_type_edit"),
+# public codex pages
+path("codex/monsters-npcs/", views.codex_monsters_npcs, name="codex_monsters_npcs"),
+# campaign-scoped editor
+path("<int:campaign_id>/enemy-types/new/", views.enemy_type_editor, name="enemy_type_new"),
+path("<int:campaign_id>/enemy-types/<int:enemy_type_id>/edit/", views.enemy_type_editor, name="enemy_type_edit"),
+path("<int:campaign_id>/enemy-types/<int:enemy_type_id>/delete/", views.delete_enemy_type, name="enemy_type_delete"),
     # GM & Analytics
     path("<int:campaign_id>/gm-dashboard/", views.gm_dashboard, name="gm_dashboard"),
     path("<int:campaign_id>/damage_stats", views.campaign_damage_stats, name="campaign_damage_stats"),

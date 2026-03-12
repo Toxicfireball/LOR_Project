@@ -437,9 +437,9 @@
                 {% if form.instance.pk %}
                   <span class="lor-chip">ID: {{ form.instance.pk }}</span>
                 {% endif %}
-                {% if form.category %}
-                  <span class="lor-chip">Type: {{ form.category.value|default:"—" }}</span>
-                {% endif %}
+{% if form.kind %}
+  <span class="lor-chip">Type: {{ form.kind.value|default:"—" }}</span>
+{% endif %}
               </div>
             </div>
           </div>
@@ -454,14 +454,20 @@
 {% endif %}
 
 
-            {% if form.category %}
-              <div class="md:col-span-3">
-                <label class="lor-label">Category</label>
-                {{ form.category }}
-                {% if form.category.errors %}<div class="text-xs text-red-700 mt-1">{{ form.category.errors|join:", " }}</div>{% endif %}
-              </div>
-            {% endif %}
-
+{% if form.kind %}
+  <div class="md:col-span-3">
+    <label class="lor-label">Type</label>
+    {{ form.kind }}
+    {% if form.kind.errors %}<div class="text-xs text-red-700 mt-1">{{ form.kind.errors|join:", " }}</div>{% endif %}
+  </div>
+{% endif %}
+{% if form.category %}
+  <div class="md:col-span-4">
+    <label class="lor-label">Category</label>
+    {{ form.category }}
+    {% if form.category.errors %}<div class="text-xs text-red-700 mt-1">{{ form.category.errors|join:", " }}</div>{% endif %}
+  </div>
+{% endif %}
             <div class="{% if form.campaign or form.category %}md:col-span-5{% else %}md:col-span-12{% endif %}">
               <label class="lor-label">Name</label>
               {{ form.name }}
