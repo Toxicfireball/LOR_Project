@@ -544,57 +544,19 @@
         <h2 class="font-semibold">Enemy Types (reusable)</h2>
         {% if is_gm %}
 <a class="px-3 py-1.5 rounded-md bg-indigo-600 text-white hover:bg-indigo-700"
-   href="{% url 'campaigns:new_enemy_type' campaign.id %}">
+   href="{% url 'campaigns:enemy_type_new' campaign.id %}">
   Create Type
 </a>
 
         {% endif %}
       </div>
 
-      {% if is_gm %}
-      <form id="et-new" method="post" action="{% url 'campaigns:new_enemy_type' campaign.id %}"
-            class="p-4 border-b space-y-2 hidden">
-        {% csrf_token %}
-        <div class="grid grid-cols-12 gap-2">
-          <div class="col-span-5">
-            <label class="block text-xs text-gray-600 mb-1">Name</label>
-            {{ enemy_type_form.name }}
-          </div>
-          <div class="col-span-2">
-            <label class="block text-xs text-gray-600 mb-1">Level</label>
-            {{ enemy_type_form.level }}
-          </div>
-          <div class="col-span-2">
-            <label class="block text-xs text-gray-600 mb-1">HP</label>
-            {{ enemy_type_form.hp }}
-          </div>
-          <div class="col-span-1">
-            <label class="block text-xs text-gray-600 mb-1">Armor</label>
-            {{ enemy_type_form.armor }}
-          </div>
-          <div class="col-span-2">
-            <label class="block text-xs text-gray-600 mb-1">Dodge</label>
-            {{ enemy_type_form.dodge }}
-          </div>
-          <div class="col-span-12">
-            <label class="block text-xs text-gray-600 mb-1">Description</label>
-            {{ enemy_type_form.description }}
-          </div>
-          <div class="col-span-12">
-            <label class="block text-xs text-gray-600 mb-1">Resistances (text)</label>
-            {{ enemy_type_form.resistances }}
-          </div>
-        </div>
-        <button class="px-3 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">Create Enemy Type</button>
-      </form>
-      {% endif %}
-
       <div class="p-4 overflow-x-auto">
         <table class="w-full text-sm">
 <thead class="text-xs text-gray-500">
   <tr class="text-left">
     <th class="py-2">Name</th>
-    <th>Lv</th><th>HP</th><th>Armor</th><th>Dodge</th>
+    <th>Lv</th><th>HP</th><th>Armor</th><th>Defence</th>
     {% if is_gm %}<th class="w-28">Actions</th>{% endif %}
   </tr>
 </thead>
@@ -605,21 +567,27 @@
       <td class="py-2 font-medium">{{ et.name }}</td>
       <td>{{ et.level }}</td><td>{{ et.hp }}</td><td>{{ et.armor }}</td><td>{{ et.dodge }}</td>
 
-      {% if is_gm %}
-      <td>
-        <div class="flex items-center gap-2">
-          <!-- (Optional) Edit link if you add an edit view later -->
-  <a class="text-sm text-indigo-600 hover:underline" href="{% url 'campaigns:edit_enemy_type' campaign.id et.id %}">Edit</a> 
+{% if is_gm %}
+<td>
+  {% if et.campaign_id == campaign.id %}
+    <div class="flex items-center gap-2">
+      <a class="text-sm text-indigo-600 hover:underline"
+         href="{% url 'campaigns:enemy_type_edit' campaign.id et.id %}">
+        Edit
+      </a>
 
-          <form method="post"
-                action="{% url 'campaigns:delete_enemy_type' campaign.id et.id %}"
-                onsubmit="return confirm('Delete {{ et.name }}?');">
-            {% csrf_token %}
-            <button class="text-red-600 hover:underline text-sm">Delete</button>
-          </form>
-        </div>
-      </td>
-      {% endif %}
+      <form method="post"
+            action="{% url 'campaigns:enemy_type_delete' campaign.id et.id %}"
+            onsubmit="return confirm('Delete {{ et.name }}?');">
+        {% csrf_token %}
+        <button class="text-red-600 hover:underline text-sm">Delete</button>
+      </form>
+    </div>
+  {% else %}
+    <span class="text-xs text-gray-500">Global</span>
+  {% endif %}
+</td>
+{% endif %}
     </tr>
   {% empty %}
     <tr>
