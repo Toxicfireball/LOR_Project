@@ -524,11 +524,11 @@
               {% if form.armor.errors %}<div class="text-xs text-red-700 mt-1">{{ form.armor.errors|join:", " }}</div>{% endif %}
             </div>
 
-            <div class="md:col-span-2">
-              <label class="lor-label">Dodge</label>
-              {{ form.dodge }}
-              {% if form.dodge.errors %}<div class="text-xs text-red-700 mt-1">{{ form.dodge.errors|join:", " }}</div>{% endif %}
-            </div>
+<div class="md:col-span-2">
+  <label class="lor-label">Defence</label>
+  {{ form.dodge }}
+  {% if form.dodge.errors %}<div class="text-xs text-red-700 mt-1">{{ form.dodge.errors|join:", " }}</div>{% endif %}
+</div>
 
             {% if form.crit_threshold %}
               <div class="md:col-span-3">
@@ -959,8 +959,7 @@
             <div class="flex justify-between"><span class="text-gray-500">Level</span><span>{{ form.level.value|default:"—" }}</span></div>
             <div class="flex justify-between"><span class="text-gray-500">HP</span><span>{{ form.hp.value|default:"—" }}</span></div>
             <div class="flex justify-between"><span class="text-gray-500">Armor</span><span>{{ form.armor.value|default:"—" }}</span></div>
-            <div class="flex justify-between"><span class="text-gray-500">Dodge</span><span>{{ form.dodge.value|default:"—" }}</span></div>
-            <div class="flex justify-between"><span class="text-gray-500">Initiative</span><span>{{ form.initiative.value|default:"—" }}</span></div>
+<div class="flex justify-between"><span class="text-gray-500">Defence</span><span>{{ form.dodge.value|default:"—" }}</span></div>            <div class="flex justify-between"><span class="text-gray-500">Initiative</span><span>{{ form.initiative.value|default:"—" }}</span></div>
 
             {% if form.crit_threshold %}
               <div class="flex justify-between"><span class="text-gray-500">Crit Threshold</span><span>{{ form.crit_threshold.value|default:"—" }}</span></div>
