@@ -173,7 +173,8 @@ class EnemyType(models.Model):
     hp = models.PositiveIntegerField(default=1)
     speed   = models.PositiveIntegerField(default=30)
     armor = models.IntegerField(default=0)
-    dodge = models.IntegerField("Defence", default=0)    initiative = models.IntegerField(default=0)  # NEW: base initiative
+    dodge = models.IntegerField("Defence", default=0)    
+    initiative = models.IntegerField(default=0)  # NEW: base initiative
     # Ability scores
     str_score = models.IntegerField(default=10)
     dex_score = models.IntegerField(default=10)
