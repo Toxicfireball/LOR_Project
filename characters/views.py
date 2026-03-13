@@ -3228,12 +3228,16 @@ class LoremasterListView(ListView):
         return ctx
 
 class LoremasterDetailView(DetailView):
-    model         = LoremasterArticle
+    model = LoremasterArticle
     template_name = "loremaster/loremaster_detail.html"
     context_object_name = "article"
 
-    # will look up by slug because of the URLconf above
-
+    def get_queryset(self):
+        return (
+            LoremasterArticle.objects
+            .filter(published=True)
+            .prefetch_related("gallery")
+        )
 
 def class_subclass_list(request):
     subclasses = ClassSubclass.objects.select_related('base_class').order_by('base_class__name', 'name')

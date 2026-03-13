@@ -3,39 +3,125 @@
 {% load static %}
 
 {% block title %}{{ article.title }}{% endblock %}
-
 {% block content %}
-  <div class="max-w-3xl mx-auto prose prose-sm">
-    <h1>{{ article.title }}</h1>
-    <p class="text-sm text-gray-500">Published on {{ article.created_at|date:"F j, Y" }}</p>
+<div class="mx-auto max-w-5xl px-4 py-8 overflow-x-hidden">
+  <article class="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+    <div class="p-6 md:p-10">
+      <header class="mb-8">
+        <h1 class="text-3xl font-bold tracking-tight text-gray-900 md:text-4xl">
+          {{ article.title }}
+        </h1>
+        <p class="mt-2 text-sm text-gray-500">
+          Published on {{ article.created_at|date:"F j, Y" }}
+        </p>
+        {% if article.excerpt %}
+          <p class="mt-4 max-w-3xl text-base leading-7 text-gray-700">
+            {{ article.excerpt }}
+          </p>
+        {% endif %}
+      </header>
 
-    {% if article.main_image %}
-      <img src="{{ article.main_image.url }}"
-           alt="{{ article.title }} main"
-           class="w-full h-80 object-cover rounded my-6" />
-    {% endif %}
-
-    <div>
-      {{ article.content|safe }}
-    </div>
-
-    {% if article.gallery.all %}
-      <section class="mt-12">
-        <h2 class="text-2xl font-bold mb-4">Gallery</h2>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {% for img in article.gallery.all %}
-            <figure class="overflow-hidden rounded">
-              <img src="{{ img.image.url }}"
-                   alt="{{ img.caption }}"
-                   class="w-full h-48 object-cover" />
-              {% if img.caption %}
-                <figcaption class="text-sm text-gray-600 p-2">{{ img.caption }}</figcaption>
-              {% endif %}
-            </figure>
-          {% endfor %}
+      {% if article.main_image %}
+        <div class="mb-8 overflow-hidden rounded-xl border border-gray-200 bg-gray-100">
+          <img src="{{ article.main_image.url }}"
+               alt="{{ article.title }} main"
+               class="h-auto max-h-[32rem] w-full object-cover" />
         </div>
-      </section>
-    {% endif %}
+      {% endif %}
 
-  </div>
+      <div class="loremaster-content prose prose-gray max-w-none prose-headings:scroll-mt-24">
+        {{ article.content|safe }}
+      </div>
+
+      {% if article.gallery.all %}
+        <section class="mt-12 border-t border-gray-200 pt-8">
+          <h2 class="text-2xl font-bold text-gray-900">Gallery</h2>
+          <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {% for img in article.gallery.all %}
+              <figure class="overflow-hidden rounded-xl border border-gray-200 bg-white">
+                <img src="{{ img.image.url }}"
+                     alt="{{ img.caption|default:article.title }}"
+                     class="h-56 w-full object-cover" />
+                {% if img.caption %}
+                  <figcaption class="border-t border-gray-100 px-4 py-3 text-sm text-gray-600">
+                    {{ img.caption }}
+                  </figcaption>
+                {% endif %}
+              </figure>
+            {% endfor %}
+          </div>
+        </section>
+      {% endif %}
+    </div>
+  </article>
+</div>
+
+<style>
+  .loremaster-content {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .loremaster-content > *:first-child {
+    margin-top: 0;
+  }
+
+  .loremaster-content > *:last-child {
+    margin-bottom: 0;
+  }
+
+  .loremaster-content img,
+  .loremaster-content video,
+  .loremaster-content iframe,
+  .loremaster-content canvas,
+  .loremaster-content svg {
+    display: block;
+    max-width: 100% !important;
+    height: auto !important;
+    margin-left: auto;
+    margin-right: auto;
+    border-radius: 0.75rem;
+  }
+
+  .loremaster-content figure {
+    max-width: 100%;
+  }
+
+  .loremaster-content table {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    border-collapse: collapse;
+  }
+
+  .loremaster-content th,
+  .loremaster-content td {
+    border: 1px solid #e5e7eb;
+    padding: 0.75rem;
+    vertical-align: top;
+  }
+
+  .loremaster-content pre {
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-x: auto;
+    border-radius: 0.75rem;
+  }
+
+  .loremaster-content blockquote {
+    border-left: 4px solid #d1d5db;
+    padding-left: 1rem;
+    color: #4b5563;
+  }
+
+  .loremaster-content p:empty {
+    display: none;
+  }
+
+  .loremaster-content span,
+  .loremaster-content div {
+    max-width: 100%;
+  }
+</style>
 {% endblock %}
