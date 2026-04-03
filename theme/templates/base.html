@@ -86,26 +86,28 @@
             </div>
           </div>
 
-          <!-- Codex -->
-          <div class="relative">
-            <button id="codex-toggle" class="flex items-center hover:underline focus:outline-none">
-              Codex
-              <svg class="ml-1 h-4 w-4 fill-current" viewBox="0 0 20 20">
-                <path d="M5.5 7l4.5 4.5L14.5 7z"/>
-              </svg>
-            </button>
-            <div id="codex-menu"
-                 class="dropdown-menu absolute mt-2 bg-white text-gray-900 rounded shadow-lg py-2 w-40">
-              <a href="{% url 'characters:codex_spells'  %}" class="block px-4 py-2 hover:bg-gray-200">Spells</a>
-              <a href="{% url 'characters:codex_feats'   %}" class="block px-4 py-2 hover:bg-gray-200">Feats</a>
-              <a href="{% url 'characters:codex_classes' %}" class="block px-4 py-2 hover:bg-gray-200">Classes</a>
-              <a href="{% url 'characters:codex_races'   %}" class="block px-4 py-2 hover:bg-gray-200">Races</a>
-              <a href="{% url 'characters:codex_weapons' %}" class="block px-4 py-2 hover:bg-gray-200">Weapons</a>
-              <a href="{% url 'characters:codex_armor'   %}" class="block px-4 py-2 hover:bg-gray-200">Armor</a>
-              <a href="{% url 'characters:codex_masteries' %}" class="block px-4 py-2 hover:bg-gray-200">Masteries</a>
-<a href="{% url 'campaigns:codex_monsters_npcs' %}" class="block px-4 py-2 hover:bg-gray-200">Monsters and NPCs</a>
-            </div>
-          </div>
+<!-- Codex -->
+<div class="relative">
+  <button id="codex-toggle" class="flex items-center hover:underline focus:outline-none">
+    Codex
+    <svg class="ml-1 h-4 w-4 fill-current" viewBox="0 0 20 20">
+      <path d="M5.5 7l4.5 4.5L14.5 7z"/>
+    </svg>
+  </button>
+
+  <div id="codex-menu"
+       class="dropdown-menu absolute mt-2 bg-white text-gray-900 rounded shadow-lg py-2 w-56">
+    <a href="{% url 'characters:codex_spells' %}" class="block px-4 py-2 hover:bg-gray-200">Spells</a>
+    <a href="{% url 'characters:codex_feats' %}" class="block px-4 py-2 hover:bg-gray-200">Feats</a>
+    <a href="{% url 'characters:codex_classes' %}" class="block px-4 py-2 hover:bg-gray-200">Classes</a>
+    <a href="{% url 'characters:codex_races' %}" class="block px-4 py-2 hover:bg-gray-200">Races</a>
+    <a href="{% url 'characters:codex_weapons' %}" class="block px-4 py-2 hover:bg-gray-200">Weapons</a>
+    <a href="{% url 'characters:codex_armor' %}" class="block px-4 py-2 hover:bg-gray-200">Armor</a>
+    <a href="{% url 'characters:codex_special_equipment' %}" class="block px-4 py-2 hover:bg-gray-200">Special Equipment</a>
+    <a href="{% url 'characters:codex_masteries' %}" class="block px-4 py-2 hover:bg-gray-200">Masteries</a>
+    <a href="{% url 'campaigns:codex_monsters_npcs' %}" class="block px-4 py-2 hover:bg-gray-200">Monsters and NPCs</a>
+  </div>
+</div>
 
           <!-- Rulebooks -->
           <a href="{% url 'characters:rulebook_list' %}" class="hover:underline">Rulebooks</a>
@@ -227,13 +229,14 @@
         </svg>
       </button>
       <div id="mobile-codex-menu" class="dropdown-menu pl-4">
-        <a href="{% url 'characters:codex_spells'  %}" class="block py-1 hover:underline">Spells</a>
-        <a href="{% url 'characters:codex_feats'   %}" class="block py-1 hover:underline">Feats</a>
-        <a href="{% url 'characters:codex_classes' %}" class="block py-1 hover:underline">Classes</a>
-        <a href="{% url 'characters:codex_races'   %}" class="block py-1 hover:underline">Races</a>
-        <a href="{% url 'characters:codex_weapons' %}" class="block py-1 hover:underline">Weapons</a>
-        <a href="{% url 'characters:codex_armor'   %}" class="block py-1 hover:underline">Armor</a>
-        <a href="{% url 'characters:codex_masteries' %}" class="block py-1 hover:underline">Martial Masteries</a>
+<a href="{% url 'characters:codex_spells'  %}" class="block py-1 hover:underline">Spells</a>
+<a href="{% url 'characters:codex_feats'   %}" class="block py-1 hover:underline">Feats</a>
+<a href="{% url 'characters:codex_classes' %}" class="block py-1 hover:underline">Classes</a>
+<a href="{% url 'characters:codex_races'   %}" class="block py-1 hover:underline">Races</a>
+<a href="{% url 'characters:codex_weapons' %}" class="block py-1 hover:underline">Weapons</a>
+<a href="{% url 'characters:codex_armor'   %}" class="block py-1 hover:underline">Armor</a>
+<a href="{% url 'characters:codex_special_equipment' %}" class="block py-1 hover:underline">Special Equipment</a>
+<a href="{% url 'characters:codex_masteries' %}" class="block py-1 hover:underline">Martial Masteries</a>
 <a href="{% url 'campaigns:codex_monsters_npcs' %}" class="block py-1 hover:underline">Monsters and NPCs</a>
       </div>
 
@@ -259,9 +262,7 @@
           <a href="{% url 'characters:character_list' %}" class="block py-1 hover:underline">Characters</a>
         </div>
 
-<!-- Campaigns submenu (unchanged) -->
-<button id="mobile-campaigns-toggle" ...>...</button>
-<div id="mobile-campaigns-menu" class="dropdown-menu pl-4">...</div>
+
 
 <div class="border-t border-gray-600 my-1"></div>
 

@@ -55,7 +55,7 @@ path("<int:pk>/set-armor/", views.set_armor_choice, name="set_armor_choice"),
     path("codex/masteries/", views.mastery_list, name="codex_masteries"),
     path("codex/masteries/data/", views.mastery_data, name="mastery_data"),
     path("codex/masteries/<int:pk>/", views.mastery_detail, name="mastery_detail"),
-
+path("codex/special-equipment/", views.special_equipment_list, name="codex_special_equipment"),
     # Legacy alias for race features
     path("races/features/", views.race_features_data, name="race_features_data_legacy"),
 # Rulebooks

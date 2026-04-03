@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Special Equipment Codex{% endblock %}
+
+{% block extra_css %}
+<style>
+  .equip-details summary {
+    list-style: none;
+  }
+  .equip-details summary::-webkit-details-marker {
+    display: none;
+  }
+  .equip-card[open] .equip-chevron {
+    transform: rotate(180deg);
+  }
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 py-8">
+  <div class="mb-8">
+    <h1 class="text-3xl font-bold tracking-tight text-gray-900">Special Equipment</h1>
+    <p class="mt-2 text-sm text-gray-600">
+      Special equipment, magical gear, artifacts, and enhanced items.
+    </p>
+  </div>
+
+  <form method="get" class="bg-white border border-gray-200 rounded-2xl shadow-sm p-4 mb-8">
+    <div class="grid grid-cols-1 md:grid-cols-6 gap-4">
+      <div class="md:col-span-2">
+        <label class="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
+          Search
+        </label>
+        <input
+          type="text"
+          name="q"
+          value="{{ q }}"
+          placeholder="Search item or trait..."
+          class="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
+          Type
+        </label>
+        <select
+          name="type"
+          class="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="">All types</option>
+          {% for value, label in type_choices %}
+            <option value="{{ value }}" {% if selected_type == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
+          Rarity
+        </label>
+        <select
+          name="rarity"
+          class="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="">All rarities</option>
+          {% for value, label in rarity_choices %}
+            <option value="{{ value }}" {% if selected_rarity == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
+          Attunement
+        </label>
+        <select
+          name="attune"
+          class="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="">All</option>
+          <option value="yes" {% if selected_attune == "yes" %}selected{% endif %}>Required</option>
+          <option value="no" {% if selected_attune == "no" %}selected{% endif %}>Not Required</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
+          Sort By
+        </label>
+        <select
+          name="sort"
+          class="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="name_asc" {% if selected_sort == "name_asc" %}selected{% endif %}>Name A–Z</option>
+          <option value="name_desc" {% if selected_sort == "name_desc" %}selected{% endif %}>Name Z–A</option>
+          <option value="rarity_asc" {% if selected_sort == "rarity_asc" %}selected{% endif %}>Rarity Low–High</option>
+          <option value="rarity_desc" {% if selected_sort == "rarity_desc" %}selected{% endif %}>Rarity High–Low</option>
+          <option value="bonus_asc" {% if selected_sort == "bonus_asc" %}selected{% endif %}>Bonus Low–High</option>
+          <option value="bonus_desc" {% if selected_sort == "bonus_desc" %}selected{% endif %}>Bonus High–Low</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="mt-4 flex flex-wrap gap-3 items-center">
+      <button
+        type="submit"
+        class="inline-flex items-center rounded-xl bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+      >
+        Apply Filters
+      </button>
+      <a
+        href="{% url 'characters:codex_special_equipment' %}"
+        class="inline-flex items-center rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+      >
+        Reset
+      </a>
+      <div class="text-sm text-gray-500">
+        {{ total_results }} result{{ total_results|pluralize }}
+      </div>
+    </div>
+  </form>
+
+  {% if rows %}
+    <div class="space-y-4">
+      {% for row in rows %}
+        <details class="equip-card equip-details bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden group">
+          <summary class="cursor-pointer px-5 py-4 hover:bg-gray-50 transition">
+            <div class="flex items-start justify-between gap-4">
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                  <h2 class="text-lg font-semibold text-gray-900">{{ row.item.name }}</h2>
+
+                  {% if row.item.rarity %}
+                    <span class="inline-flex rounded-full bg-gray-800 px-2.5 py-1 text-xs font-semibold text-white">
+                      {{ row.item.get_rarity_display }}
+                    </span>
+                  {% endif %}
+
+                  {% if row.item.item_type %}
+                    <span class="inline-flex rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700">
+                      {{ row.item.get_item_type_display }}
+                    </span>
+                  {% endif %}
+                </div>
+
+                {% if row.item.description %}
+                  <p class="mt-2 text-sm leading-6 text-gray-600 line-clamp-2">
+                    {{ row.item.description }}
+                  </p>
+                {% endif %}
+
+                <div class="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-sm text-gray-500">
+                  {% for label, value in row.item_stats %}
+                    {% if label == "Base Item" or label == "Enhancement Bonus" or label == "Attunement" %}
+                      <div>
+                        <span class="font-medium text-gray-700">{{ label }}:</span>
+                        {{ value }}
+                      </div>
+                    {% endif %}
+                  {% endfor %}
+                  <div>
+                    <span class="font-medium text-gray-700">Traits:</span>
+                    {{ row.traits|length }}
+                  </div>
+                </div>
+              </div>
+
+              <div class="shrink-0 pt-1">
+                <svg class="equip-chevron h-5 w-5 text-gray-400 transition-transform duration-200" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.51a.75.75 0 01-1.08 0l-4.25-4.51a.75.75 0 01.02-1.06z" clip-rule="evenodd"/>
+                </svg>
+              </div>
+            </div>
+          </summary>
+
+          <div class="border-t border-gray-100 px-5 py-5 bg-gray-50">
+            <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+              <!-- Full description -->
+              <section class="xl:col-span-1">
+                <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">
+                  Description
+                </h3>
+                <div class="rounded-xl bg-white border border-gray-200 p-4 text-sm leading-6 text-gray-700 whitespace-pre-line">
+                  {% if row.item.description %}
+                    {{ row.item.description }}
+                  {% else %}
+                    <span class="text-gray-400">No description.</span>
+                  {% endif %}
+                </div>
+              </section>
+
+              <!-- Item stats -->
+              <section class="xl:col-span-1">
+                <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">
+                  Item Stats
+                </h3>
+                <div class="rounded-xl bg-white border border-gray-200 overflow-hidden">
+                  <dl class="divide-y divide-gray-200">
+                    {% for label, value in row.item_stats %}
+                      <div class="grid grid-cols-2 gap-4 px-4 py-3">
+                        <dt class="text-sm font-medium text-gray-500">{{ label }}</dt>
+                        <dd class="text-sm text-gray-900 text-right break-words">{{ value }}</dd>
+                      </div>
+                    {% endfor %}
+                  </dl>
+                </div>
+              </section>
+
+              <!-- Traits -->
+              <section class="xl:col-span-1">
+                <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">
+                  Traits
+                </h3>
+
+                {% if row.traits %}
+                  <div class="space-y-3">
+                    {% for trait in row.traits %}
+                      <div class="rounded-xl bg-white border border-gray-200 p-4">
+                        <div class="flex items-start justify-between gap-3">
+                          <div class="min-w-0">
+                            <div class="text-base font-semibold text-gray-900">
+                              {{ trait.name }}
+                            </div>
+                          </div>
+
+{% if trait.is_active and trait.action_required %}
+  <span class="inline-flex rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-800 whitespace-nowrap">
+    {{ trait.action_required }}
+  </span>
+{% endif %}
+                        </div>
+
+                        <div class="mt-3 text-sm leading-6 text-gray-700 whitespace-pre-line">
+                          {% if trait.description %}
+                            {{ trait.description }}
+                          {% else %}
+                            <span class="text-gray-400">No description.</span>
+                          {% endif %}
+                        </div>
+                      </div>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  <div class="rounded-xl bg-white border border-dashed border-gray-300 p-4 text-sm text-gray-400">
+                    No traits.
+                  </div>
+                {% endif %}
+              </section>
+            </div>
+          </div>
+        </details>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="bg-white border border-dashed border-gray-300 rounded-2xl p-10 text-center">
+      <div class="text-lg font-semibold text-gray-800">No special equipment found</div>
+      <p class="mt-2 text-sm text-gray-500">
+        Try changing the filters or search terms.
+      </p>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

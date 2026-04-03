@@ -7,6 +7,7 @@ from django.db.models import Q, F
 from django.db.models.functions import Cast
 from django.db.models import Case, When, IntegerField
 from django.db import transaction
+from .models import SpecialItem, SpecialItemTraitValue
 
 # Create your views here.
 from django.db.models.functions import Trim
@@ -1028,6 +1029,7 @@ def global_search(request):
         ("Weapon Traits",       WeaponTrait),
         ("Armor Traits",        ArmorTrait),
         ("Spells",              Spell),
+        ("Special Equipment",   SpecialItem),
         ("Feats",               ClassFeat),
         ("Martial Masteries",   MartialMastery),
         ("Rulebooks",           Rulebook),
@@ -3152,6 +3154,181 @@ def class_list(request):
         },
     )
 
+
+from django.db.models import Prefetch, Q
+
+def _special_trait_detail_rows(trait):
+    rows = []
+
+    def add(label, value):
+        if value in (None, "", [], {}, False):
+            return
+        rows.append((label, value))
+
+    add("Formula Target", getattr(trait, "formula_target", None))
+    add("Formula", getattr(trait, "formula", None))
+    add("Uses", getattr(trait, "uses", None))
+    add("Action Type", getattr(trait, "action_type", None))
+    add("Damage Type", getattr(trait, "damage_type", None))
+
+    if getattr(trait, "saving_throw_required", False):
+        add("Save Required", "Yes")
+        add("Save Type", getattr(trait, "get_saving_throw_type_display", lambda: getattr(trait, "saving_throw_type", None))())
+        add("Save Granularity", getattr(trait, "get_saving_throw_granularity_display", lambda: getattr(trait, "saving_throw_granularity", None))())
+        add("Critical Success", getattr(trait, "saving_throw_critical_success", None))
+        add("Success", getattr(trait, "saving_throw_success", None))
+        add("Failure", getattr(trait, "saving_throw_failure", None))
+        add("Critical Failure", getattr(trait, "saving_throw_critical_failure", None))
+        add("Basic Success", getattr(trait, "saving_throw_basic_success", None))
+        add("Basic Failure", getattr(trait, "saving_throw_basic_failure", None))
+
+    add("Modify Proficiency Target", getattr(trait, "modify_proficiency_target", None))
+    add("Modify Proficiency Amount", getattr(trait, "modify_proficiency_amount", None))
+
+    gain_mode = getattr(trait, "gain_resistance_mode", None)
+    if gain_mode:
+        try:
+            gain_mode = trait.get_gain_resistance_mode_display()
+        except Exception:
+            pass
+    add("Resistance Mode", gain_mode)
+
+    gain_types = getattr(trait, "gain_resistance_types", None)
+    if gain_types:
+        if isinstance(gain_types, (list, tuple)):
+            add("Resistance Types", ", ".join(str(x) for x in gain_types))
+        else:
+            add("Resistance Types", gain_types)
+
+    add("Resistance Amount", getattr(trait, "gain_resistance_amount", None))
+
+    return rows
+
+from django.db.models import Prefetch, Q
+from django.shortcuts import render
+from .models import SpecialItem, SpecialItemTraitValue
+
+_ACTION_LABELS = {
+    "action_1": "One Action",
+    "action_2": "Two Actions",
+    "action_3": "Three Actions",
+    "reaction": "Reaction",
+    "free": "Free Action",
+}
+
+def _pretty_action(value):
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    return _ACTION_LABELS.get(raw, raw.replace("_", " ").title())
+
+
+def special_equipment_list(request):
+    q = (request.GET.get("q") or "").strip()
+    item_type = (request.GET.get("type") or "").strip()
+    rarity = (request.GET.get("rarity") or "").strip()
+    attune = (request.GET.get("attune") or "").strip()
+
+    trait_qs = (
+        SpecialItemTraitValue.objects
+        .order_by("name", "id")
+    )
+    sort = (request.GET.get("sort") or "name_asc").strip()
+    sort_map = {
+        "name_asc": "name",
+        "name_desc": "-name",
+        "rarity_asc": "rarity",
+        "rarity_desc": "-rarity",
+        "bonus_asc": "enhancement_bonus",
+        "bonus_desc": "-enhancement_bonus",
+    }
+
+    items = (
+        SpecialItem.objects
+        .select_related("weapon", "armor", "wearable_slot", "slot")
+        .prefetch_related(
+            Prefetch("specialitemtraitvalue_set", queryset=trait_qs)
+        )
+        .order_by(sort_map.get(sort, "name"))
+    )
+
+    if q:
+        items = items.filter(
+            Q(name__icontains=q) |
+            Q(description__icontains=q) |
+            Q(weapon__name__icontains=q) |
+            Q(armor__name__icontains=q) |
+            Q(wearable_slot__name__icontains=q) |
+            Q(slot__name__icontains=q) |
+            Q(specialitemtraitvalue__name__icontains=q) |
+            Q(specialitemtraitvalue__description__icontains=q) |
+            Q(specialitemtraitvalue__action_type__icontains=q)
+        ).distinct()
+
+    if item_type:
+        items = items.filter(item_type=item_type)
+
+    if rarity:
+        items = items.filter(rarity=rarity)
+
+    if attune == "yes":
+        items = items.filter(attunement=True)
+    elif attune == "no":
+        items = items.filter(attunement=False)
+
+    rows = []
+
+    for item in items:
+        # Base item label
+        base_item_label = "—"
+        if item.weapon_id:
+            base_item_label = item.weapon.name
+        elif item.armor_id:
+            base_item_label = item.armor.name
+        elif item.wearable_slot_id:
+            base_item_label = item.wearable_slot.name
+
+        # Item stats: show all item-level stats, not trait internals
+        item_stats = [
+            ("Type", item.get_item_type_display() if item.item_type else "—"),
+            ("Base Item", base_item_label),
+            ("Rarity", item.get_rarity_display() if item.rarity else "—"),
+            ("Enhancement Bonus", f"+{item.enhancement_bonus}" if item.enhancement_bonus not in (None, "") else "—"),
+            ("Attunement", "Required" if item.attunement else "No"),
+        ]
+
+        if item.slot_id:
+            item_stats.append(("Equipment Slot", item.slot.name))
+        if item.wearable_slot_id:
+            item_stats.append(("Wearable Slot", item.wearable_slot.name))
+
+        # Traits: ONLY name, action required, description
+        traits = []
+        for t in item.specialitemtraitvalue_set.all():
+            traits.append({
+                "name": (t.name or "").strip() or "Unnamed Trait",
+                "is_active": bool(getattr(t, "active", False)),
+                "action_required": _pretty_action(getattr(t, "action_type", "")),
+                "description": (getattr(t, "description", "") or "").strip(),
+            })
+
+        rows.append({
+            "item": item,
+            "item_stats": item_stats,
+            "traits": traits,
+        })
+
+    return render(request, "codex/codex_special_equipment.html", {
+        "rows": rows,
+        "q": q,
+        "selected_sort": sort,
+        "selected_type": item_type,
+        "selected_rarity": rarity,
+        "selected_attune": attune,
+        "type_choices": SpecialItem.ITEM_TYPE_CHOICES,
+        "rarity_choices": SpecialItem.RARITY_CHOICES,
+        "total_results": len(rows),
+    })
 
 
 class LoremasterListView(ListView):
