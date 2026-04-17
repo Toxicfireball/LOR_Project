@@ -52,8 +52,7 @@ COPY . .
 # So static/css/tailwind.css now exists in this image too.
 
 # 4) Migrate & collectstatic (no tailwind build step here!)
-RUN python manage.py migrate --noinput \
- && python manage.py collectstatic --noinput
+RUN python manage.py collectstatic --noinput
 
 EXPOSE 8000
 
