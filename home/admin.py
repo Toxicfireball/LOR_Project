@@ -2359,31 +2359,39 @@ class RaceFeatureForm(ClassFeatureForm):
     class Meta(ClassFeatureForm.Meta):
         model = RacialFeature
         fields = "__all__"
-    # RaceFeatureForm (add fields)
+
     CORE_MODE = (("uptier", "Increase tier by one"), ("set", "Gain amount to override"))
+
     core_skill_change_mode = forms.ChoiceField(
-        choices=CORE_MODE, required=False, widget=forms.RadioSelect,
+        choices=CORE_MODE,
+        required=False,
+        widget=forms.RadioSelect,
         label="Core skill mode",
-        help_text="Pick one: Increase tier by one (+1) or set to a fixed tier."
-    )
-    core_skill_choice = forms.ModelChoiceField(
-        queryset=Skill.objects.all(), required=False, label="Core Skill"
-    )
-    core_skill_amount = forms.ModelChoiceField(
-        queryset=ProficiencyTier.objects.all(), required=False,
-        label="Amount (if overriding)"
+        help_text="Pick one: Increase tier by one (+1) or set to a fixed tier.",
     )
 
-    # extra selects for proficiency (OK to keep here)
+    # Do not hit DB at import time
+    core_skill_choice = forms.ModelChoiceField(
+        queryset=Skill.objects.none(),
+        required=False,
+        label="Core Skill",
+    )
+
+    core_skill_amount = forms.ModelChoiceField(
+        queryset=ProficiencyTier.objects.none(),
+        required=False,
+        label="Amount (if overriding)",
+    )
+
     gain_proficiency_target = forms.ChoiceField(
-        choices=[("", "---------")] + list(PROFICIENCY_TYPES)
-                + [(f"skill_{s.pk}", s.name) for s in Skill.objects.all()],
+        choices=[("", "---------")] + list(PROFICIENCY_TYPES),
         required=False,
         label="Gain Proficiency Target",
         help_text="Which proficiency (or skill) does this feature grant?",
     )
+
     gain_proficiency_amount = forms.ModelChoiceField(
-        queryset=ProficiencyTier.objects.all(),
+        queryset=ProficiencyTier.objects.none(),
         required=False,
         label="Gain Proficiency Amount",
         help_text="What tier of proficiency does the character gain?",
@@ -2393,18 +2401,27 @@ class RaceFeatureForm(ClassFeatureForm):
         # bypass ClassFeatureForm.__init__
         forms.ModelForm.__init__(self, *args, **kwargs)
 
+        # Lazy-load DB-backed choices/querysets here, not at import time
+        self.fields["core_skill_choice"].queryset = Skill.objects.all().order_by("name")
+        self.fields["core_skill_amount"].queryset = ProficiencyTier.objects.all().order_by("id")
+        self.fields["gain_proficiency_amount"].queryset = ProficiencyTier.objects.all().order_by("id")
+
+        self.fields["gain_proficiency_target"].choices = (
+            [("", "---------")]
+            + list(PROFICIENCY_TYPES)
+            + [(f"skill_{s.pk}", s.name) for s in Skill.objects.all().order_by("name")]
+        )
+
         # remove class-only fields (keep your existing pops)
         for f in ("character_class", "subclass_group", "subclasses", "tier", "mastery_rank"):
             self.fields.pop(f, None)
 
-        # ⬅️ NEW: inert placeholder so add_error('subclass_group', ...) never ValueErrors
         self.fields["subclass_group"] = forms.CharField(
             required=False,
             widget=forms.HiddenInput(),
             label="(unused placeholder)",
         )
 
-        # limit subrace to selected race (keep your existing code)
         race_val = (
             self.data.get("race")
             or self.initial.get("race")
@@ -2417,7 +2434,6 @@ class RaceFeatureForm(ClassFeatureForm):
 
         if getattr(self.instance, "pk", None):
             self.fields["code"].initial = self.instance.code
-
     def clean(self):
         cleaned = forms.ModelForm.clean(self)
 
