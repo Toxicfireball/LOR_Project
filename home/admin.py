@@ -1137,7 +1137,7 @@ class ClassFeatureForm( ProficiencyTargetUIMixin,forms.ModelForm):
     )
 
     gain_proficiency_target = forms.ChoiceField(
-        choices=build_proficiency_target_choices(),
+        choices=[],
         required=False,
         label="Gain Proficiency Target",
         help_text="Pick a specific armor/weapon group or any base type, or a Skill."
@@ -1220,7 +1220,8 @@ class ClassFeatureForm( ProficiencyTargetUIMixin,forms.ModelForm):
             self.fields["gain_proficiency_target"].widget = forms.HiddenInput()
         # leave 'gain_proficiency_amount' visible
 
-
+        self.fields["gain_proficiency_target"].choices = build_proficiency_target_choices()
+        self.fields["gain_proficiency_amount"].queryset = ProficiencyTier.objects.all().order_by("id")
          
         if getattr(self.instance, "pk", None):
             self.fields["code"].initial = self.instance.code      
@@ -2726,18 +2727,17 @@ class WearableSlotAdmin(admin.ModelAdmin):
 
 # admin.py
 class SpecialItemTraitValueForm(forms.ModelForm):
-    # ACTIVE (match model types)
     formula_target = forms.ChoiceField(
         choices=ClassFeature._meta.get_field("formula_target").choices,
         required=False,
         label="Roll Type",
     )
     formula = forms.CharField(
-        widget=FormulaBuilderWidget(variables=VARS, dice=DICE, attrs={"rows":2,"cols":40}),
+        widget=FormulaBuilderWidget(variables=VARS, dice=DICE, attrs={"rows": 2, "cols": 40}),
         required=False,
     )
     uses = forms.CharField(
-        widget=FormulaBuilderWidget(variables=VARS, dice=DICE, attrs={"rows":2,"cols":40}),
+        widget=FormulaBuilderWidget(variables=VARS, dice=DICE, attrs={"rows": 2, "cols": 40}),
         required=False,
     )
     action_type = forms.ChoiceField(
@@ -2745,46 +2745,45 @@ class SpecialItemTraitValueForm(forms.ModelForm):
         required=False,
         label="Action Required",
     )
-    # ↓ SINGLE choice to match CharField on the model
     damage_type = forms.ChoiceField(
         choices=ClassFeature.DAMAGE_TYPE_CHOICES,
         required=False,
         label="Damage Type",
     )
 
-    # SAVES (all present on the model)
     saving_throw_required = forms.BooleanField(required=False, label="Saving Throw?")
     saving_throw_type = forms.ChoiceField(
         choices=SpecialItemTraitValue._meta.get_field("saving_throw_type").choices,
-        required=False
+        required=False,
     )
     saving_throw_granularity = forms.ChoiceField(
         choices=SpecialItemTraitValue._meta.get_field("saving_throw_granularity").choices,
-        required=False
+        required=False,
     )
-    saving_throw_basic_success    = forms.CharField(required=False)
-    saving_throw_basic_failure    = forms.CharField(required=False)
+    saving_throw_basic_success = forms.CharField(required=False)
+    saving_throw_basic_failure = forms.CharField(required=False)
     saving_throw_critical_success = forms.CharField(required=False)
-    saving_throw_success          = forms.CharField(required=False)
-    saving_throw_failure          = forms.CharField(required=False)
+    saving_throw_success = forms.CharField(required=False)
+    saving_throw_failure = forms.CharField(required=False)
     saving_throw_critical_failure = forms.CharField(required=False)
 
-    # PASSIVE (match model types that actually exist)
+    # Do not hit the DB at import time
     modify_proficiency_target = forms.ChoiceField(
-        choices=[("", "---------")] + list(PROFICIENCY_TYPES)
-                + [(f"skill_{s.pk}", s.name) for s in Skill.objects.all()],
+        choices=[("", "---------")] + list(PROFICIENCY_TYPES),
         required=False,
     )
     modify_proficiency_amount = forms.ModelChoiceField(
-        queryset=ProficiencyTier.objects.all(),
+        queryset=ProficiencyTier.objects.none(),
         required=False,
     )
+
     gain_resistance_mode = forms.ChoiceField(
         choices=SpecialItemTraitValue._meta.get_field("gain_resistance_mode").choices,
-        widget=forms.RadioSelect, required=False,
+        widget=forms.RadioSelect,
+        required=False,
     )
     gain_resistance_types = forms.MultipleChoiceField(
-        choices=ClassFeature.DAMAGE_TYPE_CHOICES,  # reuse the same list
+        choices=ClassFeature.DAMAGE_TYPE_CHOICES,
         required=False,
         widget=forms.CheckboxSelectMultiple,
         label="Resistance applies to",
@@ -2794,7 +2793,6 @@ class SpecialItemTraitValueForm(forms.ModelForm):
         min_value=0,
         label="Flat reduction amount",
     )
-
     class Meta:
         model = SpecialItemTraitValue
         fields = [
@@ -2812,6 +2810,15 @@ class SpecialItemTraitValueForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        # Lazy-load DB-backed choices/querysets here, not at import time
+        self.fields["modify_proficiency_target"].choices = (
+            [("", "---------")]
+            + list(PROFICIENCY_TYPES)
+            + [(f"skill_{s.pk}", s.name) for s in Skill.objects.all().order_by("name")]
+        )
+        self.fields["modify_proficiency_amount"].queryset = ProficiencyTier.objects.all().order_by("id")
+
         # ensure attrs/original_attrs exist so classfeature_admin.js can hook them
         for f in self.fields.values():
             w = f.widget
