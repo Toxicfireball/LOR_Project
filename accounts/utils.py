@@ -4,11 +4,16 @@ from django.conf import settings
 class EmailSendError(RuntimeError):
     pass
 
+import logging
+import requests
+from django.conf import settings
+
+logger = logging.getLogger(__name__)
+
+class EmailSendError(RuntimeError):
+    pass
+
 def send_verification_email(user, email, *, verify_url: str) -> str:
-    """
-    Sends a verification email via Resend and returns the message id.
-    Raises EmailSendError with a human-friendly message on failure.
-    """
     api_key = getattr(settings, "RESEND_API_KEY", "")
     if not api_key:
         raise EmailSendError("RESEND_API_KEY not set")
@@ -32,7 +37,7 @@ def send_verification_email(user, email, *, verify_url: str) -> str:
     """
 
     payload = {
-        "from": from_addr,            # must be a verified domain in Resend
+        "from": from_addr,
         "to": [email],
         "subject": subject,
         "text": text,
@@ -46,25 +51,28 @@ def send_verification_email(user, email, *, verify_url: str) -> str:
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             },
-            json=payload,   # ← send JSON properly
+            json=payload,
             timeout=30,
         )
     except requests.RequestException as e:
-        raise EmailSendError(f"Network error sending email: {e!s}")
-
-    # Resend normally returns 200 and {'id': '...'} on success.
-    if r.status_code // 100 != 2:
-        # surface Resend's error body if present
-        try:
-            data = r.json()
-        except Exception:
-            data = {"error": r.text}
-        msg = data.get("message") or data.get("error") or f"HTTP {r.status_code}"
-        raise EmailSendError(f"Resend API error: {msg}")
+        logger.exception("Resend network error sending verification email")
+        raise EmailSendError(f"Network error sending verification email: {e!s}")
 
     try:
-        msg_id = r.json().get("id") or ""
+        data = r.json()
     except Exception:
-        msg_id = ""
+        data = {"raw": r.text}
 
-    return msg_id
+    logger.warning(
+        "verification_email status=%s to=%s from=%s response=%s",
+        r.status_code,
+        email,
+        from_addr,
+        data,
+    )
+
+    if r.status_code // 100 != 2:
+        msg = data.get("message") or data.get("error") or r.text or f"HTTP {r.status_code}"
+        raise EmailSendError(f"Resend API error: {msg}")
+
+    return data.get("id", "")
