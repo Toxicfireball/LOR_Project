@@ -21,15 +21,47 @@ RUN npx tailwindcss \
       --minify
 
 # ── Stage 2: Build Django app ───────────────────────────────────────────────
-
 FROM public.ecr.aws/docker/library/python:3.12.7-alpine3.20
 
+ARG DATABASE_URL
+ARG RESEND_API_KEY
+ARG DEFAULT_FROM_EMAIL
+ARG SECRET_KEY
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     DJANGO_SETTINGS_MODULE=LOR_Website.settings.prod \
-    ALLOWED_HOSTS=lorbuilder.com,www.lorbuilder.com
+    ALLOWED_HOSTS=lorbuilder.com,www.lorbuilder.com \
+    DATABASE_URL=${DATABASE_URL} \
+    RESEND_API_KEY=${RESEND_API_KEY} \
+    DEFAULT_FROM_EMAIL=${DEFAULT_FROM_EMAIL} \
+    SECRET_KEY=${SECRET_KEY}
 
+# 1) System deps
+RUN apk update \
+ && apk add --no-cache \
+      build-base zlib-dev jpeg-dev freetype-dev curl \
+ && rm -rf /var/cache/apk/*
+
+WORKDIR /app
+
+# 2) Python venv & pip install
+COPY requirements.txt .
+RUN python -m venv /opt/venv \
+ && /opt/venv/bin/pip install --upgrade pip \
+ && /opt/venv/bin/pip install -r requirements.txt
+
+ENV PATH="/opt/venv/bin:$PATH"
+
+# 3) Copy in your code
+COPY . .
+
+# 4) Collect static
+RUN python manage.py collectstatic --noinput
+
+EXPOSE 8000
+
+CMD ["gunicorn","LOR_Website.wsgi:application","--bind","0.0.0.0:8000","--workers","3","--timeout","120"]
 # 1) System deps (no Node here)
 RUN apk update \
  && apk add --no-cache \
