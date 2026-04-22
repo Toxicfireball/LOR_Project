@@ -1902,12 +1902,14 @@ def _weapon_math(weapon: Weapon, str_mod: int, dex_mod: int, prof_weapon: int, h
     # ✅ enforce DEX to-hit for any ranged weapon
     if is_ranged:
         return dict(
-            rule="ranged_dex",
-            show_choice_hit=False, show_choice_dmg=True,
+            rule="ranged_dex_no_dex_damage",
+            show_choice_hit=False,
+            show_choice_dmg=False,
             base=base,
-            hit_str=base + dex_mod,  # mirror DEX so UI shows one value
+            hit_str=base + dex_mod,
             hit_dex=base + dex_mod,
-            dmg_str=dmg_S, dmg_dex=dmg_D,
+            dmg_str=0,
+            dmg_dex=0,
             traits=sorted(traits),
         )
 
@@ -6836,9 +6838,13 @@ def character_detail(request, pk):
         dmg = _first(w, "damage", "damage_die", "damage_dice")
         if dmg:
             bits.append(str(dmg))
-        rng = _first(w, "range", "range_increment", "max_range")
-        if rng not in (None, "", 0):
-            bits.append(f"Rng {rng}")
+
+        if getattr(w, "range_type", None) == "ranged":
+            eff = getattr(w, "range_effective", None)
+            sub = getattr(w, "range_suboptimal", None)
+            mx = getattr(w, "range_maximum", None)
+            if None not in (eff, sub, mx):
+                fields.append(f"Range: {eff}/{sub}/{mx}")
         hands = _first(w, "hands", "handedness")
         if hands:
             bits.append(f"{hands}H")
@@ -6858,7 +6864,6 @@ def character_detail(request, pk):
         fields = []
         for label, keys in [
             ("Damage", ("damage","damage_die","damage_dice")),
-            ("Range", ("range","range_increment","max_range")),
             ("Hands", ("hands","handedness")),
             ("Reload", ("reload","reload_time")),
             ("Group", ("group",)),
@@ -11316,7 +11321,10 @@ def character_detail(request, pk):
             "name": w.name,
             "damage_die": w.damage,
             "range_type": w.range_type,
-            "traits_display":  _weapon_traits_display(w),
+            "range_effective": getattr(w, "range_effective", None),
+            "range_suboptimal": getattr(w, "range_suboptimal", None),
+            "range_maximum": getattr(w, "range_maximum", None),
+            "traits_display": _weapon_traits_display(w),
 
 
             "traits": math_["traits"],

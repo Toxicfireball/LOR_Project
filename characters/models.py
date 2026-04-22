@@ -1455,37 +1455,70 @@ from django.contrib.postgres.fields import ArrayField
 
 class Weapon(models.Model):
     CATEGORY_CHOICES = [
-        ('simple', 'Simple'),
-        ('martial', 'Martial'),
-        ('special', 'Special'),
-        ('black powder', "Black Powder")
+        ("simple", "Simple"),
+        ("martial", "Martial"),
+        ("special", "Special"),
+        ("black_powder", "Black Powder"),
     ]
+
+    DAMAGE_CHOICES = [
+        ("bludgeoning", "Bludgeoning"),
+        ("piercing", "Piercing"),
+        ("slashing", "Slashing"),
+        ("explosive", "Explosive"),
+    ]
+
     MELEE, RANGED = "melee", "ranged"
     RANGE_CHOICES = [(MELEE, "Melee"), (RANGED, "Ranged")]
 
-    DAMAGE_CHOICES = [
-        ('bludgeoning', 'Bludgeoning'),
-        ('piercing',    'Piercing'),
-        ('slashing',    'Slashing'),
-        ('explosive',    'Explosives'),
-        
-    ]
+    name = models.CharField(max_length=100, unique=True)
+    damage = models.CharField(max_length=50)
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
+    is_melee = models.BooleanField(default=True)  # remove later if safe
+    range_type = models.CharField(max_length=6, choices=RANGE_CHOICES, default=MELEE)
 
-    name         = models.CharField(max_length=100, unique=True)
-    damage       = models.CharField(max_length=50)
-    category     = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
-    is_melee     = models.BooleanField(default=True)
-    range_type   = models.CharField(max_length=6, choices=RANGE_CHOICES, default=MELEE)
-    range_normal = models.PositiveIntegerField(null=True, blank=True)
-    range_max    = models.PositiveIntegerField(null=True, blank=True)
+    range_effective = models.PositiveIntegerField(null=True, blank=True)
+    range_suboptimal = models.PositiveIntegerField(null=True, blank=True)
+    range_maximum = models.PositiveIntegerField(null=True, blank=True)
 
-    # ⬇️ replace the old CharField with ArrayField
     damage_types = ArrayField(
         base_field=models.CharField(max_length=30, choices=DAMAGE_CHOICES),
         default=list,
         blank=True,
         help_text="Select one or more damage types."
     )
+
+    def clean(self):
+        super().clean()
+
+        self.is_melee = (self.range_type == self.MELEE)
+
+        if self.range_type == self.MELEE:
+            self.range_effective = None
+            self.range_suboptimal = None
+            self.range_maximum = None
+            return
+
+        vals = [self.range_effective, self.range_suboptimal, self.range_maximum]
+
+        if any(v is not None for v in vals) and not all(v is not None for v in vals):
+            raise ValidationError(
+                "Ranged weapons must have effective, sub-optimal, and maximum range."
+            )
+
+        if all(v is not None for v in vals):
+            if not (self.range_effective <= self.range_suboptimal <= self.range_maximum):
+                raise ValidationError(
+                    "Range bands must satisfy effective <= sub-optimal <= maximum."
+                )
+
+    @property
+    def range_band_display(self):
+        if self.range_type == self.MELEE:
+            return "Melee"
+        if None in (self.range_effective, self.range_suboptimal, self.range_maximum):
+            return ""
+        return f"{self.range_effective}/{self.range_suboptimal}/{self.range_maximum}"
 
     def __str__(self):
         return f"{self.name} ({self.get_category_display()})"

@@ -43,8 +43,10 @@
           <th class="px-4 py-3">Range Type</th>
           <th class="px-4 py-3">Damage</th>
           <th class="px-4 py-3">Damage Types</th>
-          <th class="px-4 py-3">Range (Normal)</th>
-          <th class="px-4 py-3">Range (Max)</th>
+<th class="px-4 py-3">Effective</th>
+<th class="px-4 py-3">Sub-optimal</th>
+<th class="px-4 py-3">Maximum</th>
+
           <th class="px-4 py-3">Traits</th>
         </tr>
       </thead>
@@ -52,7 +54,7 @@
         {% regroup cat.list by range_type as range_groups %}
         {% for rg in range_groups %}
           <tr class="subhead-row">
-            <th class="px-4 py-2" colspan="7">{{ rg.grouper|title }}</th>
+            <th class="px-4 py-2" colspan="8">{{ rg.grouper|title }}</th>
           </tr>
 
           {% for w in rg.list %}
@@ -69,8 +71,9 @@
                 </div>
               {% else %}<span class="text-gray-400">—</span>{% endif %}
             </td>
-            <td class="px-4 py-3">{{ w.range_normal|default:"—" }}</td>
-            <td class="px-4 py-3">{{ w.range_max|default:"—" }}</td>
+<td class="px-4 py-3">{{ w.range_effective|default:"—" }}</td>
+<td class="px-4 py-3">{{ w.range_suboptimal|default:"—" }}</td>
+<td class="px-4 py-3">{{ w.range_maximum|default:"—" }}</td>
             <td class="px-4 py-3">
               {% with tvs=w.weapontraitvalue_set.all %}
               {% if tvs %}

@@ -2939,9 +2939,18 @@ class WeaponForm(forms.ModelForm):
 class WeaponAdmin(admin.ModelAdmin):
     form = WeaponForm
     inlines = [WeaponTraitValueInline]
-    list_display  = ("name","category","damage","range_type","range_normal","range_max","damage_types_list")
-    list_filter   = ("category","range_type")
-    search_fields = ("name","damage")
+    list_display = (
+        "name",
+        "category",
+        "damage",
+        "range_type",
+        "range_effective",
+        "range_suboptimal",
+        "range_maximum",
+        "damage_types_list",
+    )
+    list_filter = ("category", "range_type")
+    search_fields = ("name", "damage")
 
     def damage_types_list(self, obj):
         # display friendly labels
