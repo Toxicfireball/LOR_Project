@@ -15260,6 +15260,9 @@ def _is_blank(v) -> bool:
     if isinstance(v, str):
         return not v.strip()
     return False
+from collections import OrderedDict
+from django.http import Http404
+from django.shortcuts import render
 
 def public_changelog_patch(request, slug: str):
     patch = (
@@ -15268,8 +15271,6 @@ def public_changelog_patch(request, slug: str):
         .first()
     )
 
-
-    
     if not patch:
         raise Http404("Patch not found")
 
@@ -15292,8 +15293,15 @@ def public_changelog_patch(request, slug: str):
     grouped = OrderedDict()
 
     for pc in changes:
-        cat = pc.category.name if pc.category else "Uncategorised"
-        grouped.setdefault(cat, [])
+        category = pc.category
+        cat_key = category.pk if category else "uncategorised"
+
+        if cat_key not in grouped:
+            grouped[cat_key] = {
+                "name": category.name if category else "Uncategorised",
+                "public_intro": category.public_intro if category else "",
+                "entries": [],
+            }
 
         cl = pc.change_log
         raw_changes = cl.changes or {}
@@ -15301,7 +15309,6 @@ def public_changelog_patch(request, slug: str):
         rows = []
         removed_flags = []
 
-        # Only collapse when the whole object is deleted OR every change is a removal
         removed_only = (cl.action == "delete")
 
         if not removed_only and isinstance(raw_changes, dict):
@@ -15315,11 +15322,9 @@ def public_changelog_patch(request, slug: str):
                 before_blank = _is_blank(before)
                 after_blank  = _is_blank(after)
 
-                # Skip empty -> empty
                 if before_blank and after_blank:
                     continue
 
-                # Skip unchanged (after cleaning)
                 if before == after:
                     continue
 
@@ -15329,33 +15334,32 @@ def public_changelog_patch(request, slug: str):
                 rows.append({
                     "field": field,
                     "before": before if not before_blank else "—",
-                    "after":  after  if not after_blank  else "—",
+                    "after": after if not after_blank else "—",
                     "removed": removed,
                 })
 
-            # If ALL remaining displayed diffs are removals: show single Removed line
             if rows and all(removed_flags):
                 removed_only = True
                 rows = []
 
-        # IMPORTANT: do NOT collapse create/add into a single "Added" line.
-        # We still show the table (rows) with Before as — and After filled.
-
         is_create = (cl.action == "create")
 
-        # NEW RULE: if Added (create), do NOT show details at all
         if is_create:
             rows = []
             removed_only = False
 
-        grouped[cat].append({
+        grouped[cat_key]["entries"].append({
             "pc": pc,
             "rows": rows,
             "removed_only": removed_only,
             "is_create": is_create,
         })
+
     return render(
-    request,
-    "characters/patch_notes_detail.html",
-    {"patch": patch, "grouped": grouped},
-)
+        request,
+        "characters/patch_notes_detail.html",
+        {
+            "patch": patch,
+            "grouped": list(grouped.values()),
+        },
+    )
