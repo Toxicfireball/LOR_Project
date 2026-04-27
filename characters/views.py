@@ -1953,7 +1953,6 @@ def _weapon_traits_display(weapon: Weapon) -> list[str]:
         dedup.append(s)
     return dedup
             
-
 def _weapon_math_for(
     weapon: Weapon,
     str_mod: int,
@@ -1961,48 +1960,35 @@ def _weapon_math_for(
     prof_weapon: int,
     half_lvl_if_trained: int
 ):
-    """
-    Weapon attack/damage math.
-
-    Rules enforced here:
-      - Ranged weapons use DEX for attack rolls.
-      - Ranged weapons do NOT add DEX, STR, proficiency, or half-level to damage.
-      - Finesse melee weapons may use STR or DEX for attack and damage.
-      - Balanced melee weapons may use STR or DEX for attack, but STR only for damage.
-      - Default melee weapons use STR for attack and damage.
-    """
-    traits = _weapon_trait_names_lower(weapon)
-    is_ranged = ((weapon.range_type or Weapon.MELEE) == Weapon.RANGED)
-    has_finesse = "finesse" in traits
+    traits       = _weapon_trait_names_lower(weapon)
+    is_ranged    = ((weapon.range_type or Weapon.MELEE) == Weapon.RANGED)
+    has_finesse  = "finesse" in traits
     has_balanced = "balanced" in traits
 
-    attack_base = int(prof_weapon) + int(half_lvl_if_trained)
+    base = int(prof_weapon) + int(half_lvl_if_trained)
 
-    hit_str = attack_base + int(str_mod)
-    hit_dex = attack_base + int(dex_mod)
-
-    # Damage modifiers are ability modifiers only.
-    # They do NOT include proficiency or half-level.
-    dmg_str = int(str_mod)
-    dmg_dex = int(dex_mod)
+    hit_str = base + str_mod
+    hit_dex = base + dex_mod
+    dmg_str = base + str_mod
+    dmg_dex = base + dex_mod
+    
 
     if is_ranged:
-        return {
-            "rule": "ranged_dex_no_dex_damage",
+        res = {
+            "rule": "ranged_dex",
             "show_choice_hit": False,
             "show_choice_dmg": False,
             "hit_str": hit_dex,
             "hit_dex": hit_dex,
-            "dmg_str": 0,
-            "dmg_dex": 0,
+            "dmg_str": base,
+            "dmg_dex": base,
             "hit_best": hit_dex,
-            "dmg_best": 0,
-            "base": attack_base,
+            "dmg_best": base,
+            "base": base,
             "traits": sorted(list(traits)),
         }
-
-    if has_finesse:
-        return {
+    elif has_finesse:
+        res = {
             "rule": "finesse",
             "show_choice_hit": True,
             "show_choice_dmg": True,
@@ -2012,12 +1998,11 @@ def _weapon_math_for(
             "dmg_dex": dmg_dex,
             "hit_best": max(hit_str, hit_dex),
             "dmg_best": max(dmg_str, dmg_dex),
-            "base": attack_base,
+            "base": base,
             "traits": sorted(list(traits)),
         }
-
-    if has_balanced:
-        return {
+    elif has_balanced:
+        res = {
             "rule": "balanced",
             "show_choice_hit": True,
             "show_choice_dmg": False,
@@ -2027,24 +2012,26 @@ def _weapon_math_for(
             "dmg_dex": dmg_dex,
             "hit_best": max(hit_str, hit_dex),
             "dmg_best": dmg_str,
-            "base": attack_base,
+            "base": base,
             "traits": sorted(list(traits)),
         }
+    else:
+        res = {
+            "rule": "default",
+            "show_choice_hit": False,
+            "show_choice_dmg": False,
+            "hit_str": hit_str,
+            "hit_dex": hit_dex,
+            "dmg_str": dmg_str,
+            "dmg_dex": dmg_dex,
+            "hit_best": hit_str,
+            "dmg_best": dmg_str,
+            "base": base,
+            "traits": sorted(list(traits)),
+        }
+        
 
-    return {
-        "rule": "default",
-        "show_choice_hit": False,
-        "show_choice_dmg": False,
-        "hit_str": hit_str,
-        "hit_dex": hit_dex,
-        "dmg_str": dmg_str,
-        "dmg_dex": dmg_dex,
-        "hit_best": hit_str,
-        "dmg_best": dmg_str,
-        "base": attack_base,
-        "traits": sorted(list(traits)),
-    }
-    
+    return res
 def _weapon_prof_group(weapon) -> str:
     raw = (
         getattr(weapon, "proficiency", None)
